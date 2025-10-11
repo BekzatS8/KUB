@@ -1,0 +1,13 @@
+server:
+  port: 4000
+
+database:
+  driver: "postgres"
+  url: "postgres://postgres:1234@localhost:5432/postgres?sslmode=disable"
+
+email:
+  smtp_host: "smtp.mail.ru"
+  smtp_port: 465
+  smtp_user: "placeholder"
+  smtp_password: "placeholder"
+  from_email: "placeholder"
