@@ -3,7 +3,7 @@ server:
 
 database:
   driver: "postgres"
-  url: "postgres://postgres:1234@localhost:5432/postgres?sslmode=disable"
+  url: "postgres://postgres:1234@localhost:5432/turcompany?sslmode=disable"
 
 email:
   smtp_host: "smtp.mail.ru"

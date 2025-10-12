@@ -1,0 +1,1022 @@
+{
+  "info": {
+    "name": "TurCompany - CRUD collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for testing TurCompany CRUD endpoints (default base_url: http://localhost:4000)."
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "role_id",
+      "value": ""
+    },
+    {
+      "key": "lead_id",
+      "value": ""
+    },
+    {
+      "key": "deal_id",
+      "value": ""
+    },
+    {
+      "key": "document_id",
+      "value": ""
+    },
+    {
+      "key": "task_id",
+      "value": ""
+    },
+    {
+      "key": "partner_id",
+      "value": ""
+    },
+    {
+      "key": "phone",
+      "value": "+77001234567"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth / Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "login"
+          ]
+        },
+        "description": "Login endpoint. Response must include token (e.g. { \"token\": \"...\" } or {\"access_token\":\"...\"}). Test script saves token to env and collection variables."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try {",
+              "  var json = pm.response.json();",
+              "  var token = json.token || json.access_token || (json.data && json.data.token);",
+              "  if(token){",
+              "    pm.environment.set('token', token);",
+              "    pm.collectionVariables.set('token', token);",
+              "    console.log('Saved token');",
+              "  } else { console.log('Token not found in response'); }",
+              "} catch(e) { console.log('No JSON response or parse error'); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth / Register (public)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"company_name\": \"ACME Ltd\",\n  \"bin_iin\": \"123456789012\",\n  \"email\": \"user1@example.com\",\n  \"password\": \"secret123\",\n  \"role_id\": 1\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/register",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "register"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try {",
+              "  var json = pm.response.json();",
+              "  var id = json.id || json.ID || (json.user && json.user.id);",
+              "  if(id){ pm.environment.set('user_id', id); pm.collectionVariables.set('user_id', id); }",
+              "}catch(e){}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users - Create",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"company_name\": \"Example Co\",\n  \"bin_iin\": \"987654321000\",\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\",\n  \"role_id\": 2\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/users/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            ""
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try{",
+              "  var json = pm.response.json();",
+              "  var id = json.id || json.ID || (json.user && json.user.id);",
+              "  if(id){ pm.environment.set('user_id', id); pm.collectionVariables.set('user_id', id); }",
+              "}catch(e){}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users - List",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/users/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Users - Get by ID",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/users/{{user_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "{{user_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Users - Update",
+      "request": {
+        "method": "PUT",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"company_name\": \"Example Co Updated\",\n  \"email\": \"updated@example.com\",\n  \"role_id\": 2\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/users/{{user_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "{{user_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Users - Delete",
+      "request": {
+        "method": "DELETE",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/users/{{user_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "{{user_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Users - Count",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/users/count",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "count"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Users - Count by Role",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/users/count/role/{{role_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "count",
+            "role",
+            "{{role_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Roles - Create",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"manager\",\n  \"description\": \"Manager role\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/roles/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "roles",
+            ""
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try{",
+              "  var json = pm.response.json();",
+              "  var id = json.id || json.ID || (json.role && json.role.id);",
+              "  if(id){ pm.environment.set('role_id', id); pm.collectionVariables.set('role_id', id); }",
+              "}catch(e){}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles - List",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/roles/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "roles",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Leads - Create",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"New Lead\",\n  \"description\": \"Lead description\",\n  \"owner_id\": {{user_id}},\n  \"status\": \"confirmed\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/leads/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "leads",
+            ""
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try{",
+              "  var json = pm.response.json();",
+              "  var id = json.id || json.ID || (json.lead && json.lead.id);",
+              "  if(id){ pm.environment.set('lead_id', id); pm.collectionVariables.set('lead_id', id); }",
+              "}catch(e){}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leads - List",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/leads/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "leads",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Leads - Get by ID",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/leads/{{lead_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "leads",
+            "{{lead_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Leads - Convert to Deal",
+      "request": {
+        "method": "PUT",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": \"1500\",\n  \"currency\": \"KZT\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/leads/{{lead_id}}/convert",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "leads",
+            "{{lead_id}}",
+            "convert"
+          ]
+        },
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "exec": [
+                "try{",
+                "  var json = pm.response.json();",
+                "  var id = json.id || json.ID || (json.deal && json.deal.id);",
+                "  if(id){ pm.environment.set('deal_id', id); pm.collectionVariables.set('deal_id', id); }",
+                "}catch(e){}"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deals - Create",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"lead_id\": {{lead_id}},\n  \"owner_id\": {{user_id}},\n  \"amount\": \"2000\",\n  \"currency\": \"USD\",\n  \"status\": \"new\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/deals/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            ""
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try{",
+              "  var json = pm.response.json();",
+              "  var id = json.id || json.ID || (json.deal && json.deal.id);",
+              "  if(id){ pm.environment.set('deal_id', id); pm.collectionVariables.set('deal_id', id); }",
+              "}catch(e){}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents - Create from Lead",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"lead_id\": {{lead_id}},\n  \"doc_type\": \"contract\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/documents/create-from-lead",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "documents",
+            "create-from-lead"
+          ]
+        },
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "exec": [
+                "try{",
+                "  var json = pm.response.json();",
+                "  var id = json.id || json.ID || (json.document && json.document.id);",
+                "  if(id){ pm.environment.set('document_id', id); pm.collectionVariables.set('document_id', id); }",
+                "}catch(e){}"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Documents - List by Deal",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/documents/deal/{{deal_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "documents",
+            "deal",
+            "{{deal_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Tasks - Create",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"creator_id\": {{user_id}},\n  \"assignee_id\": {{user_id}},\n  \"entity_id\": {{deal_id}},\n  \"entity_type\": \"deal\",\n  \"title\": \"Follow up\",\n  \"description\": \"Call client\",\n  \"due_date\": \"2025-10-20T10:00:00Z\",\n  \"status\": \"open\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/tasks/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "tasks",
+            ""
+          ]
+        },
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "exec": [
+                "try{",
+                "  var json = pm.response.json();",
+                "  var id = json.id || (json.task && json.task.id);",
+                "  if(id){ pm.environment.set('task_id', id); pm.collectionVariables.set('task_id', id); }",
+                "}catch(e){}"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Messages - Send",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sender_id\": {{user_id}},\n  \"receiver_id\": {{partner_id}},\n  \"content\": \"Hello from Postman\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/messages/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "messages",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Messages - Conversations",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/messages/conversations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "messages",
+            "conversations"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Messages - History with partner",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/messages/history/{{partner_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "messages",
+            "history",
+            "{{partner_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "SMS - Send",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"document_id\": {{document_id}},\n  \"phone\": \"{{phone}}\",\n  \"message\": \"Your confirmation code is 1234\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/sms/send",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "sms",
+            "send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "SMS - Confirm",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"document_id\": {{document_id}},\n  \"sms_code\": \"1234\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/sms/confirm",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "sms",
+            "confirm"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reports - Summary",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/reports/summary",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "reports",
+            "summary"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reports - Filter Leads",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/reports/leads/filter?status=converted&owner_id={{user_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "reports",
+            "leads",
+            "filter"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "converted"
+            },
+            {
+              "key": "owner_id",
+              "value": "{{user_id}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reports - Filter Deals",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/reports/deals/filter?status=new&owner_id={{user_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "reports",
+            "deals",
+            "filter"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "new"
+            },
+            {
+              "key": "owner_id",
+              "value": "{{user_id}}"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
