@@ -6,6 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"log"
+	"strings"
 	"turcompany/internal/middleware"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
@@ -37,17 +40,38 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	user, err := h.userService.GetUserByEmail(req.Email)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-		return
-	}
-	if !h.authService.VerifyPassword(user.PasswordHash, req.Password) {
+		log.Printf("Login: GetUserByEmail error for %s: %v", req.Email, err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
 
-	// Access Token создается на 15 минут
+	// Debug / info
+	log.Printf("Login: found user id=%d email=%s password_hash_present=%v", user.ID, user.Email, user.PasswordHash != "")
+	if user.PasswordHash == "" {
+		log.Printf("Login: empty password_hash for user id=%d", user.ID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		return
+	}
+	log.Printf("Login-debug: storedHashLen=%d, passwordLen=%d", len(user.PasswordHash), len(req.Password))
+	if len(user.PasswordHash) > 8 {
+		log.Printf("Login-debug: hash prefix=%q suffix=%q", user.PasswordHash[:4], user.PasswordHash[len(user.PasswordHash)-4:])
+	}
+
+	// Trim spaces (helps if client accidentally sends extra whitespace/newline)
+	storedHash := strings.TrimSpace(user.PasswordHash)
+	password := strings.TrimSpace(req.Password)
+
+	// bcrypt check with explicit error logging for debugging
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err != nil {
+		log.Printf("Login: bcrypt.CompareHashAndPassword error for user id=%d: %v", user.ID, err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		return
+	}
+
+	// Access Token (15 minutes)
 	accessClaims := &middleware.Claims{
 		UserID: user.ID,
 		RoleID: user.RoleID,
@@ -58,11 +82,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessTokenString, err := accessToken.SignedString(middleware.JWTKey)
 	if err != nil {
+		log.Printf("Login: failed to sign access token for user id=%d: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
 		return
 	}
 
-	// Refresh Token создается на 30 дней
+	// Refresh Token (30 days)
 	refreshClaims := &middleware.Claims{
 		UserID: user.ID,
 		RoleID: user.RoleID,
@@ -73,6 +98,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshTokenString, err := refreshToken.SignedString(middleware.JWTKey)
 	if err != nil {
+		log.Printf("Login: failed to sign refresh token for user id=%d: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate refresh token"})
 		return
 	}

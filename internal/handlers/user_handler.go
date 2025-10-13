@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -9,9 +10,18 @@ import (
 	"turcompany/internal/services"
 )
 
+// UserHandler - http handlers for users
 type UserHandler struct {
 	service     services.UserService
 	authService services.AuthService
+}
+
+type createUserRequest struct {
+	CompanyName string `json:"company_name" binding:"required"`
+	BinIin      string `json:"bin_iin"`
+	Email       string `json:"email" binding:"required,email"`
+	Password    string `json:"password" binding:"required,min=6"`
+	RoleID      int    `json:"role_id"`
 }
 
 func NewUserHandler(service services.UserService, authService services.AuthService) *UserHandler {
@@ -23,21 +33,35 @@ func NewUserHandler(service services.UserService, authService services.AuthServi
 // @Tags         Users
 // @Accept       json
 // @Produce      json
-// @Param        user  body      models.User  true  "Данные нового пользователя"
+// @Param        user  body      createUserRequest  true  "Данные нового пользователя"
 // @Success      201   {object}  models.User
 // @Failure      400   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /users [post]
 func (h *UserHandler) CreateUser(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err != nil {
+	var req createUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.CreateUser(&user); err != nil {
+
+	user := &models.User{
+		CompanyName: req.CompanyName,
+		BinIin:      req.BinIin,
+		Email:       req.Email,
+		RoleID:      req.RoleID,
+	}
+
+	// используем сервис, который принимает plain password
+	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
+		log.Printf("CreateUser: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
+
+	// Не отдаём password_hash в ответе
+	user.PasswordHash = ""
+
 	c.JSON(http.StatusCreated, user)
 }
 
@@ -62,6 +86,8 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
+	// hide password hash
+	user.PasswordHash = ""
 	c.JSON(http.StatusOK, user)
 }
 
@@ -92,9 +118,11 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	user.ID = id
 
 	if err := h.service.UpdateUser(&user); err != nil {
+		log.Printf("UpdateUser: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 		return
 	}
+	user.PasswordHash = ""
 	c.JSON(http.StatusOK, user)
 }
 
@@ -114,6 +142,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteUser(id); err != nil {
+		log.Printf("DeleteUser: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
 	}
@@ -144,8 +173,14 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 	users, err := h.service.ListUsers(limit, offset)
 	if err != nil {
+		log.Printf("ListUsers: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
 		return
+	}
+
+	// hide password hashes
+	for _, u := range users {
+		u.PasswordHash = ""
 	}
 	c.JSON(http.StatusOK, users)
 }
@@ -160,6 +195,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	count, err := h.service.GetUserCount()
 	if err != nil {
+		log.Printf("GetUserCount: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user count"})
 		return
 	}
@@ -185,6 +221,7 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 
 	count, err := h.service.GetUserCountByRole(roleID)
 	if err != nil {
+		log.Printf("GetUserCountByRole: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user count by role"})
 		return
 	}
@@ -196,21 +233,35 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 // @Tags         Auth
 // @Accept       json
 // @Produce      json
-// @Param        user  body      models.User  true  "Данные нового пользователя"
+// @Param        user  body      createUserRequest  true  "Данные нового пользователя"
 // @Success      201   {object}  models.User
 // @Failure      400   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /register [post]
 func (h *UserHandler) Register(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err != nil {
+	var req createUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	user.RoleID = 2 // Стадартное значение роли для регистрации
-	if err := h.service.CreateUser(&user); err != nil {
+	// default role for public registration
+	if req.RoleID == 0 {
+		req.RoleID = 2
+	}
+
+	user := &models.User{
+		CompanyName: req.CompanyName,
+		BinIin:      req.BinIin,
+		Email:       req.Email,
+		RoleID:      req.RoleID,
+	}
+
+	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
+		log.Printf("Register: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
 		return
 	}
+
+	user.PasswordHash = ""
 	c.JSON(http.StatusCreated, user)
 }

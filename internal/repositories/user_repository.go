@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"database/sql"
-
 	"turcompany/internal/models"
 )
 
@@ -48,16 +47,25 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 		WHERE id = $1
 	`
 	user := &models.User{}
+	var roleID sql.NullInt64
+
 	err := r.DB.QueryRow(query, id).Scan(
 		&user.ID,
 		&user.CompanyName,
 		&user.BinIin,
 		&user.Email,
-		&user.RoleID,
+		&roleID,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if roleID.Valid {
+		user.RoleID = int(roleID.Int64)
+	} else {
+		user.RoleID = 0
+	}
+
 	return user, nil
 }
 
@@ -100,16 +108,25 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		u := &models.User{}
+		var roleID sql.NullInt64
 		if err := rows.Scan(
 			&u.ID,
 			&u.CompanyName,
 			&u.BinIin,
 			&u.Email,
-			&u.RoleID,
+			&roleID,
 		); err != nil {
 			return nil, err
 		}
+		if roleID.Valid {
+			u.RoleID = int(roleID.Int64)
+		} else {
+			u.RoleID = 0
+		}
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return users, nil
 }
@@ -121,17 +138,25 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 		WHERE email = $1
 	`
 	user := &models.User{}
+	var roleID sql.NullInt64
 	err := r.DB.QueryRow(query, email).Scan(
 		&user.ID,
 		&user.CompanyName,
 		&user.BinIin,
 		&user.Email,
 		&user.PasswordHash,
-		&user.RoleID,
+		&roleID,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if roleID.Valid {
+		user.RoleID = int(roleID.Int64)
+	} else {
+		user.RoleID = 0
+	}
+
 	return user, nil
 }
 
