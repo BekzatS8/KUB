@@ -2,7 +2,9 @@ package routes
 
 import (
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/authz"
 	"turcompany/internal/handlers"
+	"turcompany/internal/middleware"
 )
 
 func SetupRoutes(
@@ -19,58 +21,61 @@ func SetupRoutes(
 	reportHandler *handlers.ReportHandler,
 ) *gin.Engine {
 
-	// Аутентификация
+	// === ПУБЛИЧНЫЕ ===
 	r.POST("/login", authHandler.Login)
-
-	// Публичная регистрация пользователя
 	r.POST("/register", userHandler.Register)
 
-	// Маршруты для пользователей
+	// === ВСЁ НИЖЕ — ТОЛЬКО С JWT ===
+	r.Use(middleware.AuthMiddleware())
+	r.Use(middleware.ReadOnlyGuard()) // аудит — только чтение
+
+	// ==== USERS ====
+	// /users — читать можно Mgmt/Admin/Audit; создавать/удалять — только Admin, см. проверки в хендлере
 	users := r.Group("/users")
 	{
-		users.POST("/", userHandler.CreateUser)                           // Создание пользователя
-		users.GET("/count", userHandler.GetUserCount)                     // Количество пользователей
-		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole) // Количество пользователей по роли
-		users.GET("/", userHandler.ListUsers)                             // Список всех пользователей
-		users.GET("/:id", userHandler.GetUserByID)                        // Получение пользователя по ID
-		users.PUT("/:id", userHandler.UpdateUser)                         // Обновление пользователя
-		users.DELETE("/:id", userHandler.DeleteUser)                      // Удаление пользователя
+		users.POST("/", userHandler.CreateUser)
+		users.GET("/count", userHandler.GetUserCount)
+		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
+		users.GET("/", userHandler.ListUsers)
+		users.GET("/:id", userHandler.GetUserByID)
+		users.PUT("/:id", userHandler.UpdateUser)
+		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 
-	// Маршруты для ролей
-	roles := r.Group("/roles")
+	// ==== ROLES ==== (лучше ограничить только Admin на всякий случай)
+	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleAdmin))
 	{
-		roles.POST("/", roleHandler.CreateRole)                            // Создание роли
-		roles.GET("/count", roleHandler.GetRoleCount)                      // Количество ролей
-		roles.GET("/with-user-counts", roleHandler.GetRolesWithUserCounts) // Роли с количеством пользователей
-		roles.GET("/", roleHandler.ListRoles)                              // Список всех ролей
-		roles.GET("/:id", roleHandler.GetRoleByID)                         // Получение роли по ID
-		roles.PUT("/:id", roleHandler.UpdateRole)                          // Обновление роли
-		roles.DELETE("/:id", roleHandler.DeleteRole)                       // Удаление роли
+		roles.POST("/", roleHandler.CreateRole)
+		roles.GET("/count", roleHandler.GetRoleCount)
+		roles.GET("/with-user-counts", roleHandler.GetRolesWithUserCounts)
+		roles.GET("/", roleHandler.ListRoles)
+		roles.GET("/:id", roleHandler.GetRoleByID)
+		roles.PUT("/:id", roleHandler.UpdateRole)
+		roles.DELETE("/:id", roleHandler.DeleteRole)
 	}
 
-	// Маршруты для лидов
+	// ==== LEADS ====
 	leads := r.Group("/leads")
 	{
-		leads.POST("/", leadHandler.Create)                  // Создание лида
-		leads.GET("/:id", leadHandler.GetByID)               // Получение лида по ID
-		leads.PUT("/:id", leadHandler.Update)                // Обновление лида
-		leads.DELETE("/:id", leadHandler.Delete)             // Удаление лида
-		leads.PUT("/:id/convert", leadHandler.ConvertToDeal) // Конвертация в сделку
+		leads.POST("/", leadHandler.Create)
+		leads.GET("/:id", leadHandler.GetByID)
+		leads.PUT("/:id", leadHandler.Update)
+		leads.DELETE("/:id", leadHandler.Delete)
+		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
 		leads.GET("/", leadHandler.List)
 	}
 
-	// Маршруты для сделок
+	// ==== DEALS ====
 	deals := r.Group("/deals")
 	{
-		deals.POST("/", dealHandler.Create)      // Создание сделки
-		deals.GET("/:id", dealHandler.GetByID)   // Получение сделки по ID
-		deals.PUT("/:id", dealHandler.Update)    // Обновление сделки
-		deals.DELETE("/:id", dealHandler.Delete) // Удаление сделки
+		deals.POST("/", dealHandler.Create)
+		deals.GET("/:id", dealHandler.GetByID)
+		deals.PUT("/:id", dealHandler.Update)
+		deals.DELETE("/:id", dealHandler.Delete)
 		deals.GET("/", dealHandler.List)
 	}
 
-	// Маршруты для документов
+	// ==== DOCUMENTS ====
 	documents := r.Group("/documents")
 	{
 		documents.GET("/", documentHandler.ListDocuments)
@@ -81,39 +86,41 @@ func SetupRoutes(
 		documents.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
 	}
 
-	// Маршруты для задач
+	// ==== TASKS ====
 	tasks := r.Group("/tasks")
 	{
-		tasks.POST("/", taskHandler.Create)      // Создание задачи
-		tasks.GET("/", taskHandler.GetAll)       // Получение всех задач
-		tasks.GET("/:id", taskHandler.GetByID)   // Получение задачи по ID
-		tasks.PUT("/:id", taskHandler.Update)    // Обновление задачи
-		tasks.DELETE("/:id", taskHandler.Delete) // Удаление задачи
+		tasks.POST("/", taskHandler.Create)
+		tasks.GET("/", taskHandler.GetAll)
+		tasks.GET("/:id", taskHandler.GetByID)
+		tasks.PUT("/:id", taskHandler.Update)
+		tasks.DELETE("/:id", taskHandler.Delete)
 	}
 
-	// Маршруты для сообщений
+	// ==== MESSAGES ====
 	messages := r.Group("/messages")
 	{
-		messages.POST("/", messageHandler.Send)                                     // Отправка сообщения
-		messages.GET("/conversations", messageHandler.GetConversations)             // Список бесед
-		messages.GET("/history/:partner_id", messageHandler.GetConversationHistory) // История беседы
+		messages.POST("/", messageHandler.Send)
+		messages.GET("/conversations", messageHandler.GetConversations)
+		messages.GET("/history/:partner_id", messageHandler.GetConversationHistory)
 	}
 
-	// Маршруты для SMS
+	// ==== SMS ====
 	sms := r.Group("/sms")
 	{
-		sms.POST("/send", smsHandler.SendSMSHandler)                    // Отправка SMS
-		sms.POST("/resend", smsHandler.ResendSMSHandler)                // Повторная отправка SMS
-		sms.POST("/confirm", smsHandler.ConfirmSMSHandler)              // Подтверждение SMS
-		sms.GET("/latest/:document_id", smsHandler.GetLatestSMSHandler) // Последняя SMS для документа
-		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)        // Удаление SMS
+		sms.POST("/send", smsHandler.SendSMSHandler)
+		sms.POST("/resend", smsHandler.ResendSMSHandler)
+		sms.POST("/confirm", smsHandler.ConfirmSMSHandler)
+		sms.GET("/latest/:document_id", smsHandler.GetLatestSMSHandler)
+		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
-	// Маршруты для отчетов
+	// ==== REPORTS ====
 	reports := r.Group("/reports")
-	reports.GET("/summary", reportHandler.GetSummary)
-	reports.GET("/leads/filter", reportHandler.FilterLeads)
-	reports.GET("/deals/filter", reportHandler.FilterDeals)
+	{
+		reports.GET("/summary", reportHandler.GetSummary)
+		reports.GET("/leads/filter", reportHandler.FilterLeads)
+		reports.GET("/deals/filter", reportHandler.FilterDeals)
+	}
 
 	return r
 }

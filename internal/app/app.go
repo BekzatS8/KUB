@@ -6,6 +6,7 @@ import (
 	"log"
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
+	"turcompany/internal/middleware"
 	"turcompany/internal/repositories"
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
@@ -84,6 +85,9 @@ func Run() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
+
+	router.Use(middleware.AuthMiddleware())
+	router.Use(middleware.ReadOnlyGuard())
 
 	routes.SetupRoutes(
 		router,

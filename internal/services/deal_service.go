@@ -23,12 +23,23 @@ func (s *DealService) Create(deal *models.Deals) (int64, error) {
 func (s *DealService) Update(deal *models.Deals) error {
 	return s.Repo.Update(deal)
 }
+
 func (s *DealService) GetByID(id int) (*models.Deals, error) {
 	return s.Repo.GetByID(id)
 }
+
 func (s *DealService) Delete(id int) error {
 	return s.Repo.Delete(id)
 }
+
 func (s *DealService) ListPaginated(limit, offset int) ([]*models.Deals, error) {
 	return s.Repo.ListPaginated(limit, offset)
+}
+
+func (s *DealService) ListMy(ownerID, limit, offset int) ([]*models.Deals, error) {
+	return s.Repo.ListByOwner(ownerID, limit, offset)
+}
+
+func (s *DealService) GetByLeadID(leadID int) (*models.Deals, error) {
+	return s.Repo.GetByLeadID(leadID)
 }

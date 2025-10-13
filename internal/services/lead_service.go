@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"time"
+
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -13,27 +14,29 @@ type LeadService struct {
 }
 
 func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository) *LeadService {
-	return &LeadService{
-		Repo:     leadRepo,
-		DealRepo: dealRepo,
-	}
+	return &LeadService{Repo: leadRepo, DealRepo: dealRepo}
 }
 
 func (s *LeadService) Create(lead *models.Leads) error {
-	if s.Repo == nil {
-		return errors.New("LeadRepository is not initialized")
-	}
 	if lead.Status == "" {
 		lead.Status = "new"
 	}
+	if lead.CreatedAt.IsZero() {
+		lead.CreatedAt = time.Now()
+	}
 	return s.Repo.Create(lead)
 }
+
 func (s *LeadService) Update(lead *models.Leads) error {
 	return s.Repo.Update(lead)
 }
 
 func (s *LeadService) ListPaginated(limit, offset int) ([]*models.Leads, error) {
 	return s.Repo.ListPaginated(limit, offset)
+}
+
+func (s *LeadService) ListMy(ownerID, limit, offset int) ([]*models.Leads, error) {
+	return s.Repo.ListByOwner(ownerID, limit, offset)
 }
 
 func (s *LeadService) GetByID(id int) (*models.Leads, error) {
@@ -44,18 +47,18 @@ func (s *LeadService) Delete(id int) error {
 	return s.Repo.Delete(id)
 }
 
-func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string) (*models.Deals, error) {
-	// Получаем лид
+// ConvertLeadToDeal: добавили owner сделки (= owner лида)
+func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, ownerID int) (*models.Deals, error) {
 	lead, err := s.Repo.GetByID(leadID)
-	if err != nil {
+	if err != nil || lead == nil {
 		return nil, errors.New("lead not found")
 	}
-
+	// допустимый статус для конвертации
 	if lead.Status != "confirmed" {
 		return nil, errors.New("lead is not in a convertible status")
 	}
 
-	// Проверяем, не существует ли уже сделка для этого лида
+	// идемпотентность — не создаём вторую сделку
 	existingDeal, err := s.DealRepo.GetByLeadID(leadID)
 	if err != nil {
 		return nil, err
@@ -64,29 +67,25 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string) (*m
 		return nil, errors.New("deal already exists for this lead")
 	}
 
-	// Создаем новую сделку
 	deal := &models.Deals{
-		LeadID:    lead.ID, // Теперь это int, а не string
+		LeadID:    lead.ID,
+		OwnerID:   ownerID, // ВАЖНО: владелец сделки наследуется от лида
 		Amount:    amount,
 		Currency:  currency,
 		Status:    "new",
 		CreatedAt: time.Now(),
 	}
 
-	// Сохраняем сделку и получаем её ID
 	dealID, err := s.DealRepo.Create(deal)
 	if err != nil {
 		return nil, err
 	}
 	deal.ID = int(dealID)
 
-	// Обновляем статус лида
 	lead.Status = "converted"
 	if err := s.Repo.Update(lead); err != nil {
-		// Если не удалось обновить статус лида, можно попробовать откатить создание сделки
-		_ = s.DealRepo.Delete(deal.ID)
+		_ = s.DealRepo.Delete(deal.ID) // best-effort rollback
 		return nil, err
 	}
-
 	return deal, nil
 }

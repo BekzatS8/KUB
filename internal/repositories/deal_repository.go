@@ -3,6 +3,7 @@ package repositories
 import (
 	"database/sql"
 	"fmt"
+
 	"turcompany/internal/models"
 )
 
@@ -14,17 +15,18 @@ func NewDealRepository(db *sql.DB) *DealRepository {
 	return &DealRepository{db: db}
 }
 
-// ✔ Возвращает ID новой сделки
+// Создание сделки — возвращает ID новой записи
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
-        INSERT INTO deals (lead_id, amount, currency, status, created_at) 
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO deals (lead_id, owner_id, amount, currency, status, created_at) 
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id
     `
 	var id int64
 	err := r.db.QueryRow(
 		query,
 		deal.LeadID,
+		deal.OwnerID,
 		deal.Amount,
 		deal.Currency,
 		deal.Status,
@@ -36,10 +38,10 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	return id, nil
 }
 
-// ✔ Получение сделки по lead_id (нужен для document/lead service)
+// Получение сделки по lead_id (последняя по времени)
 func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	query := `
-        SELECT id, lead_id, amount, currency, status, created_at 
+        SELECT id, lead_id, owner_id, amount, currency, status, created_at 
         FROM deals 
         WHERE lead_id = $1 
         ORDER BY created_at DESC 
@@ -49,6 +51,7 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	err := r.db.QueryRow(query, leadID).Scan(
 		&deal.ID,
 		&deal.LeadID,
+		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
 		&deal.Status,
@@ -63,24 +66,24 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	return deal, nil
 }
 
-// ✔ Обновление
+// Обновление сделки
 func (r *DealRepository) Update(deal *models.Deals) error {
 	query := `
         UPDATE deals 
-        SET lead_id=$1, amount=$2, currency=$3, status=$4 
-        WHERE id=$5
+        SET lead_id=$1, owner_id=$2, amount=$3, currency=$4, status=$5 
+        WHERE id=$6
     `
-	_, err := r.db.Exec(query, deal.LeadID, deal.Amount, deal.Currency, deal.Status, deal.ID)
+	_, err := r.db.Exec(query, deal.LeadID, deal.OwnerID, deal.Amount, deal.Currency, deal.Status, deal.ID)
 	if err != nil {
 		return fmt.Errorf("обновление сделки: %w", err)
 	}
 	return nil
 }
 
-// ✔ Поиск по ID (тип int!)
+// Получение по ID
 func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	query := `
-        SELECT id, lead_id, amount, currency, status, created_at 
+        SELECT id, lead_id, owner_id, amount, currency, status, created_at 
         FROM deals 
         WHERE id=$1
     `
@@ -88,6 +91,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	err := r.db.QueryRow(query, id).Scan(
 		&deal.ID,
 		&deal.LeadID,
+		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
 		&deal.Status,
@@ -102,7 +106,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	return deal, nil
 }
 
-// ✔ Удаление по int ID
+// Удаление по ID
 func (r *DealRepository) Delete(id int) error {
 	query := `DELETE FROM deals WHERE id=$1`
 	result, err := r.db.Exec(query, id)
@@ -119,7 +123,7 @@ func (r *DealRepository) Delete(id int) error {
 	return nil
 }
 
-// ✔ Подсчёт сделок
+// Подсчёт сделок
 func (r *DealRepository) CountDeals() (int, error) {
 	var count int
 	query := "SELECT COUNT(*) FROM deals"
@@ -127,6 +131,7 @@ func (r *DealRepository) CountDeals() (int, error) {
 	return count, err
 }
 
+// Фильтрация (оставил как у тебя; роздан owner_id при SELECT не нужен — добавь при необходимости)
 func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy, order string, amountMin, amountMax float64, limit, offset int) ([]models.Deals, error) {
 	if sortBy == "" {
 		sortBy = "created_at"
@@ -145,7 +150,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		sortBy = "created_at"
 	}
 
-	query := "SELECT id, lead_id, amount, currency, status, created_at FROM deals WHERE 1=1"
+	query := "SELECT id, lead_id, owner_id, amount, currency, status, created_at FROM deals WHERE 1=1"
 	args := []interface{}{}
 	i := 1
 
@@ -192,7 +197,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 	var deals []models.Deals
 	for rows.Next() {
 		var deal models.Deals
-		if err := rows.Scan(&deal.ID, &deal.LeadID, &deal.Amount, &deal.Currency, &deal.Status, &deal.CreatedAt); err != nil {
+		if err := rows.Scan(&deal.ID, &deal.LeadID, &deal.OwnerID, &deal.Amount, &deal.Currency, &deal.Status, &deal.CreatedAt); err != nil {
 			return nil, err
 		}
 		deals = append(deals, deal)
@@ -201,7 +206,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 }
 
 func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, error) {
-	query := `SELECT id, lead_id, amount, currency, status, created_at 
+	query := `SELECT id, lead_id, owner_id, amount, currency, status, created_at 
 	          FROM deals 
 	          ORDER BY created_at DESC 
 	          LIMIT $1 OFFSET $2`
@@ -214,11 +219,35 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 
 	var deals []*models.Deals
 	for rows.Next() {
-		var deal models.Deals
-		if err := rows.Scan(&deal.ID, &deal.LeadID, &deal.Amount, &deal.Currency, &deal.Status, &deal.CreatedAt); err != nil {
+		var d models.Deals
+		if err := rows.Scan(&d.ID, &d.LeadID, &d.OwnerID, &d.Amount, &d.Currency, &d.Status, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("ошибка чтения: %w", err)
 		}
-		deals = append(deals, &deal)
+		deals = append(deals, &d)
+	}
+	return deals, nil
+}
+
+// Новое: только сделки конкретного владельца
+func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deals, error) {
+	query := `SELECT id, lead_id, owner_id, amount, currency, status, created_at 
+	          FROM deals 
+	          WHERE owner_id = $1
+	          ORDER BY created_at DESC 
+	          LIMIT $2 OFFSET $3`
+	rows, err := r.db.Query(query, ownerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deals []*models.Deals
+	for rows.Next() {
+		var d models.Deals
+		if err := rows.Scan(&d.ID, &d.LeadID, &d.OwnerID, &d.Amount, &d.Currency, &d.Status, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		deals = append(deals, &d)
 	}
 	return deals, nil
 }
