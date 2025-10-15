@@ -2,131 +2,154 @@ package pdf
 
 import (
 	"fmt"
-	"github.com/jung-kurt/gofpdf"
+	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/jung-kurt/gofpdf"
 )
 
-// Generator интерфейс для создания различных типов PDF документов
+// Generator — интерфейс (удобно мокать в тестах)
 type Generator interface {
-	GenerateContract(data ContractData) error
-	GenerateInvoice(data InvoiceData) error
+	GenerateContract(data ContractData) (string, error)
+	GenerateInvoice(data InvoiceData) (string, error)
 }
 
-// DocumentGenerator основная структура для генерации PDF
+// DocumentGenerator — реализация
 type DocumentGenerator struct {
-	pdf *gofpdf.Fpdf
+	RootDir  string // корень хранения, например "./files"
+	FontPath string // путь до TTF, например "assets/fonts/DejaVuSans.ttf"
+	fontName string // внутреннее имя шрифта в PDF
 }
 
-// ContractData структура данных для контракта
 type ContractData struct {
-	LeadTitle    string
-	DealID       int
-	Amount       string
-	Currency     string
-	CreatedAt    time.Time
-	DocumentPath string
+	LeadTitle string
+	DealID    int
+	Amount    string
+	Currency  string
+	CreatedAt time.Time
+	Filename  string // имя файла (без путей); если пусто — сгенерируем
 }
 
-// InvoiceData структура данных для счета
 type InvoiceData struct {
-	LeadTitle    string
-	DealID       int
-	Amount       string
-	Currency     string
-	CreatedAt    time.Time
-	DocumentPath string
+	LeadTitle string
+	DealID    int
+	Amount    string
+	Currency  string
+	CreatedAt time.Time
+	Filename  string
 }
 
-// NewDocumentGenerator создает новый генератор PDF
-func NewDocumentGenerator() *DocumentGenerator {
-	return &DocumentGenerator{}
+func NewDocumentGenerator(rootDir, fontPath string) *DocumentGenerator {
+	return &DocumentGenerator{
+		RootDir:  filepath.Clean(rootDir),
+		FontPath: fontPath,
+		fontName: "DejaVu",
+	}
 }
 
-func (g *DocumentGenerator) GenerateContract(data ContractData) error {
-	// Создаем PDF с поддержкой UTF-8
+func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) {
+	filename := data.Filename
+	if filename == "" {
+		filename = fmt.Sprintf("contract_deal_%d.pdf", data.DealID)
+	}
+	absPath, err := g.ensureTarget(filename)
+	if err != nil {
+		return "", err
+	}
+
 	pdf := gofpdf.New("P", "mm", "A4", "")
-	g.pdf = pdf
-
-	// Устанавливаем шрифт с поддержкой UTF-8
-	pdf.SetFont("Arial", "", 14)
-
+	g.addUTF8Font(pdf)
+	pdf.SetFont(g.fontName, "", 14)
 	pdf.AddPage()
 
-	// Заголовок
-	pdf.SetFont("Arial", "B", 16)
+	// заголовок
+	pdf.SetFont(g.fontName, "B", 16)
 	pdf.SetY(20)
-
-	// Используем Cell вместо WriteAligned для UTF-8 текста
-	pdf.SetX((210 - pdf.GetStringWidth("ДОГОВОР")) / 2)
+	center := (210 - pdf.GetStringWidth("ДОГОВОР")) / 2
+	if center < 10 {
+		center = 10
+	}
+	pdf.SetX(center)
 	pdf.Cell(40, 10, "ДОГОВОР")
 	pdf.Ln(20)
 
-	// Информация о контракте
-	g.addContractInfo(data)
-
-	return pdf.OutputFileAndClose(data.DocumentPath)
-}
-
-func (g *DocumentGenerator) addContractInfo(data ContractData) {
-	g.pdf.SetFont("Arial", "", 12)
-
-	// Устанавливаем отступ слева
-	leftMargin := 20.0
-	g.pdf.SetX(leftMargin)
-
-	// Добавляем информацию построчно
-	lines := []string{
+	// контент
+	g.addLines(pdf, []string{
 		fmt.Sprintf("Номер договора: %d", data.DealID),
 		fmt.Sprintf("Клиент: %s", data.LeadTitle),
 		fmt.Sprintf("Сумма: %s %s", data.Amount, data.Currency),
 		fmt.Sprintf("Дата создания: %s", data.CreatedAt.Format("02.01.2006")),
+	})
+
+	if err := pdf.OutputFileAndClose(absPath); err != nil {
+		return "", err
 	}
 
-	for _, line := range lines {
-		g.pdf.SetX(leftMargin)
-		g.pdf.Cell(0, 10, line)
-		g.pdf.Ln(15)
-	}
+	// для БД храним относительный путь — только имя файла
+	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
 }
 
-// Аналогично обновляем GenerateInvoice
-func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) error {
+func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) (string, error) {
+	filename := data.Filename
+	if filename == "" {
+		filename = fmt.Sprintf("invoice_deal_%d.pdf", data.DealID)
+	}
+	absPath, err := g.ensureTarget(filename)
+	if err != nil {
+		return "", err
+	}
+
 	pdf := gofpdf.New("P", "mm", "A4", "")
-	g.pdf = pdf
-
-	pdf.SetFont("Arial", "", 14)
-
+	g.addUTF8Font(pdf)
+	pdf.SetFont(g.fontName, "", 14)
 	pdf.AddPage()
 
-	// Заголовок
-	pdf.SetFont("Arial", "B", 16)
+	pdf.SetFont(g.fontName, "B", 16)
 	pdf.SetY(20)
-
-	pdf.SetX((210 - pdf.GetStringWidth("СЧЕТ")) / 2)
+	center := (210 - pdf.GetStringWidth("СЧЕТ")) / 2
+	if center < 10 {
+		center = 10
+	}
+	pdf.SetX(center)
 	pdf.Cell(40, 10, "СЧЕТ")
 	pdf.Ln(20)
 
-	g.addInvoiceInfo(data)
-
-	return pdf.OutputFileAndClose(data.DocumentPath)
-}
-
-func (g *DocumentGenerator) addInvoiceInfo(data InvoiceData) {
-	g.pdf.SetFont("Arial", "", 12)
-
-	leftMargin := 20.0
-	g.pdf.SetX(leftMargin)
-
-	lines := []string{
+	g.addLines(pdf, []string{
 		fmt.Sprintf("Номер счета: %d", data.DealID),
 		fmt.Sprintf("Клиент: %s", data.LeadTitle),
 		fmt.Sprintf("Сумма к оплате: %s %s", data.Amount, data.Currency),
 		fmt.Sprintf("Дата выставления: %s", data.CreatedAt.Format("02.01.2006")),
-	}
+	})
 
+	if err := pdf.OutputFileAndClose(absPath); err != nil {
+		return "", err
+	}
+	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
+}
+
+// ===== helpers =====
+
+func (g *DocumentGenerator) ensureTarget(filename string) (string, error) {
+	if err := os.MkdirAll(g.RootDir, 0o755); err != nil {
+		return "", fmt.Errorf("create files dir: %w", err)
+	}
+	filename = filepath.Base(filename) // безопасность
+	return filepath.Join(g.RootDir, filename), nil
+}
+
+func (g *DocumentGenerator) addUTF8Font(pdf *gofpdf.Fpdf) {
+	// AddUTF8Font принимает путь до TTF
+	pdf.AddUTF8Font(g.fontName, "", g.FontPath)
+	pdf.AddUTF8Font(g.fontName, "B", g.FontPath)
+}
+
+func (g *DocumentGenerator) addLines(pdf *gofpdf.Fpdf, lines []string) {
+	pdf.SetFont(g.fontName, "", 12)
+	left := 20.0
 	for _, line := range lines {
-		g.pdf.SetX(leftMargin)
-		g.pdf.Cell(0, 10, line)
-		g.pdf.Ln(15)
+		pdf.SetX(left)
+		pdf.Cell(0, 10, line)
+		pdf.Ln(15)
 	}
 }

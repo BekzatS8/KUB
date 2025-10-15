@@ -1,0 +1,14 @@
+"email": "sales1@example.com",
+"password": "sales12345"
+
+  "email": "ops1@example.com",
+  "password": "ops12345"
+
+  "email": "audit1@example.com",
+  "password": "audit12345"
+
+  "email": "mgmt1@example.com",
+  "password": "mgmt12345"
+
+  "email": "Admin@example.com",
+  "password": "admin123"

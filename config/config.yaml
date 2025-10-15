@@ -2,7 +2,6 @@ server:
   port: 4000
 
 database:
-  driver: "postgres"
   url: "postgres://postgres:1234@localhost:5432/turcompany?sslmode=disable"
 
 email:
@@ -11,3 +10,6 @@ email:
   smtp_user: "placeholder"
   smtp_password: "placeholder"
   from_email: "placeholder"
+
+files:
+  root_dir: "./files"

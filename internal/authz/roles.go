@@ -1,6 +1,7 @@
 package authz
 
 const (
+	RoleStaff      = 15
 	RoleSales      = 10
 	RoleOperations = 20
 	RoleAudit      = 30

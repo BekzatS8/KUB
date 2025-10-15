@@ -23,14 +23,15 @@ func SetupRoutes(
 
 	// === ПУБЛИЧНЫЕ ===
 	r.POST("/login", authHandler.Login)
+	// Если хочешь оставить регу только для админа — перенеси /register ниже JWT и оберни RequireRoles(RoleAdmin)
 	r.POST("/register", userHandler.Register)
 
 	// === ВСЁ НИЖЕ — ТОЛЬКО С JWT ===
 	r.Use(middleware.AuthMiddleware())
-	r.Use(middleware.ReadOnlyGuard()) // аудит — только чтение
+	r.Use(middleware.ReadOnlyGuard()) // аудит — только чтение (режет небезопасные методы)
 
 	// ==== USERS ====
-	// /users — читать можно Mgmt/Admin/Audit; создавать/удалять — только Admin, см. проверки в хендлере
+	// читать можно Mgmt/Admin/Audit; создавать/удалять — только Admin (проверка в хендлере)
 	users := r.Group("/users")
 	{
 		users.POST("/", userHandler.CreateUser)
@@ -42,7 +43,7 @@ func SetupRoutes(
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 
-	// ==== ROLES ==== (лучше ограничить только Admin на всякий случай)
+	// ==== ROLES ==== (только Admin)
 	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleAdmin))
 	{
 		roles.POST("/", roleHandler.CreateRole)
@@ -76,18 +77,34 @@ func SetupRoutes(
 	}
 
 	// ==== DOCUMENTS ====
+	// ==== DOCUMENTS ====
 	documents := r.Group("/documents")
 	{
 		documents.GET("/", documentHandler.ListDocuments)
 		documents.POST("/", documentHandler.CreateDocument)
 		documents.GET("/:id", documentHandler.GetDocument)
 		documents.DELETE("/:id", documentHandler.DeleteDocument)
+
+		// спец-сценарий
 		documents.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
+
+		// по сделке
 		documents.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
+
+		// выдача файлов
+		documents.GET("/:id/file", documentHandler.ServeFile)    // inline
+		documents.GET("/:id/download", documentHandler.Download) // attachment
+
+		// статусные операции
+		documents.POST("/:id/submit", documentHandler.Submit) // Sales -> under_review
+		documents.POST("/:id/review", documentHandler.Review) // Ops/Mgmt/Admin -> approve|return
+		documents.POST("/:id/sign", documentHandler.Sign)     // Mgmt/Admin -> signed
 	}
 
-	// ==== TASKS ====
-	tasks := r.Group("/tasks")
+	// ==== TASKS ==== (staff/ops/mgmt/admin)
+	tasks := r.Group("/tasks",
+		middleware.RequireRoles(authz.RoleStaff, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+	)
 	{
 		tasks.POST("/", taskHandler.Create)
 		tasks.GET("/", taskHandler.GetAll)
@@ -96,16 +113,20 @@ func SetupRoutes(
 		tasks.DELETE("/:id", taskHandler.Delete)
 	}
 
-	// ==== MESSAGES ====
-	messages := r.Group("/messages")
+	// ==== MESSAGES ==== (staff/ops/mgmt/admin)
+	messages := r.Group("/messages",
+		middleware.RequireRoles(authz.RoleStaff, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+	)
 	{
 		messages.POST("/", messageHandler.Send)
 		messages.GET("/conversations", messageHandler.GetConversations)
 		messages.GET("/history/:partner_id", messageHandler.GetConversationHistory)
 	}
 
-	// ==== SMS ====
-	sms := r.Group("/sms")
+	// ==== SMS ==== (sales/ops/mgmt/admin)
+	sms := r.Group("/sms",
+		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+	)
 	{
 		sms.POST("/send", smsHandler.SendSMSHandler)
 		sms.POST("/resend", smsHandler.ResendSMSHandler)
@@ -114,8 +135,10 @@ func SetupRoutes(
 		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
-	// ==== REPORTS ====
-	reports := r.Group("/reports")
+	// ==== REPORTS ==== (audit/ops/mgmt/admin)
+	reports := r.Group("/reports",
+		middleware.RequireRoles(authz.RoleAudit, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+	)
 	{
 		reports.GET("/summary", reportHandler.GetSummary)
 		reports.GET("/leads/filter", reportHandler.FilterLeads)

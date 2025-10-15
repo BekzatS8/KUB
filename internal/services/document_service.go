@@ -1,168 +1,318 @@
 package services
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/pdf"
 	"turcompany/internal/repositories"
 )
 
 type DocumentService struct {
-	Repo     *repositories.DocumentRepository
-	LeadRepo *repositories.LeadRepository
-	DealRepo *repositories.DealRepository
-	smsRepo  *repositories.SMSConfirmationRepository
-	pdfGen   pdf.Generator
-	basePath string
+	DocRepo    *repositories.DocumentRepository
+	LeadRepo   *repositories.LeadRepository
+	DealRepo   *repositories.DealRepository
+	SMSRepo    *repositories.SMSConfirmationRepository
+	SignSecret string
+
+	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
+	PDFGen    pdf.Generator // генератор PDF (internal/pdf)
 }
 
 func NewDocumentService(
-	repo *repositories.DocumentRepository,
+	docRepo *repositories.DocumentRepository,
 	leadRepo *repositories.LeadRepository,
 	dealRepo *repositories.DealRepository,
 	smsRepo *repositories.SMSConfirmationRepository,
-	basePath string,
+	signSecret string,
+	filesRoot string,
+	pdfGen pdf.Generator,
 ) *DocumentService {
 	return &DocumentService{
-		Repo:     repo,
-		LeadRepo: leadRepo,
-		DealRepo: dealRepo,
-		smsRepo:  smsRepo,
-		pdfGen:   pdf.NewDocumentGenerator(),
-		basePath: basePath,
+		DocRepo:    docRepo,
+		LeadRepo:   leadRepo,
+		DealRepo:   dealRepo,
+		SMSRepo:    smsRepo,
+		SignSecret: signSecret,
+		FilesRoot:  filesRoot,
+		PDFGen:     pdfGen,
 	}
 }
 
-func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string) (*models.Document, error) {
-	// Проверяем существование лида
-	lead, err := s.LeadRepo.GetByID(leadID)
-	if err != nil {
-		return nil, fmt.Errorf("получение lead: %w", err)
+// ===== CRUD =====
+
+func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID int) (int64, error) {
+	if authz.IsReadOnly(roleID) {
+		return 0, errors.New("read-only role")
+	}
+	if doc.DealID == 0 {
+		return 0, errors.New("deal not found")
+	}
+	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	if err != nil || deal == nil {
+		return 0, errors.New("deal not found")
+	}
+	// Sales может создавать документ только по своей сделке
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return 0, errors.New("forbidden")
 	}
 
-	// Получаем или создаем сделку для этого лида
-	deal, err := s.DealRepo.GetByLeadID(leadID)
-	if err != nil {
-		// Если сделки нет, создаем новую
-		newDeal := &models.Deals{
-			LeadID:    leadID,
-			Status:    "new",
-			CreatedAt: time.Now(),
+	if doc.Status == "" {
+		doc.Status = "draft"
+	}
+
+	// нормализуем file_path: храним только имя файла (без /files/)
+	doc.FilePath = filepath.Base(strings.TrimSpace(doc.FilePath))
+
+	return s.DocRepo.Create(doc)
+}
+
+func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Document, error) {
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return nil, err
+	}
+	// Sales видит документ только если владеет сделкой
+	if roleID == authz.RoleSales {
+		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		if derr != nil || deal == nil {
+			return nil, errors.New("not found")
 		}
-		dealID, err := s.DealRepo.Create(newDeal)
-		if err != nil {
-			return nil, fmt.Errorf("создание сделки для лида: %w", err)
+		if deal.OwnerID != userID {
+			return nil, errors.New("forbidden")
 		}
-		newDeal.ID = int(dealID)
-		deal = newDeal
 	}
-
-	// Создаем структуру директорий (путь уже абсолютный из конструктора)
-	docDir := filepath.Join(s.basePath, fmt.Sprintf("deal_%d", deal.ID))
-	if err := os.MkdirAll(docDir, 0755); err != nil {
-		return nil, fmt.Errorf("создание директории: %w", err)
-	}
-
-	// Формируем имя файла и путь
-	fileName := fmt.Sprintf("%s_%s_%s.pdf",
-		lead.Title,
-		docType,
-		time.Now().Format("20060102_150405"),
-	)
-	filePath := filepath.Join(docDir, fileName)
-
-	// Сохраняем относительный путь в БД для переносимости
-	relPath, err := filepath.Rel(s.basePath, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("создание относительного пути: %w", err)
-	}
-
-	// Создаем документ с относительным путем
-	doc := &models.Document{
-		DealID:   int64(deal.ID),
-		DocType:  docType,
-		FilePath: filepath.Join("document_storage", relPath), // Сохраняем относительный путь
-		Status:   "new",
-	}
-
-	// При генерации PDF используем абсолютный путь
-	switch docType {
-	case "contract":
-		err = s.pdfGen.GenerateContract(pdf.ContractData{
-			LeadTitle:    lead.Title,
-			DealID:       deal.ID,
-			Amount:       deal.Amount,
-			Currency:     deal.Currency,
-			CreatedAt:    time.Now(),
-			DocumentPath: filePath, // Используем абсолютный путь
-		})
-	case "invoice":
-		err = s.pdfGen.GenerateInvoice(pdf.InvoiceData{
-			LeadTitle:    lead.Title,
-			DealID:       deal.ID,
-			Amount:       deal.Amount,
-			Currency:     deal.Currency,
-			CreatedAt:    time.Now(),
-			DocumentPath: filePath, // Используем абсолютный путь
-		})
-	default:
-		return nil, fmt.Errorf("неизвестный тип документа: %s", docType)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("генерация PDF: %w", err)
-	}
-
-	id, err := s.Repo.Create(doc)
-	if err != nil {
-		return nil, fmt.Errorf("сохранение документа: %w", err)
-	}
-
-	doc.ID = id
 	return doc, nil
 }
 
-// Существующие методы остаются без изменений
-func (s *DocumentService) CreateDocument(doc *models.Document) (int64, error) {
-	if doc.FilePath == "" {
-		return 0, fmt.Errorf("путь к файлу не указан")
-	}
-
-	// Создаем директорию для файла, если она не существует
-	dir := filepath.Dir(doc.FilePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return 0, fmt.Errorf("создание директории для документа: %w", err)
-	}
-
-	return s.Repo.Create(doc)
-}
-
-func (s *DocumentService) GetDocument(id int64) (*models.Document, error) {
-	return s.Repo.GetByID(id)
-}
-
-func (s *DocumentService) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
-	return s.Repo.ListDocumentsByDeal(dealID)
-}
-
-func (s *DocumentService) DeleteDocument(id int64) error {
-	doc, err := s.Repo.GetByID(id)
-	if err != nil {
-		return err
-	}
-
-	// Удаляем файл, если он существует
-	if doc.FilePath != "" {
-		if err := os.Remove(doc.FilePath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("удаление файла документа: %w", err)
-		}
-	}
-
-	return s.Repo.Delete(id)
-}
 func (s *DocumentService) ListDocuments(limit, offset int) ([]*models.Document, error) {
-	return s.Repo.ListDocuments(limit, offset)
+	return s.DocRepo.ListDocuments(limit, offset)
+}
+
+func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int) ([]*models.Document, error) {
+	deal, err := s.DealRepo.GetByID(int(dealID))
+	if err != nil || deal == nil {
+		return nil, errors.New("not found")
+	}
+	// Sales — только свои сделки
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, errors.New("forbidden")
+	}
+	return s.DocRepo.ListDocumentsByDeal(dealID)
+}
+
+func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
+	if authz.IsReadOnly(roleID) {
+		return errors.New("read-only role")
+	}
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+	// Sales — только свои; Ops/Mgmt/Admin — можно; Audit — запрещено (срезано выше)
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	return s.DocRepo.Delete(id)
+}
+
+// ===== Изменение статусов =====
+//
+// Стандартный поток:
+// draft -> under_review -> approved|returned -> signed
+
+func (s *DocumentService) Submit(id int64, userID, roleID int) error {
+	if authz.IsReadOnly(roleID) {
+		return errors.New("read-only role")
+	}
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+	// Sales может сабмитить только документы своей сделки
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	if doc.Status != "draft" {
+		return errors.New("invalid status")
+	}
+	return s.DocRepo.UpdateStatus(id, "under_review")
+}
+
+func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
+	// Только Ops/Mgmt/Admin
+	if !(roleID == authz.RoleOperations || roleID == authz.RoleManagement || roleID == authz.RoleAdmin) {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	if doc.Status != "under_review" {
+		return errors.New("invalid status")
+	}
+	switch action {
+	case "approve":
+		return s.DocRepo.UpdateStatus(id, "approved")
+	case "return":
+		return s.DocRepo.UpdateStatus(id, "returned")
+	default:
+		return errors.New("bad action")
+	}
+}
+
+func (s *DocumentService) Sign(id int64, userID, roleID int) error {
+	// Только Mgmt/Admin вручную
+	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin) {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	if !(doc.Status == "approved" || doc.Status == "returned") {
+		return errors.New("invalid status")
+	}
+	now := time.Now()
+	doc.Status = "signed"
+	doc.SignedAt = &now
+	return s.DocRepo.Update(doc)
+}
+
+// SignBySMS — “механическое” подписание после успешного подтверждения SMS.
+// Вызывается из SMSService после валидации кода.
+func (s *DocumentService) SignBySMS(docID int64) error {
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	// Строже: разрешить только из approved
+	// if doc.Status != "approved" { return errors.New("invalid status") }
+	// Мягче: разрешить из approved/returned/under_review
+	if !(doc.Status == "approved" || doc.Status == "returned" || doc.Status == "under_review") {
+		return errors.New("invalid status")
+	}
+	now := time.Now()
+	doc.Status = "signed"
+	doc.SignedAt = &now
+	return s.DocRepo.Update(doc)
+}
+
+// ===== Работа с файлами (RBAC + защита пути) =====
+
+func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID int) (absPath, fileName string, err error) {
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return "", "", errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return "", "", errors.New("not found")
+	}
+	// Sales — только свои документы
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return "", "", errors.New("forbidden")
+	}
+
+	// Нормализуем путь: хранится только имя файла (или относительный путь вида "/name.pdf")
+	rel := strings.TrimSpace(doc.FilePath)
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	rel = strings.TrimPrefix(rel, "files/")
+	rel = filepath.Base(rel) // безопасность: никакой вложенности
+
+	if rel == "" || rel == "." {
+		return "", "", errors.New("bad filepath")
+	}
+
+	abs := filepath.Join(s.FilesRoot, rel)
+	info, statErr := os.Stat(abs)
+	if statErr != nil || info.IsDir() {
+		return "", "", errors.New("file not found")
+	}
+	return abs, filepath.Base(abs), nil
+}
+
+// ResolveFileForHTTP — экспортируемый метод для хендлеров (inline/attachment)
+func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, _ bool) (string, string, error) {
+	return s.resolveAndAuthorizeFile(docID, userID, roleID)
+}
+
+// ===== Создание документа из лида с автогенерацией PDF =====
+
+func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, userID, roleID int) (*models.Document, error) {
+	lead, err := s.LeadRepo.GetByID(leadID)
+	if err != nil || lead == nil {
+		return nil, errors.New("lead not found")
+	}
+	deal, err := s.DealRepo.GetByLeadID(leadID)
+	if err != nil || deal == nil {
+		return nil, errors.New("deal not found")
+	}
+	// Sales — только свои
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, errors.New("forbidden")
+	}
+
+	// Генерация PDF (поддерживаем contract | invoice; остальное — 400)
+	var relPath string
+	switch docType {
+	case "contract":
+		if s.PDFGen == nil {
+			return nil, errors.New("pdf generator not configured")
+		}
+		relPath, err = s.PDFGen.GenerateContract(pdf.ContractData{
+			LeadTitle: lead.Title,
+			DealID:    deal.ID,
+			Amount:    deal.Amount,
+			Currency:  deal.Currency,
+			CreatedAt: deal.CreatedAt,
+			// Filename: можно не указывать — сгенерируется автоматически
+		})
+		if err != nil {
+			return nil, err
+		}
+	case "invoice":
+		if s.PDFGen == nil {
+			return nil, errors.New("pdf generator not configured")
+		}
+		relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
+			LeadTitle: lead.Title,
+			DealID:    deal.ID,
+			Amount:    deal.Amount,
+			Currency:  deal.Currency,
+			CreatedAt: deal.CreatedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errors.New("unsupported doc_type")
+	}
+
+	doc := &models.Document{
+		DealID:   int64(deal.ID),
+		DocType:  docType,
+		Status:   "draft",
+		FilePath: relPath, // например: "/contract_deal_1.pdf"
+	}
+	id, ierr := s.DocRepo.Create(doc)
+	if ierr != nil {
+		return nil, ierr
+	}
+	doc.ID = id
+	return doc, nil
 }

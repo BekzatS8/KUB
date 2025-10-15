@@ -4,37 +4,38 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
-	"turcompany/internal/middleware"
+	"turcompany/internal/pdf"
 	"turcompany/internal/repositories"
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
 	"turcompany/internal/utils"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq" // Подключение базы данных PostgreSQL
+	_ "github.com/lib/pq"
 
-	swaggerFiles "github.com/swaggo/files" // Импорт файлов для Swagger с alias
-	"github.com/swaggo/gin-swagger"        // Swagger middleware
-	_ "turcompany/docs"                    // Сгенерированная документация Swagger
+	swaggerFiles "github.com/swaggo/files"
+	"github.com/swaggo/gin-swagger"
+	_ "turcompany/docs"
 )
 
 func Run() {
 	cfg := config.LoadConfig()
 
-	// Настройка подключения к базе данных
+	// === DB ===
 	db, err := sql.Open("postgres", cfg.Database.DSN)
 	if err != nil {
-		log.Fatal("Ошибка подключения к базе данных: ", err)
+		log.Fatal("Ошибка подключения к БД: ", err)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
-			log.Printf("Ошибка закрытия базы данных: %v", err)
+			log.Printf("Ошибка закрытия БД: %v", err)
 		}
 	}()
 
-	// Репозитории
+	// === Repos ===
 	roleRepo := repositories.NewRoleRepository(db)
 	userRepo := repositories.NewUserRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
@@ -44,7 +45,7 @@ func Run() {
 	messageRepo := repositories.NewMessageRepository(db)
 	smsRepo := repositories.NewSMSConfirmationRepository(db)
 
-	// Сервисы
+	// === Services ===
 	authService := services.NewAuthService()
 	emailService := services.NewEmailService(
 		cfg.Email.SMTPHost,
@@ -53,20 +54,38 @@ func Run() {
 		cfg.Email.SMTPPassword,
 		cfg.Email.FromEmail,
 	)
+
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
 	leadService := services.NewLeadService(leadRepo, dealRepo)
 	dealService := services.NewDealService(dealRepo)
-	documentService := services.NewDocumentService(documentRepo, leadRepo, dealRepo, smsRepo, "placeholder-secret")
+
+	// PDF генератор (укажи реальный путь к TTF с кириллицей)
+	// например, положи DejaVuSans.ttf в assets/fonts/DejaVuSans.ttf
+	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
+
+	// DocumentService с filesRoot и pdfGen
+	documentService := services.NewDocumentService(
+		documentRepo,
+		leadRepo,
+		dealRepo,
+		smsRepo,
+		"placeholder-secret",
+		cfg.Files.RootDir,
+		pdfGen,
+	)
+
 	taskService := services.NewTaskService(taskRepo)
 	messageService := services.NewMessageService(messageRepo)
+
+	// SMS провайдер (Mobizon)
 	mobizonClient := utils.NewClient("kzfaad0a91a4b498db593b78414dfdaa2c213b8b8996afa325a223543481efeb11dd11")
 	smsService := services.NewSMSService(smsRepo, mobizonClient)
 
-	// Новый сервис для отчётов
+	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
 
-	// Обработчики
+	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	userHandler := handlers.NewUserHandler(userService, authService)
@@ -76,19 +95,18 @@ func Run() {
 	taskHandler := handlers.NewTaskHandler(taskService)
 	messageHandler := handlers.NewMessageHandler(messageService)
 	smsHandler := handlers.NewSMSHandler(smsService)
-
-	// Новый обработчик для отчётов
 	reportHandler := handlers.NewReportHandler(reportService)
 
-	// Настройка маршрутов и middleware
+	// === Gin ===
 	router := gin.Default()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 
-	router.Use(middleware.AuthMiddleware())
-	router.Use(middleware.ReadOnlyGuard())
+	// Swagger
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	// Роуты (JWT/RBAC — внутри SetupRoutes)
 	routes.SetupRoutes(
 		router,
 		userHandler,
@@ -100,13 +118,10 @@ func Run() {
 		taskHandler,
 		messageHandler,
 		smsHandler,
-		reportHandler, // Передаём reportHandler здесь
+		reportHandler,
 	)
 
-	// Swagger UI
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	// Запуск сервера
+	// === Run ===
 	listenAddr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Сервер запущен на %s", listenAddr)
 	if err := router.Run(listenAddr); err != nil {

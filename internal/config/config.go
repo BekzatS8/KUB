@@ -5,6 +5,10 @@ import (
 	"os"
 )
 
+// config/config.go
+type FilesConfig struct {
+	RootDir string `yaml:"root_dir"`
+}
 type Config struct {
 	Server struct {
 		Port int `yaml:"port"`
@@ -19,6 +23,7 @@ type Config struct {
 		SMTPPassword string `yaml:"smtp_password"`
 		FromEmail    string `yaml:"from_email"`
 	} `yaml:"email"`
+	Files FilesConfig `yaml:"files"` // <--- добавь это поле
 }
 
 func LoadConfig() *Config {
@@ -29,10 +34,13 @@ func LoadConfig() *Config {
 	defer f.Close()
 
 	var cfg Config
-	decoder := yaml.NewDecoder(f)
-	if err := decoder.Decode(&cfg); err != nil {
+	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
 		panic("Failed to parse config.yaml: " + err.Error())
 	}
 
+	// дефолт на случай, если в yaml нет блока files
+	if cfg.Files.RootDir == "" {
+		cfg.Files.RootDir = "./files"
+	}
 	return &cfg
 }
