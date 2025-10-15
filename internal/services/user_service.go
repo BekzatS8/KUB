@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -18,6 +19,11 @@ type UserService interface {
 	GetUserByEmail(email string) (*models.User, error)
 	GetUserCount() (int, error)
 	GetUserCountByRole(roleID int) (int, error)
+
+	// NEW: refresh helpers
+	UpdateRefresh(userID int, token string, expiresAt time.Time) error
+	GetByRefreshToken(token string) (*models.User, error)
+	RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error)
 }
 
 type userService struct {
@@ -118,4 +124,16 @@ func (s *userService) GetUserCount() (int, error) {
 
 func (s *userService) GetUserCountByRole(roleID int) (int, error) {
 	return s.repo.GetCountByRole(roleID)
+}
+
+func (s *userService) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
+	return s.repo.UpdateRefresh(userID, token, expiresAt)
+}
+
+func (s *userService) GetByRefreshToken(token string) (*models.User, error) {
+	return s.repo.GetByRefreshToken(token)
+}
+
+func (s *userService) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
+	return s.repo.RotateRefresh(oldToken, newToken, newExpiresAt)
 }
