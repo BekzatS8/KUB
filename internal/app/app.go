@@ -78,9 +78,14 @@ func Run() {
 	taskService := services.NewTaskService(taskRepo)
 	messageService := services.NewMessageService(messageRepo)
 
-	// SMS провайдер (Mobizon)
-	mobizonClient := utils.NewClient("kzfaad0a91a4b498db593b78414dfdaa2c213b8b8996afa325a223543481efeb11dd11")
-	smsService := services.NewSMSService(smsRepo, mobizonClient)
+	// SMS провайдер (Mobizon) из конфига
+	mobizonClient := utils.NewClientWithOptions(
+		cfg.Mobizon.APIKey,
+		cfg.Mobizon.SenderID,
+		cfg.Mobizon.DryRun,
+	)
+	// SMS сервис с доступом к DocumentService (чтобы подписывать после Confirm)
+	smsService := services.NewSMSService(smsRepo, mobizonClient, documentService)
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
