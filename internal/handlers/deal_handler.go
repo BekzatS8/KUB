@@ -20,17 +20,6 @@ func NewDealHandler(service *services.DealService) *DealHandler {
 	return &DealHandler{Service: service}
 }
 
-// @Summary      Создание сделки
-// @Description  Создает новую сделку, связанную с лидом. Продажник создаёт только СВОЮ сделку.
-// @Tags         Deals
-// @Accept       json
-// @Produce      json
-// @Param        deal  body      models.Deals  true  "Данные сделки (lead_id обязателен)"
-// @Success      201   {object}  models.Deals
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /deals [post]
 func (h *DealHandler) Create(c *gin.Context) {
 	var deal models.Deals
 	if err := c.ShouldBindJSON(&deal); err != nil {
@@ -62,19 +51,6 @@ func (h *DealHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, deal)
 }
 
-// @Summary      Обновление сделки
-// @Description  Обновляет данные сделки по ее ID (владелец или повышенные роли).
-// @Tags         Deals
-// @Accept       json
-// @Produce      json
-// @Param        id    path      int           true  "ID сделки"
-// @Param        deal  body      models.Deals  true  "Новые данные сделки"
-// @Success      200   {object}  models.Deals
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      404   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /deals/{id} [put]
 func (h *DealHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -119,15 +95,6 @@ func (h *DealHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, updated)
 }
 
-// @Summary      Получить сделку по ID
-// @Description  Возвращает данные одной сделки. Sales видит только свою; остальные (ops/mgmt/admin/audit) — любую.
-// @Tags         Deals
-// @Produce      json
-// @Param        id   path      int  true  "ID сделки"
-// @Success      200  {object}  models.Deals
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /deals/{id} [get]
 func (h *DealHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -147,16 +114,6 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, deal)
 }
-
-// @Summary      Удалить сделку
-// @Description  Удаляет сделку по ID. Audit запрещено; Sales — только свою; elevated — любую.
-// @Tags         Deals
-// @Param        id   path  int  true  "ID сделки"
-// @Success      204  "No Content"
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /deals/{id} [delete]
 func (h *DealHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -186,15 +143,6 @@ func (h *DealHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// @Summary      Список сделок с пагинацией
-// @Description  Sales — видит только свои; ops/mgmt/admin/audit — все.
-// @Tags         Deals
-// @Produce      json
-// @Param        page   query     int  false  "Номер страницы (по умолчанию 1)"
-// @Param        size   query     int  false  "Размер страницы (по умолчанию 100)"
-// @Success      200  {array}  models.Deals
-// @Failure      500  {object}  map[string]string
-// @Router       /deals [get]
 func (h *DealHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	sizeStr := c.DefaultQuery("size", "100")

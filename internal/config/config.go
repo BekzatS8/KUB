@@ -5,10 +5,16 @@ import (
 	"os"
 )
 
-// config/config.go
 type FilesConfig struct {
 	RootDir string `yaml:"root_dir"`
 }
+
+type MobizonConfig struct {
+	APIKey   string `yaml:"api_key"`
+	SenderID string `yaml:"sender_id"`
+	DryRun   bool   `yaml:"dry_run"`
+}
+
 type Config struct {
 	Server struct {
 		Port int `yaml:"port"`
@@ -23,7 +29,8 @@ type Config struct {
 		SMTPPassword string `yaml:"smtp_password"`
 		FromEmail    string `yaml:"from_email"`
 	} `yaml:"email"`
-	Files FilesConfig `yaml:"files"` // <--- добавь это поле
+	Files   FilesConfig   `yaml:"files"`
+	Mobizon MobizonConfig `yaml:"mobizon"`
 }
 
 func LoadConfig() *Config {
@@ -38,7 +45,6 @@ func LoadConfig() *Config {
 		panic("Failed to parse config.yaml: " + err.Error())
 	}
 
-	// дефолт на случай, если в yaml нет блока files
 	if cfg.Files.RootDir == "" {
 		cfg.Files.RootDir = "./files"
 	}

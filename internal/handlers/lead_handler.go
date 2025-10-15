@@ -20,17 +20,6 @@ func NewLeadHandler(service *services.LeadService) *LeadHandler {
 	return &LeadHandler{Service: service}
 }
 
-// @Summary      Создать лид
-// @Description  Создает нового лида. Владельцем становится текущий пользователь.
-// @Tags         Leads
-// @Accept       json
-// @Produce      json
-// @Param        lead  body      models.Leads  true  "Данные нового лида (owner_id игнорируется)"
-// @Success      201   {object}  models.Leads
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /leads [post]
 func (h *LeadHandler) Create(c *gin.Context) {
 	var lead models.Leads
 	if err := c.ShouldBindJSON(&lead); err != nil {
@@ -60,18 +49,6 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, lead)
 }
 
-// @Summary      Обновить лид
-// @Description  Обновляет данные лида по ID (владелец или повышенные роли).
-// @Tags         Leads
-// @Accept       json
-// @Produce      json
-// @Param        id    path      int           true  "ID Лида"
-// @Param        lead  body      models.Leads  true  "Обновленные данные (owner_id игнорируется для не-elevated)"
-// @Success      200   {object}  models.Leads
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      404   {object}  map[string]string
-// @Router       /leads/{id} [put]
 func (h *LeadHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -116,15 +93,6 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	c.JSON(200, updated)
 }
 
-// @Summary      Получить лид по ID
-// @Description  Sales видит только свой; Ops/Mgmt/Admin/Audit — любой.
-// @Tags         Leads
-// @Produce      json
-// @Param        id   path      int  true  "ID Лида"
-// @Success      200  {object}  models.Leads
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /leads/{id} [get]
 func (h *LeadHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -146,15 +114,6 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 	c.JSON(200, lead)
 }
 
-// @Summary      Удалить лида
-// @Description  Audit — запрещено; Sales — только своего; elevated — любого.
-// @Tags         Leads
-// @Param        id   path  int  true  "ID Лида"
-// @Success      204  "No Content"
-// @Failure      403  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /leads/{id} [delete]
 func (h *LeadHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -191,20 +150,6 @@ type ConvertLeadRequest struct {
 	Currency string `json:"currency" example:"USD"`
 }
 
-// @Summary      Конвертировать лид в сделку
-// @Description  Создает сделку на основе лида. Sales — только свой лид; elevated — любой.
-// @Tags         Leads
-// @Accept       json
-// @Produce      json
-// @Param        id path int true "ID лида"
-// @Param        request body ConvertLeadRequest true "Данные для сделки"
-// @Success      201 {object} models.Deals
-// @Failure      400 {object} map[string]string
-// @Failure      403 {object} map[string]string
-// @Failure      404 {object} map[string]string
-// @Failure      409 {object} map[string]string
-// @Failure      500 {object} map[string]string
-// @Router       /leads/{id}/convert [put]
 func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -248,15 +193,6 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	c.JSON(201, deal)
 }
 
-// @Summary      Список лидов с пагинацией
-// @Description  Sales — видит только свои; Ops/Mgmt/Admin/Audit — все.
-// @Tags         Leads
-// @Produce      json
-// @Param        page   query     int  false  "Page number (default 1)"
-// @Param        size   query     int  false  "Page size (default 100)"
-// @Success      200  {array}  models.Leads
-// @Failure      500  {object}  map[string]string
-// @Router       /leads [get]
 func (h *LeadHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	sizeStr := c.DefaultQuery("size", "100")

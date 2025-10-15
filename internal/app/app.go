@@ -15,10 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
-
-	swaggerFiles "github.com/swaggo/files"
-	"github.com/swaggo/gin-swagger"
-	_ "turcompany/docs"
 )
 
 func Run() {
@@ -78,9 +74,14 @@ func Run() {
 	taskService := services.NewTaskService(taskRepo)
 	messageService := services.NewMessageService(messageRepo)
 
-	// SMS провайдер (Mobizon)
-	mobizonClient := utils.NewClient("kzfaad0a91a4b498db593b78414dfdaa2c213b8b8996afa325a223543481efeb11dd11")
-	smsService := services.NewSMSService(smsRepo, mobizonClient)
+	// SMS провайдер (Mobizon) из конфига
+	mobizonClient := utils.NewClientWithOptions(
+		cfg.Mobizon.APIKey,
+		cfg.Mobizon.SenderID,
+		cfg.Mobizon.DryRun,
+	)
+	// SMS сервис с доступом к DocumentService (чтобы подписывать после Confirm)
+	smsService := services.NewSMSService(smsRepo, mobizonClient, documentService)
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
@@ -102,9 +103,6 @@ func Run() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
-
-	// Swagger
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Роуты (JWT/RBAC — внутри SetupRoutes)
 	routes.SetupRoutes(

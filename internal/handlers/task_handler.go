@@ -21,17 +21,6 @@ func NewTaskHandler(service services.TaskService) *TaskHandler {
 	return &TaskHandler{service: service}
 }
 
-// @Summary      Create a new task
-// @Description  Создает новую задачу
-// @Tags         tasks
-// @Accept       json
-// @Produce      json
-// @Param        task  body  object  true  "Task info (assignee_id, title, description, due_date in RFC3339)"
-// @Success      201   {object}  models.Task
-// @Failure      400   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /tasks [post]
-// Create handles POST /tasks
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
 		AssigneeID  int64  `json:"assignee_id" binding:"required"`
@@ -79,16 +68,6 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, createdTask)
 }
 
-// @Summary      Get task by ID
-// @Description  Получить задачу по ID
-// @Tags         tasks
-// @Produce      json
-// @Param        id   path      int  true  "Task ID"
-// @Success      200  {object}  models.Task
-// @Failure      400  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /tasks/{id} [get]
-// GetByID handles GET /tasks/:id
 func (h *TaskHandler) GetByID(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -104,15 +83,6 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, task)
 }
 
-// @Summary      Get all tasks
-// @Description  Получить список всех задач (с фильтрацией по assignee_id)
-// @Tags         tasks
-// @Produce      json
-// @Param        assignee_id  query     int  false  "Assignee ID"
-// @Success      200  {array}   models.Task
-// @Failure      500  {object}  map[string]string
-// @Router       /tasks [get]
-// GetAll handles GET /tasks
 func (h *TaskHandler) GetAll(c *gin.Context) {
 	var filter models.TaskFilter
 
@@ -130,18 +100,6 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	c.JSON(http.StatusOK, tasks)
 }
 
-// @Summary      Update task
-// @Description  Обновить задачу по ID
-// @Tags         tasks
-// @Accept       json
-// @Produce      json
-// @Param        id    path  int          true  "Task ID"
-// @Param        task  body  models.Task  true  "Updated task data"
-// @Success      200   {object}  models.Task
-// @Failure      400   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /tasks/{id} [put]
-// Update handles PUT /tasks/:id
 func (h *TaskHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -163,15 +121,6 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, updatedTask)
 }
 
-// @Summary      Delete task
-// @Description  Удалить задачу по ID
-// @Tags         tasks
-// @Param        id   path  int  true  "Task ID"
-// @Success      204  "No Content"
-// @Failure      400  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /tasks/{id} [delete]
-// Delete handles DELETE /tasks/:id
 func (h *TaskHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
