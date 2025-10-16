@@ -15,10 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
-
-	swaggerFiles "github.com/swaggo/files"
-	"github.com/swaggo/gin-swagger"
-	_ "turcompany/docs"
 )
 
 func Run() {
@@ -107,9 +103,6 @@ func Run() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
-
-	// Swagger
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Роуты (JWT/RBAC — внутри SetupRoutes)
 	routes.SetupRoutes(

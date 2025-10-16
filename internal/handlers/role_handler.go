@@ -18,16 +18,6 @@ func NewRoleHandler(service services.RoleService) *RoleHandler {
 	return &RoleHandler{service: service}
 }
 
-// @Summary      Создать роль
-// @Description  Создает новую роль в системе
-// @Tags         Roles
-// @Accept       json
-// @Produce      json
-// @Param        role  body      models.Role  true  "Данные новой роли"
-// @Success      201   {object}  models.Role
-// @Failure      400   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /roles [post]
 func (h *RoleHandler) CreateRole(c *gin.Context) {
 	var role models.Role
 	if err := c.ShouldBindJSON(&role); err != nil {
@@ -43,15 +33,6 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 	c.JSON(http.StatusCreated, role)
 }
 
-// @Summary      Получить роль по ID
-// @Description  Возвращает данные одной роли
-// @Tags         Roles
-// @Produce      json
-// @Param        id   path      int  true  "ID роли"
-// @Success      200  {object}  models.Role
-// @Failure      400  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /roles/{id} [get]
 func (h *RoleHandler) GetRoleByID(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -67,17 +48,6 @@ func (h *RoleHandler) GetRoleByID(c *gin.Context) {
 	c.JSON(http.StatusOK, role)
 }
 
-// @Summary      Обновить роль
-// @Description  Обновляет данные роли по ID
-// @Tags         Roles
-// @Accept       json
-// @Produce      json
-// @Param        id    path      int           true  "ID роли"
-// @Param        role  body      models.Role   true  "Обновленные данные роли"
-// @Success      200   {object}  models.Role
-// @Failure      400   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /roles/{id} [put]
 func (h *RoleHandler) UpdateRole(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -100,14 +70,6 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 	c.JSON(http.StatusOK, role)
 }
 
-// @Summary      Удалить роль
-// @Description  Удаляет роль по ID
-// @Tags         Roles
-// @Param        id   path  int  true  "ID роли"
-// @Success      200  {object}  map[string]string
-// @Failure      400  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /roles/{id} [delete]
 func (h *RoleHandler) DeleteRole(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -122,15 +84,6 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Role deleted"})
 }
 
-// @Summary      Получить список ролей
-// @Description  Возвращает список всех ролей
-// @Tags         Roles
-// @Produce      json
-// @Param        page   query     int  false  "Page number"
-// @Param        limit  query     int  false  "Page size"
-// @Success      200  {array}   models.Role
-// @Failure      500  {object}  map[string]string
-// @Router       /roles [get]
 func (h *RoleHandler) ListRoles(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	limitStr := c.DefaultQuery("limit", "10")
@@ -152,13 +105,6 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 	c.JSON(http.StatusOK, roles)
 }
 
-// @Summary      Получить количество ролей
-// @Description  Возвращает общее количество ролей в системе
-// @Tags         Roles
-// @Produce      json
-// @Success      200  {object}  map[string]int
-// @Failure      500  {object}  map[string]string
-// @Router       /roles/count [get]
 func (h *RoleHandler) GetRoleCount(c *gin.Context) {
 	count, err := h.service.GetRoleCount()
 	if err != nil {
@@ -168,13 +114,6 @@ func (h *RoleHandler) GetRoleCount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// @Summary      Получить роли с количеством пользователей
-// @Description  Возвращает список ролей с количеством пользователей для каждой роли
-// @Tags         Roles
-// @Produce      json
-// @Success      200  {array}   object
-// @Failure      500  {object}  map[string]string
-// @Router       /roles/with-user-counts [get]
 func (h *RoleHandler) GetRolesWithUserCounts(c *gin.Context) {
 	rolesWithCounts, err := h.service.GetRolesWithUserCounts()
 	if err != nil {

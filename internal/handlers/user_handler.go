@@ -45,18 +45,6 @@ func maskIfAudit(callerRole int, u *models.User) *models.User {
 	cp.PasswordHash = ""
 	return &cp
 }
-
-// @Summary      Создать пользователя
-// @Description  Создаёт пользователя. Разрешено только Admin. Не-Admin получит 403.
-// @Tags         Users
-// @Accept       json
-// @Produce      json
-// @Param        user  body      createUserRequest  true  "Данные нового пользователя"
-// @Success      201   {object}  models.User
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /users [post]
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if roleID != authz.RoleAdmin {
@@ -89,16 +77,6 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, maskIfAudit(roleID, user))
 }
-
-// @Summary      Получить пользователя по ID
-// @Description  Возвращает пользователя. Audit видит всех, но сведения о руководстве — скрыты.
-// @Tags         Users
-// @Produce      json
-// @Param        id   path      int  true  "ID пользователя"
-// @Success      200  {object}  models.User
-// @Failure      400  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /users/{id} [get]
 func (h *UserHandler) GetUserByID(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 
@@ -115,19 +93,6 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
 }
-
-// @Summary      Обновить пользователя
-// @Description  Admin может обновлять любого, включая смену роли. Не-Admin: только себя и без смены роли/пароля-хэша.
-// @Tags         Users
-// @Accept       json
-// @Produce      json
-// @Param        id    path      int           true  "ID пользователя"
-// @Param        user  body      models.User   true  "Обновлённые данные пользователя"
-// @Success      200   {object}  models.User
-// @Failure      400   {object}  map[string]string
-// @Failure      403   {object}  map[string]string
-// @Failure      404   {object}  map[string]string
-// @Router       /users/{id} [put]
 func (h *UserHandler) UpdateUser(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 
@@ -171,15 +136,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, maskIfAudit(roleID, updated))
 }
 
-// @Summary      Удалить пользователя
-// @Description  Только Admin.
-// @Tags         Users
-// @Param        id   path  int  true  "ID пользователя"
-// @Success      200  {object}  map[string]string
-// @Failure      400  {object}  map[string]string
-// @Failure      403  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /users/{id} [delete]
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if roleID != authz.RoleAdmin {
@@ -200,16 +156,6 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
 }
 
-// @Summary      Получить список пользователей
-// @Description  Management/Admin/Audit — видят всех. Audit — без сведений о руководстве.
-// @Tags         Users
-// @Produce      json
-// @Param        page   query     int  false  "Page number"
-// @Param        limit  query     int  false  "Page size"
-// @Success      200  {array}   models.User
-// @Failure      403  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /users [get]
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
@@ -243,14 +189,6 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// @Summary      Получить количество пользователей
-// @Description  Доступно Management/Admin/Audit
-// @Tags         Users
-// @Produce      json
-// @Success      200  {object}  map[string]int
-// @Failure      403  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
-// @Router       /users/count [get]
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
@@ -266,15 +204,6 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// @Summary      Получить количество пользователей по роли
-// @Description  Доступно Management/Admin/Audit
-// @Tags         Users
-// @Produce      json
-// @Param        role_id  path  int  true  "ID роли"
-// @Success      200      {object}  map[string]int
-// @Failure      403      {object}  map[string]string
-// @Failure      500      {object}  map[string]string
-// @Router       /users/count/role/{role_id} [get]
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
@@ -297,16 +226,6 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count, "role_id": roleIDVal})
 }
 
-// @Summary      Регистрация пользователя (публично)
-// @Description  Всегда присваивает роль Sales (10); роль из входа игнорируется.
-// @Tags         Auth
-// @Accept       json
-// @Produce      json
-// @Param        user  body      createUserRequest  true  "Данные нового пользователя"
-// @Success      201   {object}  models.User
-// @Failure      400   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /register [post]
 func (h *UserHandler) Register(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
