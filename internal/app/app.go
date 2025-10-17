@@ -39,7 +39,8 @@ func Run() {
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
 	messageRepo := repositories.NewMessageRepository(db)
-	smsRepo := repositories.NewSMSConfirmationRepository(db)
+	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
+	verifRepo := repositories.NewUserVerificationRepository(db) // НОВЫЙ: для верификации пользователей
 
 	// === Services ===
 	authService := services.NewAuthService()
@@ -56,11 +57,10 @@ func Run() {
 	leadService := services.NewLeadService(leadRepo, dealRepo)
 	dealService := services.NewDealService(dealRepo)
 
-	// PDF генератор (укажи реальный путь к TTF с кириллицей)
-	// например, положи DejaVuSans.ttf в assets/fonts/DejaVuSans.ttf
+	// PDF генератор
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
 
-	// DocumentService с filesRoot и pdfGen
+	// DocumentService
 	documentService := services.NewDocumentService(
 		documentRepo,
 		leadRepo,
@@ -74,14 +74,21 @@ func Run() {
 	taskService := services.NewTaskService(taskRepo)
 	messageService := services.NewMessageService(messageRepo)
 
-	// SMS провайдер (Mobizon) из конфига
+	// SMS провайдер (Mobizon)
 	mobizonClient := utils.NewClientWithOptions(
 		cfg.Mobizon.APIKey,
 		cfg.Mobizon.SenderID,
 		cfg.Mobizon.DryRun,
 	)
-	// SMS сервис с доступом к DocumentService (чтобы подписывать после Confirm)
-	smsService := services.NewSMSService(smsRepo, mobizonClient, documentService)
+
+	// SMS сервис — документы + верификация пользователей
+	smsService := services.NewSMSService(
+		smsRepo,       // документный репозиторий
+		mobizonClient, // клиент
+		documentService,
+		verifRepo,   // НОВЫЙ репозиторий верификации
+		userService, // чтобы проставлять is_verified
+	)
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
@@ -89,22 +96,23 @@ func Run() {
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	userHandler := handlers.NewUserHandler(userService, authService)
+	userHandler := handlers.NewUserHandler(userService, smsService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
 	taskHandler := handlers.NewTaskHandler(taskService)
 	messageHandler := handlers.NewMessageHandler(messageService)
 	smsHandler := handlers.NewSMSHandler(smsService)
+	verifyHandler := handlers.NewVerifyHandler(smsService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
 	// === Gin ===
 	router := gin.Default()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
+	// router.Use(gin.Logger())
+	// router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 
-	// Роуты (JWT/RBAC — внутри SetupRoutes)
+	// Роуты
 	routes.SetupRoutes(
 		router,
 		userHandler,
@@ -117,6 +125,7 @@ func Run() {
 		messageHandler,
 		smsHandler,
 		reportHandler,
+		verifyHandler,
 	)
 
 	// === Run ===

@@ -20,10 +20,13 @@ type UserService interface {
 	GetUserCount() (int, error)
 	GetUserCountByRole(roleID int) (int, error)
 
-	// NEW: refresh helpers
+	// refresh helpers
 	UpdateRefresh(userID int, token string, expiresAt time.Time) error
 	GetByRefreshToken(token string) (*models.User, error)
 	RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error)
+
+	// verification
+	VerifyUser(userID int) error
 }
 
 type userService struct {
@@ -58,30 +61,25 @@ func (s *userService) CreateUserWithPassword(user *models.User, plainPassword st
 
 	if s.emailService != nil {
 		if err := s.emailService.SendWelcomeEmail(user.Email, user.CompanyName); err != nil {
-			// warn but do not fail creation
 			log.Printf("CreateUserWithPassword: warning: failed to send welcome email to %s: %v", user.Email, err)
 		}
 	}
-
 	return nil
 }
 
-// CreateUser - backward compatible: if PasswordHash looks like a plain password, hash it; if it's already a bcrypt hash, keep as is
+// CreateUser - backward compatible: if PasswordHash looks like plain pwd, hash; if bcrypt — keep
 func (s *userService) CreateUser(user *models.User) error {
 	if user.PasswordHash == "" {
 		return fmt.Errorf("password not provided")
 	}
 	ph := strings.TrimSpace(user.PasswordHash)
-	// detect bcrypt hash prefix
 	if !(strings.HasPrefix(ph, "$2a$") || strings.HasPrefix(ph, "$2b$") || strings.HasPrefix(ph, "$2y$")) {
-		// looks like plain password -> hash it
 		h, err := s.authService.HashPassword(ph)
 		if err != nil {
 			return err
 		}
 		user.PasswordHash = h
 	} else {
-		// already a hash -> keep
 		user.PasswordHash = ph
 	}
 
@@ -94,7 +92,6 @@ func (s *userService) CreateUser(user *models.User) error {
 			log.Printf("CreateUser: warning: failed to send welcome email to %s: %v", user.Email, err)
 		}
 	}
-
 	return nil
 }
 
@@ -136,4 +133,9 @@ func (s *userService) GetByRefreshToken(token string) (*models.User, error) {
 
 func (s *userService) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
 	return s.repo.RotateRefresh(oldToken, newToken, newExpiresAt)
+}
+
+// === verification ===
+func (s *userService) VerifyUser(userID int) error {
+	return s.repo.VerifyUser(userID)
 }

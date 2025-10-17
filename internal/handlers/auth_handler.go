@@ -23,6 +23,7 @@ type AuthHandler struct {
 func NewAuthHandler(userService services.UserService, authService services.AuthService) *AuthHandler {
 	return &AuthHandler{userService: userService, authService: authService}
 }
+
 func (h *AuthHandler) Login(c *gin.Context) {
 	start := time.Now()
 
@@ -36,18 +37,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	log.Printf("[auth][login] attempt email=%q", email)
 
 	user, err := h.userService.GetUserByEmail(email)
-	if err != nil {
+	if err != nil || user == nil {
 		log.Printf("[auth][login] user not found by email=%q: err=%v", email, err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
-	if user == nil {
-		log.Printf("[auth][login] user is nil for email=%q", email)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+
+	// Блокируем логин, если телефон не подтверждён
+	if !user.IsVerified {
+		log.Printf("[auth][login] user not verified id=%d", user.ID)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Phone not verified",
+			"hint":  "Use /register/confirm or /register/resend to verify your phone.",
+		})
 		return
 	}
 
-	// Диагностика по хешу (без вывода самого хеша)
 	ph := strings.TrimSpace(user.PasswordHash)
 	log.Printf("[auth][login] user found: id=%d role=%d hash_len=%d bcrypt_prefix=%v",
 		user.ID, user.RoleID, len(ph), strings.HasPrefix(ph, "$2"))
@@ -58,7 +63,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Сравнение пароля
 	pw := strings.TrimSpace(req.Password)
 	if err := bcrypt.CompareHashAndPassword([]byte(ph), []byte(pw)); err != nil {
 		log.Printf("[auth][login] bcrypt mismatch for userID=%d email=%q: err=%v", user.ID, email, err)
@@ -67,7 +71,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	log.Printf("[auth][login] password OK for userID=%d", user.ID)
 
-	// Access JWT
 	accessClaims := &middleware.Claims{
 		UserID: user.ID,
 		RoleID: user.RoleID,
@@ -85,7 +88,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	log.Printf("[auth][login] access token generated for userID=%d exp_in=%s",
 		user.ID, time.Until(accessClaims.ExpiresAt.Time).Truncate(time.Second))
 
-	// Refresh (opaque) -> хранится в БД
 	rt, err := utils.NewRefreshToken(32)
 	if err != nil {
 		log.Printf("[auth][login] new refresh token failed for userID=%d: err=%v", user.ID, err)
@@ -100,18 +102,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	log.Printf("[auth][login] refresh token stored for userID=%d exp_at=%s", user.ID, rtExp.Format(time.RFC3339))
 
-	// Финал
 	log.Printf("[auth][login] success userID=%d role=%d took=%s", user.ID, user.RoleID, time.Since(start).Truncate(time.Millisecond))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
-		"user":    user, // у модели PasswordHash помечен json:"-", наружу не уйдет
+		"user":    user, // PasswordHash скрыт тегом json:"-"
 		"tokens": gin.H{
 			"access_token":  accessTokenString,
-			"refresh_token": rt, // значение отдаём клиенту, но не логируем
+			"refresh_token": rt,
 		},
 	})
 }
+
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token" binding:"required"`
@@ -131,7 +133,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// rotate refresh
 	newRT, err := utils.NewRefreshToken(32)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rotate refresh token"})
@@ -144,7 +145,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// new access
 	accessClaims := &middleware.Claims{
 		UserID: rotatedUser.ID,
 		RoleID: rotatedUser.RoleID,
@@ -161,6 +161,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessTokenString,
-		"refresh_token": newRT, // возвращаем новый (ротация)
+		"refresh_token": newRT,
 	})
 }

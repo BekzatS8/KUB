@@ -19,12 +19,15 @@ func SetupRoutes(
 	messageHandler *handlers.MessageHandler,
 	smsHandler *handlers.SMSHandler,
 	reportHandler *handlers.ReportHandler,
+	verifyHandler *handlers.VerifyHandler, // <= добавь параметр
 ) *gin.Engine {
 
 	// === ПУБЛИЧНЫЕ ===
 	r.POST("/login", authHandler.Login)
-	// Если хочешь оставить регу только для админа — перенеси /register ниже JWT и оберни RequireRoles(RoleAdmin)
-	r.POST("/register", userHandler.Register)
+	r.POST("/refresh", authHandler.RefreshToken)           // публичный refresh
+	r.POST("/register", userHandler.Register)              // регистрация
+	r.POST("/register/confirm", verifyHandler.ConfirmUser) // ✅ ОСТАВИТЬ ТОЛЬКО ЗДЕСЬ
+	r.POST("/register/resend", verifyHandler.ResendUser)   // ✅ ОСТАВИТЬ ТОЛЬКО ЗДЕСЬ
 
 	// === ВСЁ НИЖЕ — ТОЛЬКО С JWT ===
 	r.Use(middleware.AuthMiddleware())
@@ -77,7 +80,6 @@ func SetupRoutes(
 	}
 
 	// ==== DOCUMENTS ====
-	// ==== DOCUMENTS ====
 	documents := r.Group("/documents")
 	{
 		documents.GET("/", documentHandler.ListDocuments)
@@ -123,7 +125,7 @@ func SetupRoutes(
 		messages.GET("/history/:partner_id", messageHandler.GetConversationHistory)
 	}
 
-	// ==== SMS ==== (sales/ops/mgmt/admin)
+	// ==== SMS ==== (sales/ops/mgmt/admin) — для документов
 	sms := r.Group("/sms",
 		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
 	)

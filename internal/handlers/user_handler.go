@@ -12,8 +12,8 @@ import (
 )
 
 type UserHandler struct {
-	service     services.UserService
-	authService services.AuthService
+	service    services.UserService
+	smsService *services.SMS_Service
 }
 
 type createUserRequest struct {
@@ -21,11 +21,12 @@ type createUserRequest struct {
 	BinIin      string `json:"bin_iin"`
 	Email       string `json:"email" binding:"required,email"`
 	Password    string `json:"password" binding:"required,min=6"`
-	RoleID      int    `json:"role_id"` // будет проигнорирован, если создатель не админ
+	Phone       string `json:"phone" binding:"required"` // НОВОЕ: телефон обязателен
+	RoleID      int    `json:"role_id"`                  // игнорится если создатель не админ
 }
 
-func NewUserHandler(service services.UserService, authService services.AuthService) *UserHandler {
-	return &UserHandler{service: service, authService: authService}
+func NewUserHandler(service services.UserService, smsService *services.SMS_Service) *UserHandler {
+	return &UserHandler{service: service, smsService: smsService}
 }
 
 // небольшое маскирование сведений о руководстве для роли Audit
@@ -33,14 +34,13 @@ func maskIfAudit(callerRole int, u *models.User) *models.User {
 	if callerRole == authz.RoleAudit && u.RoleID == authz.RoleManagement {
 		return &models.User{
 			ID:           u.ID,
-			CompanyName:  "", // скрываем
+			CompanyName:  "",
 			BinIin:       "",
 			Email:        "",
 			PasswordHash: "",
 			RoleID:       u.RoleID,
 		}
 	}
-	// по умолчанию — просто не показываем password_hash
 	cp := *u
 	cp.PasswordHash = ""
 	return &cp
@@ -61,14 +61,17 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 
 	newRole := req.RoleID
 	if newRole == 0 {
-		newRole = authz.RoleSales // по умолчанию — продажник
+		newRole = authz.RoleSales
 	}
 
 	user := &models.User{
 		CompanyName: req.CompanyName,
 		BinIin:      req.BinIin,
 		Email:       req.Email,
+		Phone:       req.Phone,
 		RoleID:      newRole,
+		// админ создает сразу верифицированного? оставим false, чтобы процесс был единый
+		IsVerified: false,
 	}
 
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
@@ -76,6 +79,14 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
+
+	// Отправим SMS с кодом (можно игнорить ошибку, юзер сможет переслать код публичной ручкой)
+	if h.smsService != nil {
+		if err := h.smsService.SendUserSMS(user.ID, user.Phone); err != nil {
+			log.Printf("[users][create] send user sms failed: %v", err)
+		}
+	}
+
 	c.JSON(http.StatusCreated, maskIfAudit(roleID, user))
 }
 
@@ -120,13 +131,15 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	body.ID = id
 
 	if roleID != authz.RoleAdmin {
-		// не-админ — только себя и без повышения прав
 		if userID != id {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
-		body.RoleID = target.RoleID             // нельзя менять свою роль
-		body.PasswordHash = target.PasswordHash // пароль меняется отдельным флоу (если нужен)
+		body.RoleID = target.RoleID
+		body.PasswordHash = target.PasswordHash
+		// is_verified/verified_at менять обычному пользователю нельзя
+		body.IsVerified = target.IsVerified
+		body.VerifiedAt = target.VerifiedAt
 	}
 
 	if err := h.service.UpdateUser(&body); err != nil {
@@ -229,27 +242,38 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count, "role_id": roleIDVal})
 }
 
+// Публичная регистрация: создаём sales + is_verified=false, шлём SMS
 func (h *UserHandler) Register(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// публичная регистрация всегда = Sales
 	req.RoleID = authz.RoleSales
 
 	user := &models.User{
 		CompanyName: req.CompanyName,
 		BinIin:      req.BinIin,
 		Email:       req.Email,
+		Phone:       req.Phone,
 		RoleID:      req.RoleID,
+		IsVerified:  false,
 	}
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("Register: service error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
 		return
 	}
-	// пароль не возвращаем
+
+	if h.smsService != nil {
+		if err := h.smsService.SendUserSMS(user.ID, user.Phone); err != nil {
+			log.Printf("[register] send sms failed: %v", err)
+		}
+	}
+
 	user.PasswordHash = ""
-	c.JSON(http.StatusCreated, user)
+	c.JSON(http.StatusCreated, gin.H{
+		"user":    user,
+		"message": "Registered. SMS code sent.",
+	})
 }

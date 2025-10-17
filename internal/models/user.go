@@ -7,13 +7,17 @@ type User struct {
 	CompanyName  string `json:"company_name"`
 	BinIin       string `json:"bin_iin"`
 	Email        string `json:"email"`
-	PasswordHash string `json:"-"` // не отдаём наружу
+	PasswordHash string `json:"-"` // не отдаём
 	RoleID       int    `json:"role_id"`
+	// новое:
+	Phone      string     `json:"phone"`
+	IsVerified bool       `json:"is_verified"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 
-	// refresh-хранение в БД
-	RefreshToken     *string    `json:"-"` // храним opaque строку
-	RefreshExpiresAt *time.Time `json:"-"` // срок действия
-	RefreshRevoked   bool       `json:"-"` // если понадобится отозвать
+	// refresh:
+	RefreshToken     *string    `json:"-"`
+	RefreshExpiresAt *time.Time `json:"-"`
+	RefreshRevoked   bool       `json:"-"`
 }
 
 type LoginRequest struct {
