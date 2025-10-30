@@ -1,8 +1,10 @@
+// internal/services/tasks.go
 package services
 
 import (
 	"context"
 	"time"
+
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -14,6 +16,10 @@ type TaskService interface {
 	GetAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error)
 	Update(ctx context.Context, id int64, updateData *models.Task) (*models.Task, error)
 	Delete(ctx context.Context, id int64) error
+
+	// NEW:
+	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error)
+	UpdateAssignee(ctx context.Context, id int64, assigneeID int64) (*models.Task, error)
 }
 
 type taskService struct {
@@ -26,9 +32,15 @@ func NewTaskService(repo repositories.TaskRepository) TaskService {
 }
 
 func (s *taskService) Create(ctx context.Context, task *models.Task) (*models.Task, error) {
-	task.Status = models.StatusNew
-	task.CreatedAt = time.Now()
-	task.UpdatedAt = time.Now()
+	if task.Status == "" {
+		task.Status = models.StatusNew
+	}
+	if task.Priority == "" {
+		task.Priority = models.PriorityNormal
+	}
+	now := time.Now()
+	task.CreatedAt = now
+	task.UpdatedAt = now
 
 	if err := s.repo.Store(ctx, task); err != nil {
 		return nil, err
@@ -49,13 +61,19 @@ func (s *taskService) Update(ctx context.Context, id int64, updateData *models.T
 	if err != nil {
 		return nil, err
 	}
+	if existingTask == nil {
+		return nil, nil
+	}
 
-	// Update fields if they are provided in the request
+	// Прокидываем все поля, которые реально обновляет repo.Update
 	existingTask.AssigneeID = updateData.AssigneeID
 	existingTask.Title = updateData.Title
 	existingTask.Description = updateData.Description
 	existingTask.DueDate = updateData.DueDate
+	existingTask.ReminderAt = updateData.ReminderAt
+	existingTask.Priority = updateData.Priority
 	existingTask.Status = updateData.Status
+
 	existingTask.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, existingTask); err != nil {
@@ -66,4 +84,19 @@ func (s *taskService) Update(ctx context.Context, id int64, updateData *models.T
 
 func (s *taskService) Delete(ctx context.Context, id int64) error {
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *taskService) UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error) {
+	// (валидацию переходов делает handler; сервис просто пишет)
+	if err := s.repo.UpdateStatus(ctx, id, to); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(ctx, id)
+}
+
+func (s *taskService) UpdateAssignee(ctx context.Context, id int64, assigneeID int64) (*models.Task, error) {
+	if err := s.repo.UpdateAssignee(ctx, id, assigneeID); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(ctx, id)
 }

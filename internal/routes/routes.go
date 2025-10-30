@@ -19,22 +19,35 @@ func SetupRoutes(
 	messageHandler *handlers.MessageHandler,
 	smsHandler *handlers.SMSHandler,
 	reportHandler *handlers.ReportHandler,
-	verifyHandler *handlers.VerifyHandler, // <= добавь параметр
+	verifyHandler *handlers.VerifyHandler,
+	integrationsHandler *handlers.IntegrationsHandler, // ОДИН Telegram-хендлер, может быть nil
 ) *gin.Engine {
 
-	// === ПУБЛИЧНЫЕ ===
+	// ---- public
 	r.POST("/login", authHandler.Login)
-	r.POST("/refresh", authHandler.RefreshToken)           // публичный refresh
-	r.POST("/register", userHandler.Register)              // регистрация
-	r.POST("/register/confirm", verifyHandler.ConfirmUser) // ✅ ОСТАВИТЬ ТОЛЬКО ЗДЕСЬ
-	r.POST("/register/resend", verifyHandler.ResendUser)   // ✅ ОСТАВИТЬ ТОЛЬКО ЗДЕСЬ
+	r.POST("/refresh", authHandler.RefreshToken)
+	r.POST("/register", userHandler.Register)
+	r.POST("/register/confirm", verifyHandler.ConfirmUser)
+	r.POST("/register/resend", verifyHandler.ResendUser)
 
-	// === ВСЁ НИЖЕ — ТОЛЬКО С JWT ===
+	// Telegram webhook публикуем только если есть интеграция
+	if integrationsHandler != nil {
+		r.POST("/integrations/telegram/webhook", integrationsHandler.Webhook)
+	}
+
+	// ---- protected
 	r.Use(middleware.AuthMiddleware())
-	r.Use(middleware.ReadOnlyGuard()) // аудит — только чтение (режет небезопасные методы)
+	r.Use(middleware.ReadOnlyGuard())
 
-	// ==== USERS ====
-	// читать можно Mgmt/Admin/Audit; создавать/удалять — только Admin (проверка в хендлере)
+	// Integrations (JWT)
+	if integrationsHandler != nil {
+		integr := r.Group("/integrations")
+		{
+			integr.POST("/telegram/request-link", integrationsHandler.RequestTelegramLink)
+		}
+	}
+
+	// USERS
 	users := r.Group("/users")
 	{
 		users.POST("/", userHandler.CreateUser)
@@ -46,7 +59,7 @@ func SetupRoutes(
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 
-	// ==== ROLES ==== (только Admin)
+	// ROLES (Admin)
 	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleAdmin))
 	{
 		roles.POST("/", roleHandler.CreateRole)
@@ -58,7 +71,7 @@ func SetupRoutes(
 		roles.DELETE("/:id", roleHandler.DeleteRole)
 	}
 
-	// ==== LEADS ====
+	// LEADS
 	leads := r.Group("/leads")
 	{
 		leads.POST("/", leadHandler.Create)
@@ -67,9 +80,11 @@ func SetupRoutes(
 		leads.DELETE("/:id", leadHandler.Delete)
 		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
 		leads.GET("/", leadHandler.List)
+		leads.POST("/:id/assign", leadHandler.Assign)
+		leads.POST("/:id/status", leadHandler.UpdateStatus)
 	}
 
-	// ==== DEALS ====
+	// DEALS
 	deals := r.Group("/deals")
 	{
 		deals.POST("/", dealHandler.Create)
@@ -77,35 +92,28 @@ func SetupRoutes(
 		deals.PUT("/:id", dealHandler.Update)
 		deals.DELETE("/:id", dealHandler.Delete)
 		deals.GET("/", dealHandler.List)
+		deals.POST("/:id/status", dealHandler.UpdateStatus)
 	}
 
-	// ==== DOCUMENTS ====
-	documents := r.Group("/documents")
+	// DOCUMENTS
+	docs := r.Group("/documents")
 	{
-		documents.GET("/", documentHandler.ListDocuments)
-		documents.POST("/", documentHandler.CreateDocument)
-		documents.GET("/:id", documentHandler.GetDocument)
-		documents.DELETE("/:id", documentHandler.DeleteDocument)
-
-		// спец-сценарий
-		documents.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
-
-		// по сделке
-		documents.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
-
-		// выдача файлов
-		documents.GET("/:id/file", documentHandler.ServeFile)    // inline
-		documents.GET("/:id/download", documentHandler.Download) // attachment
-
-		// статусные операции
-		documents.POST("/:id/submit", documentHandler.Submit) // Sales -> under_review
-		documents.POST("/:id/review", documentHandler.Review) // Ops/Mgmt/Admin -> approve|return
-		documents.POST("/:id/sign", documentHandler.Sign)     // Mgmt/Admin -> signed
+		docs.GET("/", documentHandler.ListDocuments)
+		docs.POST("/", documentHandler.CreateDocument)
+		docs.GET("/:id", documentHandler.GetDocument)
+		docs.DELETE("/:id", documentHandler.DeleteDocument)
+		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
+		docs.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
+		docs.GET("/:id/file", documentHandler.ServeFile)
+		docs.GET("/:id/download", documentHandler.Download)
+		docs.POST("/:id/submit", documentHandler.Submit)
+		docs.POST("/:id/review", documentHandler.Review)
+		docs.POST("/:id/sign", documentHandler.Sign)
 	}
 
-	// ==== TASKS ==== (staff/ops/mgmt/admin)
+	// TASKS
 	tasks := r.Group("/tasks",
-		middleware.RequireRoles(authz.RoleStaff, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
 	)
 	{
 		tasks.POST("/", taskHandler.Create)
@@ -113,19 +121,21 @@ func SetupRoutes(
 		tasks.GET("/:id", taskHandler.GetByID)
 		tasks.PUT("/:id", taskHandler.Update)
 		tasks.DELETE("/:id", taskHandler.Delete)
+		tasks.POST("/:id/status", taskHandler.ChangeStatus)
+		tasks.POST("/:id/assign", taskHandler.Assign)
 	}
 
-	// ==== MESSAGES ==== (staff/ops/mgmt/admin)
-	messages := r.Group("/messages",
-		middleware.RequireRoles(authz.RoleStaff, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+	// MESSAGES
+	msg := r.Group("/messages",
+		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
 	)
 	{
-		messages.POST("/", messageHandler.Send)
-		messages.GET("/conversations", messageHandler.GetConversations)
-		messages.GET("/history/:partner_id", messageHandler.GetConversationHistory)
+		msg.POST("/", messageHandler.Send)
+		msg.GET("/conversations", messageHandler.GetConversations)
+		msg.GET("/history/:partner_id", messageHandler.GetConversationHistory)
 	}
 
-	// ==== SMS ==== (sales/ops/mgmt/admin) — для документов
+	// SMS (sales/ops/mgmt/admin)
 	sms := r.Group("/sms",
 		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
 	)
@@ -137,7 +147,7 @@ func SetupRoutes(
 		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
-	// ==== REPORTS ==== (audit/ops/mgmt/admin)
+	// REPORTS (audit/ops/mgmt/admin)
 	reports := r.Group("/reports",
 		middleware.RequireRoles(authz.RoleAudit, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
 	)

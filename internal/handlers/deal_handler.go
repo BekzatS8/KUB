@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
-
-	"github.com/gin-gonic/gin"
 )
 
 type DealHandler struct {
@@ -28,12 +28,10 @@ func (h *DealHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	// Аудит — только чтение
 	if authz.IsReadOnly(roleID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
 		return
 	}
-	// Владелец сделки — тот, кто создал
 	deal.OwnerID = userID
 	if deal.Status == "" {
 		deal.Status = "new"
@@ -69,7 +67,6 @@ func (h *DealHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
 		return
 	}
-	// sales — только свою; elevated — любую
 	if current.OwnerID != userID && !authz.IsElevated(roleID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
@@ -81,8 +78,6 @@ func (h *DealHandler) Update(c *gin.Context) {
 		return
 	}
 	body.ID = id
-
-	// запрещаем менять владельца руками, если не elevated
 	if !authz.IsElevated(roleID) {
 		body.OwnerID = current.OwnerID
 	}
@@ -114,6 +109,7 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, deal)
 }
+
 func (h *DealHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -143,25 +139,68 @@ func (h *DealHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// --- UpdateStatus ---
+type updateDealStatusRequest struct {
+	To      string `json:"to" binding:"required"`
+	Comment string `json:"comment"`
+}
+
+func (h *DealHandler) UpdateStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req updateDealStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if authz.IsReadOnly(roleID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		return
+	}
+
+	current, err := h.Service.GetByID(id)
+	if err != nil || current == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
+		return
+	}
+	if current.OwnerID != userID && !authz.IsElevated(roleID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	if err := h.Service.UpdateStatus(id, req.To); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updated, _ := h.Service.GetByID(id)
+	c.JSON(http.StatusOK, updated)
+}
+
 func (h *DealHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	sizeStr := c.DefaultQuery("size", "100")
 
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page < 1 {
+	page, _ := strconv.Atoi(pageStr)
+	size, _ := strconv.Atoi(sizeStr)
+	if page < 1 {
 		page = 1
 	}
-	size, err := strconv.Atoi(sizeStr)
-	if err != nil || size < 1 {
+	if size < 1 {
 		size = 100
 	}
 	offset := (page - 1) * size
 
 	userID, roleID := getUserAndRole(c)
+	var deals []*models.Deals
+	var err error
 
-	var (
-		deals []*models.Deals
-	)
 	if authz.IsElevated(roleID) || roleID == authz.RoleAudit {
 		deals, err = h.Service.ListPaginated(size, offset)
 	} else {

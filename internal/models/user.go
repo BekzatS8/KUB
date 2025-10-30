@@ -10,9 +10,11 @@ type User struct {
 	PasswordHash string `json:"-"` // не отдаём
 	RoleID       int    `json:"role_id"`
 	// новое:
-	Phone      string     `json:"phone"`
-	IsVerified bool       `json:"is_verified"`
-	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	Phone               string     `json:"phone"`
+	IsVerified          bool       `json:"is_verified"`
+	VerifiedAt          *time.Time `json:"verified_at,omitempty"`
+	TelegramChatID      int64      `json:"telegram_chat_id"`
+	NotifyTasksTelegram bool       `json:"notify_tasks_telegram"`
 
 	// refresh:
 	RefreshToken     *string    `json:"-"`

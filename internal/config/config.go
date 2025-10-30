@@ -8,7 +8,11 @@ import (
 type FilesConfig struct {
 	RootDir string `yaml:"root_dir"`
 }
-
+type TelegramConfig struct {
+	Enable     bool   `yaml:"enable"`
+	BotToken   string `yaml:"bot_token"`
+	WebhookURL string `yaml:"webhook_url"` // публичный URL вида https://domain/tg/webhook
+}
 type MobizonConfig struct {
 	APIKey   string `yaml:"api_key"`
 	SenderID string `yaml:"sender_id"`
@@ -29,8 +33,9 @@ type Config struct {
 		SMTPPassword string `yaml:"smtp_password"`
 		FromEmail    string `yaml:"from_email"`
 	} `yaml:"email"`
-	Files   FilesConfig   `yaml:"files"`
-	Mobizon MobizonConfig `yaml:"mobizon"`
+	Files    FilesConfig    `yaml:"files"`
+	Mobizon  MobizonConfig  `yaml:"mobizon"`
+	Telegram TelegramConfig `yaml:"telegram"`
 }
 
 func LoadConfig() *Config {

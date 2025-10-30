@@ -251,3 +251,8 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 	}
 	return deals, nil
 }
+func (r *DealRepository) UpdateStatus(id int, status string) error {
+	const q = `UPDATE deals SET status = $1 WHERE id = $2`
+	_, err := r.db.Exec(q, status, id)
+	return err
+}

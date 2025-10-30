@@ -33,7 +33,6 @@ func (h *LeadHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Владельца проставляем из токена (входящий owner_id игнорируем)
 	lead.OwnerID = userID
 	if lead.Status == "" {
 		lead.Status = "new"
@@ -67,7 +66,6 @@ func (h *LeadHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
 		return
 	}
-	// sales — только свою; elevated — любую
 	if current.OwnerID != userID && !authz.IsElevated(roleID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
@@ -79,8 +77,6 @@ func (h *LeadHandler) Update(c *gin.Context) {
 		return
 	}
 	body.ID = id
-
-	// запрещаем менять владельца, если роль не elevated
 	if !authz.IsElevated(roleID) {
 		body.OwnerID = current.OwnerID
 	}
@@ -101,7 +97,6 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
 		c.JSON(404, gin.H{"error": "lead not found"})
@@ -144,7 +139,101 @@ func (h *LeadHandler) Delete(c *gin.Context) {
 	c.Status(204)
 }
 
-// ConvertLeadRequest — только для Swagger
+// --- Assign ---
+type assignLeadRequest struct {
+	AssigneeID int    `json:"assignee_id" binding:"required"`
+	Comment    string `json:"comment"`
+}
+
+func (h *LeadHandler) Assign(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req assignLeadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	actorID, roleID := getUserAndRole(c)
+	if authz.IsReadOnly(roleID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		return
+	}
+
+	lead, err := h.Service.GetByID(id)
+	if err != nil || lead == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
+		return
+	}
+
+	if !authz.IsElevated(roleID) && req.AssigneeID != actorID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only self-assign allowed"})
+		return
+	}
+
+	if err := h.Service.AssignOwner(id, req.AssigneeID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	updated, _ := h.Service.GetByID(id)
+	c.JSON(http.StatusOK, updated)
+}
+
+// --- UpdateStatus ---
+type updateLeadStatusRequest struct {
+	To      string `json:"to" binding:"required"`
+	Comment string `json:"comment"`
+}
+
+func (h *LeadHandler) UpdateStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req updateLeadStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if authz.IsReadOnly(roleID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		return
+	}
+
+	lead, err := h.Service.GetByID(id)
+	if err != nil || lead == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
+		return
+	}
+
+	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	if req.To == "converted" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "use /leads/:id/convert for conversion"})
+		return
+	}
+
+	if err := h.Service.UpdateStatus(id, req.To); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updated, _ := h.Service.GetByID(id)
+	c.JSON(http.StatusOK, updated)
+}
+
+// --- Convert ---
 type ConvertLeadRequest struct {
 	Amount   string `json:"amount" example:"50000"`
 	Currency string `json:"currency" example:"USD"`
@@ -158,13 +247,11 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
 		c.JSON(404, gin.H{"error": "lead not found"})
 		return
 	}
-	// sales — только свой
 	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
 		c.JSON(403, gin.H{"error": "forbidden"})
 		return
@@ -178,18 +265,9 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 
 	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID)
 	if convErr != nil {
-		// разносим типовые ошибки в статус-коды
-		switch convErr.Error() {
-		case "lead not found":
-			c.JSON(404, gin.H{"error": convErr.Error()})
-		case "lead is not in a convertible status", "deal already exists for this lead":
-			c.JSON(409, gin.H{"error": convErr.Error()})
-		default:
-			c.JSON(500, gin.H{"error": convErr.Error()})
-		}
+		c.JSON(409, gin.H{"error": convErr.Error()})
 		return
 	}
-
 	c.JSON(201, deal)
 }
 
@@ -197,20 +275,20 @@ func (h *LeadHandler) List(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	sizeStr := c.DefaultQuery("size", "100")
 
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page < 1 {
+	page, _ := strconv.Atoi(pageStr)
+	size, _ := strconv.Atoi(sizeStr)
+	if page < 1 {
 		page = 1
 	}
-	size, err := strconv.Atoi(sizeStr)
-	if err != nil || size < 1 {
+	if size < 1 {
 		size = 100
 	}
-
 	offset := (page - 1) * size
 
 	userID, roleID := getUserAndRole(c)
-
 	var leads []*models.Leads
+	var err error
+
 	if authz.IsElevated(roleID) || roleID == authz.RoleAudit {
 		leads, err = h.Service.ListPaginated(size, offset)
 	} else {

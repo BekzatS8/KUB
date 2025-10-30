@@ -160,3 +160,14 @@ func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Lead
 	}
 	return out, nil
 }
+func (r *LeadRepository) UpdateStatus(id int, status string) error {
+	const q = `UPDATE leads SET status = $1 WHERE id = $2`
+	_, err := r.db.Exec(q, status, id)
+	return err
+}
+
+func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
+	const q = `UPDATE leads SET owner_id = $1 WHERE id = $2`
+	_, err := r.db.Exec(q, ownerID, id)
+	return err
+}

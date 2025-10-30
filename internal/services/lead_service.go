@@ -89,3 +89,18 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 	}
 	return deal, nil
 }
+func (s *LeadService) UpdateStatus(id int, to string) error {
+	lead, err := s.Repo.GetByID(id)
+	if err != nil || lead == nil {
+		return err
+	}
+	if !canTransition(lead.Status, to, LeadTransitions) {
+		return errors.New("invalid status transition")
+	}
+	return s.Repo.UpdateStatus(id, to)
+}
+
+func (s *LeadService) AssignOwner(id, assigneeID int) error {
+	// простая бизнес-логика: просто смена owner_id
+	return s.Repo.UpdateOwner(id, assigneeID)
+}

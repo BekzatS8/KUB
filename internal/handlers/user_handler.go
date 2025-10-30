@@ -130,14 +130,16 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	body.ID = id
 
+	// ВАЖНО: всегда сохраняем текущий хэш, чтобы не затереть его пустой строкой.
+	body.PasswordHash = target.PasswordHash
+
 	if roleID != authz.RoleAdmin {
 		if userID != id {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
+		// обычному пользователю нельзя менять роль/верификацию
 		body.RoleID = target.RoleID
-		body.PasswordHash = target.PasswordHash
-		// is_verified/verified_at менять обычному пользователю нельзя
 		body.IsVerified = target.IsVerified
 		body.VerifiedAt = target.VerifiedAt
 	}

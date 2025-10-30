@@ -12,3 +12,6 @@
 
   "email": "Admin@example.com",
   "password": "admin123"
+
+  email": "bekzat@example.com",
+    "password": "bekzat100"

@@ -1,9 +1,14 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
@@ -12,22 +17,40 @@ import (
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
 	"turcompany/internal/utils"
-
-	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq"
 )
 
 func Run() {
 	cfg := config.LoadConfig()
+	log.Printf("[BOOT] starting backend...")
+	log.Printf("[BOOT] config: server.port=%d, telegram.enable=%v", cfg.Server.Port, cfg.Telegram.Enable)
+	if cfg.Telegram.WebhookURL != "" {
+		log.Printf("[BOOT] config: telegram.webhook_url=%s", cfg.Telegram.WebhookURL)
+	} else {
+		log.Printf("[BOOT] config: telegram.webhook_url is empty")
+	}
+	log.Printf("[BOOT] config: db.dsn=%s", cfg.Database.DSN)
 
 	// === DB ===
 	db, err := sql.Open("postgres", cfg.Database.DSN)
 	if err != nil {
-		log.Fatal("Ошибка подключения к БД: ", err)
+		log.Fatal("[BOOT] Ошибка подключения к БД: ", err)
+	}
+	// Параметры пула подключений (по желанию)
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	// Быстрая проверка соединения
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			log.Fatal("[BOOT] БД недоступна: ", err)
+		}
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
-			log.Printf("Ошибка закрытия БД: %v", err)
+			log.Printf("[BOOT] Ошибка закрытия БД: %v", err)
 		}
 	}()
 
@@ -40,9 +63,10 @@ func Run() {
 	taskRepo := repositories.NewTaskRepository(db)
 	messageRepo := repositories.NewMessageRepository(db)
 	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
-	verifRepo := repositories.NewUserVerificationRepository(db) // НОВЫЙ: для верификации пользователей
+	verifRepo := repositories.NewUserVerificationRepository(db) // для верификации пользователей
+	teleLinkRepo := repositories.NewTelegramLinkRepository(db)  // для привязки Telegram
 
-	// === Services ===
+	// === Services (общие) ===
 	authService := services.NewAuthService()
 	emailService := services.NewEmailService(
 		cfg.Email.SMTPHost,
@@ -52,15 +76,39 @@ func Run() {
 		cfg.Email.FromEmail,
 	)
 
+	// Подготовим переменные под Telegram и интеграционный хендлер
+	var (
+		tgSvc               *services.TelegramService
+		integrationsHandler *handlers.IntegrationsHandler
+	)
+
+	// Telegram (если включен)
+	if cfg.Telegram.Enable && cfg.Telegram.BotToken != "" {
+		log.Printf("[BOOT] Telegram enabled: true (token len=%d)", len(cfg.Telegram.BotToken))
+		tgSvc = services.NewTelegramService(cfg.Telegram.BotToken)
+
+		if cfg.Telegram.WebhookURL != "" {
+			log.Printf("[BOOT] setting Telegram webhook -> %s", cfg.Telegram.WebhookURL)
+			if err := tgSvc.SetWebhook(cfg.Telegram.WebhookURL); err != nil {
+				log.Printf("[BOOT] Telegram setWebhook error: %v", err)
+			} else {
+				log.Printf("[BOOT] Telegram setWebhook OK")
+			}
+		} else {
+			log.Printf("[BOOT] Telegram webhook URL is empty — webhook will NOT be set")
+		}
+	} else {
+		log.Printf("[BOOT] Telegram disabled or token is empty — integrations handler will be nil")
+	}
+
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
 	leadService := services.NewLeadService(leadRepo, dealRepo)
 	dealService := services.NewDealService(dealRepo)
 
-	// PDF генератор
+	// PDF генератор (для документов)
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
 
-	// DocumentService
 	documentService := services.NewDocumentService(
 		documentRepo,
 		leadRepo,
@@ -71,6 +119,7 @@ func Run() {
 		pdfGen,
 	)
 
+	// --- ВАЖНО: создаём TaskService ДО сборки хендлеров, т.к. он нужен и TaskHandler, и IntegrationsHandler
 	taskService := services.NewTaskService(taskRepo)
 	messageService := services.NewMessageService(messageRepo)
 
@@ -80,14 +129,15 @@ func Run() {
 		cfg.Mobizon.SenderID,
 		cfg.Mobizon.DryRun,
 	)
+	log.Printf("[BOOT] Mobizon: dry_run=%v sender_id=%q", cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
 
-	// SMS сервис — документы + верификация пользователей
+	// Сервис SMS — для документов + для верификации пользователей
 	smsService := services.NewSMSService(
-		smsRepo,       // документный репозиторий
-		mobizonClient, // клиент
+		smsRepo,       // репозиторий подтверждений по документам
+		mobizonClient, // провайдер
 		documentService,
-		verifRepo,   // НОВЫЙ репозиторий верификации
-		userService, // чтобы проставлять is_verified
+		verifRepo,   // репозиторий верификации пользователей
+		userService, // чтобы отмечать is_verified
 	)
 
 	// Reports
@@ -100,19 +150,28 @@ func Run() {
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
-	taskHandler := handlers.NewTaskHandler(taskService)
+
+	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
+	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
+
 	messageHandler := handlers.NewMessageHandler(messageService)
 	smsHandler := handlers.NewSMSHandler(smsService)
 	verifyHandler := handlers.NewVerifyHandler(smsService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
-	// === Gin ===
-	router := gin.Default()
-	// router.Use(gin.Logger())
-	// router.Use(gin.Recovery())
-	router.Use(corsMiddleware())
+	// ✔ IntegrationsHandler должен создаваться ПОСЛЕ taskService, и получает его в конструктор
+	if tgSvc != nil {
+		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)
+	}
 
-	// Роуты
+	// === Gin ===
+	// Для продакшена можно включить gin.ReleaseMode()
+	// gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
+
+	// === Routes ===
+	log.Printf("[BOOT] mounting routes...")
 	routes.SetupRoutes(
 		router,
 		userHandler,
@@ -126,13 +185,15 @@ func Run() {
 		smsHandler,
 		reportHandler,
 		verifyHandler,
+		integrationsHandler, // опционально, может быть nil
 	)
+	log.Printf("[BOOT] routes mounted. Starting server...")
 
 	// === Run ===
-	listenAddr := fmt.Sprintf(":%d", cfg.Server.Port)
-	log.Printf("Сервер запущен на %s", listenAddr)
-	if err := router.Run(listenAddr); err != nil {
-		log.Fatal("Ошибка запуска сервера: ", err)
+	addr := fmt.Sprintf(":%d", cfg.Server.Port)
+	log.Printf("[BOOT] HTTP listen on %s", addr)
+	if err := router.Run(addr); err != nil {
+		log.Fatal("[BOOT] Ошибка запуска сервера: ", err)
 	}
 }
 

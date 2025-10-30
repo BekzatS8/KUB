@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -42,4 +43,15 @@ func (s *DealService) ListMy(ownerID, limit, offset int) ([]*models.Deals, error
 
 func (s *DealService) GetByLeadID(leadID int) (*models.Deals, error) {
 	return s.Repo.GetByLeadID(leadID)
+}
+
+func (s *DealService) UpdateStatus(id int, to string) error {
+	deal, err := s.Repo.GetByID(id)
+	if err != nil || deal == nil {
+		return err
+	}
+	if !canTransition(deal.Status, to, DealTransitions) {
+		return errors.New("invalid status transition")
+	}
+	return s.Repo.UpdateStatus(id, to)
 }
