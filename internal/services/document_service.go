@@ -62,12 +62,60 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 		return 0, errors.New("forbidden")
 	}
 
-	if doc.Status == "" {
+	// по умолчанию
+	if strings.TrimSpace(doc.Status) == "" {
 		doc.Status = "draft"
 	}
 
-	// нормализуем file_path: храним только имя файла (без /files/)
-	doc.FilePath = filepath.Base(strings.TrimSpace(doc.FilePath))
+	// Нормализация входного пути (если он вдруг есть)
+	filename := filepath.Base(strings.TrimSpace(doc.FilePath)) // "" если не задан
+
+	// --- НОВОЕ: автогенерация PDF для contract|invoice ---
+	switch doc.DocType {
+	case "contract", "invoice":
+		if s.PDFGen == nil {
+			return 0, errors.New("pdf generator not configured")
+		}
+		// нам нужен title лида — возьмём по deal.LeadID
+		lead, lerr := s.LeadRepo.GetByID(deal.LeadID)
+		if lerr != nil || lead == nil {
+			return 0, errors.New("lead not found")
+		}
+
+		var relPath string
+		switch doc.DocType {
+		case "contract":
+			relPath, err = s.PDFGen.GenerateContract(pdf.ContractData{
+				LeadTitle: lead.Title,
+				DealID:    deal.ID,
+				Amount:    deal.Amount,
+				Currency:  deal.Currency,
+				CreatedAt: deal.CreatedAt,
+				Filename:  filename, // если пусто — генератор сам придумает
+			})
+		case "invoice":
+			relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
+				LeadTitle: lead.Title,
+				DealID:    deal.ID,
+				Amount:    deal.Amount,
+				Currency:  deal.Currency,
+				CreatedAt: deal.CreatedAt,
+				Filename:  filename,
+			})
+		}
+		if err != nil {
+			return 0, err
+		}
+		doc.FilePath = relPath // вида "/contract_deal_3.pdf"
+
+	default:
+		// Если тип не поддержан генератором, но клиент прислал file_path —
+		// оставим basename (как было), иначе вернём ошибку.
+		if filename == "" {
+			return 0, errors.New("unsupported doc_type")
+		}
+		doc.FilePath = filename
+	}
 
 	return s.DocRepo.Create(doc)
 }

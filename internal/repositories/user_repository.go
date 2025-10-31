@@ -445,13 +445,54 @@ func (r *userRepository) VerifyUser(userID int) error {
 
 // ===== telegram helpers =====
 
+// вместо простого UPDATE — атомарно перевешиваем chatID
 func (r *userRepository) UpdateTelegramLink(userID int, chatID int64, enable bool) error {
-	_, err := r.DB.Exec(`
+	// если chatID == 0 — просто отключаем уведомления у пользователя
+	if chatID == 0 {
+		_, err := r.DB.Exec(`
+			UPDATE users
+			SET telegram_chat_id = NULL,
+			    notify_tasks_telegram = FALSE
+			WHERE id = $1
+		`, userID)
+		return err
+	}
+
+	tx, err := r.DB.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// на случай паники
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
+
+	// 1) Снять этот chat_id со всех других пользователей (если кто-то был привязан)
+	if _, err = tx.Exec(`
 		UPDATE users
-		SET telegram_chat_id=$1, notify_tasks_telegram=$2
-		WHERE id=$3
-	`, chatID, enable, userID)
-	return err
+		SET telegram_chat_id = NULL,
+		    notify_tasks_telegram = FALSE
+		WHERE telegram_chat_id = $1 AND id <> $2
+	`, chatID, userID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	// 2) Установить chat_id текущему пользователю
+	if _, err = tx.Exec(`
+		UPDATE users
+		SET telegram_chat_id = $1,
+		    notify_tasks_telegram = $2
+		WHERE id = $3
+	`, chatID, enable, userID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *userRepository) GetByIDSimple(id int) (*models.User, error) {

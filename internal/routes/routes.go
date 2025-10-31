@@ -16,7 +16,6 @@ func SetupRoutes(
 	authHandler *handlers.AuthHandler,
 	documentHandler *handlers.DocumentHandler,
 	taskHandler *handlers.TaskHandler,
-	messageHandler *handlers.MessageHandler,
 	smsHandler *handlers.SMSHandler,
 	reportHandler *handlers.ReportHandler,
 	verifyHandler *handlers.VerifyHandler,
@@ -30,7 +29,7 @@ func SetupRoutes(
 	r.POST("/register/confirm", verifyHandler.ConfirmUser)
 	r.POST("/register/resend", verifyHandler.ResendUser)
 
-	// Telegram webhook публикуем только если есть интеграция
+	// PUBLIC: Telegram webhook (БЕЗ JWT!)
 	if integrationsHandler != nil {
 		r.POST("/integrations/telegram/webhook", integrationsHandler.Webhook)
 	}
@@ -39,7 +38,7 @@ func SetupRoutes(
 	r.Use(middleware.AuthMiddleware())
 	r.Use(middleware.ReadOnlyGuard())
 
-	// Integrations (JWT)
+	// PRIVATE (JWT): только для авторизованных пользователей
 	if integrationsHandler != nil {
 		integr := r.Group("/integrations")
 		{
@@ -124,17 +123,6 @@ func SetupRoutes(
 		tasks.POST("/:id/status", taskHandler.ChangeStatus)
 		tasks.POST("/:id/assign", taskHandler.Assign)
 	}
-
-	// MESSAGES
-	msg := r.Group("/messages",
-		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
-	)
-	{
-		msg.POST("/", messageHandler.Send)
-		msg.GET("/conversations", messageHandler.GetConversations)
-		msg.GET("/history/:partner_id", messageHandler.GetConversationHistory)
-	}
-
 	// SMS (sales/ops/mgmt/admin)
 	sms := r.Group("/sms",
 		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),

@@ -1,8 +1,9 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"crypto/rand"  // ← добавить
+	"encoding/hex" // ← добавить
+
 	"fmt"
 	"html"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -19,6 +21,32 @@ import (
 	"turcompany/internal/services"
 )
 
+// ====== антидубль сообщений (простая in-memory защита) ======
+var (
+	recentMsgsMu sync.Mutex
+	recentMsgs   = map[string]time.Time{} // key -> last seen time
+)
+
+// dropIfDuplicate возвращает true, если ключ видели "недавно".
+func dropIfDuplicate(key string, window time.Duration) bool {
+	recentMsgsMu.Lock()
+	defer recentMsgsMu.Unlock()
+
+	now := time.Now()
+	if t, ok := recentMsgs[key]; ok && now.Sub(t) < window {
+		return true
+	}
+	recentMsgs[key] = now
+
+	// Компактная чистка старых ключей
+	for k, tt := range recentMsgs {
+		if now.Sub(tt) > 10*time.Second {
+			delete(recentMsgs, k)
+		}
+	}
+	return false
+}
+
 const btnMyTasks = "📋 Мои задачи"
 
 type IntegrationsHandler struct {
@@ -26,6 +54,9 @@ type IntegrationsHandler struct {
 	LinksRepo repositories.TelegramLinkRepository
 	UsersRepo repositories.UserRepository
 	TaskSvc   services.TaskService
+
+	// ← добавлено: локаль для отображения времени в нужном TZ
+	loc *time.Location
 }
 
 func NewIntegrationsHandler(
@@ -37,10 +68,22 @@ func NewIntegrationsHandler(
 	return &IntegrationsHandler{TG: tg, LinksRepo: links, UsersRepo: users, TaskSvc: taskSvc}
 }
 
+// ← добавлено: сеттер и helper текущего времени с учётом TZ
+func (h *IntegrationsHandler) SetLocation(loc *time.Location) { h.loc = loc }
+func (h *IntegrationsHandler) now() time.Time {
+	if h.loc != nil {
+		return time.Now().In(h.loc)
+	}
+	return time.Now()
+}
+
+// Полезно иметь update_id и message_id для идемпотентности
 type tgUpdate struct {
-	Message *struct {
-		Text string `json:"text"`
-		Chat struct {
+	UpdateID int `json:"update_id"`
+	Message  *struct {
+		MessageID int    `json:"message_id"`
+		Text      string `json:"text"`
+		Chat      struct {
 			ID int64 `json:"id"`
 		} `json:"chat"`
 	} `json:"message"`
@@ -61,7 +104,6 @@ func ctxUserID(c *gin.Context) (int, bool) {
 				if n, err := strconv.Atoi(vv); err == nil {
 					return n, true
 				}
-			default:
 			}
 		}
 	}
@@ -89,7 +131,7 @@ func normalizeLinkCode(s string) (string, bool) {
 
 func (h *IntegrationsHandler) Webhook(c *gin.Context) {
 	if h.TG == nil {
-		log.Printf("[TG:WEBHOOK] TelegramService == nil (webhook disabled or no token). Return 200.")
+		log.Printf("[TG:WEBHOOK] TelegramService == nil. Return 200.")
 		c.Status(http.StatusOK)
 		return
 	}
@@ -107,7 +149,24 @@ func (h *IntegrationsHandler) Webhook(c *gin.Context) {
 
 	text := strings.TrimSpace(up.Message.Text)
 	chatID := up.Message.Chat.ID
-	log.Printf("[TG:WEBHOOK] incoming: chatID=%d, text=%q", chatID, text)
+	msgID := up.Message.MessageID
+	log.Printf("[TG:WEBHOOK] incoming: upd=%d chatID=%d msgID=%d text=%q", up.UpdateID, chatID, msgID, text)
+
+	// ===== антидубль =====
+	// 1) по update_id (идеально)
+	key := fmt.Sprintf("upd:%d", up.UpdateID)
+	if up.UpdateID != 0 && dropIfDuplicate(key, 3*time.Second) {
+		log.Printf("[TG:WEBHOOK] duplicate by update_id -> drop")
+		c.Status(http.StatusOK)
+		return
+	}
+	// 2) запасной ключ на случай прокси: chatID|msgID|text
+	if dropIfDuplicate(fmt.Sprintf("c:%d|m:%d|%s", chatID, msgID, text), 3*time.Second) {
+		log.Printf("[TG:WEBHOOK] duplicate by composite key -> drop")
+		c.Status(http.StatusOK)
+		return
+	}
+	// =====================
 
 	switch {
 	case strings.HasPrefix(text, "/start"):
@@ -165,7 +224,11 @@ func (h *IntegrationsHandler) Webhook(c *gin.Context) {
 						t := active[i]
 						due := "—"
 						if t.DueDate != nil {
-							due = t.DueDate.Format("2006-01-02 15:04")
+							dd := *t.DueDate
+							if h.loc != nil {
+								dd = dd.In(h.loc)
+							}
+							due = dd.Format("2006-01-02 15:04")
 						}
 						b.WriteString("• " + t.Title + " (" + string(t.Status) + ", " + string(t.Priority) + ") [due: " + due + "]\n")
 					}
@@ -196,7 +259,9 @@ func (h *IntegrationsHandler) Webhook(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// POST /integrations/telegram/request-link
 func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
+	// Можно посмотреть, что пришло (полезно для отладки прав доступа/прокси)
 	authz := c.GetHeader("Authorization")
 	log.Printf("[TG:REQ-LINK] Authorization header: %q", authz)
 
@@ -207,6 +272,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 		return
 	}
 
+	// Генерируем 32-символьный HEX код
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		log.Printf("[TG:REQ-LINK] rand.Read failed: %v", err)
@@ -215,6 +281,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 	}
 	code := strings.ToUpper(hex.EncodeToString(buf)) // 32 HEX
 
+	// Создаём запись в таблице линковки с TTL (например, 30 минут)
 	link, err := h.LinksRepo.Create(c.Request.Context(), userID, code, 30*time.Minute)
 	if err != nil {
 		log.Printf("[TG:REQ-LINK] LinksRepo.Create failed: %v", err)
@@ -222,6 +289,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 		return
 	}
 
+	// Возвращаем JSON с подсказкой
 	c.JSON(http.StatusOK, gin.H{
 		"code":       link.Code,
 		"expires_at": link.ExpiresAt,
@@ -238,7 +306,7 @@ func daysLeftStr(now time.Time, due *time.Time) (bucket string, sortKey int) {
 	days := int(due.Sub(now).Hours() / 24) // floor
 	switch {
 	case days < 0:
-		bucket = fmt.Sprintf("Просрочено (%d дн.)", -days)
+		bucket = fmt.Sprintf("Просрочено (%д дн.)", -days)
 	case days == 0:
 		bucket = "Сегодня (0 дн.)"
 	case days == 1:
@@ -275,7 +343,9 @@ func (h *IntegrationsHandler) sendMyTasksDigest(c *gin.Context, chatID int64) {
 		return
 	}
 
-	now := time.Now()
+	// ← теперь текущее время в нужной TZ
+	now := h.now()
+
 	type grp struct {
 		key   int
 		items []models.Task
@@ -283,13 +353,28 @@ func (h *IntegrationsHandler) sendMyTasksDigest(c *gin.Context, chatID int64) {
 	buckets := map[string]*grp{}
 
 	for _, t := range active {
-		bName, key := daysLeftStr(now, t.DueDate)
+		// ← переводим due в нужную TZ перед расчётом бакетов
+		var dueForBucket *time.Time
+		if t.DueDate != nil {
+			d := *t.DueDate
+			if h.loc != nil {
+				d = d.In(h.loc)
+			}
+			dueForBucket = &d
+		}
+		bName, key := daysLeftStr(now, dueForBucket)
 		g := buckets[bName]
 		if g == nil {
 			g = &grp{key: key}
 			buckets[bName] = g
 		}
-		g.items = append(g.items, t)
+		// Сохраняем задачу (и для отображения тоже будем форматировать в TZ)
+		tCopy := t
+		if tCopy.DueDate != nil && h.loc != nil {
+			d := tCopy.DueDate.In(h.loc)
+			tCopy.DueDate = &d
+		}
+		g.items = append(g.items, tCopy)
 	}
 
 	type kv struct {
@@ -306,7 +391,7 @@ func (h *IntegrationsHandler) sendMyTasksDigest(c *gin.Context, chatID int64) {
 	b.WriteString("📋 <b>Мои задачи по срокам</b>\n")
 	for _, it := range arr {
 		b.WriteString("\n— <b>" + html.EscapeString(it.name) + "</b>\n")
-		// сортируем внутри группы по due
+		// сортировка внутри группы по due
 		sort.Slice(it.grp.items, func(i, j int) bool {
 			di, dj := it.grp.items[i].DueDate, it.grp.items[j].DueDate
 			switch {

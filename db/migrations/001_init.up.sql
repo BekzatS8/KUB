@@ -32,11 +32,10 @@ CREATE TABLE IF NOT EXISTS users (
                                      verified_at          TIMESTAMPTZ,
 
     -- telegram
-                                     telegram_chat_id     BIGINT,
+                                     telegram_chat_id     BIGINT UNIQUE,
                                      notify_tasks_telegram BOOLEAN NOT NULL DEFAULT TRUE
 );
 
--- partial unique only for non-null refresh_token
 CREATE UNIQUE INDEX IF NOT EXISTS users_refresh_token_uq
     ON users (refresh_token)
     WHERE refresh_token IS NOT NULL;
@@ -87,18 +86,6 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS documents_deal_idx   ON documents(deal_id);
 CREATE INDEX IF NOT EXISTS documents_status_idx ON documents(status);
 
--- ===================== MESSAGES =====================
-CREATE TABLE IF NOT EXISTS messages (
-                                        id          SERIAL PRIMARY KEY,
-                                        sender_id   INT REFERENCES users(id) ON DELETE SET NULL,
-                                        receiver_id INT REFERENCES users(id) ON DELETE SET NULL,
-                                        content     TEXT NOT NULL,
-                                        sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS messages_sender_idx    ON messages(sender_id);
-CREATE INDEX IF NOT EXISTS messages_receiver_idx  ON messages(receiver_id);
-
 -- ===================== TASKS =====================
 CREATE TABLE IF NOT EXISTS tasks (
                                      id               SERIAL PRIMARY KEY,
@@ -147,7 +134,7 @@ CREATE INDEX IF NOT EXISTS sms_confirmed_idx  ON sms_confirmations(confirmed);
 CREATE TABLE IF NOT EXISTS user_verifications (
                                                   id             SERIAL PRIMARY KEY,
                                                   user_id        INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                                  code_hash      TEXT        NOT NULL,           -- bcrypt hash
+                                                  code_hash      TEXT        NOT NULL,
                                                   sent_at        TIMESTAMPTZ NOT NULL,
                                                   expires_at     TIMESTAMPTZ NOT NULL,
                                                   confirmed      BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -186,8 +173,6 @@ INSERT INTO roles (id, name, description) VALUES
                                               (40,'management','Руководство: расширенный доступ.'),
                                               (50,'admin','Администратор: управление системой.')
 ON CONFLICT (id) DO NOTHING;
-
-
 
 COMMIT;
 

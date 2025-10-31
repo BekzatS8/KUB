@@ -21,7 +21,8 @@ type MobizonConfig struct {
 
 type Config struct {
 	Server struct {
-		Port int `yaml:"port"`
+		Port int    `yaml:"port"`
+		TZ   string `yaml:"tz"`
 	} `yaml:"server"`
 	Database struct {
 		DSN string `yaml:"url"`

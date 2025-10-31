@@ -61,7 +61,6 @@ func Run() {
 	dealRepo := repositories.NewDealRepository(db)
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
-	messageRepo := repositories.NewMessageRepository(db)
 	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
 	verifRepo := repositories.NewUserVerificationRepository(db) // для верификации пользователей
 	teleLinkRepo := repositories.NewTelegramLinkRepository(db)  // для привязки Telegram
@@ -121,7 +120,6 @@ func Run() {
 
 	// --- ВАЖНО: создаём TaskService ДО сборки хендлеров, т.к. он нужен и TaskHandler, и IntegrationsHandler
 	taskService := services.NewTaskService(taskRepo)
-	messageService := services.NewMessageService(messageRepo)
 
 	// SMS провайдер (Mobizon)
 	mobizonClient := utils.NewClientWithOptions(
@@ -154,14 +152,29 @@ func Run() {
 	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
 
-	messageHandler := handlers.NewMessageHandler(messageService)
 	smsHandler := handlers.NewSMSHandler(smsService)
 	verifyHandler := handlers.NewVerifyHandler(smsService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
+	// === Загружаем локаль (тайм-зону) и прокидываем в интеграции ===
+	var loc *time.Location
+	if tz := cfg.Server.TZ; tz != "" {
+		if l, err := time.LoadLocation(tz); err != nil {
+			log.Printf("[BOOT] invalid server.TZ=%q: %v — fallback to local", tz, err)
+			loc = time.Local
+		} else {
+			loc = l
+		}
+	} else {
+		loc = time.Local
+	}
+	log.Printf("[BOOT] server timezone set to: %s", loc.String())
+
 	// ✔ IntegrationsHandler должен создаваться ПОСЛЕ taskService, и получает его в конструктор
 	if tgSvc != nil {
 		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)
+		// ← прокидываем локаль
+		integrationsHandler.SetLocation(loc)
 	}
 
 	// === Gin ===
@@ -181,7 +194,6 @@ func Run() {
 		authHandler,
 		documentHandler,
 		taskHandler,
-		messageHandler,
 		smsHandler,
 		reportHandler,
 		verifyHandler,

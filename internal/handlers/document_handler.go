@@ -36,8 +36,10 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		switch err.Error() {
 		case "read-only role", "forbidden":
 			status = http.StatusForbidden
-		case "deal not found":
+		case "deal not found", "lead not found", "unsupported doc_type":
 			status = http.StatusBadRequest
+		case "pdf generator not configured":
+			status = http.StatusInternalServerError
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
