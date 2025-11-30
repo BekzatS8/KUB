@@ -235,8 +235,12 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 
 // --- Convert ---
 type ConvertLeadRequest struct {
-	Amount   string `json:"amount" example:"50000"`
-	Currency string `json:"currency" example:"USD"`
+	Amount            string `json:"amount" example:"50000"`
+	Currency          string `json:"currency" example:"USD"`
+	ClientName        string `json:"client_name" binding:"required"`
+	ClientBinIin      string `json:"client_bin_iin"`
+	ClientAddress     string `json:"client_address"`
+	ClientContactInfo string `json:"client_contact_info"`
 }
 
 func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
@@ -263,7 +267,13 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 		return
 	}
 
-	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID)
+	client := &models.Client{
+		Name:        req.ClientName,
+		BinIin:      req.ClientBinIin,
+		Address:     req.ClientAddress,
+		ContactInfo: req.ClientContactInfo,
+	}
+	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, client)
 	if convErr != nil {
 		c.JSON(409, gin.H{"error": convErr.Error()})
 		return

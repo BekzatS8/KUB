@@ -2,6 +2,9 @@ package services
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +121,68 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	}
 
 	return s.DocRepo.Create(doc)
+}
+
+// UploadDocument сохраняет присланный файл и создает запись документа.
+func (s *DocumentService) UploadDocument(dealID int64, docType string, file *multipart.FileHeader, userID, roleID int) (*models.Document, error) {
+	if authz.IsReadOnly(roleID) {
+		return nil, errors.New("read-only role")
+	}
+	if dealID == 0 {
+		return nil, errors.New("deal not found")
+	}
+	deal, err := s.DealRepo.GetByID(int(dealID))
+	if err != nil || deal == nil {
+		return nil, errors.New("deal not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, errors.New("forbidden")
+	}
+	if strings.TrimSpace(docType) == "" {
+		return nil, errors.New("doc_type is required")
+	}
+	if file == nil {
+		return nil, errors.New("file is required")
+	}
+
+	safeName := filepath.Base(file.Filename)
+	if safeName == "" || safeName == "." {
+		return nil, errors.New("invalid filename")
+	}
+	if err := os.MkdirAll(s.FilesRoot, 0o755); err != nil {
+		return nil, fmt.Errorf("prepare files dir: %w", err)
+	}
+	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
+	dstPath := filepath.Join(s.FilesRoot, finalName)
+
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open upload: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return nil, fmt.Errorf("create file: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return nil, fmt.Errorf("save file: %w", err)
+	}
+
+	doc := &models.Document{
+		DealID:   dealID,
+		DocType:  docType,
+		FilePath: finalName,
+		Status:   "draft",
+	}
+	id, err := s.DocRepo.Create(doc)
+	if err != nil {
+		return nil, err
+	}
+	doc.ID = id
+	return doc, nil
 }
 
 func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Document, error) {

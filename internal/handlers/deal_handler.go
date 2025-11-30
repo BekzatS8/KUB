@@ -42,7 +42,11 @@ func (h *DealHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(&deal)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if err.Error() == "client_id is required" {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	deal.ID = int(id)

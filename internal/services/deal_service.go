@@ -15,6 +15,9 @@ func NewDealService(repo *repositories.DealRepository) *DealService {
 }
 
 func (s *DealService) Create(deal *models.Deals) (int64, error) {
+	if deal.ClientID == 0 {
+		return 0, errors.New("client_id is required")
+	}
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
