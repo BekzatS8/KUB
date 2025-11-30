@@ -18,6 +18,8 @@ type UserRepository interface {
 	GetCount() (int, error)
 	GetCountByRole(roleID int) (int, error)
 
+	UpdatePassword(userID int, passwordHash string) error
+
 	// refresh helpers
 	UpdateRefresh(userID int, token string, expiresAt time.Time) error
 	RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error)
@@ -165,6 +167,19 @@ func (r *userRepository) Update(user *models.User) error {
 
 func (r *userRepository) Delete(id int) error {
 	_, err := r.DB.Exec(`DELETE FROM users WHERE id=$1`, id)
+	return err
+}
+
+func (r *userRepository) UpdatePassword(userID int, passwordHash string) error {
+	const q = `
+                UPDATE users
+                SET password_hash=$1,
+                    refresh_token=NULL,
+                    refresh_expires_at=NULL,
+                    refresh_revoked=TRUE
+                WHERE id=$2
+        `
+	_, err := r.DB.Exec(q, passwordHash, userID)
 	return err
 }
 

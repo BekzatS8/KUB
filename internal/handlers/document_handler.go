@@ -47,6 +47,35 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"id": id})
 }
 
+// POST /documents/upload
+func (h *DocumentHandler) Upload(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	dealID, err := strconv.ParseInt(c.PostForm("deal_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid deal_id"})
+		return
+	}
+	docType := c.PostForm("doc_type")
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		return
+	}
+	doc, saveErr := h.Service.UploadDocument(dealID, docType, file, userID, roleID)
+	if saveErr != nil {
+		status := http.StatusBadRequest
+		switch saveErr.Error() {
+		case "forbidden", "read-only role":
+			status = http.StatusForbidden
+		case "deal not found", "doc_type is required", "invalid filename":
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": saveErr.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, doc)
+}
+
 // GET /documents/:id
 func (h *DocumentHandler) GetDocument(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

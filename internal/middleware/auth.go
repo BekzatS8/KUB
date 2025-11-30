@@ -21,6 +21,8 @@ func isPublicPath(path string) bool {
 	switch path {
 	case "/login", "/register", "/refresh", "/register/confirm", "/register/resend":
 		return true
+	case "/auth/forgot-password", "/auth/reset-password":
+		return true
 	}
 	if strings.HasPrefix(path, "/swagger") ||
 		strings.HasPrefix(path, "/docs") ||

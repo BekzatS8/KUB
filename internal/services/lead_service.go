@@ -9,12 +9,17 @@ import (
 )
 
 type LeadService struct {
-	Repo     *repositories.LeadRepository
-	DealRepo *repositories.DealRepository
+	Repo      *repositories.LeadRepository
+	DealRepo  *repositories.DealRepository
+	ClientSvc *ClientService
 }
 
-func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository) *LeadService {
-	return &LeadService{Repo: leadRepo, DealRepo: dealRepo}
+func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository) *LeadService {
+	var clientSvc *ClientService
+	if clientRepo != nil {
+		clientSvc = NewClientService(clientRepo)
+	}
+	return &LeadService{Repo: leadRepo, DealRepo: dealRepo, ClientSvc: clientSvc}
 }
 
 func (s *LeadService) Create(lead *models.Leads) error {
@@ -48,7 +53,7 @@ func (s *LeadService) Delete(id int) error {
 }
 
 // ConvertLeadToDeal: добавили owner сделки (= owner лида)
-func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, ownerID int) (*models.Deals, error) {
+func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, ownerID int, clientData *models.Client) (*models.Deals, error) {
 	lead, err := s.Repo.GetByID(leadID)
 	if err != nil || lead == nil {
 		return nil, errors.New("lead not found")
@@ -66,10 +71,22 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 	if existingDeal != nil {
 		return nil, errors.New("deal already exists for this lead")
 	}
+	if s.ClientSvc == nil {
+		return nil, errors.New("client repository not configured")
+	}
 
+	if clientData == nil {
+		return nil, errors.New("client data is required")
+	}
+	var client *models.Client
+	client, err = s.ClientSvc.GetOrCreateByBIN(clientData.BinIin, clientData)
+	if err != nil {
+		return nil, err
+	}
 	deal := &models.Deals{
 		LeadID:    lead.ID,
-		OwnerID:   ownerID, // ВАЖНО: владелец сделки наследуется от лида
+		ClientID:  client.ID,
+		OwnerID:   ownerID,
 		Amount:    amount,
 		Currency:  currency,
 		Status:    "new",

@@ -90,6 +90,21 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, maskIfAudit(roleID, user))
 }
 
+// GET /users/me
+func (h *UserHandler) GetMyProfile(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	user, err := h.service.GetUserByID(userID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
+}
+
 func (h *UserHandler) GetUserByID(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 

@@ -16,12 +16,13 @@ import (
 )
 
 type AuthHandler struct {
-	userService services.UserService
-	authService services.AuthService
+	userService          services.UserService
+	authService          services.AuthService
+	passwordResetService services.PasswordResetService
 }
 
-func NewAuthHandler(userService services.UserService, authService services.AuthService) *AuthHandler {
-	return &AuthHandler{userService: userService, authService: authService}
+func NewAuthHandler(userService services.UserService, authService services.AuthService, passwordResetService services.PasswordResetService) *AuthHandler {
+	return &AuthHandler{userService: userService, authService: authService, passwordResetService: passwordResetService}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -163,4 +164,34 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		"access_token":  accessTokenString,
 		"refresh_token": newRT,
 	})
+}
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.passwordResetService.RequestReset(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "If the account exists, password reset instructions were sent"})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Token    string `json:"token" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.passwordResetService.ResetPassword(req.Token, req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
 }

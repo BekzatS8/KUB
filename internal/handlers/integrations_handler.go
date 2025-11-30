@@ -306,7 +306,7 @@ func daysLeftStr(now time.Time, due *time.Time) (bucket string, sortKey int) {
 	days := int(due.Sub(now).Hours() / 24) // floor
 	switch {
 	case days < 0:
-		bucket = fmt.Sprintf("Просрочено (%д дн.)", -days)
+		bucket = fmt.Sprintf("Просрочено (%d дн.)", -days)
 	case days == 0:
 		bucket = "Сегодня (0 дн.)"
 	case days == 1:

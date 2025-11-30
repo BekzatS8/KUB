@@ -13,6 +13,7 @@ import (
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
 	"turcompany/internal/pdf"
+	"turcompany/internal/realtime"
 	"turcompany/internal/repositories"
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
@@ -59,12 +60,14 @@ func Run() {
 	userRepo := repositories.NewUserRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
+	clientRepo := repositories.NewClientRepository(db)
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
 	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
 	verifRepo := repositories.NewUserVerificationRepository(db) // для верификации пользователей
 	teleLinkRepo := repositories.NewTelegramLinkRepository(db)  // для привязки Telegram
-
+	chatRepo := repositories.NewChatRepository(db)
+	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 	// === Services (общие) ===
 	authService := services.NewAuthService()
 	emailService := services.NewEmailService(
@@ -102,8 +105,11 @@ func Run() {
 
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
-	leadService := services.NewLeadService(leadRepo, dealRepo)
+	clientService := services.NewClientService(clientRepo)
+	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
+	chatService := services.NewChatService(chatRepo)
+	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService)
 
 	// PDF генератор (для документов)
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
@@ -140,14 +146,17 @@ func Run() {
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
+	chatHub := realtime.NewChatHub()
 
 	// === Handlers ===
-	authHandler := handlers.NewAuthHandler(userService, authService)
+	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	userHandler := handlers.NewUserHandler(userService, smsService)
+	clientHandler := handlers.NewClientHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
+	chatHandler := handlers.NewChatHandler(chatService, chatHub)
 
 	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
@@ -188,6 +197,7 @@ func Run() {
 	routes.SetupRoutes(
 		router,
 		userHandler,
+		clientHandler,
 		roleHandler,
 		leadHandler,
 		dealHandler,
@@ -197,7 +207,8 @@ func Run() {
 		smsHandler,
 		reportHandler,
 		verifyHandler,
-		integrationsHandler, // опционально, может быть nil
+		integrationsHandler,
+		chatHandler,
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
 
