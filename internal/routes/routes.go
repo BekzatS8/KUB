@@ -21,6 +21,7 @@ func SetupRoutes(
 	reportHandler *handlers.ReportHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // ОДИН Telegram-хендлер, может быть nil
+	chatHandler *handlers.ChatHandler,
 ) *gin.Engine {
 
 	// ---- public
@@ -29,6 +30,8 @@ func SetupRoutes(
 	r.POST("/register", userHandler.Register)
 	r.POST("/register/confirm", verifyHandler.ConfirmUser)
 	r.POST("/register/resend", verifyHandler.ResendUser)
+	r.POST("/auth/forgot-password", authHandler.ForgotPassword)
+	r.POST("/auth/reset-password", authHandler.ResetPassword)
 
 	// PUBLIC: Telegram webhook (БЕЗ JWT!)
 	if integrationsHandler != nil {
@@ -120,6 +123,14 @@ func SetupRoutes(
 		docs.POST("/:id/submit", documentHandler.Submit)
 		docs.POST("/:id/review", documentHandler.Review)
 		docs.POST("/:id/sign", documentHandler.Sign)
+	}
+
+	// CHATS
+	chats := r.Group("/chats")
+	{
+		chats.GET("/", chatHandler.ListChats)
+		chats.GET("/:id/messages", chatHandler.ListMessages)
+		chats.POST("/:id/messages", chatHandler.SendMessage)
 	}
 
 	// TASKS

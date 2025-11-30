@@ -65,6 +65,8 @@ func Run() {
 	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
 	verifRepo := repositories.NewUserVerificationRepository(db) // для верификации пользователей
 	teleLinkRepo := repositories.NewTelegramLinkRepository(db)  // для привязки Telegram
+	chatRepo := repositories.NewChatRepository(db)
+	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 
 	// === Services (общие) ===
 	authService := services.NewAuthService()
@@ -106,6 +108,8 @@ func Run() {
 	clientService := services.NewClientService(clientRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
+	chatService := services.NewChatService(chatRepo)
+	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService)
 
 	// PDF генератор (для документов)
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
@@ -144,13 +148,14 @@ func Run() {
 	reportService := services.NewReportService(leadRepo, dealRepo)
 
 	// === Handlers ===
-	authHandler := handlers.NewAuthHandler(userService, authService)
+	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	userHandler := handlers.NewUserHandler(userService, smsService)
 	clientHandler := handlers.NewClientHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
+	chatHandler := handlers.NewChatHandler(chatService)
 
 	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
@@ -202,6 +207,7 @@ func Run() {
 		reportHandler,
 		verifyHandler,
 		integrationsHandler, // опционально, может быть nil
+		chatHandler,
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
 

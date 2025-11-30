@@ -180,6 +180,46 @@ CREATE INDEX IF NOT EXISTS telegram_links_user_idx   ON telegram_links(user_id);
 CREATE INDEX IF NOT EXISTS telegram_links_used_idx   ON telegram_links(used);
 CREATE INDEX IF NOT EXISTS telegram_links_exp_idx    ON telegram_links(expires_at);
 
+-- ===================== CHATS =====================
+CREATE TABLE IF NOT EXISTS chats (
+                                       id        SERIAL PRIMARY KEY,
+                                       name      VARCHAR(255) NOT NULL,
+                                       is_group  BOOLEAN      NOT NULL DEFAULT FALSE,
+                                       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_members (
+                                              chat_id INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                                              user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                              PRIMARY KEY (chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+                                          id          SERIAL PRIMARY KEY,
+                                          chat_id     INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                                          sender_id   INT REFERENCES users(id) ON DELETE SET NULL,
+                                          text        TEXT NOT NULL,
+                                          attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS chat_members_user_idx ON chat_members(user_id);
+CREATE INDEX IF NOT EXISTS messages_chat_idx      ON messages(chat_id);
+CREATE INDEX IF NOT EXISTS messages_sender_idx    ON messages(sender_id);
+
+-- ===================== PASSWORD RESETS =====================
+CREATE TABLE IF NOT EXISTS password_resets (
+                                                 id         SERIAL PRIMARY KEY,
+                                                 user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                                 token      VARCHAR(255) NOT NULL UNIQUE,
+                                                 expires_at TIMESTAMPTZ NOT NULL,
+                                                 used_at    TIMESTAMPTZ,
+                                                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS password_resets_user_idx    ON password_resets(user_id);
+CREATE INDEX IF NOT EXISTS password_resets_expires_idx ON password_resets(expires_at);
+
 -- ===================== SEED ROLES (NO STAFF) =====================
 INSERT INTO roles (id, name, description) VALUES
                                               (10,'sales','Продажник: лиды/сделки/черновики документов.'),
