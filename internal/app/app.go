@@ -13,6 +13,7 @@ import (
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
 	"turcompany/internal/pdf"
+	"turcompany/internal/realtime"
 	"turcompany/internal/repositories"
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
@@ -146,6 +147,7 @@ func Run() {
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
+	chatHub := realtime.NewChatHub()
 
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
@@ -155,7 +157,7 @@ func Run() {
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
-	chatHandler := handlers.NewChatHandler(chatService)
+	chatHandler := handlers.NewChatHandler(chatService, chatHub)
 
 	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)

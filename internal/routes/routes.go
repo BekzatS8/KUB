@@ -131,6 +131,7 @@ func SetupRoutes(
 		chats.GET("/", chatHandler.ListChats)
 		chats.GET("/:id/messages", chatHandler.ListMessages)
 		chats.POST("/:id/messages", chatHandler.SendMessage)
+		chats.GET("/:id/ws", chatHandler.Stream)
 	}
 
 	// TASKS

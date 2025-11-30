@@ -24,12 +24,8 @@ func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
 }
 
 func (s *ChatService) GetMessages(chatID, userID, limit, offset int) ([]*models.ChatMessage, error) {
-	ok, err := s.repo.IsMember(chatID, userID)
-	if err != nil {
+	if err := s.ensureMember(chatID, userID); err != nil {
 		return nil, err
-	}
-	if !ok {
-		return nil, ErrNotChatMember
 	}
 	return s.repo.ListMessages(chatID, limit, offset)
 }
@@ -38,12 +34,23 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	if text == "" {
 		return nil, fmt.Errorf("message text is required")
 	}
-	ok, err := s.repo.IsMember(chatID, senderID)
-	if err != nil {
+	if err := s.ensureMember(chatID, senderID); err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, ErrNotChatMember
-	}
 	return s.repo.CreateMessage(chatID, senderID, text, attachments)
+}
+
+func (s *ChatService) ensureMember(chatID, userID int) error {
+	ok, err := s.repo.IsMember(chatID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotChatMember
+	}
+	return nil
+}
+
+func (s *ChatService) EnsureMember(chatID, userID int) error {
+	return s.ensureMember(chatID, userID)
 }
