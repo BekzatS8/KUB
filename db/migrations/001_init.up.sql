@@ -56,10 +56,24 @@ CREATE TABLE IF NOT EXISTS leads (
 CREATE INDEX IF NOT EXISTS leads_owner_idx   ON leads(owner_id);
 CREATE INDEX IF NOT EXISTS leads_status_idx  ON leads(status);
 
+-- ===================== CLIENTS =====================
+CREATE TABLE IF NOT EXISTS clients (
+                                        id           SERIAL PRIMARY KEY,
+                                        name         VARCHAR(255) NOT NULL,
+                                        bin_iin      VARCHAR(255) UNIQUE,
+                                        address      TEXT,
+                                        contact_info TEXT,
+                                        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS clients_name_idx   ON clients(name);
+CREATE INDEX IF NOT EXISTS clients_bin_iin_idx ON clients(bin_iin);
+
 -- ===================== DEALS =====================
 CREATE TABLE IF NOT EXISTS deals (
                                      id         SERIAL PRIMARY KEY,
                                      lead_id    INT REFERENCES leads(id) ON DELETE SET NULL,
+                                     client_id  INT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
                                      owner_id   INT REFERENCES users(id) ON DELETE SET NULL,
                                      amount     VARCHAR(20) NOT NULL,
                                      currency   VARCHAR(10) NOT NULL,
@@ -70,6 +84,7 @@ CREATE TABLE IF NOT EXISTS deals (
 
 CREATE INDEX IF NOT EXISTS deals_lead_idx    ON deals(lead_id);
 CREATE INDEX IF NOT EXISTS deals_owner_idx   ON deals(owner_id);
+CREATE INDEX IF NOT EXISTS deals_client_idx  ON deals(client_id);
 CREATE INDEX IF NOT EXISTS deals_status_idx  ON deals(status);
 
 -- ===================== DOCUMENTS =====================

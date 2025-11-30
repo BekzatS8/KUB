@@ -10,6 +10,7 @@ import (
 func SetupRoutes(
 	r *gin.Engine,
 	userHandler *handlers.UserHandler,
+	clientHandler *handlers.ClientHandler,
 	roleHandler *handlers.RoleHandler,
 	leadHandler *handlers.LeadHandler,
 	dealHandler *handlers.DealHandler,
@@ -50,12 +51,22 @@ func SetupRoutes(
 	users := r.Group("/users")
 	{
 		users.POST("/", userHandler.CreateUser)
+		users.GET("/me", userHandler.GetMyProfile)
 		users.GET("/count", userHandler.GetUserCount)
 		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
 		users.GET("/", userHandler.ListUsers)
 		users.GET("/:id", userHandler.GetUserByID)
 		users.PUT("/:id", userHandler.UpdateUser)
 		users.DELETE("/:id", userHandler.DeleteUser)
+	}
+
+	// CLIENTS
+	clients := r.Group("/clients")
+	{
+		clients.POST("/", clientHandler.Create)
+		clients.GET("/", clientHandler.List)
+		clients.PUT("/:id", clientHandler.Update)
+		clients.GET("/:id", clientHandler.GetByID)
 	}
 
 	// ROLES (Admin)
@@ -99,6 +110,7 @@ func SetupRoutes(
 	{
 		docs.GET("/", documentHandler.ListDocuments)
 		docs.POST("/", documentHandler.CreateDocument)
+		docs.POST("/upload", documentHandler.Upload)
 		docs.GET("/:id", documentHandler.GetDocument)
 		docs.DELETE("/:id", documentHandler.DeleteDocument)
 		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)

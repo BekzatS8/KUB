@@ -59,6 +59,7 @@ func Run() {
 	userRepo := repositories.NewUserRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
+	clientRepo := repositories.NewClientRepository(db)
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
 	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
@@ -102,7 +103,8 @@ func Run() {
 
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
-	leadService := services.NewLeadService(leadRepo, dealRepo)
+	clientService := services.NewClientService(clientRepo)
+	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
 
 	// PDF генератор (для документов)
@@ -145,6 +147,7 @@ func Run() {
 	authHandler := handlers.NewAuthHandler(userService, authService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	userHandler := handlers.NewUserHandler(userService, smsService)
+	clientHandler := handlers.NewClientHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
@@ -188,6 +191,7 @@ func Run() {
 	routes.SetupRoutes(
 		router,
 		userHandler,
+		clientHandler,
 		roleHandler,
 		leadHandler,
 		dealHandler,

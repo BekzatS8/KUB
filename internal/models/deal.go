@@ -7,6 +7,7 @@ import (
 type Deals struct {
 	ID        int       `json:"id"`
 	LeadID    int       `json:"lead_id"`
+	ClientID  int       `json:"client_id"`
 	OwnerID   int       `json:"owner_id"` // <-- НОВОЕ ПОЛЕ
 	Amount    string    `json:"amount"`
 	Currency  string    `json:"currency"`
