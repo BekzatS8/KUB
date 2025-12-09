@@ -116,6 +116,7 @@ func SetupRoutes(
 		docs.GET("/:id", documentHandler.GetDocument)
 		docs.DELETE("/:id", documentHandler.DeleteDocument)
 		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
+		docs.POST("/create-from-client", documentHandler.CreateDocumentFromClient) // ← НОВОЕ
 		docs.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
 		docs.GET("/:id/file", documentHandler.ServeFile)
 		docs.GET("/:id/download", documentHandler.Download)
@@ -123,6 +124,7 @@ func SetupRoutes(
 		docs.POST("/:id/review", documentHandler.Review)
 		docs.POST("/:id/sign", documentHandler.Sign)
 	}
+
 	// CHATS
 	chats := r.Group("/chats")
 	{

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
@@ -13,13 +14,16 @@ import (
 type Generator interface {
 	GenerateContract(data ContractData) (string, error)
 	GenerateInvoice(data InvoiceData) (string, error)
+	// Теперь сюда передаём ИМЯ шаблона, а не полный путь
+	GenerateFromTemplate(templateName string, placeholders map[string]string, filename string) (string, error)
 }
 
 // DocumentGenerator — реализация
 type DocumentGenerator struct {
-	RootDir  string // корень хранения, например "./files"
-	FontPath string // путь до TTF, например "assets/fonts/DejaVuSans.ttf"
-	fontName string // внутреннее имя шрифта в PDF
+	RootDir      string // корень хранения PDF, например "./files"
+	TemplatesDir string // корень шаблонов, например "./assets/templates"
+	FontPath     string // путь до TTF, например "assets/fonts/DejaVuSans.ttf"
+	fontName     string // внутреннее имя шрифта в PDF
 }
 
 type ContractData struct {
@@ -40,13 +44,20 @@ type InvoiceData struct {
 	Filename  string
 }
 
-func NewDocumentGenerator(rootDir, fontPath string) *DocumentGenerator {
+// NewDocumentGenerator создаёт генератор
+// rootDir      — куда складывать PDF (например, "files")
+// templatesDir — откуда брать .txt шаблоны (например, "assets/templates")
+// fontPath     — путь к TTF-шрифту (например, "assets/fonts/DejaVuSans.ttf")
+func NewDocumentGenerator(rootDir, templatesDir, fontPath string) *DocumentGenerator {
 	return &DocumentGenerator{
-		RootDir:  filepath.Clean(rootDir),
-		FontPath: fontPath,
-		fontName: "DejaVu",
+		RootDir:      filepath.Clean(rootDir),
+		TemplatesDir: filepath.Clean(templatesDir),
+		FontPath:     fontPath,
+		fontName:     "DejaVu",
 	}
 }
+
+// ======================= CONTRACT =======================
 
 func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) {
 	filename := data.Filename
@@ -94,7 +105,7 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	g.kvLine(pdf, "Сумма", fmt.Sprintf("%s %s", data.Amount, data.Currency))
 	pdf.Ln(1)
 
-	// Короткая вводная (переносы строк)
+	// Короткая вводная
 	pdf.SetFont(g.fontName, "", 11)
 	intro := "Стороны договорились о предоставлении услуг в соответствии с условиями настоящего договора. " +
 		"Подробные условия, сроки и порядок расчётов определяются Соглашением и Приложениями к нему."
@@ -102,7 +113,7 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	pdf.Ln(2)
 	g.hr(pdf)
 
-	// ===== Условия (краткие, чтобы документ выглядел «настоящим»)
+	// ===== Условия
 	g.sectionTitle(pdf, "Основные условия")
 	pdf.SetFont(g.fontName, "", 11)
 	terms := []string{
@@ -122,7 +133,6 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	pdf.Ln(6)
 
 	lineY := pdf.GetY()
-	// Левые подписи (Исполнитель)
 	pdf.SetFont(g.fontName, "", 11)
 	pdf.CellFormat(80, 6, "Исполнитель", "", 0, "L", false, 0, "")
 	pdf.CellFormat(30, 6, "", "", 0, "L", false, 0, "")
@@ -131,7 +141,7 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	// Линии для подписи
 	pdf.SetLineWidth(0.3)
 	// Исполнитель
-	pdf.Line(20, lineY+10, 100, lineY+10) // подпись
+	pdf.Line(20, lineY+10, 100, lineY+10)
 	pdf.SetY(lineY + 12)
 	pdf.SetX(20)
 	pdf.Cell(80, 5, "(подпись, ФИО)")
@@ -160,26 +170,7 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
 }
 
-// === helpers (добавь ниже в том же файле) ===
-func (g *DocumentGenerator) sectionTitle(pdf *gofpdf.Fpdf, s string) {
-	pdf.SetFont(g.fontName, "B", 12)
-	pdf.CellFormat(0, 7, s, "", 1, "L", false, 0, "")
-	pdf.SetFont(g.fontName, "", 11)
-}
-
-func (g *DocumentGenerator) kvLine(pdf *gofpdf.Fpdf, key, val string) {
-	pdf.SetFont(g.fontName, "B", 11)
-	pdf.CellFormat(45, 6, key+":", "", 0, "L", false, 0, "")
-	pdf.SetFont(g.fontName, "", 11)
-	pdf.CellFormat(0, 6, val, "", 1, "L", false, 0, "")
-}
-
-func (g *DocumentGenerator) hr(pdf *gofpdf.Fpdf) {
-	y := pdf.GetY() + 1.5
-	pdf.SetLineWidth(0.2)
-	pdf.Line(20, y, 190, y)
-	pdf.SetY(y + 2)
-}
+// ======================= INVOICE =======================
 
 func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) (string, error) {
 	filename := data.Filename
@@ -194,6 +185,8 @@ func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) (string, error) {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	g.addUTF8Font(pdf)
 	pdf.SetFont(g.fontName, "", 14)
+	pdf.SetMargins(20, 20, 20)
+	pdf.SetAutoPageBreak(true, 20)
 	pdf.AddPage()
 
 	pdf.SetFont(g.fontName, "B", 16)
@@ -219,9 +212,115 @@ func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) (string, error) {
 	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
 }
 
-// ===== helpers =====
+// ======================= TEMPLATES =======================
+
+// resolveTemplatePath — находит реальный путь до шаблона
+func (g *DocumentGenerator) resolveTemplatePath(templateName string) (string, error) {
+	if templateName == "" {
+		return "", fmt.Errorf("empty template name")
+	}
+
+	// Если пришёл абсолютный путь — используем как есть
+	if filepath.IsAbs(templateName) {
+		if _, err := os.Stat(templateName); err != nil {
+			return "", fmt.Errorf("template not found %s: %w", templateName, err)
+		}
+		return templateName, nil
+	}
+
+	base := g.TemplatesDir
+	if base == "" {
+		base = "assets/templates"
+	}
+	path := filepath.Join(base, templateName)
+
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("template not found %s: %w", path, err)
+	}
+	return path, nil
+}
+
+// GenerateFromTemplate — универсальная генерация PDF из текстового шаблона с плейсхолдерами {{KEY}}
+func (g *DocumentGenerator) GenerateFromTemplate(
+	templateName string,
+	placeholders map[string]string,
+	filename string,
+) (string, error) {
+	path, err := g.resolveTemplatePath(templateName)
+	if err != nil {
+		return "", err
+	}
+
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read template %s: %w", path, err)
+	}
+	content := string(contentBytes)
+
+	// Заменяем {{KEY}} на значения
+	for k, v := range placeholders {
+		ph := fmt.Sprintf("{{%s}}", k)
+		content = strings.ReplaceAll(content, ph, v)
+	}
+
+	if filename == "" {
+		filename = fmt.Sprintf("doc_%d.pdf", time.Now().Unix())
+	}
+
+	absPath, err := g.ensureTarget(filename)
+	if err != nil {
+		return "", err
+	}
+
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.SetTitle(filename, false)
+	pdf.SetAuthor("KUB SRM", false)
+	pdf.SetMargins(20, 20, 20)
+	pdf.SetAutoPageBreak(true, 20)
+
+	g.addUTF8Font(pdf)
+	pdf.AddPage()
+	pdf.SetFont(g.fontName, "", 11)
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		pdf.MultiCell(0, 5, line, "", "L", false)
+	}
+
+	if err := pdf.OutputFileAndClose(absPath); err != nil {
+		return "", err
+	}
+
+	// возвращаем относительный путь (как раньше)
+	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
+}
+
+// ======================= HELPERS =======================
+
+func (g *DocumentGenerator) sectionTitle(pdf *gofpdf.Fpdf, s string) {
+	pdf.SetFont(g.fontName, "B", 12)
+	pdf.CellFormat(0, 7, s, "", 1, "L", false, 0, "")
+	pdf.SetFont(g.fontName, "", 11)
+}
+
+func (g *DocumentGenerator) kvLine(pdf *gofpdf.Fpdf, key, val string) {
+	pdf.SetFont(g.fontName, "B", 11)
+	pdf.CellFormat(45, 6, key+":", "", 0, "L", false, 0, "")
+	pdf.SetFont(g.fontName, "", 11)
+	pdf.CellFormat(0, 6, val, "", 1, "L", false, 0, "")
+}
+
+func (g *DocumentGenerator) hr(pdf *gofpdf.Fpdf) {
+	y := pdf.GetY() + 1.5
+	pdf.SetLineWidth(0.2)
+	pdf.Line(20, y, 190, y)
+	pdf.SetY(y + 2)
+}
 
 func (g *DocumentGenerator) ensureTarget(filename string) (string, error) {
+	if g.RootDir == "" {
+		g.RootDir = "files"
+	}
 	if err := os.MkdirAll(g.RootDir, 0o755); err != nil {
 		return "", fmt.Errorf("create files dir: %w", err)
 	}
@@ -230,7 +329,6 @@ func (g *DocumentGenerator) ensureTarget(filename string) (string, error) {
 }
 
 func (g *DocumentGenerator) addUTF8Font(pdf *gofpdf.Fpdf) {
-	// AddUTF8Font принимает путь до TTF
 	pdf.AddUTF8Font(g.fontName, "", g.FontPath)
 	pdf.AddUTF8Font(g.fontName, "B", g.FontPath)
 }

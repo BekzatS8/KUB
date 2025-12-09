@@ -1,0 +1,550 @@
+{
+  "info": {
+    "_postman_id": "00000000-0000-0000-0000-000000000001",
+    "name": "KUB API – Full Flow (User → Client → Lead → Deal → Docs)",
+    "description": "Полный сценарий от логина до генерации документов: пользователи, клиенты, лиды, сделки и документы.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Login (получить access_token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/login"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var data = pm.response.json();",
+                  "  if (data.tokens && data.tokens.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', data.tokens.access_token);",
+                  "  }",
+                  "  if (data.tokens && data.tokens.refresh_token) {",
+                  "    pm.collectionVariables.set('refreshToken', data.tokens.refresh_token);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh token (/refresh)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/refresh"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Users (admin)",
+      "item": [
+        {
+          "name": "Create User (admin → /users)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"Test Company\",\n  \"bin_iin\": \"000000000000\",\n  \"email\": \"sales1@example.com\",\n  \"password\": \"Password123!\",\n  \"phone\": \"+77000000001\",\n  \"role_id\": 10\n}"
+            },
+            "url": "{{baseUrl}}/users"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Profile (/users/me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/users/me"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Clients",
+      "item": [
+        {
+          "name": "Create Client (/clients)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"ООО Ромашка\",\n  \"bin_iin\": \"123456789012\",\n  \"address\": \"г. Алматы, ул. Клиентская, д. 5\",\n  \"contact_info\": \"+77001234567, client@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/clients"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  var data = pm.response.json();",
+                  "  if (data && data.id) {",
+                  "    pm.collectionVariables.set('clientId', data.id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Leads",
+      "item": [
+        {
+          "name": "Create Lead (/leads)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Лид от клиента {{clientId}}\",\n  \"description\": \"Первичный интерес к программе.\",\n  \"status\": \"new\"\n}"
+            },
+            "url": "{{baseUrl}}/leads"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  var data = pm.response.json();",
+                  "  if (data && data.id) {",
+                  "    pm.collectionVariables.set('leadId', data.id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Deals",
+      "item": [
+        {
+          "name": "Create Deal (/deals)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": \"{{leadId}}\",\n  \"client_id\": \"{{clientId}}\",\n  \"amount\": \"1600000\",\n  \"currency\": \"KZT\",\n  \"status\": \"new\"\n}"
+            },
+            "url": "{{baseUrl}}/deals"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "  var data = pm.response.json();",
+                  "  if (data && data.id) {",
+                  "    pm.collectionVariables.set('dealId', data.id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Documents (from lead)",
+      "item": [
+        {
+          "name": "Create Document from Lead – contract",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": \"{{leadId}}\",\n  \"doc_type\": \"contract\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-lead"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Document from Lead – invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": \"{{leadId}}\",\n  \"doc_type\": \"invoice\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-lead"
+          },
+          "response": []
+        },
+        {
+          "name": "List Documents by Deal (/documents/deal/:dealId)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/documents/deal/{{dealId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Documents (from client templates)",
+      "item": [
+        {
+          "name": "From Client – contract_full",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"contract_full\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – contract_50_50",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"contract_50_50\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – personal_data_consent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"personal_data_consent\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – refund_receipt_full",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"refund_receipt_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"1600000\",\n    \"REFUND_AMOUNT_TEXT\": \"один миллион шестьсот тысяч\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – refund_receipt_partial",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"refund_receipt_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"500000\",\n    \"REFUND_AMOUNT_TEXT\": \"пятьсот тысяч\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – refund_application",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"1600000\",\n    \"REFUND_AMOUNT_TEXT\": \"один миллион шестьсот тысяч\",\n    \"REFUND_REASON_CODE\": \"visa_refusal\",\n    \"REFUND_REASON_TEXT\": \"Получен письменный отказ консульства.\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – pause_application",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"PAUSE_REASON_CODE\": \"health\",\n    \"PAUSE_REASON_TEXT\": \"Временная нетрудоспособность по состоянию здоровья.\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        },
+        {
+          "name": "From Client – additional_agreement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"deal_id\": \"{{dealId}}\",\n  \"doc_type\": \"additional_agreement\"\n}"
+            },
+            "url": "{{baseUrl}}/documents/create-from-client"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "clientId",
+      "value": ""
+    },
+    {
+      "key": "leadId",
+      "value": ""
+    },
+    {
+      "key": "dealId",
+      "value": ""
+    },
+    {
+      "key": "loginEmail",
+      "value": "admin@kub.kz"
+    },
+    {
+      "key": "loginPassword",
+      "value": "Admin123!"
+    }
+  ]
+}

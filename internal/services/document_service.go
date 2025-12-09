@@ -11,55 +11,135 @@ import (
 	"time"
 
 	"turcompany/internal/authz"
+	"turcompany/internal/docx"
 	"turcompany/internal/models"
 	"turcompany/internal/pdf"
 	"turcompany/internal/repositories"
+	"turcompany/internal/xlsx"
 )
 
 type DocumentService struct {
 	DocRepo    *repositories.DocumentRepository
 	LeadRepo   *repositories.LeadRepository
 	DealRepo   *repositories.DealRepository
+	ClientRepo *repositories.ClientRepository
 	SMSRepo    *repositories.SMSConfirmationRepository
 	SignSecret string
 
 	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
-	PDFGen    pdf.Generator // генератор PDF (internal/pdf)
+	PDFGen    pdf.Generator // генератор PDF (internal/pdf, txt-шаблоны/старые контракты)
+	DocxGen   docx.Generator
+	XlsxGen   xlsx.Generator
 }
 
 func NewDocumentService(
 	docRepo *repositories.DocumentRepository,
 	leadRepo *repositories.LeadRepository,
 	dealRepo *repositories.DealRepository,
+	clientRepo *repositories.ClientRepository,
 	smsRepo *repositories.SMSConfirmationRepository,
 	signSecret string,
 	filesRoot string,
 	pdfGen pdf.Generator,
+	docxGen docx.Generator,
+	xlsxGen xlsx.Generator,
 ) *DocumentService {
 	return &DocumentService{
 		DocRepo:    docRepo,
 		LeadRepo:   leadRepo,
 		DealRepo:   dealRepo,
+		ClientRepo: clientRepo,
 		SMSRepo:    smsRepo,
 		SignSecret: signSecret,
 		FilesRoot:  filesRoot,
 		PDFGen:     pdfGen,
+		DocxGen:    docxGen,
+		XlsxGen:    xlsxGen,
 	}
 }
 
-// ===== CRUD =====
+// DOCX-шаблоны для client-ориентированных документов
+var clientDocDocxMap = map[string]string{
+	"contract_full":          "contract_full.docx",
+	"contract_50_50":         "contract_50_50.docx",
+	"personal_data_consent":  "personal_data_consent.docx",
+	"refund_receipt_full":    "refund_receipt_full.docx",
+	"refund_receipt_partial": "refund_receipt_partial.docx",
+	"refund_application":     "refund_application.docx",
+	"pause_application":      "pause_application.docx",
+	"additional_agreement":   "additional_agreement.docx",
+}
+
+// TXT-шаблоны (fallback, старый режим)
+var clientDocTemplates = map[string]struct {
+	FileName  string
+	NeedsDeal bool
+}{
+	"contract": {
+		FileName:  "contract_full.txt",
+		NeedsDeal: true,
+	},
+	"contract_full": {
+		FileName:  "contract_full.txt",
+		NeedsDeal: true,
+	},
+	"contract_50_50": {
+		FileName:  "contract_50_50.txt",
+		NeedsDeal: true,
+	},
+	"personal_data_consent": {
+		FileName:  "personal_data_consent.txt",
+		NeedsDeal: true,
+	},
+	"refund_receipt_full": {
+		FileName:  "refund_receipt_full.txt",
+		NeedsDeal: true,
+	},
+	"refund_receipt_partial": {
+		FileName:  "refund_receipt_partial.txt",
+		NeedsDeal: true,
+	},
+	"refund_application": {
+		FileName:  "refund_application.txt",
+		NeedsDeal: true,
+	},
+	"pause_application": {
+		FileName:  "pause_application.txt",
+		NeedsDeal: true,
+	},
+	"additional_agreement": {
+		FileName:  "additional_agreement.txt",
+		NeedsDeal: true,
+	},
+}
+
+// EXCEL-шаблоны
+var clientExcelTemplates = map[string]struct {
+	Template  string
+	NeedsDeal bool
+}{
+	"personal_data_excel": {
+		Template:  "personal_data.xlsx",
+		NeedsDeal: true, // нужен контракт/сделка (CONTRACT_NUMBER)
+	},
+}
+
+// ====================== CRUD ======================
 
 func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID int) (int64, error) {
 	if authz.IsReadOnly(roleID) {
 		return 0, errors.New("read-only role")
 	}
+
 	if doc.DealID == 0 {
 		return 0, errors.New("deal not found")
 	}
+
 	deal, err := s.DealRepo.GetByID(int(doc.DealID))
 	if err != nil || deal == nil {
 		return 0, errors.New("deal not found")
 	}
+
 	// Sales может создавать документ только по своей сделке
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return 0, errors.New("forbidden")
@@ -73,13 +153,12 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	// Нормализация входного пути (если он вдруг есть)
 	filename := filepath.Base(strings.TrimSpace(doc.FilePath)) // "" если не задан
 
-	// --- НОВОЕ: автогенерация PDF для contract|invoice ---
+	// Автогенерация PDF для старых типов contract | invoice
 	switch doc.DocType {
 	case "contract", "invoice":
 		if s.PDFGen == nil {
 			return 0, errors.New("pdf generator not configured")
 		}
-		// нам нужен title лида — возьмём по deal.LeadID
 		lead, lerr := s.LeadRepo.GetByID(deal.LeadID)
 		if lerr != nil || lead == nil {
 			return 0, errors.New("lead not found")
@@ -94,7 +173,7 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 				Amount:    deal.Amount,
 				Currency:  deal.Currency,
 				CreatedAt: deal.CreatedAt,
-				Filename:  filename, // если пусто — генератор сам придумает
+				Filename:  filename,
 			})
 		case "invoice":
 			relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
@@ -109,11 +188,12 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 		if err != nil {
 			return 0, err
 		}
-		doc.FilePath = relPath // вида "/contract_deal_3.pdf"
+		doc.FilePath = relPath
+		doc.FilePathPdf = relPath
 
 	default:
 		// Если тип не поддержан генератором, но клиент прислал file_path —
-		// оставим basename (как было), иначе вернём ошибку.
+		// оставим basename, иначе ошибка.
 		if filename == "" {
 			return 0, errors.New("unsupported doc_type")
 		}
@@ -231,17 +311,13 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	// Sales — только свои; Ops/Mgmt/Admin — можно; Audit — запрещено (срезано выше)
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return errors.New("forbidden")
 	}
 	return s.DocRepo.Delete(id)
 }
 
-// ===== Изменение статусов =====
-//
-// Стандартный поток:
-// draft -> under_review -> approved|returned -> signed
+// ================== Статусы ==================
 
 func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if authz.IsReadOnly(roleID) {
@@ -255,7 +331,6 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	// Sales может сабмитить только документы своей сделки
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return errors.New("forbidden")
 	}
@@ -266,7 +341,6 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
-	// Только Ops/Mgmt/Admin
 	if !(roleID == authz.RoleOperations || roleID == authz.RoleManagement || roleID == authz.RoleAdmin) {
 		return errors.New("forbidden")
 	}
@@ -299,32 +373,24 @@ func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 	if !(doc.Status == "approved" || doc.Status == "returned") {
 		return errors.New("invalid status")
 	}
-	now := time.Now()
-	doc.Status = "signed"
-	doc.SignedAt = &now
-	return s.DocRepo.Update(doc)
+	// Просто меняем статус на signed
+	return s.DocRepo.UpdateStatus(id, "signed")
 }
 
-// SignBySMS — “механическое” подписание после успешного подтверждения SMS.
-// Вызывается из SMSService после валидации кода.
+// SignBySMS — подписание по SMS (автоматическое)
 func (s *DocumentService) SignBySMS(docID int64) error {
 	doc, err := s.DocRepo.GetByID(docID)
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	// Строже: разрешить только из approved
-	// if doc.Status != "approved" { return errors.New("invalid status") }
-	// Мягче: разрешить из approved/returned/under_review
+	// Разрешаем из approved/returned/under_review
 	if !(doc.Status == "approved" || doc.Status == "returned" || doc.Status == "under_review") {
 		return errors.New("invalid status")
 	}
-	now := time.Now()
-	doc.Status = "signed"
-	doc.SignedAt = &now
-	return s.DocRepo.Update(doc)
+	return s.DocRepo.UpdateStatus(docID, "signed")
 }
 
-// ===== Работа с файлами (RBAC + защита пути) =====
+// ================== Работа с файлами ==================
 
 func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID int) (absPath, fileName string, err error) {
 	doc, err := s.DocRepo.GetByID(docID)
@@ -340,12 +406,20 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 		return "", "", errors.New("forbidden")
 	}
 
-	// Нормализуем путь: хранится только имя файла (или относительный путь вида "/name.pdf")
+	// Теперь FilePath может быть "/pdf/xxx.pdf" или "xxx.pdf" (для upload)
 	rel := strings.TrimSpace(doc.FilePath)
 	rel = strings.ReplaceAll(rel, "\\", "/")
 	rel = strings.TrimPrefix(rel, "/")
-	rel = strings.TrimPrefix(rel, "files/")
-	rel = filepath.Base(rel) // безопасность: никакой вложенности
+
+	// если кто-то вдруг сохранил "files/..." — убираем префикс
+	if strings.HasPrefix(rel, "files/") {
+		rel = strings.TrimPrefix(rel, "files/")
+	}
+
+	// защита от ".."
+	if strings.Contains(rel, "..") {
+		return "", "", errors.New("bad filepath")
+	}
 
 	if rel == "" || rel == "." {
 		return "", "", errors.New("bad filepath")
@@ -359,12 +433,11 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 	return abs, filepath.Base(abs), nil
 }
 
-// ResolveFileForHTTP — экспортируемый метод для хендлеров (inline/attachment)
 func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, _ bool) (string, string, error) {
 	return s.resolveAndAuthorizeFile(docID, userID, roleID)
 }
 
-// ===== Создание документа из лида с автогенерацией PDF =====
+// ================== Документы из лида (старый контракт/invoice) ==================
 
 func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, userID, roleID int) (*models.Document, error) {
 	lead, err := s.LeadRepo.GetByID(leadID)
@@ -375,33 +448,25 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 	if err != nil || deal == nil {
 		return nil, errors.New("deal not found")
 	}
-	// Sales — только свои
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, errors.New("forbidden")
 	}
 
-	// Генерация PDF (поддерживаем contract | invoice; остальное — 400)
+	if s.PDFGen == nil {
+		return nil, errors.New("pdf generator not configured")
+	}
+
 	var relPath string
 	switch docType {
 	case "contract":
-		if s.PDFGen == nil {
-			return nil, errors.New("pdf generator not configured")
-		}
 		relPath, err = s.PDFGen.GenerateContract(pdf.ContractData{
 			LeadTitle: lead.Title,
 			DealID:    deal.ID,
 			Amount:    deal.Amount,
 			Currency:  deal.Currency,
 			CreatedAt: deal.CreatedAt,
-			// Filename: можно не указывать — сгенерируется автоматически
 		})
-		if err != nil {
-			return nil, err
-		}
 	case "invoice":
-		if s.PDFGen == nil {
-			return nil, errors.New("pdf generator not configured")
-		}
 		relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
 			LeadTitle: lead.Title,
 			DealID:    deal.ID,
@@ -409,18 +474,19 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 			Currency:  deal.Currency,
 			CreatedAt: deal.CreatedAt,
 		})
-		if err != nil {
-			return nil, err
-		}
 	default:
 		return nil, errors.New("unsupported doc_type")
 	}
+	if err != nil {
+		return nil, err
+	}
 
 	doc := &models.Document{
-		DealID:   int64(deal.ID),
-		DocType:  docType,
-		Status:   "draft",
-		FilePath: relPath, // например: "/contract_deal_1.pdf"
+		DealID:      int64(deal.ID),
+		DocType:     docType,
+		Status:      "draft",
+		FilePath:    relPath,
+		FilePathPdf: relPath,
 	}
 	id, ierr := s.DocRepo.Create(doc)
 	if ierr != nil {
@@ -428,4 +494,234 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 	}
 	doc.ID = id
 	return doc, nil
+}
+
+// ================== Документы из клиента (новый поток) ==================
+
+func (s *DocumentService) CreateDocumentFromClient(
+	clientID int,
+	dealID int,
+	docType string,
+	userID, roleID int,
+	extra map[string]string,
+) (*models.Document, error) {
+
+	// хотя бы один генератор должен быть сконфигурирован
+	if s.PDFGen == nil && s.DocxGen == nil && s.XlsxGen == nil {
+		return nil, errors.New("no document generator configured")
+	}
+
+	// какие типы шаблонов у нас есть для этого docType
+	txtCfg, hasTxt := clientDocTemplates[docType]
+	docxName, hasDocx := clientDocDocxMap[docType]
+	excelCfg, hasExcel := clientExcelTemplates[docType]
+
+	if !hasTxt && !hasDocx && !hasExcel {
+		return nil, errors.New("unsupported doc_type")
+	}
+
+	// --- Клиент ---
+	client, err := s.ClientRepo.GetByID(clientID)
+	if err != nil || client == nil {
+		return nil, errors.New("client not found")
+	}
+
+	// --- Нужна ли сделка? ---
+	needDeal := false
+	if hasTxt && txtCfg.NeedsDeal {
+		needDeal = true
+	}
+	if hasDocx {
+		needDeal = true
+	}
+	if hasExcel && excelCfg.NeedsDeal {
+		needDeal = true
+	}
+
+	var deal *models.Deals
+	if needDeal {
+		if dealID > 0 {
+			deal, err = s.DealRepo.GetByID(dealID)
+			if err != nil || deal == nil {
+				return nil, errors.New("deal not found")
+			}
+		} else {
+			deal, err = s.DealRepo.GetLatestByClientID(clientID)
+			if err != nil {
+				return nil, err
+			}
+			if deal == nil {
+				return nil, errors.New("deal not found")
+			}
+		}
+
+		if roleID == authz.RoleSales && deal.OwnerID != userID {
+			return nil, errors.New("forbidden")
+		}
+	}
+
+	now := time.Now()
+
+	// базовые плейсхолдеры
+	placeholders := buildClientPlaceholders(client, deal, extra, now)
+
+	// спец-логика для чекбоксов
+	switch docType {
+	case "refund_application":
+		code := extra["REFUND_REASON_CODE"]
+		flags := map[string]string{
+			"RA_R1": " ",
+			"RA_R2": " ",
+			"RA_R3": " ",
+			"RA_R4": " ",
+			"RA_R5": " ",
+			"RA_R6": " ",
+		}
+		switch code {
+		case "visa_refusal":
+			flags["RA_R1"] = "X"
+		case "interview_fail":
+			flags["RA_R2"] = "X"
+		case "family":
+			flags["RA_R3"] = "X"
+		case "health":
+			flags["RA_R4"] = "X"
+		case "force_majeure":
+			flags["RA_R5"] = "X"
+		case "other":
+			flags["RA_R6"] = "X"
+		}
+		for k, v := range flags {
+			placeholders[k] = v
+		}
+
+	case "pause_application":
+		code := extra["PAUSE_REASON_CODE"]
+		flags := map[string]string{
+			"PA_R1": " ",
+			"PA_R2": " ",
+			"PA_R3": " ",
+			"PA_R4": " ",
+		}
+		switch code {
+		case "health":
+			flags["PA_R1"] = "X"
+		case "force_majeure":
+			flags["PA_R2"] = "X"
+		case "family":
+			flags["PA_R3"] = "X"
+		case "other":
+			flags["PA_R4"] = "X"
+		}
+		for k, v := range flags {
+			placeholders[k] = v
+		}
+	}
+
+	// базовое имя файла без расширения
+	baseFilename := fmt.Sprintf(
+		"%s_client_%d_%s",
+		docType,
+		client.ID,
+		now.Format("20060102_150405"),
+	)
+
+	// ================== EXCEL ==================
+	if hasExcel {
+		if s.XlsxGen == nil {
+			return nil, errors.New("xlsx generator not configured")
+		}
+
+		excelRelPath, err := s.XlsxGen.GenerateFromTemplate(
+			excelCfg.Template,
+			placeholders,
+			baseFilename,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("generate excel: %w", err)
+		}
+
+		doc := &models.Document{
+			DealID:   getDealID64(deal),
+			DocType:  docType,
+			Status:   "draft",
+			FilePath: excelRelPath, // "/excel/..."
+		}
+
+		id, err := s.DocRepo.Create(doc)
+		if err != nil {
+			return nil, err
+		}
+		doc.ID = id
+		return doc, nil
+	}
+
+	// ================== DOCX ==================
+	if hasDocx && s.DocxGen != nil {
+		docxRelPath, pdfRelPath, err := s.DocxGen.GenerateDocxAndPDF(
+			docxName,
+			placeholders,
+			baseFilename,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("generate docx+pdf: %w", err)
+		}
+
+		doc := &models.Document{
+			DealID:       getDealID64(deal),
+			DocType:      docType,
+			Status:       "draft",
+			FilePath:     pdfRelPath, // основной путь — PDF
+			FilePathPdf:  pdfRelPath,
+			FilePathDocx: docxRelPath,
+		}
+
+		id, err := s.DocRepo.Create(doc)
+		if err != nil {
+			return nil, err
+		}
+		doc.ID = id
+		return doc, nil
+	}
+
+	// ================== TXT → PDF ==================
+	if !hasTxt {
+		return nil, errors.New("txt template not configured")
+	}
+	if s.PDFGen == nil {
+		return nil, errors.New("pdf generator not configured for txt templates")
+	}
+
+	pdfRelPath, err := s.PDFGen.GenerateFromTemplate(
+		txtCfg.FileName,
+		placeholders,
+		baseFilename+".pdf",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("generate txt-pdf: %w", err)
+	}
+
+	doc := &models.Document{
+		DealID:      getDealID64(deal),
+		DocType:     docType,
+		Status:      "draft",
+		FilePath:    pdfRelPath,
+		FilePathPdf: pdfRelPath,
+	}
+
+	id, err := s.DocRepo.Create(doc)
+	if err != nil {
+		return nil, err
+	}
+	doc.ID = id
+	return doc, nil
+}
+
+// ================== helpers ==================
+
+func getDealID64(deal *models.Deals) int64 {
+	if deal == nil {
+		return 0
+	}
+	return int64(deal.ID)
 }

@@ -15,3 +15,89 @@
 
   email": "bekzat@example.com",
     "password": "bekzat100"
+
+    2.1. Общие плейсхолдеры (общие для всех документов)
+
+    Ты можешь пользоваться этим набором в любом DOCX:
+
+    Клиент:
+
+    {{CLIENT_FULL_NAME}} — полное ФИО из clients.name
+
+    {{CLIENT_LAST_NAME}} — фамилия (из первой части ФИО)
+
+    {{CLIENT_FIRST_NAME}} — имя
+
+    {{CLIENT_MIDDLE_NAME}} — отчество / второе имя
+
+    {{CLIENT_LAST_NAME_INITIALS}} — Иванов И.И. (для подписи)
+
+    {{CLIENT_IIN}} — ИИН (берётся из clients.bin_iin)
+
+    {{CLIENT_ADDRESS}} — адрес клиента
+
+    {{CLIENT_PHONE}} — телефон (первый элемент из contact_info)
+
+    {{CLIENT_EMAIL}} — email (второй элемент из contact_info)
+
+    {{CLIENT_CONTACT_INFO}} — сырая строка contact_info
+
+    Сделка:
+
+    {{DEAL_ID}} — id сделки
+
+    {{DEAL_AMOUNT_NUM}} — сумма сделки (deals.amount, строка)
+
+    {{DEAL_CURRENCY}} — KZT
+
+    {{DEAL_STATUS}} — статус
+
+    {{DEAL_DATE}} — дата создания сделки (dd.MM.yyyy)
+
+    Дата документа (today/now):
+
+    {{DOC_DATE}} — 06.12.2025
+
+    {{DOC_DATE_DAY}} — 06
+
+    {{DOC_DATE_MONTH_NUM}} — 12
+
+    {{DOC_DATE_YEAR}} — 2025
+
+    {{DOC_DATE_MONTH_TEXT}} — декабря
+
+    {{DOC_DATE_TEXT}} — 6 декабря 2025 г.
+
+    Контракт:
+
+    {{CONTRACT_NUMBER}} — по умолчанию KUB-000123 (из deal.ID)
+
+    {{CONTRACT_DATE}} — текстом (6 декабря 2025 г.)
+
+    {{CONTRACT_DATE_RAW}} — 06.12.2025
+
+    {{CONTRACT_YEAR}} — 2025
+
+    Суммы:
+
+    {{TOTAL_AMOUNT_NUM}} — общая сумма договора (по умолчанию = deal.Amount)
+
+    {{TOTAL_AMOUNT_TEXT}} — сумма прописью (пока заглушка = число; лучше передавать через extra)
+
+    {{PREPAY_AMOUNT_NUM}} — сумма предоплаты (через extra)
+
+    {{PREPAY_AMOUNT_TEXT}} — предоплата прописью (через extra)
+
+    Специальные для возвратов/пауз (через extra и спец-логику в сервисе):
+
+    {{REFUND_AMOUNT_NUM}}, {{REFUND_AMOUNT_TEXT}}
+
+    {{REFUND_REASON_TEXT}}, {{REFUND_REASON_CODE}}
+
+    {{PAUSE_REASON_TEXT}}, {{PAUSE_REASON_CODE}}
+
+    чекбоксы:
+
+    {{RA_R1}}..{{RA_R6}} — для refund_application
+
+    {{PA_R1}}..{{PA_R4}} — для pause_application

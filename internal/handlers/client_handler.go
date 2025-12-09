@@ -17,16 +17,49 @@ type ClientHandler struct {
 }
 
 type createClientRequest struct {
-	Name        string `json:"name" binding:"required"`
-	BinIin      string `json:"bin_iin"`
-	Address     string `json:"address"`
+	// Для компаний
+	Name string `json:"name"`
+
+	// Физлицо — анкета
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	MiddleName string `json:"middle_name"`
+
+	BinIin string `json:"bin_iin"`
+	IIN    string `json:"iin"`
+
+	IDNumber       string `json:"id_number"`
+	PassportSeries string `json:"passport_series"`
+	PassportNumber string `json:"passport_number"`
+
+	Phone               string `json:"phone"`
+	Email               string `json:"email"`
+	Address             string `json:"address"`
+	RegistrationAddress string `json:"registration_address"`
+	ActualAddress       string `json:"actual_address"`
+
 	ContactInfo string `json:"contact_info"`
 }
 
 type updateClientRequest struct {
-	Name        string `json:"name" binding:"required"`
-	BinIin      string `json:"bin_iin"`
-	Address     string `json:"address"`
+	Name       string `json:"name"`
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	MiddleName string `json:"middle_name"`
+
+	BinIin string `json:"bin_iin"`
+	IIN    string `json:"iin"`
+
+	IDNumber       string `json:"id_number"`
+	PassportSeries string `json:"passport_series"`
+	PassportNumber string `json:"passport_number"`
+
+	Phone               string `json:"phone"`
+	Email               string `json:"email"`
+	Address             string `json:"address"`
+	RegistrationAddress string `json:"registration_address"`
+	ActualAddress       string `json:"actual_address"`
+
 	ContactInfo string `json:"contact_info"`
 }
 
@@ -34,6 +67,7 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 	return &ClientHandler{Service: service}
 }
 
+// POST /clients
 func (h *ClientHandler) Create(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
@@ -46,13 +80,26 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	client := &models.Client{
-		Name:        req.Name,
-		BinIin:      req.BinIin,
-		Address:     req.Address,
-		ContactInfo: req.ContactInfo,
-		CreatedAt:   time.Now(),
+		Name:                req.Name,
+		BinIin:              req.BinIin,
+		Address:             req.Address,
+		ContactInfo:         req.ContactInfo,
+		LastName:            req.LastName,
+		FirstName:           req.FirstName,
+		MiddleName:          req.MiddleName,
+		IIN:                 req.IIN,
+		IDNumber:            req.IDNumber,
+		PassportSeries:      req.PassportSeries,
+		PassportNumber:      req.PassportNumber,
+		Phone:               req.Phone,
+		Email:               req.Email,
+		RegistrationAddress: req.RegistrationAddress,
+		ActualAddress:       req.ActualAddress,
+		CreatedAt:           time.Now(),
 	}
+
 	id, err := h.Service.Create(client)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -62,6 +109,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, client)
 }
 
+// PUT /clients/:id
 func (h *ClientHandler) Update(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
@@ -70,12 +118,13 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	}
 
 	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
+	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	existing, err := h.Service.GetByID(id)
-	if err != nil || existing == nil {
+
+	current, err := h.Service.GetByID(id)
+	if err != nil || current == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
 		return
 	}
@@ -85,21 +134,34 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	existing.Name = req.Name
-	existing.BinIin = req.BinIin
-	existing.Address = req.Address
-	existing.ContactInfo = req.ContactInfo
 
-	if err := h.Service.Update(existing); err != nil {
+	current.Name = req.Name
+	current.BinIin = req.BinIin
+	current.Address = req.Address
+	current.ContactInfo = req.ContactInfo
+	current.LastName = req.LastName
+	current.FirstName = req.FirstName
+	current.MiddleName = req.MiddleName
+	current.IIN = req.IIN
+	current.IDNumber = req.IDNumber
+	current.PassportSeries = req.PassportSeries
+	current.PassportNumber = req.PassportNumber
+	current.Phone = req.Phone
+	current.Email = req.Email
+	current.RegistrationAddress = req.RegistrationAddress
+	current.ActualAddress = req.ActualAddress
+
+	if err := h.Service.Update(current); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, existing)
+	c.JSON(http.StatusOK, current)
 }
 
+// GET /clients/:id
 func (h *ClientHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
+	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
@@ -111,9 +173,11 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, client)
 }
 
+// GET /clients?page=&size=
 func (h *ClientHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
+
 	if page < 1 {
 		page = 1
 	}

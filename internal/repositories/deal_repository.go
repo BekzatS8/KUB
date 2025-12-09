@@ -25,13 +25,15 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(
 		query,
-		deal.LeadID,
-		deal.OwnerID,
-		deal.Amount,
-		deal.Currency,
-		deal.Status,
-		deal.CreatedAt,
+		deal.LeadID,    // $1
+		deal.ClientID,  // $2  ← ВОТ ЭТО НУЖНО
+		deal.OwnerID,   // $3
+		deal.Amount,    // $4
+		deal.Currency,  // $5
+		deal.Status,    // $6
+		deal.CreatedAt, // $7
 	).Scan(&id)
+
 	if err != nil {
 		return 0, fmt.Errorf("создание сделки: %w", err)
 	}
@@ -256,4 +258,33 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 	const q = `UPDATE deals SET status = $1 WHERE id = $2`
 	_, err := r.db.Exec(q, status, id)
 	return err
+}
+
+// GetLatestByClientID возвращает последнюю сделку по client_id
+func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
+	query := `
+        SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+        FROM deals
+        WHERE client_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+    `
+	deal := &models.Deals{}
+	err := r.db.QueryRow(query, clientID).Scan(
+		&deal.ID,
+		&deal.LeadID,
+		&deal.ClientID,
+		&deal.OwnerID,
+		&deal.Amount,
+		&deal.Currency,
+		&deal.Status,
+		&deal.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get deal by client_id: %w", err)
+	}
+	return deal, nil
 }

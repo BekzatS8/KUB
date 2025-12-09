@@ -17,21 +17,58 @@ func NewClientService(repo *repositories.ClientRepository) *ClientService {
 	return &ClientService{Repo: repo}
 }
 
-func (s *ClientService) Create(client *models.Client) (int64, error) {
-	if strings.TrimSpace(client.Name) == "" {
-		return 0, errors.New("name is required")
+// нормализация + базовая валидация
+func (s *ClientService) normalizeAndValidate(c *models.Client) error {
+	trim := func(s string) string { return strings.TrimSpace(s) }
+
+	c.Name = trim(c.Name)
+	c.LastName = trim(c.LastName)
+	c.FirstName = trim(c.FirstName)
+	c.MiddleName = trim(c.MiddleName)
+	c.IIN = trim(c.IIN)
+	c.BinIin = trim(c.BinIin)
+	c.Phone = trim(c.Phone)
+	c.Email = trim(c.Email)
+
+	// если Name пустой, но есть ФИО — собираем отображаемое имя
+	if c.Name == "" && (c.LastName != "" || c.FirstName != "") {
+		full := strings.TrimSpace(
+			strings.Join([]string{c.LastName, c.FirstName, c.MiddleName}, " "),
+		)
+		c.Name = full
 	}
-	if client.CreatedAt.IsZero() {
-		client.CreatedAt = time.Now()
+
+	if c.Name == "" {
+		return errors.New("name or (last_name + first_name) is required")
 	}
-	return s.Repo.Create(client)
+
+	if c.IIN != "" && len(c.IIN) != 12 {
+		return errors.New("iin must be 12 digits")
+	}
+
+	if c.Email != "" && !strings.Contains(c.Email, "@") {
+		return errors.New("invalid email")
+	}
+
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+
+	return nil
 }
 
-func (s *ClientService) Update(client *models.Client) error {
-	if strings.TrimSpace(client.Name) == "" {
-		return errors.New("name is required")
+func (s *ClientService) Create(c *models.Client) (int64, error) {
+	if err := s.normalizeAndValidate(c); err != nil {
+		return 0, err
 	}
-	return s.Repo.Update(client)
+	return s.Repo.Create(c)
+}
+
+func (s *ClientService) Update(c *models.Client) error {
+	if err := s.normalizeAndValidate(c); err != nil {
+		return err
+	}
+	return s.Repo.Update(c)
 }
 
 func (s *ClientService) GetByID(id int) (*models.Client, error) {
@@ -48,15 +85,15 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 			return existing, nil
 		}
 	}
+
 	if fallback == nil {
 		return nil, errors.New("client data is required")
 	}
-	if strings.TrimSpace(fallback.Name) == "" {
-		return nil, errors.New("client name is required")
+
+	if err := s.normalizeAndValidate(fallback); err != nil {
+		return nil, err
 	}
-	if fallback.CreatedAt.IsZero() {
-		fallback.CreatedAt = time.Now()
-	}
+
 	id, err := s.Repo.Create(fallback)
 	if err != nil {
 		return nil, err

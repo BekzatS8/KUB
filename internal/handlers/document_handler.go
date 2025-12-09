@@ -3,7 +3,9 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,6 +16,12 @@ import (
 
 type DocumentHandler struct {
 	Service *services.DocumentService
+}
+type createFromClientRequest struct {
+	ClientID int               `json:"client_id" binding:"required"`
+	DealID   int               `json:"deal_id"` // можно 0, тогда возьмём последнюю сделку клиента
+	DocType  string            `json:"doc_type" binding:"required"`
+	Extra    map[string]string `json:"extra"` // сумма, причина и т.п.
 }
 
 func NewDocumentHandler(service *services.DocumentService) *DocumentHandler {
@@ -199,6 +207,41 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 	})
 }
 
+// POST /documents/create-from-client
+func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
+	var req createFromClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+
+	doc, err := h.Service.CreateDocumentFromClient(
+		req.ClientID,
+		req.DealID,
+		req.DocType,
+		userID,
+		roleID,
+		req.Extra,
+	)
+	if err != nil {
+		code := http.StatusInternalServerError
+		switch err.Error() {
+		case "client not found", "deal not found", "unsupported doc_type":
+			code = http.StatusBadRequest
+		case "forbidden", "read-only role":
+			code = http.StatusForbidden
+		case "pdf generator not configured":
+			code = http.StatusInternalServerError
+		}
+		c.JSON(code, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, doc)
+}
+
 // ===== Статусные операции =====
 
 // POST /documents/:id/submit
@@ -305,8 +348,18 @@ func (h *DocumentHandler) ServeFile(c *gin.Context) {
 		return
 	}
 
-	// inline
-	c.Header("Content-Type", "application/pdf")
+	ext := strings.ToLower(filepath.Ext(name))
+	ct := "application/octet-stream"
+	switch ext {
+	case ".pdf":
+		ct = "application/pdf"
+	case ".docx":
+		ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xlsx":
+		ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	}
+
+	c.Header("Content-Type", ct)
 	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, name))
 	c.File(abs)
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"turcompany/internal/docx"
+	"turcompany/internal/xlsx"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -111,17 +113,32 @@ func Run() {
 	chatService := services.NewChatService(chatRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService)
 
-	// PDF генератор (для документов)
-	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, "assets/fonts/DejaVuSans.ttf")
+	pdfGen := pdf.NewDocumentGenerator(
+		cfg.Files.RootDir,  // "files"
+		"assets/templates", // если ты так сделал
+		"assets/fonts/DejaVuSans.ttf",
+	)
+
+	// DOCX-генератор (LibreOffice)
+	docxGen := docx.NewDocxGenerator(
+		cfg.Files.RootDir, // "files"
+		"assets/docx",     // где лежат .docx
+		"C:\\Program Files\\LibreOffice\\program\\soffice.exe", // твой путь к soffice
+	)
+
+	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, "assets/xlsx")
 
 	documentService := services.NewDocumentService(
 		documentRepo,
 		leadRepo,
 		dealRepo,
+		clientRepo,
 		smsRepo,
 		"placeholder-secret",
 		cfg.Files.RootDir,
 		pdfGen,
+		docxGen,
+		excelGen,
 	)
 
 	// --- ВАЖНО: создаём TaskService ДО сборки хендлеров, т.к. он нужен и TaskHandler, и IntegrationsHandler
