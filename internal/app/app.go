@@ -89,7 +89,7 @@ func Run() {
 	// Telegram (если включен)
 	if cfg.Telegram.Enable && cfg.Telegram.BotToken != "" {
 		log.Printf("[BOOT] Telegram enabled: true (token len=%d)", len(cfg.Telegram.BotToken))
-		tgSvc = services.NewTelegramService(cfg.Telegram.BotToken)
+		tgSvc = services.NewTelegramService(cfg.Telegram.BotToken, teleLinkRepo, userRepo, nil, cfg.Frontend.Host)
 
 		if cfg.Telegram.WebhookURL != "" {
 			log.Printf("[BOOT] setting Telegram webhook -> %s", cfg.Telegram.WebhookURL)
@@ -142,7 +142,10 @@ func Run() {
 	)
 
 	// --- ВАЖНО: создаём TaskService ДО сборки хендлеров, т.к. он нужен и TaskHandler, и IntegrationsHandler
-	taskService := services.NewTaskService(taskRepo)
+	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)
+	if tgSvc != nil {
+		tgSvc.SetTaskService(taskService)
+	}
 
 	// SMS провайдер (Mobizon)
 	mobizonClient := utils.NewClientWithOptions(
@@ -199,8 +202,6 @@ func Run() {
 	// ✔ IntegrationsHandler должен создаваться ПОСЛЕ taskService, и получает его в конструктор
 	if tgSvc != nil {
 		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)
-		// ← прокидываем локаль
-		integrationsHandler.SetLocation(loc)
 	}
 
 	// === Gin ===

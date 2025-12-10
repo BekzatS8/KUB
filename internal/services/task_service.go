@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"turcompany/internal/models"
@@ -23,12 +24,14 @@ type TaskService interface {
 }
 
 type taskService struct {
-	repo repositories.TaskRepository
+	repo  repositories.TaskRepository
+	users repositories.UserRepository
+	tg    *TelegramService
 }
 
 // NewTaskService creates a new instance of TaskService.
-func NewTaskService(repo repositories.TaskRepository) TaskService {
-	return &taskService{repo: repo}
+func NewTaskService(repo repositories.TaskRepository, users repositories.UserRepository, tg *TelegramService) TaskService {
+	return &taskService{repo: repo, users: users, tg: tg}
 }
 
 func (s *taskService) Create(ctx context.Context, task *models.Task) (*models.Task, error) {
@@ -41,10 +44,15 @@ func (s *taskService) Create(ctx context.Context, task *models.Task) (*models.Ta
 	now := time.Now()
 	task.CreatedAt = now
 	task.UpdatedAt = now
+	if task.AssigneeID == 0 {
+		task.AssigneeID = task.CreatorID
+	}
 
 	if err := s.repo.Store(ctx, task); err != nil {
 		return nil, err
 	}
+
+	s.notifyTaskCreated(ctx, task)
 	return task, nil
 }
 
@@ -91,7 +99,14 @@ func (s *taskService) UpdateStatus(ctx context.Context, id int64, to models.Task
 	if err := s.repo.UpdateStatus(ctx, id, to); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(ctx, id)
+	updated, err := s.repo.FindByID(ctx, id)
+	if err != nil || updated == nil {
+		return updated, err
+	}
+	if to == models.StatusDone {
+		s.notifyTaskCompleted(ctx, updated)
+	}
+	return updated, nil
 }
 
 func (s *taskService) UpdateAssignee(ctx context.Context, id int64, assigneeID int64) (*models.Task, error) {
@@ -99,4 +114,46 @@ func (s *taskService) UpdateAssignee(ctx context.Context, id int64, assigneeID i
 		return nil, err
 	}
 	return s.repo.FindByID(ctx, id)
+}
+
+const dueSoonThreshold = 24 * time.Hour
+
+func (s *taskService) notifyTaskCreated(ctx context.Context, task *models.Task) {
+	if s.tg == nil || s.users == nil || task == nil {
+		return
+	}
+	if task.DueDate == nil {
+		return
+	}
+
+	if d := time.Until(*task.DueDate); d < 0 || d > dueSoonThreshold {
+		return
+	}
+	s.sendNotification(ctx, task, "📌 Новая задача")
+}
+
+func (s *taskService) notifyTaskCompleted(ctx context.Context, task *models.Task) {
+	if s.tg == nil || s.users == nil || task == nil {
+		return
+	}
+	s.sendNotification(ctx, task, "✅ Задача выполнена")
+}
+
+func (s *taskService) sendNotification(ctx context.Context, task *models.Task, prefix string) {
+	if s.tg == nil || s.users == nil || task == nil {
+		return
+	}
+	chatID, notify, err := s.users.GetTelegramSettings(ctx, task.AssigneeID)
+	if err != nil {
+		log.Printf("[task][notify] failed to get telegram settings for assignee=%d: %v", task.AssigneeID, err)
+		return
+	}
+	if !notify || chatID == 0 {
+		return
+	}
+
+	msg := prefix + "\n" + s.tg.FormatTaskNotification(task)
+	if err := s.tg.SendMessage(chatID, msg); err != nil {
+		log.Printf("[task][notify] telegram send error: %v", err)
+	}
 }

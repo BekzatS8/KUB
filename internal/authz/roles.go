@@ -21,5 +21,10 @@ func IsFullAccess(roleID int) bool {
 }
 
 func CanAccessTasks(roleID int) bool {
-	return roleID == RoleAdminStaff || roleID == RoleManagement
+	switch roleID {
+	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleAdminStaff:
+		return true
+	default:
+		return false
+	}
 }

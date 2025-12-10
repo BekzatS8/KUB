@@ -57,7 +57,7 @@ func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, 
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("task not found")
+			return nil, nil
 		}
 		return nil, err
 	}

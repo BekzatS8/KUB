@@ -193,7 +193,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 
 	// доступ:
 	// - Sales: общий список запрещаем (смотри по сделке /documents/deal/:dealid)
-	// - Ops/Mgmt/Admin/Audit: можно
+	// - Ops/Mgmt/Admin/Control: можно
 	_, roleID := getUserAndRole(c)
 	if roleID == authz.RoleSales {
 		forbidden(c, "Forbidden for sales; use /documents/deal/{dealid}")

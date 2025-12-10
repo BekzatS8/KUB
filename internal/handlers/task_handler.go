@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -30,7 +29,7 @@ func NewTaskHandler(service services.TaskService, tg *services.TelegramService, 
 // POST /tasks
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
-		AssigneeID  int64               `json:"assignee_id" binding:"required"`
+		AssigneeID  int64               `json:"assignee_id"`
 		EntityID    int64               `json:"entity_id"`
 		EntityType  string              `json:"entity_type"`
 		Title       string              `json:"title" binding:"required"`
@@ -52,13 +51,22 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		req.AssigneeID, req.EntityType, req.EntityID, req.Title, req.DueDate, req.ReminderAt, req.Priority)
 
 	uid := int64(userID)
+	if !authz.CanAccessTasks(roleID) {
+		log.Printf("[task][create][deny] role=%d has no task access", roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][create][deny] read-only role=%d", roleID)
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	if roleID == authz.RoleSales && req.AssigneeID != uid {
+	if req.AssigneeID == 0 {
+		req.AssigneeID = uid
+	}
+
+	if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && req.AssigneeID != uid {
 		log.Printf("[task][create][deny] staff=%d tried assign to %d", uid, req.AssigneeID)
 		forbidden(c, "Staff can assign only to self")
 		return
@@ -136,6 +144,11 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
+	if !canViewTask(roleID, int64(userID), task) {
+		log.Printf("[task][getByID][deny] uid=%d role=%d", userID, roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
 	log.Printf("[task][getByID][ok] id=%d", id)
 	c.JSON(http.StatusOK, task)
 }
@@ -144,6 +157,12 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 func (h *TaskHandler) GetAll(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	log.Printf("[task][list] call by userID=%d role=%d q=%v", userID, roleID, c.Request.URL.RawQuery)
+
+	if !authz.CanAccessTasks(roleID) {
+		log.Printf("[task][list][deny] role=%d", roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
 
 	var filter models.TaskFilter
 	if v, ok := c.GetQuery("assignee_id"); ok {
@@ -174,6 +193,14 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	if v, ok := c.GetQuery("status"); ok {
 		st := models.TaskStatus(v)
 		filter.Status = &st
+	}
+
+	uid := int64(userID)
+	switch roleID {
+	case authz.RoleSales, authz.RoleAdminStaff:
+		filter.AssigneeID = &uid
+	case authz.RoleControl, authz.RoleOperations, authz.RoleManagement:
+		// full or supervisory visibility — keep requested filter
 	}
 
 	tasks, err := h.service.GetAll(c.Request.Context(), filter)
@@ -217,8 +244,8 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if roleID == authz.RoleSales && !(current.CreatorID == uid || current.AssigneeID == uid) {
-		log.Printf("[task][update][deny] staff uid=%d current creator=%d assignee=%d", uid, current.CreatorID, current.AssigneeID)
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][update][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -241,7 +268,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	update := *current
 
 	if req.AssigneeID != nil {
-		if roleID == authz.RoleSales && *req.AssigneeID != uid {
+		if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && *req.AssigneeID != uid {
 			log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, *req.AssigneeID)
 			forbidden(c, "Staff can assign only to self")
 			return
@@ -339,8 +366,8 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if roleID == authz.RoleSales && current.CreatorID != uid {
-		log.Printf("[task][delete][deny] staff uid=%d creator=%d", uid, current.CreatorID)
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][delete][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -390,8 +417,8 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 		return
 	}
 
-	if roleID == authz.RoleSales && !(current.CreatorID == uid || current.AssigneeID == uid) {
-		log.Printf("[task][status][deny] staff uid=%d creator=%d assignee=%d", uid, current.CreatorID, current.AssigneeID)
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][status][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -421,7 +448,131 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, updated)
 
 	// === TG: уведомление о смене статуса ===
-	h.notifyAssignee(c, updated, "🔁 Статус изменён на "+string(body.To))
+	if body.To != models.StatusDone {
+		h.notifyAssignee(c, updated, "🔁 Статус изменён на "+string(body.To))
+	}
+}
+
+// POST /tasks/:id/complete
+func (h *TaskHandler) Complete(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	log.Printf("[task][complete] call by userID=%d role=%d id_param=%s", userID, roleID, c.Param("id"))
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		log.Printf("[task][complete][err] invalid id: %v", err)
+		badRequest(c, "Invalid id")
+		return
+	}
+	uid := int64(userID)
+	if authz.IsReadOnly(roleID) {
+		log.Printf("[task][complete][deny] read-only role=%d", roleID)
+		forbidden(c, "Read-only role")
+		return
+	}
+
+	current, err := h.service.GetByID(c.Request.Context(), id)
+	if err != nil {
+		log.Printf("[task][complete][err] get current id=%d: %v", id, err)
+		internalError(c, "Failed to get task")
+		return
+	}
+	if current == nil {
+		log.Printf("[task][complete][404] id=%d", id)
+		notFound(c, ValidationFailed, "Task not found")
+		return
+	}
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][complete][deny] uid=%d role=%d", uid, roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	updated, err := h.service.UpdateStatus(c.Request.Context(), id, models.StatusDone)
+	if err != nil {
+		log.Printf("[task][complete][err] save id=%d: %v", id, err)
+		internalError(c, "Failed to complete task")
+		return
+	}
+	log.Printf("[task][complete][ok] id=%d", id)
+	c.JSON(http.StatusOK, updated)
+
+}
+
+// POST /tasks/:id/remind-later
+func (h *TaskHandler) RemindLater(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	log.Printf("[task][remind] call by userID=%d role=%d id_param=%s", userID, roleID, c.Param("id"))
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		log.Printf("[task][remind][err] invalid id: %v", err)
+		badRequest(c, "Invalid id")
+		return
+	}
+	uid := int64(userID)
+	if authz.IsReadOnly(roleID) {
+		log.Printf("[task][remind][deny] read-only role=%d", roleID)
+		forbidden(c, "Read-only role")
+		return
+	}
+
+	current, err := h.service.GetByID(c.Request.Context(), id)
+	if err != nil {
+		log.Printf("[task][remind][err] get current id=%d: %v", id, err)
+		internalError(c, "Failed to get task")
+		return
+	}
+	if current == nil {
+		log.Printf("[task][remind][404] id=%d", id)
+		notFound(c, ValidationFailed, "Task not found")
+		return
+	}
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][remind][deny] uid=%d role=%d", uid, roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	var body struct {
+		Minutes    int    `json:"minutes"`
+		ReminderAt string `json:"reminder_at"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil && err.Error() != "EOF" {
+		log.Printf("[task][remind][bind][err] %v", err)
+		badRequest(c, "Invalid payload")
+		return
+	}
+
+	var newReminder time.Time
+	if body.ReminderAt != "" {
+		t, err := time.Parse(time.RFC3339, body.ReminderAt)
+		if err != nil {
+			log.Printf("[task][remind][err] invalid reminder_at=%q: %v", body.ReminderAt, err)
+			badRequest(c, "Invalid reminder time")
+			return
+		}
+		newReminder = t
+	} else {
+		minutes := body.Minutes
+		if minutes <= 0 {
+			minutes = 60
+		}
+		newReminder = time.Now().Add(time.Duration(minutes) * time.Minute)
+	}
+
+	update := *current
+	update.ReminderAt = &newReminder
+	update.UpdatedAt = time.Now()
+
+	updated, err := h.service.Update(c.Request.Context(), id, &update)
+	if err != nil {
+		log.Printf("[task][remind][err] save id=%d: %v", id, err)
+		internalError(c, "Failed to postpone reminder")
+		return
+	}
+	log.Printf("[task][remind][ok] id=%d new=%s", id, newReminder.String())
+	c.JSON(http.StatusOK, updated)
 }
 
 // POST /tasks/:id/assign { "assignee_id": 2, "comment":"..." }
@@ -466,7 +617,12 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	}
 	log.Printf("[task][assign] new_assignee=%d", body.AssigneeID)
 
-	if roleID == authz.RoleSales && body.AssigneeID != uid {
+	if !canModifyTask(roleID, uid, current) {
+		log.Printf("[task][assign][deny] uid=%d role=%d", uid, roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
+	if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && body.AssigneeID != uid {
 		log.Printf("[task][assign][deny] staff uid=%d -> %d", uid, body.AssigneeID)
 		forbidden(c, "Staff can assign only to self")
 		return
@@ -509,6 +665,38 @@ func isTransitionAllowed(from, to models.TaskStatus) bool {
 	return false
 }
 
+func canViewTask(roleID int, uid int64, t *models.Task) bool {
+	switch roleID {
+	case authz.RoleManagement, authz.RoleOperations, authz.RoleControl:
+		return true
+	case authz.RoleSales, authz.RoleAdminStaff:
+		return isOwnTask(uid, t)
+	default:
+		return false
+	}
+}
+
+func canModifyTask(roleID int, uid int64, t *models.Task) bool {
+	if authz.IsReadOnly(roleID) {
+		return false
+	}
+	switch roleID {
+	case authz.RoleManagement, authz.RoleOperations:
+		return true
+	case authz.RoleSales, authz.RoleAdminStaff:
+		return isOwnTask(uid, t)
+	default:
+		return false
+	}
+}
+
+func isOwnTask(uid int64, t *models.Task) bool {
+	if t == nil {
+		return false
+	}
+	return t.CreatorID == uid || t.AssigneeID == uid
+}
+
 // === TG helpers ===
 func (h *TaskHandler) notifyAssignee(c *gin.Context, t *models.Task, prefix string) {
 	if h.tg == nil || h.users == nil || t == nil {
@@ -523,7 +711,10 @@ func (h *TaskHandler) notifyAssignee(c *gin.Context, t *models.Task, prefix stri
 		log.Printf("[task][notify] skip: allow=%v chatID=%d", allow, chatID)
 		return
 	}
-	_ = h.tg.SendMessage(chatID, h.formatTask(prefix, t))
+	msg := prefix + "\n" + h.tg.FormatTaskNotification(t)
+	if err := h.tg.SendMessage(chatID, msg); err != nil {
+		log.Printf("[task][notify] send error: %v", err)
+	}
 }
 
 // Лаконичное уведомление об удалении, без статуса/приоритета
@@ -535,27 +726,8 @@ func (h *TaskHandler) notifyAssigneeDeleted(c *gin.Context, t *models.Task) {
 	if err != nil || !allow || chatID == 0 {
 		return
 	}
-	due := "—"
-	if t.DueDate != nil {
-		due = t.DueDate.Format("2006-01-02 15:04")
+	msg := "🗑️ Задача удалена\n" + h.tg.FormatTaskNotification(t)
+	if err := h.tg.SendMessage(chatID, msg); err != nil {
+		log.Printf("[task][notify][delete] send error: %v", err)
 	}
-	msg := "🗑️ Задача удалена\n" +
-		"• <b>" + html.EscapeString(t.Title) + "</b>\n" +
-		"• Срок: <code>" + due + "</code>\n" +
-		"• Связано: <code>" + t.EntityType + "#" + strconv.FormatInt(t.EntityID, 10) + "</code>"
-	_ = h.tg.SendMessage(chatID, msg)
-}
-
-func (h *TaskHandler) formatTask(prefix string, t *models.Task) string {
-	due := "—"
-	if t.DueDate != nil {
-		due = t.DueDate.Format("2006-01-02 15:04")
-	}
-	title := html.EscapeString(t.Title) // parse_mode=HTML
-	return prefix + "\n" +
-		"• <b>" + title + "</b>\n" +
-		"• Статус: <code>" + string(t.Status) + "</code>\n" +
-		"• Приоритет: <code>" + string(t.Priority) + "</code>\n" +
-		"• Срок: <code>" + due + "</code>\n" +
-		"• Связано: <code>" + t.EntityType + "#" + strconv.FormatInt(t.EntityID, 10) + "</code>"
 }
