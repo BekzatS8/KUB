@@ -23,13 +23,13 @@ func NewLeadHandler(service *services.LeadService) *LeadHandler {
 func (h *LeadHandler) Create(c *gin.Context) {
 	var lead models.Leads
 	if err := c.ShouldBindJSON(&lead); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
@@ -42,7 +42,7 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.Service.Create(&lead); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to create lead")
 		return
 	}
 	c.JSON(http.StatusCreated, lead)
@@ -51,29 +51,29 @@ func (h *LeadHandler) Create(c *gin.Context) {
 func (h *LeadHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.Service.GetByID(id)
 	if err != nil || current == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	var body models.Leads
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	body.ID = id
@@ -82,7 +82,7 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.Service.Update(&body); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		internalError(c, "Failed to update lead")
 		return
 	}
 	updated, _ := h.Service.GetByID(id)
@@ -92,18 +92,18 @@ func (h *LeadHandler) Update(c *gin.Context) {
 func (h *LeadHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
-		c.JSON(404, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 	if lead.OwnerID != userID && !authz.IsElevated(roleID) && roleID != authz.RoleAudit {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 	c.JSON(200, lead)
@@ -112,28 +112,28 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 func (h *LeadHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
-		c.JSON(404, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	if err := h.Service.Delete(id); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		internalError(c, "Failed to delete lead")
 		return
 	}
 	c.Status(204)
@@ -148,35 +148,35 @@ type assignLeadRequest struct {
 func (h *LeadHandler) Assign(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	var req assignLeadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
 	actorID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 
 	if !authz.IsElevated(roleID) && req.AssigneeID != actorID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only self-assign allowed"})
+		forbidden(c, "Only self-assign allowed")
 		return
 	}
 
 	if err := h.Service.AssignOwner(id, req.AssigneeID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to assign lead")
 		return
 	}
 	updated, _ := h.Service.GetByID(id)
@@ -192,40 +192,40 @@ type updateLeadStatusRequest struct {
 func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	var req updateLeadStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 
 	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	if req.To == "converted" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "use /leads/:id/convert for conversion"})
+		badRequest(c, "Use /leads/:id/convert for conversion")
 		return
 	}
 
 	if err := h.Service.UpdateStatus(id, req.To); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Failed to update lead status")
 		return
 	}
 
@@ -246,24 +246,24 @@ type ConvertLeadRequest struct {
 func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	lead, err := h.Service.GetByID(id)
 	if err != nil || lead == nil {
-		c.JSON(404, gin.H{"error": "lead not found"})
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(403, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	var req ConvertLeadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, client)
 	if convErr != nil {
-		c.JSON(409, gin.H{"error": convErr.Error()})
+		conflict(c, ValidationFailed, "Lead conversion conflict")
 		return
 	}
 	c.JSON(201, deal)
@@ -305,7 +305,7 @@ func (h *LeadHandler) List(c *gin.Context) {
 		leads, err = h.Service.ListMy(userID, size, offset)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list leads"})
+		internalError(c, "Failed to list leads")
 		return
 	}
 	c.JSON(http.StatusOK, leads)

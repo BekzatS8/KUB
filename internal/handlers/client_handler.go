@@ -71,13 +71,13 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 func (h *ClientHandler) Create(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	var req createClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid client payload")
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(client)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Failed to create client")
 		return
 	}
 	client.ID = int(id)
@@ -113,25 +113,25 @@ func (h *ClientHandler) Create(c *gin.Context) {
 func (h *ClientHandler) Update(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid client ID")
 		return
 	}
 
 	current, err := h.Service.GetByID(id)
 	if err != nil || current == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
+		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
 
 	var req updateClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid client payload")
 		return
 	}
 
@@ -152,7 +152,7 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	current.ActualAddress = req.ActualAddress
 
 	if err := h.Service.Update(current); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Failed to update client")
 		return
 	}
 	c.JSON(http.StatusOK, current)
@@ -162,12 +162,12 @@ func (h *ClientHandler) Update(c *gin.Context) {
 func (h *ClientHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid client ID")
 		return
 	}
 	client, err := h.Service.GetByID(id)
 	if err != nil || client == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
+		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
 	c.JSON(http.StatusOK, client)
@@ -188,7 +188,7 @@ func (h *ClientHandler) List(c *gin.Context) {
 
 	clients, err := h.Service.List(size, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to list clients")
 		return
 	}
 	c.JSON(http.StatusOK, clients)
