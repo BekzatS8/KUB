@@ -1,0 +1,3048 @@
+{
+    "info": {
+        "name": "KUB API \u2013 Backend v1",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:4000"
+        },
+        {
+            "key": "accessToken",
+            "value": ""
+        },
+        {
+            "key": "refreshToken",
+            "value": ""
+        }
+    ],
+    "item": [
+        {
+            "name": "Auth",
+            "item": [
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "description": "Login with email and password. Required: email, password.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"secret123\"\n}"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.tokens && res.tokens.access_token) { pm.environment.set('accessToken', res.tokens.access_token); }",
+                                    "if (res.tokens && res.tokens.refresh_token) { pm.environment.set('refreshToken', res.tokens.refresh_token); }"
+                                ]
+                            }
+                        }
+                    ],
+                    "response": [
+                        {
+                            "name": "Success",
+                            "originalRequest": {},
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"message\": \"Login successful\",\n  \"user\": {\n    \"id\": 1,\n    \"email\": \"user@example.com\",\n    \"role_id\": 2\n  },\n  \"tokens\": {\n    \"access_token\": \"<jwt>\",\n    \"refresh_token\": \"<token>\"\n  }\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Forbidden",
+                            "originalRequest": {},
+                            "status": "Forbidden",
+                            "code": 403,
+                            "body": "{\n  \"error_code\": \"forbidden\",\n  \"message\": \"Phone not verified\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Refresh token",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/refresh",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "refresh"
+                            ]
+                        },
+                        "description": "Rotate refresh token and get new access token. Required: refresh_token.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.access_token) pm.environment.set('accessToken', res.access_token);",
+                                    "if (res.refresh_token) pm.environment.set('refreshToken', res.refresh_token);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Forgot password",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/forgot-password",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "forgot-password"
+                            ]
+                        },
+                        "description": "Send password reset email for provided account.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"user@example.com\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Reset password",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/reset-password",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "reset-password"
+                            ]
+                        },
+                        "description": "Reset password using token from email/SMS.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"token\": \"reset-token\",\n  \"password\": \"newStrongPass1\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Register",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/register",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "register"
+                            ]
+                        },
+                        "description": "Public registration for sales role. Required: company_name, email, password, phone.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"company_name\": \"Demo LLC\",\n  \"bin_iin\": \"123456789012\",\n  \"email\": \"user@example.com\",\n  \"password\": \"secret123\",\n  \"phone\": \"+77010000000\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Created",
+                            "originalRequest": {},
+                            "status": "Created",
+                            "code": 201,
+                            "body": "{\n  \"user\": {\n    \"id\": 10,\n    \"email\": \"user@example.com\",\n    \"role_id\": 2,\n    \"is_verified\": false\n  },\n  \"message\": \"Registered. SMS code sent.\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Validation error",
+                            "originalRequest": {},
+                            "status": "Bad Request",
+                            "code": 400,
+                            "body": "{\n  \"error_code\": \"validation_failed\",\n  \"message\": \"Invalid registration payload\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Confirm registration",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/register/confirm",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "register",
+                                "confirm"
+                            ]
+                        },
+                        "description": "Confirm user via SMS code.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"user_id\": 10,\n  \"code\": \"123456\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Resend confirmation",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/register/resend",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "register",
+                                "resend"
+                            ]
+                        },
+                        "description": "Resend confirmation SMS to user.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"user_id\": 10,\n  \"phone\": \"+77010000000\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Users",
+            "item": [
+                {
+                    "name": "Create user",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users"
+                            ]
+                        },
+                        "description": "Create user (management only).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"company_name\": \"Demo LLC\",\n  \"bin_iin\": \"123456789012\",\n  \"email\": \"manager@example.com\",\n  \"password\": \"secret123\",\n  \"phone\": \"+77010000000\",\n  \"role_id\": 3\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get my profile",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/me",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                "me"
+                            ]
+                        },
+                        "description": "Return current authenticated user profile."
+                    }
+                },
+                {
+                    "name": "Count users",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/count",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                "count"
+                            ]
+                        },
+                        "description": "Total users (management/read-only)."
+                    }
+                },
+                {
+                    "name": "Count users by role",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/count/role/:role_id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                "count",
+                                "role",
+                                ":role_id"
+                            ]
+                        },
+                        "description": "Count users for specific role id."
+                    }
+                },
+                {
+                    "name": "List users",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users"
+                            ]
+                        },
+                        "description": "List users with pagination query params page, limit."
+                    }
+                },
+                {
+                    "name": "Get user by id",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                ":id"
+                            ]
+                        },
+                        "description": "Fetch user by id."
+                    }
+                },
+                {
+                    "name": "Update user",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update user fields. For non-admins only own profile without role changes.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"company_name\": \"Updated LLC\",\n  \"bin_iin\": \"123456789012\",\n  \"email\": \"manager@example.com\",\n  \"phone\": \"+77010000000\",\n  \"role_id\": 3,\n  \"is_verified\": true,\n  \"notify_tasks_telegram\": false,\n  \"telegram_chat_id\": 0\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Delete user",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete user (management only)."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Roles",
+            "item": [
+                {
+                    "name": "Create role",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles"
+                            ]
+                        },
+                        "description": "Create new role (management).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"sales\",\n  \"description\": \"Sales manager\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Role count",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/count",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                "count"
+                            ]
+                        },
+                        "description": "Total count of roles."
+                    }
+                },
+                {
+                    "name": "Roles with user counts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/with-user-counts",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                "with-user-counts"
+                            ]
+                        },
+                        "description": "List roles with attached user counts."
+                    }
+                },
+                {
+                    "name": "List roles",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles"
+                            ]
+                        },
+                        "description": "List all roles."
+                    }
+                },
+                {
+                    "name": "Get role",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get role by id."
+                    }
+                },
+                {
+                    "name": "Update role",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update role name/description.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"sales\",\n  \"description\": \"Sales manager\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Delete role",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete role by id."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Clients",
+            "item": [
+                {
+                    "name": "Create client",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clients",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clients"
+                            ]
+                        },
+                        "description": "Create client (sales/ops/mgmt).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Acme Corp\",\n  \"bin_iin\": \"123456789012\",\n  \"address\": \"Main st 1\",\n  \"contact_info\": \"@telegram\",\n  \"last_name\": \"Doe\",\n  \"first_name\": \"John\",\n  \"middle_name\": \"A\",\n  \"iin\": \"990101300123\",\n  \"id_number\": \"ID123456\",\n  \"passport_series\": \"AB\",\n  \"passport_number\": \"1234567\",\n  \"phone\": \"+77010000000\",\n  \"email\": \"client@example.com\",\n  \"registration_address\": \"City, st\",\n  \"actual_address\": \"City, st 2\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Created",
+                            "originalRequest": {},
+                            "status": "Created",
+                            "code": 201,
+                            "body": "{\n  \"id\": 101,\n  \"owner_id\": 1,\n  \"name\": \"Acme Corp\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Forbidden",
+                            "originalRequest": {},
+                            "status": "Forbidden",
+                            "code": 403,
+                            "body": "{\n  \"error_code\": \"forbidden\",\n  \"message\": \"Read-only role\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "List clients",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clients",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clients"
+                            ]
+                        },
+                        "description": "List clients with page & size query params (restricted for sales)."
+                    }
+                },
+                {
+                    "name": "List my clients",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clients/my",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clients",
+                                "my"
+                            ]
+                        },
+                        "description": "List clients owned by current user."
+                    }
+                },
+                {
+                    "name": "Update client",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clients/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clients",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update client info.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Acme Corp\",\n  \"bin_iin\": \"123456789012\",\n  \"address\": \"Main st 1\",\n  \"contact_info\": \"@telegram\",\n  \"last_name\": \"Doe\",\n  \"first_name\": \"John\",\n  \"middle_name\": \"A\",\n  \"iin\": \"990101300123\",\n  \"id_number\": \"ID123456\",\n  \"passport_series\": \"AB\",\n  \"passport_number\": \"1234567\",\n  \"phone\": \"+77010000000\",\n  \"email\": \"client@example.com\",\n  \"registration_address\": \"City, st\",\n  \"actual_address\": \"City, st 2\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get client",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clients/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clients",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get client by id."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Leads",
+            "item": [
+                {
+                    "name": "Create lead",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads"
+                            ]
+                        },
+                        "description": "Create lead (non read-only/admin-staff).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"New lead\",\n  \"description\": \"Interested in product\",\n  \"owner_id\": 1,\n  \"status\": \"new\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get lead",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get lead by id."
+                    }
+                },
+                {
+                    "name": "Update lead",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update lead fields.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"New lead\",\n  \"description\": \"Interested in product\",\n  \"owner_id\": 1,\n  \"status\": \"new\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Delete lead",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete lead."
+                    }
+                },
+                {
+                    "name": "Convert lead to deal",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id/convert",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id",
+                                "convert"
+                            ]
+                        },
+                        "description": "Convert lead into deal with client creation.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"amount\": \"50000\",\n  \"currency\": \"USD\",\n  \"client_name\": \"Acme Corp\",\n  \"client_bin_iin\": \"123456789012\",\n  \"client_address\": \"City\",\n  \"client_contact_info\": \"@client\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "List leads",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads"
+                            ]
+                        },
+                        "description": "List leads (restricted for sales/admin-staff)."
+                    }
+                },
+                {
+                    "name": "List my leads",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/my",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                "my"
+                            ]
+                        },
+                        "description": "List leads assigned to current user."
+                    }
+                },
+                {
+                    "name": "Assign lead",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id/assign",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id",
+                                "assign"
+                            ]
+                        },
+                        "description": "Assign lead to another user.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"assignee_id\": 2,\n  \"comment\": \"handover\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Update lead status",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/leads/:id/status",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "leads",
+                                ":id",
+                                "status"
+                            ]
+                        },
+                        "description": "Update lead status (e.g., new, in_progress, won, lost).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"to\": \"in_progress\",\n  \"comment\": \"contacted\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Deals",
+            "item": [
+                {
+                    "name": "Create deal",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals"
+                            ]
+                        },
+                        "description": "Create deal from lead/client info.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"lead_id\": 1,\n  \"client_id\": 10,\n  \"owner_id\": 1,\n  \"amount\": \"120000\",\n  \"currency\": \"USD\",\n  \"status\": \"new\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get deal",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get deal by id."
+                    }
+                },
+                {
+                    "name": "Update deal",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update deal fields.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"lead_id\": 1,\n  \"client_id\": 10,\n  \"owner_id\": 1,\n  \"amount\": \"120000\",\n  \"currency\": \"USD\",\n  \"status\": \"new\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Delete deal",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete deal."
+                    }
+                },
+                {
+                    "name": "List deals",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals"
+                            ]
+                        },
+                        "description": "List deals (restricted for sales to own list)."
+                    }
+                },
+                {
+                    "name": "List my deals",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals/my",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals",
+                                "my"
+                            ]
+                        },
+                        "description": "List deals owned by current user."
+                    }
+                },
+                {
+                    "name": "Update deal status",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/deals/:id/status",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "deals",
+                                ":id",
+                                "status"
+                            ]
+                        },
+                        "description": "Change deal status (e.g., new, negotiation, won, lost).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"negotiation\",\n  \"comment\": \"Waiting for approval\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Documents",
+            "item": [
+                {
+                    "name": "List documents",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents"
+                            ]
+                        },
+                        "description": "List documents (not allowed for sales)."
+                    }
+                },
+                {
+                    "name": "Create document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents"
+                            ]
+                        },
+                        "description": "Create document for deal/lead with doc_type.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"deal_id\": 12,\n  \"doc_type\": \"contract\",\n  \"status\": \"draft\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Created",
+                            "originalRequest": {},
+                            "status": "Created",
+                            "code": 201,
+                            "body": "{\n  \"id\": 201\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Error",
+                            "originalRequest": {},
+                            "status": "Bad Request",
+                            "code": 400,
+                            "body": "{\n  \"error_code\": \"validation_failed\",\n  \"message\": \"Unsupported document type\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Upload document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/upload",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                "upload"
+                            ]
+                        },
+                        "description": "Upload document file (multipart). Include deal_id, doc_type and file field.",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "deal_id",
+                                    "value": "12",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "doc_type",
+                                    "value": "contract",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": "/path/to/document.pdf"
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Get document",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get document by id."
+                    }
+                },
+                {
+                    "name": "Delete document",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete document."
+                    }
+                },
+                {
+                    "name": "Create from lead",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/create-from-lead",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                "create-from-lead"
+                            ]
+                        },
+                        "description": "Create document based on lead id and doc_type.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"lead_id\": 5,\n  \"doc_type\": \"contract\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Create from client",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/create-from-client",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                "create-from-client"
+                            ]
+                        },
+                        "description": "Create document for client and optional deal with extra fields.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"client_id\": 7,\n  \"deal_id\": 12,\n  \"doc_type\": \"contract\",\n  \"extra\": {\n    \"amount\": \"120000\",\n    \"reason\": \"Deposit\"\n  }\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "List documents by deal",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/deal/:dealid",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                "deal",
+                                ":dealid"
+                            ]
+                        },
+                        "description": "List documents for specific deal."
+                    }
+                },
+                {
+                    "name": "Serve file inline",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id/file",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id",
+                                "file"
+                            ]
+                        },
+                        "description": "Open document inline (pdf/docx)."
+                    }
+                },
+                {
+                    "name": "Download file",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id/download",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id",
+                                "download"
+                            ]
+                        },
+                        "description": "Download document file."
+                    }
+                },
+                {
+                    "name": "Submit document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id/submit",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id",
+                                "submit"
+                            ]
+                        },
+                        "description": "Submit draft document for review."
+                    }
+                },
+                {
+                    "name": "Review document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id/review",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id",
+                                "review"
+                            ]
+                        },
+                        "description": "Approve or return document (action=approve|return).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"action\": \"approve\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Sign document",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/documents/:id/sign",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "documents",
+                                ":id",
+                                "sign"
+                            ]
+                        },
+                        "description": "Sign approved/returned document."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Tasks",
+            "item": [
+                {
+                    "name": "Create task",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks"
+                            ]
+                        },
+                        "description": "Create task for entity (deal/lead/client). Required: title, entity_id, entity_type, assignee_id.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Call client\",\n  \"description\": \"Discuss contract\",\n  \"entity_id\": 12,\n  \"entity_type\": \"deal\",\n  \"assignee_id\": 2,\n  \"due_date\": \"2024-12-01T12:00:00Z\",\n  \"priority\": \"high\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Created",
+                            "originalRequest": {},
+                            "status": "Created",
+                            "code": 201,
+                            "body": "{\n  \"id\": 301,\n  \"title\": \"Call client\",\n  \"status\": \"new\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Forbidden",
+                            "originalRequest": {},
+                            "status": "Forbidden",
+                            "code": 403,
+                            "body": "{\n  \"error_code\": \"forbidden\",\n  \"message\": \"not enough rights\"\n}",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "List tasks",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks"
+                            ]
+                        },
+                        "description": "List tasks with optional filters."
+                    }
+                },
+                {
+                    "name": "Get task",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get task by id."
+                    }
+                },
+                {
+                    "name": "Update task",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id"
+                            ]
+                        },
+                        "description": "Update task fields.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Call client\",\n  \"description\": \"Discuss contract\",\n  \"entity_id\": 12,\n  \"entity_type\": \"deal\",\n  \"assignee_id\": 2,\n  \"due_date\": \"2024-12-01T12:00:00Z\",\n  \"priority\": \"high\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Delete task",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete task."
+                    }
+                },
+                {
+                    "name": "Change task status",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id/status",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id",
+                                "status"
+                            ]
+                        },
+                        "description": "Change task status (new|in_progress|done|cancelled).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"done\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Assign task",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id/assign",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id",
+                                "assign"
+                            ]
+                        },
+                        "description": "Assign task to another user.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"assignee_id\": 2\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Complete task",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id/complete",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id",
+                                "complete"
+                            ]
+                        },
+                        "description": "Mark task as completed."
+                    }
+                },
+                {
+                    "name": "Remind later",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/tasks/:id/remind-later",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "tasks",
+                                ":id",
+                                "remind-later"
+                            ]
+                        },
+                        "description": "Snooze reminder for task."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "SMS & Verify",
+            "item": [
+                {
+                    "name": "Send SMS",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sms/send",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sms",
+                                "send"
+                            ]
+                        },
+                        "description": "Send SMS code for document confirmation.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"document_id\": 201,\n  \"phone\": \"+77010000000\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Resend SMS",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sms/resend",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sms",
+                                "resend"
+                            ]
+                        },
+                        "description": "Resend latest SMS code.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"document_id\": 201\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Confirm SMS",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sms/confirm",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sms",
+                                "confirm"
+                            ]
+                        },
+                        "description": "Confirm SMS code for document.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"document_id\": 201,\n  \"code\": \"123456\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Get latest SMS",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sms/latest/:document_id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sms",
+                                "latest",
+                                ":document_id"
+                            ]
+                        },
+                        "description": "Get latest SMS for document."
+                    }
+                },
+                {
+                    "name": "Delete SMS",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sms/:document_id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sms",
+                                ":document_id"
+                            ]
+                        },
+                        "description": "Delete SMS confirmation by document."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Reports",
+            "item": [
+                {
+                    "name": "Funnel",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/reports/funnel",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "reports",
+                                "funnel"
+                            ]
+                        },
+                        "description": "Funnel stats between dates (query from,to)."
+                    }
+                },
+                {
+                    "name": "Leads summary",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/reports/leads",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "reports",
+                                "leads"
+                            ]
+                        },
+                        "description": "Lead summary grouped by status/source with from,to queries."
+                    }
+                },
+                {
+                    "name": "Revenue",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/reports/revenue",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "reports",
+                                "revenue"
+                            ]
+                        },
+                        "description": "Revenue report with totals between dates."
+                    }
+                },
+                {
+                    "name": "Revenue export",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/reports/revenue/export",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "reports",
+                                "revenue",
+                                "export"
+                            ]
+                        },
+                        "description": "Export revenue as file between dates."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Integrations / Telegram",
+            "item": [
+                {
+                    "name": "Telegram webhook",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/integrations/telegram/webhook",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "integrations",
+                                "telegram",
+                                "webhook"
+                            ]
+                        },
+                        "description": "Public Telegram webhook (no auth).",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"update_id\": 123,\n  \"message\": {\n    \"chat\": {\n      \"id\": 12345\n    },\n    \"text\": \"/start\"\n  }\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Confirm Telegram link",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/integrations/telegram/link",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "integrations",
+                                "telegram",
+                                "link"
+                            ]
+                        },
+                        "description": "Confirm Telegram link with ?code= query."
+                    }
+                },
+                {
+                    "name": "Request Telegram link",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/integrations/telegram/request-link",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "integrations",
+                                "telegram",
+                                "request-link"
+                            ]
+                        },
+                        "description": "Generate Telegram linking code."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Chat",
+            "item": [
+                {
+                    "name": "List chats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats"
+                            ]
+                        },
+                        "description": "List chats for current user."
+                    }
+                },
+                {
+                    "name": "Search chats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/search",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                "search"
+                            ]
+                        },
+                        "description": "Search chats by query param q."
+                    }
+                },
+                {
+                    "name": "Unread chats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/unread",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                "unread"
+                            ]
+                        },
+                        "description": "List chats with unread messages."
+                    }
+                },
+                {
+                    "name": "User status",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/status/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                "status",
+                                ":id"
+                            ]
+                        },
+                        "description": "Get online status for user id."
+                    }
+                },
+                {
+                    "name": "Create personal chat",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/personal",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                "personal"
+                            ]
+                        },
+                        "description": "Create personal chat with members array.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"member_ids\": [\n    2,\n    3\n  ]\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Create group chat",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/group",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                "group"
+                            ]
+                        },
+                        "description": "Create group chat with name and members.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Project A\",\n  \"member_ids\": [\n    2,\n    3,\n    4\n  ]\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Add members",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/add-members",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "add-members"
+                            ]
+                        },
+                        "description": "Add members to chat.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"member_ids\": [\n    5,\n    6\n  ]\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Leave chat",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/leave",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "leave"
+                            ]
+                        },
+                        "description": "Leave chat by id."
+                    }
+                },
+                {
+                    "name": "Mark chat read",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/read",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "read"
+                            ]
+                        },
+                        "description": "Mark chat messages as read."
+                    }
+                },
+                {
+                    "name": "Upload attachment",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "multipart/form-data"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/upload",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "upload"
+                            ]
+                        },
+                        "description": "Upload message attachment (multipart).",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": "/path/to/image.png"
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Delete chat",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id"
+                            ]
+                        },
+                        "description": "Delete chat."
+                    }
+                },
+                {
+                    "name": "Search messages",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/search",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "search"
+                            ]
+                        },
+                        "description": "Search messages within chat (query q)."
+                    }
+                },
+                {
+                    "name": "List messages",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/messages",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "messages"
+                            ]
+                        },
+                        "description": "List chat messages with limit/offset params."
+                    }
+                },
+                {
+                    "name": "Send message",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/messages",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "messages"
+                            ]
+                        },
+                        "description": "Send message to chat.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"text\": \"Hello\",\n  \"attachments\": []\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Stream (WebSocket)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/chats/:id/ws",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "chats",
+                                ":id",
+                                "ws"
+                            ]
+                        },
+                        "description": "WebSocket endpoint for live chat. Include Sec-WebSocket-Protocol if needed."
+                    }
+                }
+            ]
+        }
+    ]
+}
