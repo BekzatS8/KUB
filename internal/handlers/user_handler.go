@@ -49,13 +49,13 @@ func maskIfAudit(callerRole int, u *models.User) *models.User {
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if roleID != authz.RoleAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only admin can create users"})
+		forbidden(c, "Only admin can create users")
 		return
 	}
 
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid user payload")
 		return
 	}
 
@@ -76,7 +76,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("CreateUser: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		internalError(c, "Failed to create user")
 		return
 	}
 
@@ -94,12 +94,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 func (h *UserHandler) GetMyProfile(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		unauthorized(c, "Unauthorized")
 		return
 	}
 	user, err := h.service.GetUserByID(userID)
 	if err != nil || user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
 	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
@@ -111,12 +111,12 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		badRequest(c, "Invalid user ID")
 		return
 	}
 	user, err := h.service.GetUserByID(id)
 	if err != nil || user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
 	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
@@ -128,19 +128,19 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		badRequest(c, "Invalid user ID")
 		return
 	}
 
 	target, err := h.service.GetUserByID(id)
 	if err != nil || target == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
 
 	var body models.User
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid user payload")
 		return
 	}
 	body.ID = id
@@ -150,7 +150,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if roleID != authz.RoleAdmin {
 		if userID != id {
-			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			forbidden(c, "Forbidden")
 			return
 		}
 		// обычному пользователю нельзя менять роль/верификацию
@@ -161,7 +161,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if err := h.service.UpdateUser(&body); err != nil {
 		log.Printf("UpdateUser: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		internalError(c, "Failed to update user")
 		return
 	}
 
@@ -172,18 +172,18 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if roleID != authz.RoleAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only admin can delete users"})
+		forbidden(c, "Only admin can delete users")
 		return
 	}
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		badRequest(c, "Invalid user ID")
 		return
 	}
 	if err := h.service.DeleteUser(id); err != nil {
 		log.Printf("DeleteUser: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
+		internalError(c, "Failed to delete user")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
@@ -192,7 +192,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 	users, err := h.service.ListUsers(limit, offset)
 	if err != nil {
 		log.Printf("ListUsers: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
+		internalError(c, "Failed to list users")
 		return
 	}
 
@@ -225,13 +225,13 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 	count, err := h.service.GetUserCount()
 	if err != nil {
 		log.Printf("GetUserCount: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user count"})
+		internalError(c, "Failed to get user count")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"count": count})
@@ -240,20 +240,20 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	roleIDVal, err := strconv.Atoi(c.Param("role_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role ID"})
+		badRequest(c, "Invalid role ID")
 		return
 	}
 
 	count, err := h.service.GetUserCountByRole(roleIDVal)
 	if err != nil {
 		log.Printf("GetUserCountByRole: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user count by role"})
+		internalError(c, "Failed to get user count by role")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"count": count, "role_id": roleIDVal})
@@ -263,7 +263,7 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 func (h *UserHandler) Register(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid registration payload")
 		return
 	}
 	req.RoleID = authz.RoleSales
@@ -278,7 +278,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	}
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("Register: service error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
+		internalError(c, "Failed to register user")
 		return
 	}
 
