@@ -29,26 +29,58 @@ const (
 	defaultVerificationTTL = 5 * time.Minute
 )
 
+type SMSConfirmationRepo interface {
+	Create(sms *models.SMSConfirmation) (int64, error)
+	GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error)
+	GetByDocumentIDAndCode(documentID int64, code string) (*models.SMSConfirmation, error)
+	Update(sms *models.SMSConfirmation) error
+	DeleteByDocumentID(documentID int64) error
+}
+
+type UserVerificationRepo interface {
+	CountRecentSends(userID int, since time.Time) (int, error)
+	Create(userID int, codeHash string, sentAt, expiresAt time.Time) (int64, error)
+	GetLatestByUserID(userID int) (*models.UserVerification, error)
+	IncrementAttempts(id int64) (int, error)
+	ExpireNow(id int64) error
+	MarkConfirmed(id int64) error
+}
+
+type MobizonClient interface {
+	SendSMS(to, code string) (*utils.SendSMSResponse, error)
+}
+
+var (
+	_ SMSConfirmationRepo  = (*repositories.SMSConfirmationRepository)(nil)
+	_ UserVerificationRepo = (*repositories.UserVerificationRepository)(nil)
+	_ MobizonClient        = (*utils.Client)(nil)
+)
+
 type SMS_Service struct {
 	// Документные SMS (как было)
-	Repo   *repositories.SMSConfirmationRepository
+	Repo   SMSConfirmationRepo
 	DocSvc *DocumentService
 
 	// Регистрация/верификация пользователя (НОВОЕ)
-	VerifRepo *repositories.UserVerificationRepository
+	VerifRepo UserVerificationRepo
 	UserSvc   UserService
 
-	Client  *utils.Client
+	Client  MobizonClient
 	CodeTTL time.Duration // если 0 — возьмём defaultVerificationTTL
+	now     func() time.Time
 }
 
 func NewSMSService(
-	docRepo *repositories.SMSConfirmationRepository,
-	client *utils.Client,
+	docRepo SMSConfirmationRepo,
+	client MobizonClient,
 	docSvc *DocumentService,
-	verifRepo *repositories.UserVerificationRepository,
+	verifRepo UserVerificationRepo,
 	userSvc UserService,
+	now func() time.Time,
 ) *SMS_Service {
+	if now == nil {
+		now = time.Now
+	}
 	return &SMS_Service{
 		Repo:      docRepo,
 		Client:    client,
@@ -56,12 +88,13 @@ func NewSMSService(
 		VerifRepo: verifRepo,
 		UserSvc:   userSvc,
 		CodeTTL:   defaultVerificationTTL,
+		now:       now,
 	}
 }
 
 // --- утилита генерации 6-значного кода ---
 func (s *SMS_Service) generateCode() string {
-	src := rand.NewSource(time.Now().UnixNano())
+	src := rand.NewSource(s.now().UnixNano())
 	rnd := rand.New(src)
 	return fmt.Sprintf("%06d", rnd.Intn(1000000))
 }
@@ -81,7 +114,7 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string) error {
 		DocumentID:  documentID,
 		Phone:       phone,
 		SMSCode:     code, // (можно тоже захэшировать позже)
-		SentAt:      time.Now(),
+		SentAt:      s.now(),
 		Confirmed:   false,
 		ConfirmedAt: time.Time{},
 	}
@@ -123,7 +156,7 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string) (bool, error) {
 		return false, nil
 	}
 	rec.Confirmed = true
-	rec.ConfirmedAt = time.Now()
+	rec.ConfirmedAt = s.now()
 	if err := s.Repo.Update(rec); err != nil {
 		return false, err
 	}
@@ -148,7 +181,7 @@ func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
 	}
 
 	// Троттлинг отправок: не чаще 3/10мин
-	since := time.Now().Add(-resendWindow)
+	since := s.now().Add(-resendWindow)
 	cnt, err := s.VerifRepo.CountRecentSends(userID, since)
 	if err != nil {
 		return err
@@ -168,7 +201,7 @@ func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
 	if ttl <= 0 {
 		ttl = defaultVerificationTTL
 	}
-	sentAt := time.Now()
+	sentAt := s.now()
 	expiresAt := sentAt.Add(ttl)
 
 	// Сохраняем запись (attempts=0, confirmed=false)
@@ -208,7 +241,7 @@ func (s *SMS_Service) ConfirmUserCode(userID int, code string) (bool, error) {
 	if v == nil || v.Confirmed {
 		return false, ErrCodeInvalid
 	}
-	if time.Now().After(v.ExpiresAt) {
+	if s.now().After(v.ExpiresAt) {
 		return false, ErrCodeExpired
 	}
 
@@ -246,7 +279,7 @@ func (s *SMS_Service) IsCodeExpired(sentAt time.Time) bool {
 	if ttl <= 0 {
 		ttl = defaultVerificationTTL
 	}
-	return time.Now().After(sentAt.Add(ttl))
+	return s.now().After(sentAt.Add(ttl))
 }
 
 // Документные утилиты как были

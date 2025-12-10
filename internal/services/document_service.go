@@ -18,12 +18,42 @@ import (
 	"turcompany/internal/xlsx"
 )
 
+type DocumentRepo interface {
+	Create(doc *models.Document) (int64, error)
+	GetByID(id int64) (*models.Document, error)
+	ListDocuments(limit, offset int) ([]*models.Document, error)
+	ListDocumentsByDeal(dealID int64) ([]*models.Document, error)
+	Delete(id int64) error
+	UpdateStatus(id int64, status string) error
+}
+
+type LeadRepo interface {
+	GetByID(id int) (*models.Leads, error)
+}
+
+type DealRepo interface {
+	GetByID(id int) (*models.Deals, error)
+	GetByLeadID(leadID int) (*models.Deals, error)
+	GetLatestByClientID(clientID int) (*models.Deals, error)
+}
+
+type ClientRepo interface {
+	GetByID(id int) (*models.Client, error)
+}
+
+type SMSConfirmRepo interface {
+	Create(sms *models.SMSConfirmation) (int64, error)
+	GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error)
+	GetByDocumentIDAndCode(documentID int64, code string) (*models.SMSConfirmation, error)
+	Update(sms *models.SMSConfirmation) error
+}
+
 type DocumentService struct {
-	DocRepo    *repositories.DocumentRepository
-	LeadRepo   *repositories.LeadRepository
-	DealRepo   *repositories.DealRepository
-	ClientRepo *repositories.ClientRepository
-	SMSRepo    *repositories.SMSConfirmationRepository
+	DocRepo    DocumentRepo
+	LeadRepo   LeadRepo
+	DealRepo   DealRepo
+	ClientRepo ClientRepo
+	SMSRepo    SMSConfirmRepo
 	SignSecret string
 
 	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
@@ -32,12 +62,20 @@ type DocumentService struct {
 	XlsxGen   xlsx.Generator
 }
 
+var (
+	_ DocumentRepo   = (*repositories.DocumentRepository)(nil)
+	_ LeadRepo       = (*repositories.LeadRepository)(nil)
+	_ DealRepo       = (*repositories.DealRepository)(nil)
+	_ ClientRepo     = (*repositories.ClientRepository)(nil)
+	_ SMSConfirmRepo = (*repositories.SMSConfirmationRepository)(nil)
+)
+
 func NewDocumentService(
-	docRepo *repositories.DocumentRepository,
-	leadRepo *repositories.LeadRepository,
-	dealRepo *repositories.DealRepository,
-	clientRepo *repositories.ClientRepository,
-	smsRepo *repositories.SMSConfirmationRepository,
+	docRepo DocumentRepo,
+	leadRepo LeadRepo,
+	dealRepo DealRepo,
+	clientRepo ClientRepo,
+	smsRepo SMSConfirmRepo,
 	signSecret string,
 	filesRoot string,
 	pdfGen pdf.Generator,

@@ -3,14 +3,10 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
-	"turcompany/internal/utils"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
-	"strings"
-	"turcompany/internal/middleware"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
 )
@@ -62,37 +58,28 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	pw := strings.TrimSpace(req.Password)
-	if err := bcrypt.CompareHashAndPassword([]byte(ph), []byte(pw)); err != nil {
-		log.Printf("[auth][login] bcrypt mismatch for userID=%d email=%q: err=%v", user.ID, email, err)
+	if !h.authService.VerifyPassword(ph, pw) {
+		log.Printf("[auth][login] bcrypt mismatch for userID=%d email=%q", user.ID, email)
 		unauthorized(c, "Invalid email or password")
 		return
 	}
 	log.Printf("[auth][login] password OK for userID=%d", user.ID)
 
-	accessClaims := &middleware.Claims{
-		UserID: user.ID,
-		RoleID: user.RoleID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-		},
-	}
-	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	accessTokenString, err := accessToken.SignedString(middleware.JWTKey)
+	accessTokenString, accessExp, err := h.authService.GenerateAccessToken(user.ID, user.RoleID)
 	if err != nil {
 		log.Printf("[auth][login] sign access token failed for userID=%d: err=%v", user.ID, err)
 		internalError(c, "Failed to generate access token")
 		return
 	}
 	log.Printf("[auth][login] access token generated for userID=%d exp_in=%s",
-		user.ID, time.Until(accessClaims.ExpiresAt.Time).Truncate(time.Second))
+		user.ID, time.Until(accessExp).Truncate(time.Second))
 
-	rt, err := utils.NewRefreshToken(32)
+	rt, rtExp, err := h.authService.GenerateRefreshToken()
 	if err != nil {
 		log.Printf("[auth][login] new refresh token failed for userID=%d: err=%v", user.ID, err)
 		internalError(c, "Failed to generate refresh token")
 		return
 	}
-	rtExp := time.Now().Add(30 * 24 * time.Hour)
 	if err := h.userService.UpdateRefresh(user.ID, rt, rtExp); err != nil {
 		log.Printf("[auth][login] store refresh token failed for userID=%d: err=%v", user.ID, err)
 		internalError(c, "Failed to store refresh token")
@@ -131,27 +118,18 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	newRT, err := utils.NewRefreshToken(32)
+	newRT, newExp, err := h.authService.GenerateRefreshToken()
 	if err != nil {
 		internalError(c, "Failed to rotate refresh token")
 		return
 	}
-	newExp := time.Now().Add(30 * 24 * time.Hour)
 	rotatedUser, err := h.userService.RotateRefresh(old, newRT, newExp)
 	if err != nil || rotatedUser == nil {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}
 
-	accessClaims := &middleware.Claims{
-		UserID: rotatedUser.ID,
-		RoleID: rotatedUser.RoleID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-		},
-	}
-	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	accessTokenString, err := accessToken.SignedString(middleware.JWTKey)
+	accessTokenString, _, err := h.authService.GenerateAccessToken(rotatedUser.ID, rotatedUser.RoleID)
 	if err != nil {
 		internalError(c, "Failed to generate access token")
 		return

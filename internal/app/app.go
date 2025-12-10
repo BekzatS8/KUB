@@ -14,6 +14,7 @@ import (
 
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
+	"turcompany/internal/middleware"
 	"turcompany/internal/pdf"
 	"turcompany/internal/realtime"
 	"turcompany/internal/repositories"
@@ -71,7 +72,7 @@ func Run() {
 	chatRepo := repositories.NewChatRepository(db)
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 	// === Services (общие) ===
-	authService := services.NewAuthService()
+	authService := services.NewAuthService(middleware.JWTKey, nil, 15*time.Minute, 30*24*time.Hour, nil)
 	emailService := services.NewEmailService(
 		cfg.Email.SMTPHost,
 		cfg.Email.SMTPPort,
@@ -162,6 +163,7 @@ func Run() {
 		documentService,
 		verifRepo,   // репозиторий верификации пользователей
 		userService, // чтобы отмечать is_verified
+		nil,
 	)
 
 	// Reports
