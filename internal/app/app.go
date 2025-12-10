@@ -110,7 +110,7 @@ func Run() {
 	clientService := services.NewClientService(clientRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
-	chatService := services.NewChatService(chatRepo)
+	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(
@@ -166,7 +166,7 @@ func Run() {
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
-	chatHub := realtime.NewChatHub()
+	chatHub := realtime.NewChatHub(chatRepo)
 
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
