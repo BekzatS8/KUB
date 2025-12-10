@@ -81,21 +81,23 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 
 // GET /users/me
 func (h *UserHandler) GetMyProfile(c *gin.Context) {
-	userID, roleID := getUserAndRole(c)
+	userID, _ := getUserAndRole(c) // roleID нам здесь не нужен
 	if userID == 0 {
 		unauthorized(c, "Unauthorized")
 		return
 	}
+
 	user, err := h.service.GetUserByID(userID)
 	if err != nil || user == nil {
 		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
+
 	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
 func (h *UserHandler) GetUserByID(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
+	currentUserID, roleID := getUserAndRole(c)
 
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -103,11 +105,19 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		badRequest(c, "Invalid user ID")
 		return
 	}
+
+	// Если нет full-access/read-only, то можно смотреть только себя
+	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) && currentUserID != id {
+		forbidden(c, "Forbidden")
+		return
+	}
+
 	user, err := h.service.GetUserByID(id)
 	if err != nil || user == nil {
 		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
+
 	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
