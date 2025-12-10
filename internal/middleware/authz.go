@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"turcompany/internal/authz"
 )
 
 func RequireRoles(allowed ...int) gin.HandlerFunc {
@@ -27,11 +29,11 @@ func RequireRoles(allowed ...int) gin.HandlerFunc {
 }
 
 func ReadOnlyGuard() gin.HandlerFunc {
-	// запрещаем небезопасные методы для "audit"
+	// запрещаем небезопасные методы для read-only ролей
 	return func(c *gin.Context) {
 		roleV, _ := c.Get("role_id")
 		roleID, _ := roleV.(int)
-		if roleID == 30 { // audit
+		if authz.IsReadOnly(roleID) {
 			switch c.Request.Method {
 			case http.MethodGet, http.MethodHead, http.MethodOptions:
 				// ok

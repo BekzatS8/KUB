@@ -29,18 +29,7 @@ func NewUserHandler(service services.UserService, smsService *services.SMS_Servi
 	return &UserHandler{service: service, smsService: smsService}
 }
 
-// небольшое маскирование сведений о руководстве для роли Audit
-func maskIfAudit(callerRole int, u *models.User) *models.User {
-	if callerRole == authz.RoleAudit && u.RoleID == authz.RoleManagement {
-		return &models.User{
-			ID:           u.ID,
-			CompanyName:  "",
-			BinIin:       "",
-			Email:        "",
-			PasswordHash: "",
-			RoleID:       u.RoleID,
-		}
-	}
+func sanitizeUser(u *models.User) *models.User {
 	cp := *u
 	cp.PasswordHash = ""
 	return &cp
@@ -48,8 +37,8 @@ func maskIfAudit(callerRole int, u *models.User) *models.User {
 
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if roleID != authz.RoleAdmin {
-		forbidden(c, "Only admin can create users")
+	if !authz.IsFullAccess(roleID) {
+		forbidden(c, "Only management can create users")
 		return
 	}
 
@@ -87,7 +76,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, maskIfAudit(roleID, user))
+	c.JSON(http.StatusCreated, sanitizeUser(user))
 }
 
 // GET /users/me
@@ -102,7 +91,7 @@ func (h *UserHandler) GetMyProfile(c *gin.Context) {
 		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
-	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
+	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
 func (h *UserHandler) GetUserByID(c *gin.Context) {
@@ -119,7 +108,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		notFound(c, ClientNotFoundCode, "User not found")
 		return
 	}
-	c.JSON(http.StatusOK, maskIfAudit(roleID, user))
+	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -148,7 +137,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	// ВАЖНО: всегда сохраняем текущий хэш, чтобы не затереть его пустой строкой.
 	body.PasswordHash = target.PasswordHash
 
-	if roleID != authz.RoleAdmin {
+	if !authz.IsFullAccess(roleID) {
 		if userID != id {
 			forbidden(c, "Forbidden")
 			return
@@ -166,13 +155,13 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	updated, _ := h.service.GetUserByID(id)
-	c.JSON(http.StatusOK, maskIfAudit(roleID, updated))
+	c.JSON(http.StatusOK, sanitizeUser(updated))
 }
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if roleID != authz.RoleAdmin {
-		forbidden(c, "Only admin can delete users")
+	if !authz.IsFullAccess(roleID) {
+		forbidden(c, "Only management can delete users")
 		return
 	}
 	idStr := c.Param("id")
@@ -191,7 +180,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
+	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -217,14 +206,14 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 	out := make([]*models.User, 0, len(users))
 	for _, u := range users {
-		out = append(out, maskIfAudit(roleID, u))
+		out = append(out, sanitizeUser(u))
 	}
 	c.JSON(http.StatusOK, out)
 }
 
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
+	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -239,7 +228,7 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin || roleID == authz.RoleAudit) {
+	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}

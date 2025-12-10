@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -28,6 +29,10 @@ func (h *DealHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -40,10 +45,14 @@ func (h *DealHandler) Create(c *gin.Context) {
 		deal.CreatedAt = time.Now()
 	}
 
-	id, err := h.Service.Create(&deal)
+	id, err := h.Service.Create(&deal, userID, roleID)
 	if err != nil {
 		if err.Error() == "client_id is required" {
 			badRequest(c, "Client ID is required")
+			return
+		}
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
 			return
 		}
 		internalError(c, "Failed to create deal")
@@ -61,18 +70,22 @@ func (h *DealHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	current, err := h.Service.GetByID(id)
+	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, DealNotFoundCode, "Deal not found")
-		return
-	}
-	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -82,15 +95,15 @@ func (h *DealHandler) Update(c *gin.Context) {
 		return
 	}
 	body.ID = id
-	if !authz.IsElevated(roleID) {
-		body.OwnerID = current.OwnerID
-	}
-
-	if err := h.Service.Update(&body); err != nil {
+	if err := h.Service.Update(&body, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to update deal")
 		return
 	}
-	updated, _ := h.Service.GetByID(id)
+	updated, _ := h.Service.GetByID(id, userID, roleID)
 	c.JSON(http.StatusOK, updated)
 }
 
@@ -102,13 +115,17 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	deal, err := h.Service.GetByID(id)
-	if err != nil || deal == nil {
-		notFound(c, DealNotFoundCode, "Deal not found")
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
 		return
 	}
-	if deal.OwnerID != userID && !authz.IsElevated(roleID) && roleID != authz.RoleAudit {
-		forbidden(c, "Forbidden")
+	deal, err := h.Service.GetByID(id, userID, roleID)
+	if err != nil || deal == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
 	c.JSON(http.StatusOK, deal)
@@ -121,22 +138,30 @@ func (h *DealHandler) Delete(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	deal, err := h.Service.GetByID(id)
+	deal, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || deal == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
-	if deal.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 
-	if err := h.Service.Delete(id); err != nil {
+	if err := h.Service.Delete(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to delete deal")
 		return
 	}
@@ -163,36 +188,51 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	current, err := h.Service.GetByID(id)
+	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
-	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 
-	if err := h.Service.UpdateStatus(id, req.To); err != nil {
+	if err := h.Service.UpdateStatus(id, req.To, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		badRequest(c, "Invalid status")
 		return
 	}
 
-	updated, _ := h.Service.GetByID(id)
+	updated, _ := h.Service.GetByID(id, userID, roleID)
 	c.JSON(http.StatusOK, updated)
 }
 
 func (h *DealHandler) List(c *gin.Context) {
-	pageStr := c.DefaultQuery("page", "1")
-	sizeStr := c.DefaultQuery("size", "100")
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if roleID == authz.RoleSales {
+		forbidden(c, "sales cannot access full list")
+		return
+	}
 
-	page, _ := strconv.Atoi(pageStr)
-	size, _ := strconv.Atoi(sizeStr)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
 	if page < 1 {
 		page = 1
 	}
@@ -201,16 +241,42 @@ func (h *DealHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	userID, roleID := getUserAndRole(c)
-	var deals []*models.Deals
-	var err error
-
-	if authz.IsElevated(roleID) || roleID == authz.RoleAudit {
-		deals, err = h.Service.ListPaginated(size, offset)
-	} else {
-		deals, err = h.Service.ListMy(userID, size, offset)
-	}
+	deals, err := h.Service.ListForRole(userID, roleID, size, offset)
 	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to retrieve deals")
+		return
+	}
+	c.JSON(http.StatusOK, deals)
+}
+
+// GET /deals/my?page=&size=
+func (h *DealHandler) ListMy(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 100
+	}
+	offset := (page - 1) * size
+
+	deals, err := h.Service.ListMy(userID, size, offset)
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		internalError(c, "Failed to retrieve deals")
 		return
 	}

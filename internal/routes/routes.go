@@ -66,16 +66,17 @@ func SetupRoutes(
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 	// CLIENTS
-	clients := r.Group("/clients")
-	{
-		clients.POST("/", clientHandler.Create)
-		clients.GET("/", clientHandler.List)
-		clients.PUT("/:id", clientHandler.Update)
-		clients.GET("/:id", clientHandler.GetByID)
-	}
+        clients := r.Group("/clients")
+        {
+                clients.POST("/", clientHandler.Create)
+                clients.GET("/", clientHandler.List)
+                clients.GET("/my", clientHandler.ListMy)
+                clients.PUT("/:id", clientHandler.Update)
+                clients.GET("/:id", clientHandler.GetByID)
+        }
 
-	// ROLES (Admin)
-	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleAdmin))
+	// ROLES (Management)
+	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleManagement))
 	{
 		roles.POST("/", roleHandler.CreateRole)
 		roles.GET("/count", roleHandler.GetRoleCount)
@@ -87,28 +88,30 @@ func SetupRoutes(
 	}
 
 	// LEADS
-	leads := r.Group("/leads")
-	{
-		leads.POST("/", leadHandler.Create)
-		leads.GET("/:id", leadHandler.GetByID)
-		leads.PUT("/:id", leadHandler.Update)
-		leads.DELETE("/:id", leadHandler.Delete)
-		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
-		leads.GET("/", leadHandler.List)
-		leads.POST("/:id/assign", leadHandler.Assign)
-		leads.POST("/:id/status", leadHandler.UpdateStatus)
-	}
+        leads := r.Group("/leads")
+        {
+                leads.POST("/", leadHandler.Create)
+                leads.GET("/:id", leadHandler.GetByID)
+                leads.PUT("/:id", leadHandler.Update)
+                leads.DELETE("/:id", leadHandler.Delete)
+                leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
+                leads.GET("/", leadHandler.List)
+                leads.GET("/my", leadHandler.ListMy)
+                leads.POST("/:id/assign", leadHandler.Assign)
+                leads.POST("/:id/status", leadHandler.UpdateStatus)
+        }
 
 	// DEALS
-	deals := r.Group("/deals")
-	{
-		deals.POST("/", dealHandler.Create)
-		deals.GET("/:id", dealHandler.GetByID)
-		deals.PUT("/:id", dealHandler.Update)
-		deals.DELETE("/:id", dealHandler.Delete)
-		deals.GET("/", dealHandler.List)
-		deals.POST("/:id/status", dealHandler.UpdateStatus)
-	}
+        deals := r.Group("/deals")
+        {
+                deals.POST("/", dealHandler.Create)
+                deals.GET("/:id", dealHandler.GetByID)
+                deals.PUT("/:id", dealHandler.Update)
+                deals.DELETE("/:id", dealHandler.Delete)
+                deals.GET("/", dealHandler.List)
+                deals.GET("/my", dealHandler.ListMy)
+                deals.POST("/:id/status", dealHandler.UpdateStatus)
+        }
 
 	// DOCUMENTS
 	docs := r.Group("/documents")
@@ -138,7 +141,7 @@ func SetupRoutes(
 	}
 	// TASKS
 	tasks := r.Group("/tasks",
-		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+		middleware.RequireRoles(authz.RoleManagement, authz.RoleAdminStaff),
 	)
 	{
 		tasks.POST("/", taskHandler.Create)
@@ -149,9 +152,9 @@ func SetupRoutes(
 		tasks.POST("/:id/status", taskHandler.ChangeStatus)
 		tasks.POST("/:id/assign", taskHandler.Assign)
 	}
-	// SMS (sales/ops/mgmt/admin)
+	// SMS (sales/ops/mgmt)
 	sms := r.Group("/sms",
-		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement),
 	)
 	{
 		sms.POST("/send", smsHandler.SendSMSHandler)
@@ -161,9 +164,9 @@ func SetupRoutes(
 		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
-	// REPORTS (audit/ops/mgmt/admin)
+	// REPORTS (control/ops/mgmt)
 	reports := r.Group("/reports",
-		middleware.RequireRoles(authz.RoleAudit, authz.RoleOperations, authz.RoleManagement, authz.RoleAdmin),
+		middleware.RequireRoles(authz.RoleControl, authz.RoleOperations, authz.RoleManagement),
 	)
 	{
 		reports.GET("/summary", reportHandler.GetSummary)

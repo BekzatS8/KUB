@@ -208,7 +208,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 	return deals, nil
 }
 
-func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, error) {
+func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 	query := `SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
                   FROM deals
                   ORDER BY created_at DESC
@@ -229,6 +229,10 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 		deals = append(deals, &d)
 	}
 	return deals, nil
+}
+
+func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, error) {
+	return r.ListAll(limit, offset)
 }
 
 // Новое: только сделки конкретного владельца

@@ -5,6 +5,7 @@ import "time"
 // Client представляет клиента (физлицо или компанию).
 type Client struct {
 	ID          int    `json:"id"`
+	OwnerID     int    `json:"owner_id"`
 	Name        string `json:"name"`         // Отображаемое имя (для юзера, компания/ФИО)
 	BinIin      string `json:"bin_iin"`      // БИН/ИИН (как было)
 	Address     string `json:"address"`      // Общий адрес (можно использовать как фактический)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -69,7 +70,11 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 
 // POST /clients
 func (h *ClientHandler) Create(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -82,6 +87,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	}
 
 	client := &models.Client{
+		OwnerID:             userID,
 		Name:                req.Name,
 		BinIin:              req.BinIin,
 		Address:             req.Address,
@@ -100,8 +106,12 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		CreatedAt:           time.Now(),
 	}
 
-	id, err := h.Service.Create(client)
+	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		badRequest(c, "Failed to create client")
 		return
 	}
@@ -111,7 +121,11 @@ func (h *ClientHandler) Create(c *gin.Context) {
 
 // PUT /clients/:id
 func (h *ClientHandler) Update(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -123,8 +137,12 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		return
 	}
 
-	current, err := h.Service.GetByID(id)
+	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
@@ -151,7 +169,11 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	current.RegistrationAddress = req.RegistrationAddress
 	current.ActualAddress = req.ActualAddress
 
-	if err := h.Service.Update(current); err != nil {
+	if err := h.Service.Update(current, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		badRequest(c, "Failed to update client")
 		return
 	}
@@ -165,8 +187,17 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 		badRequest(c, "Invalid client ID")
 		return
 	}
-	client, err := h.Service.GetByID(id)
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	client, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || client == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
@@ -175,6 +206,16 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 
 // GET /clients?page=&size=
 func (h *ClientHandler) List(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if roleID == authz.RoleSales {
+		forbidden(c, "sales cannot access full list")
+		return
+	}
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
 
@@ -186,8 +227,42 @@ func (h *ClientHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	clients, err := h.Service.List(size, offset)
+	clients, err := h.Service.ListForRole(userID, roleID, size, offset)
 	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to list clients")
+		return
+	}
+	c.JSON(http.StatusOK, clients)
+}
+
+// GET /clients/my?page=&size=
+func (h *ClientHandler) ListMy(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 100
+	}
+	offset := (page - 1) * size
+
+	clients, err := h.Service.ListMine(userID, size, offset)
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		internalError(c, "Failed to list clients")
 		return
 	}

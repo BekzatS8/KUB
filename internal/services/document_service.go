@@ -130,6 +130,9 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	if authz.IsReadOnly(roleID) {
 		return 0, errors.New("read-only role")
 	}
+	if roleID == authz.RoleAdminStaff {
+		return 0, errors.New("forbidden")
+	}
 
 	if doc.DealID == 0 {
 		return 0, errors.New("deal not found")
@@ -341,7 +344,7 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
-	if !(roleID == authz.RoleOperations || roleID == authz.RoleManagement || roleID == authz.RoleAdmin) {
+	if !(roleID == authz.RoleOperations || roleID == authz.RoleManagement) {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)
@@ -362,8 +365,8 @@ func (s *DocumentService) Review(id int64, action string, userID, roleID int) er
 }
 
 func (s *DocumentService) Sign(id int64, userID, roleID int) error {
-	// Только Mgmt/Admin вручную
-	if !(roleID == authz.RoleManagement || roleID == authz.RoleAdmin) {
+	// Только Management вручную
+	if roleID != authz.RoleManagement {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)

@@ -38,6 +38,10 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	id, err := h.Service.CreateDocument(&doc, userID, roleID)
 	if err != nil {
 		switch err.Error() {
@@ -63,6 +67,10 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 // POST /documents/upload
 func (h *DocumentHandler) Upload(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	dealID, err := strconv.ParseInt(c.PostForm("deal_id"), 10, 64)
 	if err != nil {
 		badRequest(c, "Invalid deal id")
@@ -104,6 +112,10 @@ func (h *DocumentHandler) GetDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	doc, err := h.Service.GetDocument(id, userID, roleID)
 	if err != nil || doc == nil {
 		if err != nil && err.Error() == "forbidden" {
@@ -124,6 +136,10 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	docs, err := h.Service.ListDocumentsByDeal(dealID, userID, roleID)
 	if err != nil {
 		if err.Error() == "forbidden" {
@@ -144,6 +160,10 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if err := h.Service.DeleteDocument(id, userID, roleID); err != nil {
 		switch err.Error() {
 		case "read-only role", "forbidden":
@@ -336,6 +356,10 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if err := h.Service.Sign(id, userID, roleID); err != nil {
 		switch err.Error() {
 		case "forbidden":

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -15,6 +16,16 @@ type ClientService struct {
 
 func NewClientService(repo *repositories.ClientRepository) *ClientService {
 	return &ClientService{Repo: repo}
+}
+
+func (s *ClientService) authorizeWrite(roleID int) error {
+	if roleID == authz.RoleAdminStaff {
+		return ErrForbidden
+	}
+	if authz.IsReadOnly(roleID) {
+		return ErrReadOnly
+	}
+	return nil
 }
 
 // нормализация + базовая валидация
@@ -57,22 +68,60 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	return nil
 }
 
-func (s *ClientService) Create(c *models.Client) (int64, error) {
+func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, error) {
+	if err := s.authorizeWrite(roleID); err != nil {
+		return 0, err
+	}
+	if roleID == authz.RoleSales {
+		c.OwnerID = userID
+	}
+	if c.OwnerID == 0 {
+		c.OwnerID = userID
+	}
+	if roleID == authz.RoleSales && c.OwnerID != userID {
+		return 0, ErrForbidden
+	}
 	if err := s.normalizeAndValidate(c); err != nil {
 		return 0, err
 	}
 	return s.Repo.Create(c)
 }
 
-func (s *ClientService) Update(c *models.Client) error {
+func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
+	if err := s.authorizeWrite(roleID); err != nil {
+		return err
+	}
+	current, err := s.Repo.GetByID(c.ID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return errors.New("client not found")
+	}
+	if roleID == authz.RoleSales && current.OwnerID != userID {
+		return ErrForbidden
+	}
+	if roleID != authz.RoleManagement {
+		c.OwnerID = current.OwnerID
+	}
 	if err := s.normalizeAndValidate(c); err != nil {
 		return err
 	}
 	return s.Repo.Update(c)
 }
 
-func (s *ClientService) GetByID(id int) (*models.Client, error) {
-	return s.Repo.GetByID(id)
+func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, error) {
+	if roleID == authz.RoleAdminStaff {
+		return nil, ErrForbidden
+	}
+	client, err := s.Repo.GetByID(id)
+	if err != nil || client == nil {
+		return client, err
+	}
+	if roleID == authz.RoleSales && client.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	return client, nil
 }
 
 func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*models.Client, error) {
@@ -102,6 +151,20 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 	return fallback, nil
 }
 
-func (s *ClientService) List(limit, offset int) ([]*models.Client, error) {
-	return s.Repo.List(limit, offset)
+func (s *ClientService) ListAll(limit, offset int) ([]*models.Client, error) {
+	return s.Repo.ListAll(limit, offset)
+}
+
+func (s *ClientService) ListMine(userID, limit, offset int) ([]*models.Client, error) {
+	return s.Repo.ListByOwner(userID, limit, offset)
+}
+
+func (s *ClientService) ListForRole(userID, roleID, limit, offset int) ([]*models.Client, error) {
+	if roleID == authz.RoleAdminStaff {
+		return nil, ErrForbidden
+	}
+	if roleID == authz.RoleSales {
+		return nil, ErrForbidden
+	}
+	return s.Repo.ListAll(limit, offset)
 }

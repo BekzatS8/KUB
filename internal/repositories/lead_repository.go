@@ -111,13 +111,13 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 	return out, nil
 }
 
-func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, error) {
+func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, created_at, owner_id, status
-		FROM leads
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`
+                SELECT id, title, description, created_at, owner_id, status
+                FROM leads
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+        `
 	rows, err := r.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
@@ -133,6 +133,10 @@ func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, erro
 		out = append(out, &l)
 	}
 	return out, nil
+}
+
+func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, error) {
+	return r.ListAll(limit, offset)
 }
 
 // Новое: «только мои» лиды

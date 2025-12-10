@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -28,6 +29,10 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -41,7 +46,11 @@ func (h *LeadHandler) Create(c *gin.Context) {
 		lead.CreatedAt = time.Now()
 	}
 
-	if err := h.Service.Create(&lead); err != nil {
+	if err := h.Service.Create(&lead, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to create lead")
 		return
 	}
@@ -56,18 +65,22 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	current, err := h.Service.GetByID(id)
+	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, LeadNotFoundCode, "Lead not found")
-		return
-	}
-	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -77,15 +90,15 @@ func (h *LeadHandler) Update(c *gin.Context) {
 		return
 	}
 	body.ID = id
-	if !authz.IsElevated(roleID) {
-		body.OwnerID = current.OwnerID
-	}
-
-	if err := h.Service.Update(&body); err != nil {
+	if err := h.Service.Update(&body, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to update lead")
 		return
 	}
-	updated, _ := h.Service.GetByID(id)
+	updated, _ := h.Service.GetByID(id, userID, roleID)
 	c.JSON(200, updated)
 }
 
@@ -97,13 +110,17 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	lead, err := h.Service.GetByID(id)
-	if err != nil || lead == nil {
-		notFound(c, LeadNotFoundCode, "Lead not found")
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
 		return
 	}
-	if lead.OwnerID != userID && !authz.IsElevated(roleID) && roleID != authz.RoleAudit {
-		forbidden(c, "Forbidden")
+	lead, err := h.Service.GetByID(id, userID, roleID)
+	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 	c.JSON(200, lead)
@@ -117,22 +134,30 @@ func (h *LeadHandler) Delete(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	lead, err := h.Service.GetByID(id)
+	lead, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
-	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 
-	if err := h.Service.Delete(id); err != nil {
+	if err := h.Service.Delete(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to delete lead")
 		return
 	}
@@ -159,27 +184,34 @@ func (h *LeadHandler) Assign(c *gin.Context) {
 	}
 
 	actorID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	lead, err := h.Service.GetByID(id)
+	lead, err := h.Service.GetByID(id, actorID, roleID)
 	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 
-	if !authz.IsElevated(roleID) && req.AssigneeID != actorID {
-		forbidden(c, "Only self-assign allowed")
-		return
-	}
-
-	if err := h.Service.AssignOwner(id, req.AssigneeID); err != nil {
+	if err := h.Service.AssignOwner(id, req.AssigneeID, actorID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		internalError(c, "Failed to assign lead")
 		return
 	}
-	updated, _ := h.Service.GetByID(id)
+	updated, _ := h.Service.GetByID(id, actorID, roleID)
 	c.JSON(http.StatusOK, updated)
 }
 
@@ -203,19 +235,22 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
 	}
 
-	lead, err := h.Service.GetByID(id)
+	lead, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		notFound(c, LeadNotFoundCode, "Lead not found")
-		return
-	}
-
-	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -224,12 +259,16 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 		return
 	}
 
-	if err := h.Service.UpdateStatus(id, req.To); err != nil {
+	if err := h.Service.UpdateStatus(id, req.To, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
 		badRequest(c, "Failed to update lead status")
 		return
 	}
 
-	updated, _ := h.Service.GetByID(id)
+	updated, _ := h.Service.GetByID(id, userID, roleID)
 	c.JSON(http.StatusOK, updated)
 }
 
@@ -251,13 +290,21 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	lead, err := h.Service.GetByID(id)
-	if err != nil || lead == nil {
-		notFound(c, LeadNotFoundCode, "Lead not found")
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
 		return
 	}
-	if lead.OwnerID != userID && !authz.IsElevated(roleID) {
-		forbidden(c, "Forbidden")
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+	lead, err := h.Service.GetByID(id, userID, roleID)
+	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
 
@@ -273,7 +320,7 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 		Address:     req.ClientAddress,
 		ContactInfo: req.ClientContactInfo,
 	}
-	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, client)
+	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
 	if convErr != nil {
 		conflict(c, ValidationFailed, "Lead conversion conflict")
 		return
@@ -282,11 +329,18 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 }
 
 func (h *LeadHandler) List(c *gin.Context) {
-	pageStr := c.DefaultQuery("page", "1")
-	sizeStr := c.DefaultQuery("size", "100")
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if roleID == authz.RoleSales {
+		forbidden(c, "sales cannot access full list")
+		return
+	}
 
-	page, _ := strconv.Atoi(pageStr)
-	size, _ := strconv.Atoi(sizeStr)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
 	if page < 1 {
 		page = 1
 	}
@@ -295,16 +349,42 @@ func (h *LeadHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	userID, roleID := getUserAndRole(c)
-	var leads []*models.Leads
-	var err error
-
-	if authz.IsElevated(roleID) || roleID == authz.RoleAudit {
-		leads, err = h.Service.ListPaginated(size, offset)
-	} else {
-		leads, err = h.Service.ListMy(userID, size, offset)
-	}
+	leads, err := h.Service.ListForRole(userID, roleID, size, offset)
 	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to list leads")
+		return
+	}
+	c.JSON(http.StatusOK, leads)
+}
+
+// GET /leads/my?page=&size=
+func (h *LeadHandler) ListMy(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 100
+	}
+	offset := (page - 1) * size
+
+	leads, err := h.Service.ListMy(userID, size, offset)
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
 		internalError(c, "Failed to list leads")
 		return
 	}
