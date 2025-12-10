@@ -45,7 +45,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("[task][create][bind][err] %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	log.Printf("[task][create] payload assignee_id=%d entity_type=%q entity_id=%d title=%q due=%q remind=%q priority=%q",
@@ -54,13 +54,13 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	uid := int64(userID)
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][create][deny] read-only role=%d", roleID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	if roleID == authz.RoleSales && req.AssigneeID != uid {
 		log.Printf("[task][create][deny] staff=%d tried assign to %d", uid, req.AssigneeID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff can assign only to self"})
+		forbidden(c, "Staff can assign only to self")
 		return
 	}
 
@@ -69,7 +69,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.DueDate)
 		if err != nil {
 			log.Printf("[task][create][err] invalid due_date=%q: %v", req.DueDate, err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid due_date (RFC3339)"})
+			badRequest(c, "Invalid due date")
 			return
 		}
 		due = &t
@@ -79,7 +79,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.ReminderAt)
 		if err != nil {
 			log.Printf("[task][create][err] invalid reminder_at=%q: %v", req.ReminderAt, err)
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid reminder_at (RFC3339)"})
+			badRequest(c, "Invalid reminder time")
 			return
 		}
 		rem = &t
@@ -103,7 +103,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	createdTask, err := h.service.Create(c.Request.Context(), task)
 	if err != nil {
 		log.Printf("[task][create][err] %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
+		internalError(c, "Failed to create task")
 		return
 	}
 	log.Printf("[task][create][ok] id=%d assignee_id=%d title=%q", createdTask.ID, createdTask.AssigneeID, createdTask.Title)
@@ -121,19 +121,19 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		log.Printf("[task][getByID][err] invalid id: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	task, err := h.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("[task][getByID][err] id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
+		internalError(c, "Failed to get task")
 		return
 	}
 	if task == nil {
 		log.Printf("[task][getByID][404] id=%d", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
 	log.Printf("[task][getByID][ok] id=%d", id)
@@ -179,7 +179,7 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	tasks, err := h.service.GetAll(c.Request.Context(), filter)
 	if err != nil {
 		log.Printf("[task][list][err] %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve tasks"})
+		internalError(c, "Failed to retrieve tasks")
 		return
 	}
 	log.Printf("[task][list][ok] count=%d", len(tasks))
@@ -194,32 +194,32 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		log.Printf("[task][update][err] invalid id: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	uid := int64(userID)
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][update][deny] read-only role=%d", roleID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("[task][update][err] get current id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
+		internalError(c, "Failed to get task")
 		return
 	}
 	if current == nil {
 		log.Printf("[task][update][404] id=%d", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
 
 	if roleID == authz.RoleSales && !(current.CreatorID == uid || current.AssigneeID == uid) {
 		log.Printf("[task][update][deny] staff uid=%d current creator=%d assignee=%d", uid, current.CreatorID, current.AssigneeID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -234,7 +234,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("[task][update][bind][err] %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
@@ -243,7 +243,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.AssigneeID != nil {
 		if roleID == authz.RoleSales && *req.AssigneeID != uid {
 			log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, *req.AssigneeID)
-			c.JSON(http.StatusForbidden, gin.H{"error": "staff can assign only to self"})
+			forbidden(c, "Staff can assign only to self")
 			return
 		}
 		update.AssigneeID = *req.AssigneeID
@@ -261,7 +261,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 			t, err := time.Parse(time.RFC3339, *req.DueDate)
 			if err != nil {
 				log.Printf("[task][update][err] invalid due_date=%q: %v", *req.DueDate, err)
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid due_date"})
+				badRequest(c, "Invalid due date")
 				return
 			}
 			update.DueDate = &t
@@ -274,7 +274,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 			t, err := time.Parse(time.RFC3339, *req.ReminderAt)
 			if err != nil {
 				log.Printf("[task][update][err] invalid reminder_at=%q: %v", *req.ReminderAt, err)
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid reminder_at"})
+				badRequest(c, "Invalid reminder time")
 				return
 			}
 			update.ReminderAt = &t
@@ -286,7 +286,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if req.Status != nil {
 		if !isAllowedTaskStatus(*req.Status) || !isTransitionAllowed(current.Status, *req.Status) {
 			log.Printf("[task][update][deny] illegal status transition: from=%q to=%q", current.Status, *req.Status)
-			c.JSON(http.StatusConflict, gin.H{"error": "illegal status transition"})
+			conflict(c, ValidationFailed, "Illegal status transition")
 			return
 		}
 		update.Status = *req.Status
@@ -297,7 +297,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	updatedTask, err := h.service.Update(c.Request.Context(), id, &update)
 	if err != nil {
 		log.Printf("[task][update][err] save id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to update task")
 		return
 	}
 	log.Printf("[task][update][ok] id=%d", id)
@@ -316,38 +316,38 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		log.Printf("[task][delete][err] invalid id: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	uid := int64(userID)
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][delete][deny] read-only role=%d", roleID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("[task][delete][err] get current id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
+		internalError(c, "Failed to get task")
 		return
 	}
 	if current == nil {
 		log.Printf("[task][delete][404] id=%d", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
 
 	if roleID == authz.RoleSales && current.CreatorID != uid {
 		log.Printf("[task][delete][deny] staff uid=%d creator=%d", uid, current.CreatorID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {
 		log.Printf("[task][delete][err] id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to delete task")
 		return
 	}
 
@@ -367,32 +367,32 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		log.Printf("[task][status][err] invalid id: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	uid := int64(userID)
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][status][deny] read-only role=%d", roleID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("[task][status][err] get current id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
+		internalError(c, "Failed to get task")
 		return
 	}
 	if current == nil {
 		log.Printf("[task][status][404] id=%d", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
 
 	if roleID == authz.RoleSales && !(current.CreatorID == uid || current.AssigneeID == uid) {
 		log.Printf("[task][status][deny] staff uid=%d creator=%d assignee=%d", uid, current.CreatorID, current.AssigneeID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -402,19 +402,19 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("[task][status][bind][err] %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	if !isAllowedTaskStatus(body.To) || !isTransitionAllowed(current.Status, body.To) {
 		log.Printf("[task][status][deny] illegal transition from=%q to=%q", current.Status, body.To)
-		c.JSON(http.StatusConflict, gin.H{"error": "illegal status"})
+		conflict(c, ValidationFailed, "Illegal status")
 		return
 	}
 
 	updated, err := h.service.UpdateStatus(c.Request.Context(), id, body.To)
 	if err != nil {
 		log.Printf("[task][status][err] save id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to update task status")
 		return
 	}
 	log.Printf("[task][status][ok] id=%d new=%q", id, body.To)
@@ -432,26 +432,26 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		log.Printf("[task][assign][err] invalid id: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	uid := int64(userID)
 	if authz.IsReadOnly(roleID) {
 		log.Printf("[task][assign][deny] read-only role=%d", roleID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("[task][assign][err] get current id=%d: %v", id, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
+		internalError(c, "Failed to get task")
 		return
 	}
 	if current == nil {
 		log.Printf("[task][assign][404] id=%d", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
 
@@ -461,21 +461,21 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		log.Printf("[task][assign][bind][err] %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	log.Printf("[task][assign] new_assignee=%d", body.AssigneeID)
 
 	if roleID == authz.RoleSales && body.AssigneeID != uid {
 		log.Printf("[task][assign][deny] staff uid=%d -> %d", uid, body.AssigneeID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff can assign only to self"})
+		forbidden(c, "Staff can assign only to self")
 		return
 	}
 
 	updated, err := h.service.UpdateAssignee(c.Request.Context(), id, body.AssigneeID)
 	if err != nil {
 		log.Printf("[task][assign][err] save id=%d -> assignee=%d: %v", id, body.AssigneeID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to update assignee")
 		return
 	}
 	log.Printf("[task][assign][ok] id=%d assignee=%d", id, body.AssigneeID)

@@ -59,7 +59,7 @@ func (h *VerifyHandler) ResendUser(c *gin.Context) {
 
 	if err := h.SMS.ResendUserSMS(req.UserID, req.Phone); err != nil {
 		if err == services.ErrResendThrottled {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests, try later"})
+			writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 			return
 		}
 		badRequest(c, "Invalid code")
