@@ -268,7 +268,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 	userID, ok := ctxUserID(c)
 	if !ok {
 		log.Printf("[TG:REQ-LINK] userID not in context, keys=%v -> 401", c.Keys)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		unauthorized(c, "Unauthorized")
 		return
 	}
 
@@ -276,7 +276,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		log.Printf("[TG:REQ-LINK] rand.Read failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "rng failed"})
+		internalError(c, "Random generator failed")
 		return
 	}
 	code := strings.ToUpper(hex.EncodeToString(buf)) // 32 HEX
@@ -285,7 +285,7 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 	link, err := h.LinksRepo.Create(c.Request.Context(), userID, code, 30*time.Minute)
 	if err != nil {
 		log.Printf("[TG:REQ-LINK] LinksRepo.Create failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot create link"})
+		internalError(c, "Cannot create integration link")
 		return
 	}
 

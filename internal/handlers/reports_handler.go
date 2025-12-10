@@ -18,7 +18,7 @@ func NewReportHandler(service *services.ReportService) *ReportHandler {
 func (h *ReportHandler) GetSummary(c *gin.Context) {
 	data, err := h.Service.GetSummary()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to generate report summary")
 		return
 	}
 	c.JSON(http.StatusOK, data)
@@ -41,7 +41,7 @@ func (h *ReportHandler) FilterLeads(c *gin.Context) {
 
 	leads, err := h.Service.FilterLeads(status, ownerID, sortBy, order, size, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to get report data")
 		return
 	}
 	c.JSON(http.StatusOK, leads)
@@ -70,7 +70,7 @@ func (h *ReportHandler) FilterDeals(c *gin.Context) {
 
 	deals, err := h.Service.FilterDeals(status, from, to, currency, amountMin, amountMax, sortBy, order, size, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to get report data")
 		return
 	}
 	c.JSON(http.StatusOK, deals)

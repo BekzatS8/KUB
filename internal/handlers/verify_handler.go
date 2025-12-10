@@ -19,7 +19,7 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 		Code   string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid code")
 		return
 	}
 
@@ -27,21 +27,21 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case services.ErrCodeExpired:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "code expired, please resend"})
+			badRequest(c, "Code expired, please resend")
 			return
 		case services.ErrTooManyAttempts:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "too many attempts, please resend"})
+			badRequest(c, "Too many attempts, please resend")
 			return
 		case services.ErrCodeInvalid:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid code"})
+			badRequest(c, "Invalid code")
 			return
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "confirmation failed"})
+			internalError(c, "Confirmation failed")
 			return
 		}
 	}
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired code"})
+		badRequest(c, "Invalid or expired code")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Phone verified"})
@@ -53,7 +53,7 @@ func (h *VerifyHandler) ResendUser(c *gin.Context) {
 		Phone  string `json:"phone" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid code")
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *VerifyHandler) ResendUser(c *gin.Context) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests, try later"})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid code")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "SMS sent"})
