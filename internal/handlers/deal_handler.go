@@ -23,13 +23,13 @@ func NewDealHandler(service *services.DealService) *DealHandler {
 func (h *DealHandler) Create(c *gin.Context) {
 	var deal models.Deals
 	if err := c.ShouldBindJSON(&deal); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 	deal.OwnerID = userID
@@ -42,11 +42,11 @@ func (h *DealHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(&deal)
 	if err != nil {
-		status := http.StatusInternalServerError
 		if err.Error() == "client_id is required" {
-			status = http.StatusBadRequest
+			badRequest(c, "Client ID is required")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		internalError(c, "Failed to create deal")
 		return
 	}
 	deal.ID = int(id)
@@ -56,29 +56,29 @@ func (h *DealHandler) Create(c *gin.Context) {
 func (h *DealHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.Service.GetByID(id)
 	if err != nil || current == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
+		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
 	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	var body models.Deals
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	body.ID = id
@@ -87,7 +87,7 @@ func (h *DealHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.Service.Update(&body); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to update deal")
 		return
 	}
 	updated, _ := h.Service.GetByID(id)
@@ -97,18 +97,18 @@ func (h *DealHandler) Update(c *gin.Context) {
 func (h *DealHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	deal, err := h.Service.GetByID(id)
 	if err != nil || deal == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
+		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
 	if deal.OwnerID != userID && !authz.IsElevated(roleID) && roleID != authz.RoleAudit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 	c.JSON(http.StatusOK, deal)
@@ -117,27 +117,27 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 func (h *DealHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	deal, err := h.Service.GetByID(id)
 	if err != nil || deal == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
+		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
 	if deal.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	if err := h.Service.Delete(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, "Failed to delete deal")
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -152,34 +152,34 @@ type updateDealStatusRequest struct {
 func (h *DealHandler) UpdateStatus(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 
 	var req updateDealStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+		forbidden(c, "Read-only role")
 		return
 	}
 
 	current, err := h.Service.GetByID(id)
 	if err != nil || current == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deal not found"})
+		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
 	if current.OwnerID != userID && !authz.IsElevated(roleID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "Forbidden")
 		return
 	}
 
 	if err := h.Service.UpdateStatus(id, req.To); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid status")
 		return
 	}
 
@@ -211,10 +211,7 @@ func (h *DealHandler) List(c *gin.Context) {
 		deals, err = h.Service.ListMy(userID, size, offset)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to retrieve deals",
-			"debug": err.Error(),
-		})
+		internalError(c, "Failed to retrieve deals")
 		return
 	}
 	c.JSON(http.StatusOK, deals)

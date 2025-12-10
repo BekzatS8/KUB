@@ -34,22 +34,27 @@ func NewDocumentHandler(service *services.DocumentService) *DocumentHandler {
 func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 	var doc models.Document
 	if err := c.ShouldBindJSON(&doc); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	id, err := h.Service.CreateDocument(&doc, userID, roleID)
 	if err != nil {
-		status := http.StatusInternalServerError
 		switch err.Error() {
 		case "read-only role", "forbidden":
-			status = http.StatusForbidden
-		case "deal not found", "lead not found", "unsupported doc_type":
-			status = http.StatusBadRequest
+			forbidden(c, "Read-only role")
+			return
+		case "deal not found", "lead not found":
+			badRequest(c, "Invalid deal or lead")
+			return
+		case "unsupported doc_type":
+			badRequest(c, "Unsupported document type")
+			return
 		case "pdf generator not configured":
-			status = http.StatusInternalServerError
+			internalError(c, "Failed to create document")
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		internalError(c, "Failed to create document")
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"id": id})
@@ -60,25 +65,32 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	dealID, err := strconv.ParseInt(c.PostForm("deal_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid deal_id"})
+		badRequest(c, "Invalid deal id")
 		return
 	}
 	docType := c.PostForm("doc_type")
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		badRequest(c, "File is required")
 		return
 	}
 	doc, saveErr := h.Service.UploadDocument(dealID, docType, file, userID, roleID)
 	if saveErr != nil {
-		status := http.StatusBadRequest
 		switch saveErr.Error() {
 		case "forbidden", "read-only role":
-			status = http.StatusForbidden
-		case "deal not found", "doc_type is required", "invalid filename":
-			status = http.StatusBadRequest
+			forbidden(c, "Read-only role")
+			return
+		case "deal not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		case "doc_type is required", "invalid filename":
+			badRequest(c, "Invalid payload")
+			return
+		case "unsupported doc_type":
+			badRequest(c, "Unsupported document type")
+			return
 		}
-		c.JSON(status, gin.H{"error": saveErr.Error()})
+		internalError(c, "Failed to upload document")
 		return
 	}
 	c.JSON(http.StatusCreated, doc)
@@ -88,17 +100,17 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 func (h *DocumentHandler) GetDocument(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	doc, err := h.Service.GetDocument(id, userID, roleID)
 	if err != nil || doc == nil {
-		code := http.StatusNotFound
 		if err != nil && err.Error() == "forbidden" {
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		}
-		c.JSON(code, gin.H{"error": "document not found"})
+		notFound(c, DocumentNotFound, "Document not found")
 		return
 	}
 	c.JSON(http.StatusOK, doc)
@@ -108,17 +120,17 @@ func (h *DocumentHandler) GetDocument(c *gin.Context) {
 func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 	dealID, err := strconv.ParseInt(c.Param("dealid"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid deal id"})
+		badRequest(c, "Invalid deal id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	docs, err := h.Service.ListDocumentsByDeal(dealID, userID, roleID)
 	if err != nil {
-		code := http.StatusInternalServerError
 		if err.Error() == "forbidden" {
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Could not fetch documents")
 		return
 	}
 	c.JSON(http.StatusOK, docs)
@@ -128,19 +140,20 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.DeleteDocument(id, userID, roleID); err != nil {
-		code := http.StatusInternalServerError
 		switch err.Error() {
 		case "read-only role", "forbidden":
-			code = http.StatusForbidden
+			forbidden(c, "Read-only role")
+			return
 		case "not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to delete document")
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -163,13 +176,13 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	// - Ops/Mgmt/Admin/Audit: можно
 	_, roleID := getUserAndRole(c)
 	if roleID == authz.RoleSales {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden for sales; use /documents/deal/{dealid}"})
+		forbidden(c, "Forbidden for sales; use /documents/deal/{dealid}")
 		return
 	}
 
 	docs, err := h.Service.ListDocuments(size, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not fetch documents"})
+		internalError(c, "Could not fetch documents")
 		return
 	}
 	c.JSON(http.StatusOK, docs)
@@ -183,21 +196,22 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 		DocType string `json:"doc_type" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 
 	doc, err := h.Service.CreateDocumentFromLead(req.LeadID, req.DocType, userID, roleID)
 	if err != nil {
-		code := http.StatusInternalServerError
 		switch err.Error() {
 		case "lead not found", "deal not found":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid deal or lead")
+			return
 		case "forbidden", "read-only role":
-			code = http.StatusForbidden
+			forbidden(c, "Read-only role")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to create document")
 		return
 	}
 
@@ -211,7 +225,7 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 	var req createFromClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 
@@ -226,16 +240,21 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 		req.Extra,
 	)
 	if err != nil {
-		code := http.StatusInternalServerError
 		switch err.Error() {
-		case "client not found", "deal not found", "unsupported doc_type":
-			code = http.StatusBadRequest
+		case "client not found", "deal not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		case "unsupported doc_type":
+			badRequest(c, "Unsupported document type")
+			return
 		case "forbidden", "read-only role":
-			code = http.StatusForbidden
+			forbidden(c, "Read-only role")
+			return
 		case "pdf generator not configured":
-			code = http.StatusInternalServerError
+			internalError(c, "Failed to create document")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to create document")
 		return
 	}
 
@@ -249,21 +268,26 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 func (h *DocumentHandler) Submit(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.Submit(id, userID, roleID); err != nil {
-		code := http.StatusBadRequest
 		switch err.Error() {
-		case "read-only role", "forbidden":
-			code = http.StatusForbidden
+		case "read-only role":
+			forbidden(c, "Read-only role")
+			return
+		case "forbidden":
+			forbidden(c, "Forbidden")
+			return
 		case "not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		case "invalid status":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid status")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to submit document")
 		return
 	}
 	c.Status(http.StatusOK)
@@ -274,28 +298,30 @@ func (h *DocumentHandler) Submit(c *gin.Context) {
 func (h *DocumentHandler) Review(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	var body struct {
 		Action string `json:"action" binding:"required"` // "approve" | "return"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid payload")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.Review(id, body.Action, userID, roleID); err != nil {
-		code := http.StatusBadRequest
 		switch err.Error() {
 		case "forbidden":
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		case "not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		case "invalid status", "bad action":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid status")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to review document")
 		return
 	}
 	c.Status(http.StatusOK)
@@ -306,21 +332,23 @@ func (h *DocumentHandler) Review(c *gin.Context) {
 func (h *DocumentHandler) Sign(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.Sign(id, userID, roleID); err != nil {
-		code := http.StatusBadRequest
 		switch err.Error() {
 		case "forbidden":
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		case "not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		case "invalid status":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid status")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to sign document")
 		return
 	}
 	c.Status(http.StatusOK)
@@ -328,23 +356,25 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 func (h *DocumentHandler) ServeFile(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 
 	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, false)
 	if err != nil {
-		code := http.StatusInternalServerError
 		switch err.Error() {
 		case "not found", "file not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		case "forbidden":
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		case "bad filepath":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid file path")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to fetch document")
 		return
 	}
 
@@ -367,23 +397,25 @@ func (h *DocumentHandler) ServeFile(c *gin.Context) {
 func (h *DocumentHandler) Download(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		badRequest(c, "Invalid id")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 
 	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, true)
 	if err != nil {
-		code := http.StatusInternalServerError
 		switch err.Error() {
 		case "not found", "file not found":
-			code = http.StatusNotFound
+			notFound(c, DocumentNotFound, "Document not found")
+			return
 		case "forbidden":
-			code = http.StatusForbidden
+			forbidden(c, "Forbidden")
+			return
 		case "bad filepath":
-			code = http.StatusBadRequest
+			badRequest(c, "Invalid file path")
+			return
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		internalError(c, "Failed to fetch document")
 		return
 	}
 
