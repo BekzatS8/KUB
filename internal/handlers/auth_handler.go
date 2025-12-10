@@ -31,7 +31,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("[auth][login] bad request: bind json failed: err=%v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid login payload")
 		return
 	}
 	email := strings.TrimSpace(req.Email)
@@ -40,17 +40,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	user, err := h.userService.GetUserByEmail(email)
 	if err != nil || user == nil {
 		log.Printf("[auth][login] user not found by email=%q: err=%v", email, err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		unauthorized(c, "Invalid email or password")
 		return
 	}
 
 	// Блокируем логин, если телефон не подтверждён
 	if !user.IsVerified {
 		log.Printf("[auth][login] user not verified id=%d", user.ID)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Phone not verified",
-			"hint":  "Use /register/confirm or /register/resend to verify your phone.",
-		})
+		forbidden(c, "Phone not verified")
 		return
 	}
 
@@ -60,14 +57,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if ph == "" {
 		log.Printf("[auth][login] empty password_hash in DB for userID=%d email=%q", user.ID, email)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		unauthorized(c, "Invalid email or password")
 		return
 	}
 
 	pw := strings.TrimSpace(req.Password)
 	if err := bcrypt.CompareHashAndPassword([]byte(ph), []byte(pw)); err != nil {
 		log.Printf("[auth][login] bcrypt mismatch for userID=%d email=%q: err=%v", user.ID, email, err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		unauthorized(c, "Invalid email or password")
 		return
 	}
 	log.Printf("[auth][login] password OK for userID=%d", user.ID)
@@ -83,7 +80,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	accessTokenString, err := accessToken.SignedString(middleware.JWTKey)
 	if err != nil {
 		log.Printf("[auth][login] sign access token failed for userID=%d: err=%v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
+		internalError(c, "Failed to generate access token")
 		return
 	}
 	log.Printf("[auth][login] access token generated for userID=%d exp_in=%s",
@@ -92,13 +89,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	rt, err := utils.NewRefreshToken(32)
 	if err != nil {
 		log.Printf("[auth][login] new refresh token failed for userID=%d: err=%v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate refresh token"})
+		internalError(c, "Failed to generate refresh token")
 		return
 	}
 	rtExp := time.Now().Add(30 * 24 * time.Hour)
 	if err := h.userService.UpdateRefresh(user.ID, rt, rtExp); err != nil {
 		log.Printf("[auth][login] store refresh token failed for userID=%d: err=%v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store refresh token"})
+		internalError(c, "Failed to store refresh token")
 		return
 	}
 	log.Printf("[auth][login] refresh token stored for userID=%d exp_at=%s", user.ID, rtExp.Format(time.RFC3339))
@@ -120,29 +117,29 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		RefreshToken string `json:"refresh_token" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid refresh token payload")
 		return
 	}
 	old := strings.TrimSpace(req.RefreshToken)
 	user, err := h.userService.GetByRefreshToken(old)
 	if err != nil || user == nil || user.RefreshToken == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
+		unauthorized(c, "Invalid refresh token")
 		return
 	}
 	if time.Now().After(*user.RefreshExpiresAt) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token expired"})
+		unauthorized(c, "Refresh token expired")
 		return
 	}
 
 	newRT, err := utils.NewRefreshToken(32)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rotate refresh token"})
+		internalError(c, "Failed to rotate refresh token")
 		return
 	}
 	newExp := time.Now().Add(30 * 24 * time.Hour)
 	rotatedUser, err := h.userService.RotateRefresh(old, newRT, newExp)
 	if err != nil || rotatedUser == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
+		unauthorized(c, "Invalid refresh token")
 		return
 	}
 
@@ -156,7 +153,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessTokenString, err := accessToken.SignedString(middleware.JWTKey)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
+		internalError(c, "Failed to generate access token")
 		return
 	}
 
@@ -170,11 +167,11 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		Email string `json:"email" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid forgot password payload")
 		return
 	}
 	if err := h.passwordResetService.RequestReset(req.Email); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "If the account exists, password reset instructions were sent"})
@@ -186,11 +183,11 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, "Invalid reset password payload")
 		return
 	}
 	if err := h.passwordResetService.ResetPassword(req.Token, req.Password); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
