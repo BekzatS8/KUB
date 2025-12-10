@@ -1,0 +1,61 @@
+package handlers
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type APIError struct {
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
+}
+
+const (
+	BadRequestCode    = "BAD_REQUEST"
+	UnauthorizedCode  = "UNAUTHORIZED"
+	ForbiddenCode     = "FORBIDDEN"
+	NotFoundCode      = "NOT_FOUND"
+	ConflictCode      = "CONFLICT"
+	InternalErrorCode = "INTERNAL_ERROR"
+
+	DealNotFoundCode   = "DEAL_NOT_FOUND"
+	LeadNotFoundCode   = "LEAD_NOT_FOUND"
+	DocumentNotFound   = "DOCUMENT_NOT_FOUND"
+	ClientNotFoundCode = "CLIENT_NOT_FOUND"
+	ReadOnlyRoleCode   = "READ_ONLY_ROLE"
+	UnsupportedDocType = "UNSUPPORTED_DOC_TYPE"
+	InvalidStatusCode  = "INVALID_STATUS"
+	ValidationFailed   = "VALIDATION_FAILED"
+)
+
+func writeError(c *gin.Context, status int, code string, msg string) {
+	c.JSON(status, APIError{
+		ErrorCode: code,
+		Message:   msg,
+	})
+}
+
+func badRequest(c *gin.Context, msg string) {
+	writeError(c, http.StatusBadRequest, BadRequestCode, msg)
+}
+
+func unauthorized(c *gin.Context, msg string) {
+	writeError(c, http.StatusUnauthorized, UnauthorizedCode, msg)
+}
+
+func forbidden(c *gin.Context, msg string) {
+	writeError(c, http.StatusForbidden, ForbiddenCode, msg)
+}
+
+func notFound(c *gin.Context, domainCode string, msg string) {
+	writeError(c, http.StatusNotFound, domainCode, msg)
+}
+
+func conflict(c *gin.Context, domainCode string, msg string) {
+	writeError(c, http.StatusConflict, domainCode, msg)
+}
+
+func internalError(c *gin.Context, msg string) {
+	writeError(c, http.StatusInternalServerError, InternalErrorCode, msg)
+}
