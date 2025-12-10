@@ -169,12 +169,19 @@ func SetupRoutes(
 
 	// REPORTS (control/ops/mgmt)
 	reports := r.Group("/reports",
-		middleware.RequireRoles(authz.RoleControl, authz.RoleOperations, authz.RoleManagement),
+		middleware.RequireRoles(
+			authz.RoleSales,
+			authz.RoleOperations,
+			authz.RoleManagement,
+			authz.RoleControl,
+			authz.RoleAdminStaff,
+		),
 	)
 	{
-		reports.GET("/summary", reportHandler.GetSummary)
-		reports.GET("/leads/filter", reportHandler.FilterLeads)
-		reports.GET("/deals/filter", reportHandler.FilterDeals)
+		reports.GET("/funnel", reportHandler.GetFunnel)
+		reports.GET("/leads", reportHandler.GetLeadsSummary)
+		reports.GET("/revenue", reportHandler.GetRevenue)
+		reports.GET("/revenue/export", reportHandler.ExportRevenue)
 	}
 
 	return r

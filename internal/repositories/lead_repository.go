@@ -1,9 +1,11 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"turcompany/internal/models"
 )
@@ -174,4 +176,34 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 	const q = `UPDATE leads SET owner_id = $1 WHERE id = $2`
 	_, err := r.db.Exec(q, ownerID, id)
 	return err
+}
+
+// GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
+func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.LeadSummaryRow, error) {
+	query := `SELECT status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
+	args := []interface{}{from, to}
+
+	if ownerID != nil {
+		query += " AND owner_id = $3"
+		args = append(args, *ownerID)
+	}
+
+	query += " GROUP BY status ORDER BY status"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("leads summary stats: %w", err)
+	}
+	defer rows.Close()
+
+	var result []models.LeadSummaryRow
+	for rows.Next() {
+		var row models.LeadSummaryRow
+		if err := rows.Scan(&row.Status, &row.Source, &row.Count); err != nil {
+			return nil, fmt.Errorf("scan leads summary row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
 }

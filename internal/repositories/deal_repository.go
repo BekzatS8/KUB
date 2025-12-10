@@ -1,8 +1,10 @@
 package repositories
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"turcompany/internal/models"
 )
@@ -291,4 +293,113 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		return nil, fmt.Errorf("get deal by client_id: %w", err)
 	}
 	return deal, nil
+}
+
+// GetDealsFunnelStats возвращает количество сделок по статусам за указанный период.
+func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.FunnelRow, error) {
+	query := `SELECT status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2`
+	args := []interface{}{from, to}
+
+	if ownerID != nil {
+		query += " AND owner_id = $3"
+		args = append(args, *ownerID)
+	}
+
+	query += " GROUP BY status ORDER BY status"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("deals funnel stats: %w", err)
+	}
+	defer rows.Close()
+
+	var result []models.FunnelRow
+	for rows.Next() {
+		var row models.FunnelRow
+		if err := rows.Scan(&row.Status, &row.Count); err != nil {
+			return nil, fmt.Errorf("scan deals funnel row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
+}
+
+// GetDealsRevenueStats возвращает суммы выигранных сделок по месяцам за период.
+func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.RevenueRow, error) {
+	query := `
+                SELECT
+                    TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS period,
+                    SUM(amount::float) AS total_amount,
+                    currency
+                FROM deals
+                WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
+	args := []interface{}{from, to}
+
+	if ownerID != nil {
+		query += " AND owner_id = $3"
+		args = append(args, *ownerID)
+	}
+
+	query += " GROUP BY period, currency ORDER BY period"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("deals revenue stats: %w", err)
+	}
+	defer rows.Close()
+
+	var result []models.RevenueRow
+	for rows.Next() {
+		var row models.RevenueRow
+		if err := rows.Scan(&row.Period, &row.TotalAmount, &row.Currency); err != nil {
+			return nil, fmt.Errorf("scan deals revenue row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
+}
+
+// GetTopClientsByRevenue возвращает топ клиентов по сумме выигранных сделок.
+func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to time.Time, ownerID *int, limit int) ([]models.TopClientRow, error) {
+	query := `
+                SELECT
+                    d.client_id,
+                    c.name AS client_name,
+                    SUM(d.amount::float) AS total_amount,
+                    d.currency
+                FROM deals d
+                JOIN clients c ON c.id = d.client_id
+                WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
+	args := []interface{}{from, to}
+
+	if ownerID != nil {
+		query += " AND d.owner_id = $3"
+		args = append(args, *ownerID)
+	}
+
+	query += " GROUP BY d.client_id, c.name, d.currency ORDER BY total_amount DESC"
+
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("top clients by revenue: %w", err)
+	}
+	defer rows.Close()
+
+	var result []models.TopClientRow
+	for rows.Next() {
+		var row models.TopClientRow
+		if err := rows.Scan(&row.ClientID, &row.ClientName, &row.TotalAmount, &row.Currency); err != nil {
+			return nil, fmt.Errorf("scan top client row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
 }
