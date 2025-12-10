@@ -14,25 +14,25 @@ CREATE TABLE IF NOT EXISTS roles (
 
 -- ===================== USERS =====================
 CREATE TABLE IF NOT EXISTS users (
-                                     id                   SERIAL PRIMARY KEY,
-                                     company_name         VARCHAR(255),
-                                     bin_iin              VARCHAR(255),
-                                     email                VARCHAR(255) NOT NULL UNIQUE,
-                                     password_hash        VARCHAR(255) NOT NULL,
-                                     role_id              INT REFERENCES roles(id),
+                                     id                    SERIAL PRIMARY KEY,
+                                     company_name          VARCHAR(255),
+                                     bin_iin               VARCHAR(255),
+                                     email                 VARCHAR(255) NOT NULL UNIQUE,
+                                     password_hash         VARCHAR(255) NOT NULL,
+                                     role_id               INT REFERENCES roles(id),
 
     -- refresh storage
-                                     refresh_token        TEXT,
-                                     refresh_expires_at   TIMESTAMPTZ,
-                                     refresh_revoked      BOOLEAN NOT NULL DEFAULT FALSE,
+                                     refresh_token         TEXT,
+                                     refresh_expires_at    TIMESTAMPTZ,
+                                     refresh_revoked       BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- phone verification
-                                     phone                VARCHAR(20),
-                                     is_verified          BOOLEAN NOT NULL DEFAULT FALSE,
-                                     verified_at          TIMESTAMPTZ,
+                                     phone                 VARCHAR(20),
+                                     is_verified           BOOLEAN NOT NULL DEFAULT FALSE,
+                                     verified_at           TIMESTAMPTZ,
 
     -- telegram
-                                     telegram_chat_id     BIGINT UNIQUE,
+                                     telegram_chat_id      BIGINT UNIQUE,
                                      notify_tasks_telegram BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -40,8 +40,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_refresh_token_uq
     ON users (refresh_token)
     WHERE refresh_token IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS users_role_idx         ON users(role_id);
-CREATE INDEX IF NOT EXISTS users_is_verified_idx  ON users(is_verified);
+CREATE INDEX IF NOT EXISTS users_role_idx        ON users(role_id);
+CREATE INDEX IF NOT EXISTS users_is_verified_idx ON users(is_verified);
 
 -- ===================== LEADS =====================
 CREATE TABLE IF NOT EXISTS leads (
@@ -53,49 +53,70 @@ CREATE TABLE IF NOT EXISTS leads (
                                      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS leads_owner_idx   ON leads(owner_id);
-CREATE INDEX IF NOT EXISTS leads_status_idx  ON leads(status);
+CREATE INDEX IF NOT EXISTS leads_owner_idx  ON leads(owner_id);
+CREATE INDEX IF NOT EXISTS leads_status_idx ON leads(status);
 
 -- ===================== CLIENTS =====================
 CREATE TABLE IF NOT EXISTS clients (
-                                       id           SERIAL PRIMARY KEY,
-                                       name         VARCHAR(255) NOT NULL,
-                                       bin_iin      VARCHAR(255) UNIQUE,
-                                       address      TEXT,
-                                       contact_info TEXT,
-                                       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                                       id                    SERIAL PRIMARY KEY,
+                                       name                  VARCHAR(255) NOT NULL,
+                                       bin_iin               VARCHAR(255) UNIQUE,
+                                       address               TEXT,
+                                       contact_info          TEXT,
+                                       created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- расширенные поля анкеты физ. лиц
+                                       last_name             VARCHAR(255),
+                                       first_name            VARCHAR(255),
+                                       middle_name           VARCHAR(255),
+                                       iin                   VARCHAR(20),
+                                       id_number             VARCHAR(50),
+                                       passport_series       VARCHAR(20),
+                                       passport_number       VARCHAR(50),
+                                       phone                 VARCHAR(50),
+                                       email                 VARCHAR(255),
+                                       registration_address  TEXT,
+                                       actual_address        TEXT
 );
 
-CREATE INDEX IF NOT EXISTS clients_name_idx   ON clients(name);
-CREATE INDEX IF NOT EXISTS clients_bin_iin_idx ON clients(bin_iin);
+CREATE INDEX IF NOT EXISTS clients_name_idx     ON clients(name);
+CREATE INDEX IF NOT EXISTS clients_bin_iin_idx  ON clients(bin_iin);
+CREATE INDEX IF NOT EXISTS idx_clients_iin      ON clients(iin);
+CREATE INDEX IF NOT EXISTS idx_clients_phone    ON clients(phone);
 
 -- ===================== DEALS =====================
 CREATE TABLE IF NOT EXISTS deals (
                                      id         SERIAL PRIMARY KEY,
-                                     lead_id    INT REFERENCES leads(id) ON DELETE SET NULL,
+                                     lead_id    INT REFERENCES leads(id)   ON DELETE SET NULL,
                                      client_id  INT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
-                                     owner_id   INT REFERENCES users(id) ON DELETE SET NULL,
+                                     owner_id   INT REFERENCES users(id)   ON DELETE SET NULL,
                                      amount     VARCHAR(20) NOT NULL,
                                      currency   VARCHAR(10) NOT NULL,
                                      status     VARCHAR(100),
                                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                                     CONSTRAINT deals_status_chk CHECK (status IN ('new','in_progress','negotiation','won','lost','cancelled'))
+                                     CONSTRAINT deals_status_chk CHECK (
+                                         status IN ('new','in_progress','negotiation','won','lost','cancelled')
+                                         )
 );
 
-CREATE INDEX IF NOT EXISTS deals_lead_idx    ON deals(lead_id);
-CREATE INDEX IF NOT EXISTS deals_owner_idx   ON deals(owner_id);
-CREATE INDEX IF NOT EXISTS deals_client_idx  ON deals(client_id);
-CREATE INDEX IF NOT EXISTS deals_status_idx  ON deals(status);
+CREATE INDEX IF NOT EXISTS deals_lead_idx   ON deals(lead_id);
+CREATE INDEX IF NOT EXISTS deals_owner_idx  ON deals(owner_id);
+CREATE INDEX IF NOT EXISTS deals_client_idx ON deals(client_id);
+CREATE INDEX IF NOT EXISTS deals_status_idx ON deals(status);
 
 -- ===================== DOCUMENTS =====================
 CREATE TABLE IF NOT EXISTS documents (
-                                         id        SERIAL PRIMARY KEY,
-                                         deal_id   INT REFERENCES deals(id) ON DELETE CASCADE,
-                                         doc_type  VARCHAR(100),
-                                         file_path VARCHAR(255),
-                                         status    VARCHAR(100),
-                                         signed_at TIMESTAMPTZ,
-                                         CONSTRAINT documents_status_chk CHECK (status IN ('draft','under_review','approved','returned','signed'))
+                                         id              SERIAL PRIMARY KEY,
+                                         deal_id         INT REFERENCES deals(id) ON DELETE CASCADE,
+                                         doc_type        VARCHAR(100),
+                                         file_path       VARCHAR(255),
+                                         file_path_docx  TEXT,
+                                         file_path_pdf   TEXT,
+                                         status          VARCHAR(100),
+                                         signed_at       TIMESTAMPTZ,
+                                         CONSTRAINT documents_status_chk CHECK (
+                                             status IN ('draft','under_review','approved','returned','signed')
+                                             )
 );
 
 CREATE INDEX IF NOT EXISTS documents_deal_idx   ON documents(deal_id);
@@ -176,16 +197,16 @@ CREATE TABLE IF NOT EXISTS telegram_links (
                                               created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS telegram_links_user_idx   ON telegram_links(user_id);
-CREATE INDEX IF NOT EXISTS telegram_links_used_idx   ON telegram_links(used);
-CREATE INDEX IF NOT EXISTS telegram_links_exp_idx    ON telegram_links(expires_at);
+CREATE INDEX IF NOT EXISTS telegram_links_user_idx ON telegram_links(user_id);
+CREATE INDEX IF NOT EXISTS telegram_links_used_idx ON telegram_links(used);
+CREATE INDEX IF NOT EXISTS telegram_links_exp_idx  ON telegram_links(expires_at);
 
 -- ===================== CHATS =====================
 CREATE TABLE IF NOT EXISTS chats (
-                                     id        SERIAL PRIMARY KEY,
-                                     name      VARCHAR(255) NOT NULL,
-                                     is_group  BOOLEAN      NOT NULL DEFAULT FALSE,
-                                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                                     id         SERIAL PRIMARY KEY,
+                                     name       VARCHAR(255) NOT NULL,
+                                     is_group   BOOLEAN      NOT NULL DEFAULT FALSE,
+                                     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS chat_members (
@@ -211,9 +232,9 @@ CREATE INDEX IF NOT EXISTS messages_sender_idx    ON messages(sender_id);
 CREATE TABLE IF NOT EXISTS password_resets (
                                                id         SERIAL PRIMARY KEY,
                                                user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                               token      VARCHAR(255) NOT NULL UNIQUE,
+                                               token      TEXT NOT NULL UNIQUE,
                                                expires_at TIMESTAMPTZ NOT NULL,
-                                               used_at    TIMESTAMPTZ,
+                                               used       BOOLEAN NOT NULL DEFAULT FALSE,
                                                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

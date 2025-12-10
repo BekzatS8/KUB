@@ -1,19 +1,18 @@
 package handlers
 
 import (
-	"errors"
 	"log"
 	"net/http"
-	"strings"
 	"time"
+	"turcompany/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	"strings"
 	"turcompany/internal/middleware"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
-	"turcompany/internal/utils"
 )
 
 type AuthHandler struct {
@@ -165,47 +164,31 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 }
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Неверный формат данных")
+		badRequest(c, "Invalid forgot password payload")
 		return
 	}
-
 	if err := h.passwordResetService.RequestReset(req.Email); err != nil {
-		log.Printf("[auth][forgot_password] request reset failed for email=%s: %v", req.Email, err)
+		badRequest(c, err.Error())
+		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Если этот email зарегистрирован, ссылка для сброса пароля отправлена.",
-	})
+	c.JSON(http.StatusOK, gin.H{"message": "If the account exists, password reset instructions were sent"})
 }
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req struct {
-		Token       string `json:"token" binding:"required"`
-		NewPassword string `json:"new_password" binding:"required,min=6"`
+		Token    string `json:"token" binding:"required"`
+		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Неверный формат данных")
+		badRequest(c, "Invalid reset password payload")
 		return
 	}
-
-	err := h.passwordResetService.ResetPassword(req.Token, req.NewPassword)
-	if err != nil {
-		switch {
-		case errors.Is(err, services.ErrResetTokenNotFound):
-			notFound(c, NotFoundCode, "Токен сброса пароля не найден")
-		case errors.Is(err, services.ErrResetTokenExpired):
-			badRequest(c, "Срок действия токена сброса пароля истёк")
-		case errors.Is(err, services.ErrResetTokenUsed):
-			badRequest(c, "Токен сброса пароля уже использован")
-		default:
-			log.Printf("[auth][reset_password] reset failed for token=%s: %v", req.Token, err)
-			internalError(c, "Не удалось сбросить пароль")
-		}
+	if err := h.passwordResetService.ResetPassword(req.Token, req.Password); err != nil {
+		badRequest(c, err.Error())
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Пароль успешно изменён"})
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
 }
