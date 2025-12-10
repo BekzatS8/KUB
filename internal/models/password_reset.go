@@ -3,10 +3,10 @@ package models
 import "time"
 
 type PasswordReset struct {
-	ID        int        `json:"id"`
-	UserID    int        `json:"user_id"`
-	Token     string     `json:"token"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        int       `db:"id"`
+	UserID    int       `db:"user_id"`
+	Token     string    `db:"token"`
+	ExpiresAt time.Time `db:"expires_at"`
+	Used      bool      `db:"used"`
+	CreatedAt time.Time `db:"created_at"`
 }

@@ -7,7 +7,7 @@ import (
 
 type EmailService interface {
 	SendWelcomeEmail(email, companyName string) error
-	SendPasswordResetEmail(email, token string) error
+	SendPasswordResetEmail(email, resetURL string) error
 }
 
 type emailService struct {
@@ -44,7 +44,7 @@ func (s *emailService) SendWelcomeEmail(email, companyName string) error {
 
 	return nil
 }
-func (s *emailService) SendPasswordResetEmail(email, token string) error {
+func (s *emailService) SendPasswordResetEmail(email, resetURL string) error {
 	m := gomail.NewMessage()
 	m.SetHeader("From", s.from)
 	m.SetHeader("To", email)
@@ -53,9 +53,10 @@ func (s *emailService) SendPasswordResetEmail(email, token string) error {
 	body := fmt.Sprintf(`
                 <h3>Password reset requested</h3>
                 <p>We received a request to reset the password for your account.</p>
-                <p>Use the following token to reset your password: <strong>%s</strong></p>
+                <p>Use the following link to reset your password: <a href="%s">Reset password</a></p>
+                <p>If the button doesn't work, copy and paste this URL into your browser: %s</p>
                 <p>If you did not request this change, you can ignore this email.</p>
-        `, token)
+        `, resetURL, resetURL)
 
 	m.SetBody("text/html", body)
 

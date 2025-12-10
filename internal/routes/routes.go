@@ -25,13 +25,16 @@ func SetupRoutes(
 ) *gin.Engine {
 
 	// ---- public
-	r.POST("/login", authHandler.Login)
-	r.POST("/refresh", authHandler.RefreshToken)
+	auth := r.Group("/auth")
+	{
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/refresh", authHandler.RefreshToken)
+		auth.POST("/forgot-password", authHandler.ForgotPassword)
+		auth.POST("/reset-password", authHandler.ResetPassword)
+	}
 	r.POST("/register", userHandler.Register)
 	r.POST("/register/confirm", verifyHandler.ConfirmUser)
 	r.POST("/register/resend", verifyHandler.ResendUser)
-	r.POST("/auth/forgot-password", authHandler.ForgotPassword)
-	r.POST("/auth/reset-password", authHandler.ResetPassword)
 
 	// PUBLIC: Telegram webhook (БЕЗ JWT!)
 	if integrationsHandler != nil {

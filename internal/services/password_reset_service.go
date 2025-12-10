@@ -4,11 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
 	"turcompany/internal/repositories"
 	"turcompany/internal/utils"
+)
+
+var (
+	ErrResetTokenNotFound = errors.New("reset token not found")
+	ErrResetTokenExpired  = errors.New("reset token expired")
+	ErrResetTokenUsed     = errors.New("reset token already used")
 )
 
 type PasswordResetService interface {
@@ -17,18 +24,20 @@ type PasswordResetService interface {
 }
 
 type passwordResetService struct {
-	userRepo repositories.UserRepository
-	repo     repositories.PasswordResetRepository
-	emails   EmailService
-	auth     AuthService
+	userRepo     repositories.UserRepository
+	repo         repositories.PasswordResetRepository
+	emails       EmailService
+	auth         AuthService
+	frontendHost string
 }
 
-func NewPasswordResetService(userRepo repositories.UserRepository, repo repositories.PasswordResetRepository, emails EmailService, auth AuthService) PasswordResetService {
+func NewPasswordResetService(userRepo repositories.UserRepository, repo repositories.PasswordResetRepository, emails EmailService, auth AuthService, frontendHost string) PasswordResetService {
 	return &passwordResetService{
-		userRepo: userRepo,
-		repo:     repo,
-		emails:   emails,
-		auth:     auth,
+		userRepo:     userRepo,
+		repo:         repo,
+		emails:       emails,
+		auth:         auth,
+		frontendHost: strings.TrimSpace(frontendHost),
 	}
 }
 
@@ -49,12 +58,13 @@ func (s *passwordResetService) RequestReset(email string) error {
 		return err
 	}
 	expires := time.Now().Add(1 * time.Hour)
-	if _, err := s.repo.Create(user.ID, token, expires); err != nil {
+	if err := s.repo.Create(user.ID, token, expires); err != nil {
 		return err
 	}
 
 	if s.emails != nil {
-		if err := s.emails.SendPasswordResetEmail(user.Email, token); err != nil {
+		resetURL := s.buildResetURL(token)
+		if err := s.emails.SendPasswordResetEmail(user.Email, resetURL); err != nil {
 			log.Printf("[password-reset] failed to send email to %s: %v", user.Email, err)
 		}
 	}
@@ -72,14 +82,17 @@ func (s *passwordResetService) ResetPassword(token, newPassword string) error {
 	}
 
 	pr, err := s.repo.GetByToken(token)
-	if err != nil || pr == nil {
-		return errors.New("invalid or expired token")
+	if err != nil {
+		return err
 	}
-	if pr.UsedAt != nil {
-		return errors.New("token already used")
+	if pr == nil {
+		return ErrResetTokenNotFound
+	}
+	if pr.Used {
+		return ErrResetTokenUsed
 	}
 	if time.Now().After(pr.ExpiresAt) {
-		return errors.New("token expired")
+		return ErrResetTokenExpired
 	}
 
 	hash, err := s.auth.HashPassword(newPassword)
@@ -89,5 +102,16 @@ func (s *passwordResetService) ResetPassword(token, newPassword string) error {
 	if err := s.userRepo.UpdatePassword(pr.UserID, hash); err != nil {
 		return err
 	}
-	return s.repo.MarkUsed(pr.ID)
+	return s.repo.MarkUsed(pr.Token)
+}
+
+func (s *passwordResetService) buildResetURL(token string) string {
+	base := strings.TrimSpace(s.frontendHost)
+	if base == "" {
+		return ""
+	}
+
+	base = strings.TrimRight(base, "/")
+	escapedToken := url.QueryEscape(token)
+	return fmt.Sprintf("%s/reset-password?token=%s", base, escapedToken)
 }

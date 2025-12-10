@@ -18,3 +18,6 @@ mobizon:
   api_key: "dry-run"   # для тестов: "dry-run" => в сеть не ходим
   sender_id: ""        # если есть утверждённый Sender ID — укажи
   dry_run: false       # true = только логируем, без реального запроса
+
+frontend:
+  host: "https://frontend.example.com"

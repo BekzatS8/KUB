@@ -19,6 +19,10 @@ type MobizonConfig struct {
 	DryRun   bool   `yaml:"dry_run"`
 }
 
+type FrontendConfig struct {
+	Host string `yaml:"host"`
+}
+
 type Config struct {
 	Server struct {
 		Port int    `yaml:"port"`
@@ -37,6 +41,7 @@ type Config struct {
 	Files    FilesConfig    `yaml:"files"`
 	Mobizon  MobizonConfig  `yaml:"mobizon"`
 	Telegram TelegramConfig `yaml:"telegram"`
+	Frontend FrontendConfig `yaml:"frontend"`
 }
 
 func LoadConfig() *Config {
@@ -53,6 +58,9 @@ func LoadConfig() *Config {
 
 	if cfg.Files.RootDir == "" {
 		cfg.Files.RootDir = "./files"
+	}
+	if cfg.Frontend.Host == "" {
+		cfg.Frontend.Host = "http://localhost:3000"
 	}
 	return &cfg
 }

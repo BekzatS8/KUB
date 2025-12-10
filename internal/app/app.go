@@ -111,7 +111,7 @@ func Run() {
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
 	chatService := services.NewChatService(chatRepo)
-	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService)
+	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(
 		cfg.Files.RootDir,  // "files"

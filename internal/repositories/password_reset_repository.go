@@ -8,9 +8,9 @@ import (
 )
 
 type PasswordResetRepository interface {
-	Create(userID int, token string, expiresAt time.Time) (*models.PasswordReset, error)
+	Create(userID int, token string, expiresAt time.Time) error
 	GetByToken(token string) (*models.PasswordReset, error)
-	MarkUsed(id int) error
+	MarkUsed(token string) error
 }
 
 type passwordResetRepository struct {
@@ -21,40 +21,35 @@ func NewPasswordResetRepository(db *sql.DB) PasswordResetRepository {
 	return &passwordResetRepository{DB: db}
 }
 
-func (r *passwordResetRepository) Create(userID int, token string, expiresAt time.Time) (*models.PasswordReset, error) {
+func (r *passwordResetRepository) Create(userID int, token string, expiresAt time.Time) error {
 	const q = `
-                INSERT INTO password_resets (user_id, token, expires_at)
-                VALUES ($1, $2, $3)
-                RETURNING id, created_at
-        `
-	pr := &models.PasswordReset{UserID: userID, Token: token, ExpiresAt: expiresAt}
-	if err := r.DB.QueryRow(q, userID, token, expiresAt).Scan(&pr.ID, &pr.CreatedAt); err != nil {
-		return nil, err
-	}
-	return pr, nil
+INSERT INTO password_resets (user_id, token, expires_at)
+VALUES ($1, $2, $3)
+`
+	_, err := r.DB.Exec(q, userID, token, expiresAt)
+	return err
 }
 
 func (r *passwordResetRepository) GetByToken(token string) (*models.PasswordReset, error) {
 	const q = `
-                SELECT id, user_id, token, expires_at, used_at, created_at
-                FROM password_resets
-                WHERE token = $1
-        `
+SELECT id, user_id, token, expires_at, used, created_at
+FROM password_resets
+WHERE token = $1
+`
 	pr := &models.PasswordReset{}
-	var usedAt sql.NullTime
-	if err := r.DB.QueryRow(q, token).Scan(&pr.ID, &pr.UserID, &pr.Token, &pr.ExpiresAt, &usedAt, &pr.CreatedAt); err != nil {
+	if err := r.DB.QueryRow(q, token).Scan(&pr.ID, &pr.UserID, &pr.Token, &pr.ExpiresAt, &pr.Used, &pr.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
-	}
-	if usedAt.Valid {
-		pr.UsedAt = &usedAt.Time
 	}
 	return pr, nil
 }
 
-func (r *passwordResetRepository) MarkUsed(id int) error {
+func (r *passwordResetRepository) MarkUsed(token string) error {
 	const q = `
-                UPDATE password_resets SET used_at = NOW() WHERE id = $1
-        `
-	_, err := r.DB.Exec(q, id)
+UPDATE password_resets SET used = TRUE WHERE token = $1
+`
+	_, err := r.DB.Exec(q, token)
 	return err
 }
