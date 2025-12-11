@@ -49,6 +49,7 @@ func (g *ExcelGenerator) GenerateFromTemplate(
 	if baseFilename == "" {
 		baseFilename = fmt.Sprintf("excel_%d", time.Now().Unix())
 	}
+	baseFilename = filepath.Base(baseFilename)
 
 	// 1. Путь к шаблону
 	tmplPath := filepath.Join(g.TemplatesDir, templateName)

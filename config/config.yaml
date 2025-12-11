@@ -14,6 +14,15 @@ email:
 files:
   root_dir: "./files"
 
+templates:
+  docx_dir: "assets/templates/docx"
+  xlsx_dir: "assets/templates/xlsx"
+  txt_dir: "assets/templates/txt"
+
+libreoffice:
+  enable: false
+  binary: "libreoffice"
+
 mobizon:
   api_key: "dry-run"   # для тестов: "dry-run" => в сеть не ходим
   sender_id: ""        # если есть утверждённый Sender ID — укажи

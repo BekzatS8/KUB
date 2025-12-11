@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +22,7 @@ type Generator interface {
 	//  baseFilename  — базовое имя файла без расширения
 	//
 	// Возвращает:
-	//  docxRelPath — относительный путь к DOCX (напр. "/word/contract_full_client_4_deal_2_20251207_140501.docx")
+	//  docxRelPath — относительный путь к DOCX (напр. "/docx/contract_full_client_4_deal_2_20251207_140501.docx")
 	//  pdfRelPath  — относительный путь к PDF  (напр. "/pdf/contract_full_client_4_deal_2_20251207_140501.pdf")
 	GenerateDocxAndPDF(templateName string, placeholders map[string]string, baseFilename string) (string, string, error)
 
@@ -31,24 +32,31 @@ type Generator interface {
 
 // DocxGenerator — реализация через LibreOffice
 type DocxGenerator struct {
-	RootDir         string // корень, куда складывать готовые файлы, напр. "files"
-	TemplatesDir    string // где лежат шаблоны .docx, напр. "assets/docx"
-	LibreOfficePath string // путь к soffice, напр. "C:\\Program Files\\LibreOffice\\program\\soffice.exe" или "soffice"
+	RootDir            string // корень, куда складывать готовые файлы, напр. "files"
+	TemplatesDir       string // где лежат шаблоны .docx, напр. "assets/templates/docx"
+	LibreOfficeBinary  string // путь к soffice, напр. "libreoffice" или "soffice"
+	LibreOfficeEnabled bool
 }
 
 // NewDocxGenerator — конструктор
-func NewDocxGenerator(rootDir, templatesDir, libreOfficePath string) *DocxGenerator {
-	if libreOfficePath == "" {
-		libreOfficePath = "soffice" // по умолчанию ищем в PATH
+func NewDocxGenerator(rootDir, templatesDir string, enableLibreOffice bool, libreOfficeBinary string) *DocxGenerator {
+	if libreOfficeBinary == "" {
+		libreOfficeBinary = "libreoffice" // по умолчанию ищем в PATH
 	}
+
+	if templatesDir == "" {
+		templatesDir = "assets/templates/docx"
+	}
+
 	return &DocxGenerator{
-		RootDir:         filepath.Clean(rootDir),
-		TemplatesDir:    filepath.Clean(templatesDir),
-		LibreOfficePath: libreOfficePath,
+		RootDir:            filepath.Clean(rootDir),
+		TemplatesDir:       filepath.Clean(templatesDir),
+		LibreOfficeBinary:  libreOfficeBinary,
+		LibreOfficeEnabled: enableLibreOffice,
 	}
 }
 
-// GenerateDocxAndPDF — DOCX-шаблон + плейсхолдеры → DOCX в /word → PDF в /pdf
+// GenerateDocxAndPDF — DOCX-шаблон + плейсхолдеры → DOCX в /docx → PDF в /pdf (если включен LibreOffice)
 func (g *DocxGenerator) GenerateDocxAndPDF(
 	templateName string,
 	placeholders map[string]string,
@@ -62,6 +70,8 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 		baseFilename = fmt.Sprintf("doc_%d", time.Now().Unix())
 	}
 
+	baseFilename = filepath.Base(baseFilename)
+
 	// 1. Путь к шаблону
 	tmplPath := filepath.Join(g.TemplatesDir, templateName)
 	if _, err := os.Stat(tmplPath); err != nil {
@@ -69,21 +79,23 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 	}
 
 	// 2. Готовим директории
-	wordDir := filepath.Join(g.RootDir, "word")
+	docxDir := filepath.Join(g.RootDir, "docx")
 	pdfDir := filepath.Join(g.RootDir, "pdf")
 
-	if err := os.MkdirAll(wordDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create word dir: %w", err)
+	if err := os.MkdirAll(docxDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create docx dir: %w", err)
 	}
-	if err := os.MkdirAll(pdfDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create pdf dir: %w", err)
+	if g.LibreOfficeEnabled {
+		if err := os.MkdirAll(pdfDir, 0o755); err != nil {
+			return "", "", fmt.Errorf("create pdf dir: %w", err)
+		}
 	}
 
 	// 3. Пути к итоговым файлам
 	docxFileName := baseFilename + ".docx"
 	pdfFileName := baseFilename + ".pdf"
 
-	docxPath := filepath.Join(wordDir, docxFileName)
+	docxPath := filepath.Join(docxDir, docxFileName)
 	pdfPath := filepath.Join(pdfDir, pdfFileName)
 
 	// 4. Сгенерируем DOCX с подставленными плейсхолдерами
@@ -91,22 +103,24 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 		return "", "", err
 	}
 
-	// 5. Конвертация DOCX → PDF через LibreOffice
-	if err := g.convertDocxToPDF(context.Background(), docxPath, pdfDir); err != nil {
-		return "", "", err
-	}
+	var pdfRel string
+	// 5. Конвертация DOCX → PDF через LibreOffice (если включено)
+	if g.LibreOfficeEnabled {
+		if err := g.convertDocxToPDF(context.Background(), docxPath, pdfDir); err != nil {
+			return "", "", err
+		}
 
-	// 6. Проверим, что PDF появился
-	if _, err := os.Stat(pdfPath); err != nil {
-		return "", "", fmt.Errorf("pdf not found after convert: %s: %w", pdfPath, err)
+		// 6. Проверим, что PDF появился
+		if _, err := os.Stat(pdfPath); err != nil {
+			return "", "", fmt.Errorf("pdf not found after convert: %s: %w", pdfPath, err)
+		}
+		pdfRel = "/" + filepath.ToSlash(filepath.Join("pdf", pdfFileName))
 	}
 
 	// DOCX мы теперь НЕ удаляем — он нужен как Word-версия
-	// _ = os.Remove(docxPath)  // больше не удаляем
 
 	// 7. Возвращаем относительные пути (как обычно отдаёшь в API)
-	docxRel := "/" + filepath.ToSlash(filepath.Join("word", docxFileName))
-	pdfRel := "/" + filepath.ToSlash(filepath.Join("pdf", pdfFileName))
+	docxRel := "/" + filepath.ToSlash(filepath.Join("docx", docxFileName))
 
 	return docxRel, pdfRel, nil
 }
@@ -177,8 +191,9 @@ func (g *DocxGenerator) generateDocxFromTemplate(templatePath, outPath string, p
 
 // convertDocxToPDF — запускает LibreOffice в headless-режиме
 func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir string) error {
-	if g.LibreOfficePath == "" {
-		return fmt.Errorf("LibreOfficePath is empty")
+	binary := g.LibreOfficeBinary
+	if binary == "" {
+		binary = "libreoffice"
 	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -187,7 +202,7 @@ func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir s
 
 	cmd := exec.CommandContext(
 		ctx,
-		g.LibreOfficePath,
+		binary,
 		"--headless",
 		"--convert-to", "pdf",
 		"--outdir", outDir,
@@ -199,8 +214,8 @@ func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir s
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("libreoffice convert error: %w; stdout=%s; stderr=%s",
-			err, stdout.String(), stderr.String())
+		log.Printf("[docx] libreoffice convert error (binary=%s, docx=%s): %v; stdout=%s; stderr=%s", binary, docxPath, err, stdout.String(), stderr.String())
+		return fmt.Errorf("libreoffice conversion failed")
 	}
 	return nil
 }

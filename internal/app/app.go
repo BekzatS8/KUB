@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 	"turcompany/internal/docx"
 	"turcompany/internal/xlsx"
@@ -33,6 +35,20 @@ func Run() {
 		log.Printf("[BOOT] config: telegram.webhook_url is empty")
 	}
 	log.Printf("[BOOT] config: db.dsn=%s", cfg.Database.DSN)
+	cfg.Files.RootDir = filepath.Clean(cfg.Files.RootDir)
+	log.Printf("[BOOT] config: files.root_dir=%s", cfg.Files.RootDir)
+	log.Printf("[BOOT] config: templates docx=%s xlsx=%s txt=%s", cfg.Templates.DocxDir, cfg.Templates.XlsxDir, cfg.Templates.TxtDir)
+	log.Printf("[BOOT] config: libreoffice.enable=%v binary=%s", cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)
+	for _, dir := range []string{
+		cfg.Files.RootDir,
+		filepath.Join(cfg.Files.RootDir, "pdf"),
+		filepath.Join(cfg.Files.RootDir, "docx"),
+		filepath.Join(cfg.Files.RootDir, "excel"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Printf("[BOOT] failed to create dir %s: %v", dir, err)
+		}
+	}
 
 	// === DB ===
 	db, err := sql.Open("postgres", cfg.Database.DSN)
@@ -115,19 +131,20 @@ func Run() {
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(
-		cfg.Files.RootDir,  // "files"
-		"assets/templates", // если ты так сделал
+		cfg.Files.RootDir,
+		cfg.Templates.TxtDir,
 		"assets/fonts/DejaVuSans.ttf",
 	)
 
 	// DOCX-генератор (LibreOffice)
 	docxGen := docx.NewDocxGenerator(
-		cfg.Files.RootDir, // "files"
-		"assets/docx",     // где лежат .docx
-		"C:\\Program Files\\LibreOffice\\program\\soffice.exe", // твой путь к soffice
+		cfg.Files.RootDir,
+		cfg.Templates.DocxDir,
+		cfg.LibreOffice.Enable,
+		cfg.LibreOffice.Binary,
 	)
 
-	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, "assets/xlsx")
+	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, cfg.Templates.XlsxDir)
 
 	documentService := services.NewDocumentService(
 		documentRepo,
@@ -169,6 +186,8 @@ func Run() {
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
 	chatHub := realtime.NewChatHub(chatRepo)
+	go chatHub.Run()
+	defer chatHub.Stop()
 
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)

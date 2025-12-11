@@ -1,0 +1,18 @@
+[Unit]
+Description=Turcompany backend service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/turcompany
+ExecStartPre=/usr/bin/mkdir -p /opt/turcompany/files /opt/turcompany/files/pdf /opt/turcompany/files/docx /opt/turcompany/files/excel
+ExecStart=/usr/local/bin/turcompany
+EnvironmentFile=/etc/turcompany.env
+Restart=always
+User=turcompany
+Group=turcompany
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

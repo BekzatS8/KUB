@@ -16,8 +16,12 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - [RBAC (роли и права)](#rbac-роли-и-права)  
 - [Эндпоинты](#эндпоинты)  
 - [Коллекция Postman](#коллекция-postman)  
-- [Требования/запуск в проде](#требованиязапуск-в-проде)  
-- [Траблшутинг](#траблшутинг)  
+- [Требования/запуск в проде](#требованиязапуск-в-проде)
+- [Деплой через Docker Compose](#деплой-через-docker-compose)
+- [Деплой через systemd (без Docker)](#деплой-через-systemd-без-docker)
+- [Проверка генерации документов](#проверка-генерации-документов)
+- [Логи и конфигурация](#логи-и-конфигурация)
+- [Траблшутинг](#траблшутинг)
 - [Структура репо](#структура-репо)  
 - [Примеры запросов (быстрый сценарий)](#примеры-запросов-быстрый-сценарий)
 
@@ -197,12 +201,54 @@ psql "$DATABASE_URL" -f db/migrations/001_base_schema.sql
 
 ## Требования/запуск в проде
 
-- `GIN_MODE=release`  
-- Вынести `JWTKey` в переменную окружения/конфиг  
-- Настроить **пароль приложения** для SMTP (Mail.ru/Gmail и т. п.)  
-- Включить **логирование в файл** и безопасные заголовки (CORS/CSRF по контексту)  
-- Регулярные **бэкапы БД**  
-- Ротация ключей/секретов по регламенту  
+- `GIN_MODE=release`
+- Вынести `JWTKey` в переменную окружения/конфиг
+- Настроить **пароль приложения** для SMTP (Mail.ru/Gmail и т. п.)
+- Включить **логирование в файл** и безопасные заголовки (CORS/CSRF по контексту)
+- Регулярные **бэкапы БД**
+- Ротация ключей/секретов по регламенту
+
+## Деплой через Docker Compose
+
+1. Собрать и поднять сервисы:
+```bash
+make docker-build
+docker-compose up -d
+```
+   По умолчанию используется `config/config.yaml`, каталоги `assets/` и `files/` пробрасываются в контейнер. Корень хранилища — `/opt/turcompany/files` (смонтирован как `./files`).
+2. Проверить, что Postgres поднялся (порт `5432`), а приложение слушает порт `4000`.
+3. При необходимости включить LibreOffice внутри контейнера (добавить пакет) или установить на хосте и пробросить бинарь в образ.
+
+## Деплой через systemd (без Docker)
+
+1. Собрать бинарник:
+```bash
+make build
+```
+   или скачать артефакт CI/CD. Скопировать `bin/turcompany` в `/usr/local/bin/turcompany`.
+2. Скопировать `assets/` и `config/` в `/opt/turcompany`, создать каталоги `files/`, `files/pdf`, `files/docx`, `files/excel`:
+```bash
+sudo mkdir -p /opt/turcompany/files /opt/turcompany/files/pdf /opt/turcompany/files/docx /opt/turcompany/files/excel
+```
+3. Создать файл `/etc/turcompany.env` с переменными окружения (например, `GIN_MODE=release`).
+4. Положить юнит `docs/deploy/systemd/turcompany.service` в `/etc/systemd/system/turcompany.service`, при необходимости поправить `ExecStart`/`WorkingDirectory`.
+5. Применить и запустить сервис:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now turcompany.service
+```
+
+## Проверка генерации документов
+
+1. Создать тестовых клиента/сделку (через API или админку).
+2. Отправить запрос на генерацию, например `POST /documents/from-client` (DocumentHandler.CreateDocumentFromClient) через Postman с нужным `template_id` и заполненными полями.
+3. Убедиться, что в каталоге `files/pdf`, `files/docx` или `files/excel` появились новые файлы.
+4. Если `libreoffice.enable=true` — убедиться, что `soffice` доступен по пути из конфига; при ошибке в логах будет строка вида `libreoffice conversion failed: ...`.
+
+## Логи и конфигурация
+
+- Приложение пишет в stdout/stderr (journalctl/Docker читают их напрямую).
+- При старте выводится конфигурация: `server.port`, `files.root_dir`, пути к шаблонам, флаги `telegram.enable` и `libreoffice.enable`. Секреты/пароли в лог не выводятся.
 
 ---
 

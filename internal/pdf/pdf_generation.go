@@ -167,7 +167,7 @@ func (g *DocumentGenerator) GenerateContract(data ContractData) (string, error) 
 	if err := pdf.OutputFileAndClose(absPath); err != nil {
 		return "", err
 	}
-	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
+	return g.relativePath(absPath), nil
 }
 
 // ======================= INVOICE =======================
@@ -209,7 +209,7 @@ func (g *DocumentGenerator) GenerateInvoice(data InvoiceData) (string, error) {
 	if err := pdf.OutputFileAndClose(absPath); err != nil {
 		return "", err
 	}
-	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
+	return g.relativePath(absPath), nil
 }
 
 // ======================= TEMPLATES =======================
@@ -230,7 +230,7 @@ func (g *DocumentGenerator) resolveTemplatePath(templateName string) (string, er
 
 	base := g.TemplatesDir
 	if base == "" {
-		base = "assets/templates"
+		base = "assets/templates/txt"
 	}
 	path := filepath.Join(base, templateName)
 
@@ -292,7 +292,7 @@ func (g *DocumentGenerator) GenerateFromTemplate(
 	}
 
 	// возвращаем относительный путь (как раньше)
-	return "/" + filepath.ToSlash(filepath.Base(absPath)), nil
+	return g.relativePath(absPath), nil
 }
 
 // ======================= HELPERS =======================
@@ -318,14 +318,24 @@ func (g *DocumentGenerator) hr(pdf *gofpdf.Fpdf) {
 }
 
 func (g *DocumentGenerator) ensureTarget(filename string) (string, error) {
-	if g.RootDir == "" {
-		g.RootDir = "files"
-	}
-	if err := os.MkdirAll(g.RootDir, 0o755); err != nil {
+	pdfDir := g.pdfDir()
+	if err := os.MkdirAll(pdfDir, 0o755); err != nil {
 		return "", fmt.Errorf("create files dir: %w", err)
 	}
 	filename = filepath.Base(filename) // безопасность
-	return filepath.Join(g.RootDir, filename), nil
+	return filepath.Join(pdfDir, filename), nil
+}
+
+func (g *DocumentGenerator) pdfDir() string {
+	if g.RootDir == "" {
+		g.RootDir = "files"
+	}
+	return filepath.Join(g.RootDir, "pdf")
+}
+
+func (g *DocumentGenerator) relativePath(absPath string) string {
+	filename := filepath.Base(absPath)
+	return "/" + filepath.ToSlash(filepath.Join("pdf", filename))
 }
 
 func (g *DocumentGenerator) addUTF8Font(pdf *gofpdf.Fpdf) {

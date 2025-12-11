@@ -27,7 +27,14 @@ func NewChatService(repo repositories.ChatRepository, filesRoot string) *ChatSer
 }
 
 func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
-	return s.repo.ListUserChats(userID)
+	chats, err := s.repo.ListUserChats(userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachMemberStatuses(chats, userID); err != nil {
+		return nil, err
+	}
+	return chats, nil
 }
 
 func (s *ChatService) SearchChats(userID int, query string) ([]*models.Chat, error) {
@@ -35,7 +42,14 @@ func (s *ChatService) SearchChats(userID int, query string) ([]*models.Chat, err
 	if query == "" {
 		return []*models.Chat{}, nil
 	}
-	return s.repo.SearchChats(userID, query)
+	chats, err := s.repo.SearchChats(userID, query)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachMemberStatuses(chats, userID); err != nil {
+		return nil, err
+	}
+	return chats, nil
 }
 
 func (s *ChatService) GetMessages(chatID, userID, limit, offset int) ([]*models.ChatMessage, error) {
@@ -255,7 +269,39 @@ func (s *ChatService) MarkChatRead(chatID, userID int) (int, error) {
 }
 
 func (s *ChatService) ListUnreadChats(userID int) ([]*models.Chat, error) {
-	return s.repo.ListUserChats(userID)
+	chats, err := s.repo.ListUserChats(userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachMemberStatuses(chats, userID); err != nil {
+		return nil, err
+	}
+	return chats, nil
+}
+
+func (s *ChatService) attachMemberStatuses(chats []*models.Chat, currentUserID int) error {
+	for _, chat := range chats {
+		var statuses []models.UserStatus
+		var latest time.Time
+		online := false
+		for _, member := range chat.Members {
+			isOnline, lastSeen, err := s.repo.GetOnlineStatus(member)
+			if err != nil {
+				return err
+			}
+			statuses = append(statuses, models.UserStatus{UserID: member, IsOnline: isOnline, LastSeen: lastSeen})
+			if member != currentUserID && isOnline {
+				online = true
+			}
+			if lastSeen.After(latest) {
+				latest = lastSeen
+			}
+		}
+		chat.MemberStatuses = statuses
+		chat.Online = online
+		chat.LastSeen = latest
+	}
+	return nil
 }
 
 func uniqueInts(values []int) []int {

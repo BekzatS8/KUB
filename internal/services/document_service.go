@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -679,8 +680,10 @@ func (s *DocumentService) CreateDocumentFromClient(
 			baseFilename,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("generate excel: %w", err)
+			return nil, wrapGenerationError(docType, err)
 		}
+
+		excelRelPath = normalizeStoragePath(excelRelPath)
 
 		doc := &models.Document{
 			DealID:   getDealID64(deal),
@@ -705,14 +708,21 @@ func (s *DocumentService) CreateDocumentFromClient(
 			baseFilename,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("generate docx+pdf: %w", err)
+			return nil, wrapGenerationError(docType, err)
+		}
+
+		docxRelPath = normalizeStoragePath(docxRelPath)
+		pdfRelPath = normalizeStoragePath(pdfRelPath)
+		mainPath := pdfRelPath
+		if mainPath == "" {
+			mainPath = docxRelPath
 		}
 
 		doc := &models.Document{
 			DealID:       getDealID64(deal),
 			DocType:      docType,
 			Status:       "draft",
-			FilePath:     pdfRelPath, // основной путь — PDF
+			FilePath:     mainPath, // основной путь — PDF если он есть
 			FilePathPdf:  pdfRelPath,
 			FilePathDocx: docxRelPath,
 		}
@@ -739,8 +749,10 @@ func (s *DocumentService) CreateDocumentFromClient(
 		baseFilename+".pdf",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("generate txt-pdf: %w", err)
+		return nil, wrapGenerationError(docType, err)
 	}
+
+	pdfRelPath = normalizeStoragePath(pdfRelPath)
 
 	doc := &models.Document{
 		DealID:      getDealID64(deal),
@@ -759,6 +771,25 @@ func (s *DocumentService) CreateDocumentFromClient(
 }
 
 // ================== helpers ==================
+
+func normalizeStoragePath(rel string) string {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return ""
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "files/")
+	rel = strings.TrimPrefix(rel, "/")
+	if rel == "" {
+		return ""
+	}
+	return "/" + rel
+}
+
+func wrapGenerationError(docType string, err error) error {
+	log.Printf("[documents] generation failed for %s: %v", docType, err)
+	return errors.New("document generation failed")
+}
 
 func getDealID64(deal *models.Deals) int64 {
 	if deal == nil {

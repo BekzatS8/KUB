@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -365,6 +366,8 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 
 	conn, err := realtime.Upgrade(c.Writer, c.Request)
 	if err != nil {
+		log.Printf("[chat_stream] websocket upgrade failed for chat %d user %d: %v", chatID, userID, err)
+		writeError(c, http.StatusInternalServerError, InternalErrorCode, "Failed to upgrade connection")
 		return
 	}
 	h.hub.Register(chatID, userID, conn)
@@ -373,10 +376,12 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	for {
 		var incoming sendMessageRequest
 		if err := conn.ReadJSON(&incoming); err != nil {
+			log.Printf("[chat_stream] read failed for chat %d user %d: %v", chatID, userID, err)
 			break
 		}
 		msg, unreadByUser, err := h.service.SendMessage(chatID, userID, incoming.Text, incoming.Attachments)
 		if err != nil {
+			log.Printf("[chat_stream] failed to persist message for chat %d user %d: %v", chatID, userID, err)
 			_ = conn.WriteJSON(APIError{ErrorCode: InternalErrorCode, Message: "Failed to send message"})
 			continue
 		}
