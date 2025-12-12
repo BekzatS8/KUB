@@ -1,15 +1,16 @@
 server:
   port: 4000
+  tz: "Asia/Almaty"
 
 database:
-  url: "postgres://postgres:1234@localhost:5432/turcompany?sslmode=disable"
+  url: "postgres://kubcrm_user:kub_srmuserpassword!@127.0.0.1:5432/kubcrm?sslmode=disable"
 
 email:
   smtp_host: "smtp.mail.ru"
-  smtp_port: 465
-  smtp_user: "placeholder"
-  smtp_password: "placeholder"
-  from_email: "placeholder"
+  smtp_port: 587            # если используешь STARTTLS; для 465 нужен SMTPS в коде
+  smtp_user: "noreply.kub@mail.ru"
+  smtp_password: "NfnhWZEdBvlmQH9tpLl1"
+  from_email: "noreply.kub@mail.ru"
 
 files:
   root_dir: "./files"
@@ -24,9 +25,14 @@ libreoffice:
   binary: "libreoffice"
 
 mobizon:
-  api_key: "dry-run"   # для тестов: "dry-run" => в сеть не ходим
+  api_key: "kzfaad0a91a4b498db593b78414dfdaa2c213b8b8996afa325a223543481efeb11dd11"   # для тестов: "dry-run" => в сеть не ходим
   sender_id: ""        # если есть утверждённый Sender ID — укажи
   dry_run: false       # true = только логируем, без реального запроса
+
+telegram:
+  enable: true
+  bot_token: "8330092819:AAFWk-8GRKJwKsWDNv4Eo6oc1JU3ekgKX3E"     # токен бота BotFather
+  webhook_url: "https://siegeable-elene-gooier.ngrok-free.dev/integrations/telegram/webhook"
 
 frontend:
   host: "https://frontend.example.com"
