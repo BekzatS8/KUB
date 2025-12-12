@@ -152,9 +152,21 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if rec == nil || rec.Confirmed || s.IsCodeExpired(rec.SentAt) {
+	// нет такой записи
+	if rec == nil {
 		return false, nil
 	}
+	// код истёк
+	if s.IsCodeExpired(rec.SentAt) {
+		return false, nil
+	}
+
+	// уже подтверждён – считаем это УСПЕХОМ (идемпотентность)
+	if rec.Confirmed {
+		return true, nil
+	}
+
+	// первое успешное подтверждение
 	rec.Confirmed = true
 	rec.ConfirmedAt = s.now()
 	if err := s.Repo.Update(rec); err != nil {

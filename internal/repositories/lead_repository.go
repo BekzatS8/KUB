@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -21,35 +22,73 @@ func NewLeadRepository(db *sql.DB) *LeadRepository {
 	return &LeadRepository{db: db}
 }
 
-func (r *LeadRepository) Create(lead *models.Leads) error {
+// Создание лида с возвратом ID + created_at из БД
+func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, created_at, owner_id, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO leads (title, description, owner_id, status)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at
 	`
-	_, err := r.db.Exec(query, lead.Title, lead.Description, lead.CreatedAt, lead.OwnerID, lead.Status)
-	return err
+
+	var id int64
+	err := r.db.QueryRow(
+		query,
+		lead.Title,
+		lead.Description,
+		lead.OwnerID,
+		lead.Status,
+	).Scan(&id, &lead.CreatedAt)
+	if err != nil {
+		return 0, fmt.Errorf("create lead: %w", err)
+	}
+	return id, nil
 }
 
+// Обновление лида БЕЗ изменения created_at
 func (r *LeadRepository) Update(lead *models.Leads) error {
 	const query = `
 		UPDATE leads
-		SET title=$1, description=$2, created_at=$3, owner_id=$4, status=$5
-		WHERE id=$6
+		SET title = $1,
+		    description = $2,
+		    owner_id = $3,
+		    status = $4
+		WHERE id = $5
 	`
-	_, err := r.db.Exec(query, lead.Title, lead.Description, lead.CreatedAt, lead.OwnerID, lead.Status, lead.ID)
-	return err
+	_, err := r.db.Exec(
+		query,
+		lead.Title,
+		lead.Description,
+		lead.OwnerID,
+		lead.Status,
+		lead.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update lead: %w", err)
+	}
+	return nil
 }
 
+// GetByID: корректно обрабатывает отсутствие строки
 func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 	const query = `
 		SELECT id, title, description, created_at, owner_id, status
 		FROM leads
-		WHERE id=$1
+		WHERE id = $1
 	`
 	row := r.db.QueryRow(query, id)
 	lead := &models.Leads{}
-	if err := row.Scan(&lead.ID, &lead.Title, &lead.Description, &lead.CreatedAt, &lead.OwnerID, &lead.Status); err != nil {
-		return nil, err
+	if err := row.Scan(
+		&lead.ID,
+		&lead.Title,
+		&lead.Description,
+		&lead.CreatedAt,
+		&lead.OwnerID,
+		&lead.Status,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get lead by id: %w", err)
 	}
 	return lead, nil
 }
@@ -115,11 +154,11 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 
 func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
 	const query = `
-                SELECT id, title, description, created_at, owner_id, status
-                FROM leads
-                ORDER BY created_at DESC
-                LIMIT $1 OFFSET $2
-        `
+		SELECT id, title, description, created_at, owner_id, status
+		FROM leads
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
 	rows, err := r.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
@@ -141,7 +180,7 @@ func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, erro
 	return r.ListAll(limit, offset)
 }
 
-// Новое: «только мои» лиды
+// «Только мои» лиды
 func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Leads, error) {
 	const query = `
 		SELECT id, title, description, created_at, owner_id, status
@@ -166,6 +205,7 @@ func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Lead
 	}
 	return out, nil
 }
+
 func (r *LeadRepository) UpdateStatus(id int, status string) error {
 	const q = `UPDATE leads SET status = $1 WHERE id = $2`
 	_, err := r.db.Exec(q, status, id)

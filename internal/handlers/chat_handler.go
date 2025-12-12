@@ -232,7 +232,8 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 		badRequest(c, "Invalid payload")
 		return
 	}
-	if err := h.service.AddMembers(chatID, req.Members); err != nil {
+	userID, _ := getUserAndRole(c)
+	if err := h.service.AddMembers(chatID, userID, req.Members); err != nil {
 		switch err {
 		case services.ErrChatNotFound:
 			notFound(c, NotFoundCode, "Chat not found")

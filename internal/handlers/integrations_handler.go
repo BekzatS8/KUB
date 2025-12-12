@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/models" // ← ДОБАВЬ ЭТО
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
@@ -74,7 +75,8 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 		return
 	}
 
-	userIDVal, ok := c.Get("userID")
+	// ⚠️ ВАЖНО: используем ключ "user_id", как кладёт middleware
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
 		unauthorized(c, "unauthorized")
 		return
@@ -92,17 +94,43 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 		internalError(c, "cannot update user")
 		return
 	}
+
+	// 🔔 Отправляем сообщение в Telegram: успешно привязано + задачи
+	if h.TG != nil && h.TaskSvc != nil {
+		ctx := c.Request.Context()
+
+		uid := int64(userID)
+		tasks, err := h.TaskSvc.GetAll(ctx, models.TaskFilter{
+			AssigneeID: &uid,
+		})
+		if err != nil {
+			log.Printf("[TG:LINK] load tasks failed userID=%d: %v", userID, err)
+		}
+
+		msg := "✅ Аккаунт успешно привязан к CRM.\n\n" +
+			"Теперь вы будете получать уведомления о задачах.\n\n" +
+			"Чтобы в любой момент посмотреть список задач, отправьте команду: /tasks.\n\n"
+
+		// добавим текущие задачи пользователя
+		msg += h.TG.FormatTasksList(tasks)
+
+		if err := h.TG.SendMessage(chatID, msg); err != nil {
+			log.Printf("[TG:LINK] send welcome msg failed: %v", err)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// POST /integrations/telegram/request-link
 func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
-	userIDVal, ok := c.Get("userID")
+
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
 		unauthorized(c, "unauthorized")
 		return
 	}
 	userID := toInt(userIDVal)
+
 	if h.LinksRepo == nil {
 		internalError(c, "integration disabled")
 		return

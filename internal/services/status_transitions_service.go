@@ -1,33 +1,53 @@
 package services
 
-// Допустимые переходы статусов.
-// NB: у тебя ConvertLeadToDeal требует lead.status == "confirmed".
+// Допустимые переходы статусов ЛИДА
+// ключ: текущий статус → карта допустимых целевых статусов
 var LeadTransitions = map[string]map[string]bool{
-	"new":       {"in_review": true, "rejected": true, "confirmed": true},
-	"in_review": {"confirmed": true, "rejected": true},
-	"confirmed": {"rejected": true}, // перевод в "converted" делает отдельный /convert
-	"recycled":  {"in_review": true},
-	"rejected":  {},
-	"converted": {}, // финалка; выставляется ConvertLeadToDeal
+	"new": {
+		"in_progress": true,
+		"confirmed":   true,
+		"cancelled":   true,
+	},
+	"in_progress": {
+		"confirmed": true,
+		"cancelled": true,
+	},
+	"confirmed": {
+		// "converted" делаем только через /leads/:id/convert
+		"cancelled": true,
+	},
+	"converted": {},
+	"cancelled": {},
 }
 
+// Допустимые переходы статусов СДЕЛКИ
+// (пример, если у тебя уже был свой — можешь расширить)
 var DealTransitions = map[string]map[string]bool{
-	"new":         {"in_progress": true, "cancelled": true},
-	"in_progress": {"negotiation": true, "cancelled": true},
-	"negotiation": {"won": true, "lost": true, "cancelled": true},
-	"won":         {},
-	"lost":        {},
-	"cancelled":   {},
+	"new": {
+		"in_progress": true,
+		"won":         true,
+		"lost":        true,
+		"cancelled":   true,
+	},
+	"in_progress": {
+		"won":       true,
+		"lost":      true,
+		"cancelled": true,
+	},
+	"won":       {},
+	"lost":      {},
+	"cancelled": {},
 }
 
-func canTransition(current, to string, table map[string]map[string]bool) bool {
-	if current == "" {
-		// если в БД пусто — разрешим перейти в любую стартовую (new/*)
+// Общая функция проверки перехода статуса
+// current — текущий статус, to — целевой, transitions — карта допустимых переходов
+func canTransition(current, to string, transitions map[string]map[string]bool) bool {
+	if current == to {
 		return true
 	}
-	nexts, ok := table[current]
+	next, ok := transitions[current]
 	if !ok {
 		return false
 	}
-	return nexts[to]
+	return next[to]
 }

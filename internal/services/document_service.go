@@ -187,60 +187,13 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 		return 0, errors.New("forbidden")
 	}
 
-	// по умолчанию
+	// статус по умолчанию
 	if strings.TrimSpace(doc.Status) == "" {
 		doc.Status = "draft"
 	}
 
-	// Нормализация входного пути (если он вдруг есть)
-	filename := filepath.Base(strings.TrimSpace(doc.FilePath)) // "" если не задан
-
-	// Автогенерация PDF для старых типов contract | invoice
-	switch doc.DocType {
-	case "contract", "invoice":
-		if s.PDFGen == nil {
-			return 0, errors.New("pdf generator not configured")
-		}
-		lead, lerr := s.LeadRepo.GetByID(deal.LeadID)
-		if lerr != nil || lead == nil {
-			return 0, errors.New("lead not found")
-		}
-
-		var relPath string
-		switch doc.DocType {
-		case "contract":
-			relPath, err = s.PDFGen.GenerateContract(pdf.ContractData{
-				LeadTitle: lead.Title,
-				DealID:    deal.ID,
-				Amount:    deal.Amount,
-				Currency:  deal.Currency,
-				CreatedAt: deal.CreatedAt,
-				Filename:  filename,
-			})
-		case "invoice":
-			relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
-				LeadTitle: lead.Title,
-				DealID:    deal.ID,
-				Amount:    deal.Amount,
-				Currency:  deal.Currency,
-				CreatedAt: deal.CreatedAt,
-				Filename:  filename,
-			})
-		}
-		if err != nil {
-			return 0, err
-		}
-		doc.FilePath = relPath
-		doc.FilePathPdf = relPath
-
-	default:
-		// Если тип не поддержан генератором, но клиент прислал file_path —
-		// оставим basename, иначе ошибка.
-		if filename == "" {
-			return 0, errors.New("unsupported doc_type")
-		}
-		doc.FilePath = filename
-	}
+	// просто нормализуем путь, НИЧЕГО не генерируем
+	doc.FilePath = filepath.Base(strings.TrimSpace(doc.FilePath))
 
 	return s.DocRepo.Create(doc)
 }
@@ -419,17 +372,24 @@ func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 	return s.DocRepo.UpdateStatus(id, "signed")
 }
 
-// SignBySMS — подписание по SMS (автоматическое)
 func (s *DocumentService) SignBySMS(docID int64) error {
 	doc, err := s.DocRepo.GetByID(docID)
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	// Разрешаем из approved/returned/under_review
-	if !(doc.Status == "approved" || doc.Status == "returned" || doc.Status == "under_review") {
+
+	// уже подписан — просто выходим
+	if doc.Status == "signed" {
+		return nil
+	}
+
+	// Разрешаем подписывать из этих статусов
+	switch doc.Status {
+	case "draft", "under_review", "approved", "returned":
+		return s.DocRepo.UpdateStatus(docID, "signed")
+	default:
 		return errors.New("invalid status")
 	}
-	return s.DocRepo.UpdateStatus(docID, "signed")
 }
 
 // ================== Работа с файлами ==================

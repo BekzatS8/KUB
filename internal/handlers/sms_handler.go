@@ -39,14 +39,16 @@ func (h *SMSHandler) SendSMSHandler(c *gin.Context) {
 }
 
 func (h *SMSHandler) ResendSMSHandler(c *gin.Context) {
-	documentIDStr := c.Query("document_id")
-	documentID, err := strconv.ParseInt(documentIDStr, 10, 64)
-	if err != nil {
-		badRequest(c, "Invalid document id")
+	var input struct {
+		DocumentID int64  `json:"document_id" binding:"required"`
+		Phone      string `json:"phone"` // опционально, если надо указать другой номер
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		badRequest(c, "Invalid resend payload")
 		return
 	}
 
-	if err := h.Service.ResendSMS(documentID, ""); err != nil {
+	if err := h.Service.ResendSMS(input.DocumentID, input.Phone); err != nil {
 		internalError(c, "Failed to resend SMS")
 		return
 	}

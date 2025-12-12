@@ -191,17 +191,36 @@ func (s *ChatService) LeaveChat(chatID, userID int) error {
 	}
 	return s.repo.RemoveMember(chatID, userID)
 }
+func contains(slice []int, v int) bool {
+	for _, x := range slice {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
 
-func (s *ChatService) AddMembers(chatID int, memberIDs []int) error {
+func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 	if len(memberIDs) == 0 {
 		return fmt.Errorf("no members to add")
 	}
-	if _, err := s.repo.GetChatByID(chatID); err != nil {
+
+	chat, err := s.repo.GetChatByID(chatID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrChatNotFound
 		}
 		return err
 	}
+
+	// проверяем, что userID – участник чата
+	if !contains(chat.Members, userID) {
+		return ErrForbidden
+	}
+
+	// можно ещё: только creator (chat.Members[0]) может добавлять
+	// if chat.Members[0] != userID { return ErrForbidden }
+
 	return s.repo.AddMembers(chatID, uniqueInts(memberIDs))
 }
 
@@ -273,10 +292,18 @@ func (s *ChatService) ListUnreadChats(userID int) ([]*models.Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.attachMemberStatuses(chats, userID); err != nil {
+
+	var res []*models.Chat
+	for _, ch := range chats {
+		if ch.UnreadCount > 0 {
+			res = append(res, ch)
+		}
+	}
+
+	if err := s.attachMemberStatuses(res, userID); err != nil {
 		return nil, err
 	}
-	return chats, nil
+	return res, nil
 }
 
 func (s *ChatService) attachMemberStatuses(chats []*models.Chat, currentUserID int) error {

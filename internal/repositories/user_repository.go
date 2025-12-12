@@ -52,7 +52,7 @@ func (r *userRepository) Create(user *models.User) error {
 			refresh_token, refresh_expires_at, refresh_revoked,
 			telegram_chat_id, notify_tasks_telegram
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,FALSE,$9,$10)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,FALSE,NULL,DEFAULT)
 		RETURNING id
 	`
 	return r.DB.QueryRow(q,
@@ -64,8 +64,6 @@ func (r *userRepository) Create(user *models.User) error {
 		user.Phone,
 		user.IsVerified,
 		user.VerifiedAt,
-		user.TelegramChatID,
-		user.NotifyTasksTelegram,
 	).Scan(&user.ID)
 }
 
@@ -144,10 +142,8 @@ func (r *userRepository) Update(user *models.User) error {
 			role_id=$5,
 			phone=$6,
 			is_verified=$7,
-			verified_at=$8,
-			telegram_chat_id=$9,
-			notify_tasks_telegram=$10
-		WHERE id=$11
+			verified_at=$8
+		WHERE id=$9
 	`
 	_, err := r.DB.Exec(q,
 		user.CompanyName,
@@ -158,8 +154,6 @@ func (r *userRepository) Update(user *models.User) error {
 		user.Phone,
 		user.IsVerified,
 		user.VerifiedAt,
-		user.TelegramChatID,
-		user.NotifyTasksTelegram,
 		user.ID,
 	)
 	return err

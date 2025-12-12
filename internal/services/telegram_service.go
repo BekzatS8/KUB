@@ -193,23 +193,40 @@ func (t *TelegramService) FormatHelpMessage() string {
 }
 
 func (t *TelegramService) FormatTasksList(tasks []models.Task) string {
-	if len(tasks) == 0 {
-		return "Задачи на сегодня отсутствуют."
-	}
-	var b strings.Builder
-	b.WriteString("Ваши задачи:\n")
 	now := time.Now()
+	var b strings.Builder
+
+	activeCount := 0
+
 	for _, tsk := range tasks {
+		// ❌ Пропускаем завершённые и отменённые
+		if tsk.Status == models.StatusDone || tsk.Status == models.StatusCancelled {
+			continue
+		}
+
+		if activeCount == 0 {
+			b.WriteString("Ваши актуальные задачи:\n")
+		}
+		activeCount++
+
 		due := "—"
 		if tsk.DueDate != nil {
 			due = tsk.DueDate.Format("2006-01-02 15:04")
 		}
+
 		status := string(tsk.Status)
-		if tsk.DueDate != nil && tsk.DueDate.Before(now) && tsk.Status != models.StatusDone {
-			status = status + " (просрочено)"
+		if tsk.DueDate != nil && tsk.DueDate.Before(now) {
+			status += " (просрочено)"
 		}
+
 		b.WriteString("• " + html.EscapeString(tsk.Title) + " — " + status + " (до " + due + ")\n")
 	}
+
+	// Если нет активных задач
+	if activeCount == 0 {
+		return "У вас нет невыполненных задач. Все актуальные задачи закрыты ✅"
+	}
+
 	return b.String()
 }
 

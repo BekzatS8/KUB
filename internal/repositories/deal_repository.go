@@ -70,14 +70,22 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	return deal, nil
 }
 
-// Обновление сделки
 func (r *DealRepository) Update(deal *models.Deals) error {
 	query := `
         UPDATE deals 
         SET lead_id=$1, client_id=$2, owner_id=$3, amount=$4, currency=$5, status=$6
         WHERE id=$7
     `
-	_, err := r.db.Exec(query, deal.LeadID, deal.OwnerID, deal.Amount, deal.Currency, deal.Status, deal.ID)
+	_, err := r.db.Exec(query,
+		deal.LeadID,   // $1
+		deal.ClientID, // $2
+		deal.OwnerID,  // $3
+		deal.Amount,   // $4
+		deal.Currency, // $5
+		deal.Status,   // $6
+		deal.ID,       // $7
+	)
+
 	if err != nil {
 		return fmt.Errorf("обновление сделки: %w", err)
 	}

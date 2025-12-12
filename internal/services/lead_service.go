@@ -23,12 +23,13 @@ func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositorie
 	return &LeadService{Repo: leadRepo, DealRepo: dealRepo, ClientSvc: clientSvc}
 }
 
-func (s *LeadService) Create(lead *models.Leads, userID, roleID int) error {
+// Create: возвращаем ID созданного лида
+func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, error) {
 	if roleID == authz.RoleAdminStaff {
-		return ErrForbidden
+		return 0, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
-		return ErrReadOnly
+		return 0, ErrReadOnly
 	}
 	if roleID == authz.RoleSales {
 		lead.OwnerID = userID
@@ -37,14 +38,12 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) error {
 		lead.OwnerID = userID
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
-		return ErrForbidden
+		return 0, ErrForbidden
 	}
 	if lead.Status == "" {
 		lead.Status = "new"
 	}
-	if lead.CreatedAt.IsZero() {
-		lead.CreatedAt = time.Now()
-	}
+	// created_at нам вернёт репозиторий через RETURNING
 	return s.Repo.Create(lead)
 }
 
@@ -68,6 +67,7 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	if roleID != authz.RoleManagement {
 		lead.OwnerID = current.OwnerID
 	}
+	// created_at не трогаем — его вообще не обновляем в репозитории
 	return s.Repo.Update(lead)
 }
 
@@ -126,7 +126,8 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 	return s.Repo.Delete(id)
 }
 
-// ConvertLeadToDeal: добавили owner сделки (= owner лида)
+// ConvertLeadToDeal оставляем как у тебя, только напомню,
+// что он требует lead.Status == "confirmed"
 func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
 	if roleID == authz.RoleAdminStaff {
 		return nil, ErrForbidden
@@ -192,6 +193,7 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 	}
 	return deal, nil
 }
+
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {
 	if roleID == authz.RoleAdminStaff {
 		return ErrForbidden
@@ -199,16 +201,23 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
+
 	lead, err := s.Repo.GetByID(id)
-	if err != nil || lead == nil {
+	if err != nil {
 		return err
 	}
+	if lead == nil {
+		return errors.New("lead not found")
+	}
+
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return ErrForbidden
 	}
+
 	if !canTransition(lead.Status, to, LeadTransitions) {
 		return errors.New("invalid status transition")
 	}
+
 	return s.Repo.UpdateStatus(id, to)
 }
 

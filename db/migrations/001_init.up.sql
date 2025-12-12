@@ -76,13 +76,17 @@ CREATE TABLE IF NOT EXISTS clients (
                                        phone                 VARCHAR(50),
                                        email                 VARCHAR(255),
                                        registration_address  TEXT,
-                                       actual_address        TEXT
+                                       actual_address        TEXT,
+
+    -- привязка к менеджеру (владелец клиента)
+                                       owner_id              INT REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS clients_name_idx     ON clients(name);
 CREATE INDEX IF NOT EXISTS clients_bin_iin_idx  ON clients(bin_iin);
 CREATE INDEX IF NOT EXISTS idx_clients_iin      ON clients(iin);
 CREATE INDEX IF NOT EXISTS idx_clients_phone    ON clients(phone);
+CREATE INDEX IF NOT EXISTS clients_owner_idx    ON clients(owner_id);
 
 -- ===================== DEALS =====================
 CREATE TABLE IF NOT EXISTS deals (
@@ -189,12 +193,13 @@ CREATE INDEX IF NOT EXISTS user_verif_confirmed_idx
 
 -- ===================== TELEGRAM LINKS (one-time codes) ================
 CREATE TABLE IF NOT EXISTS telegram_links (
-                                              id         SERIAL PRIMARY KEY,
-                                              user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                              code       VARCHAR(64) NOT NULL UNIQUE,
-                                              expires_at TIMESTAMPTZ NOT NULL,
-                                              used       BOOLEAN NOT NULL DEFAULT FALSE,
-                                              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                                              id              SERIAL PRIMARY KEY,
+                                              user_id         INT REFERENCES users(id) ON DELETE CASCADE, -- МОЖЕТ БЫТЬ NULL до привязки
+                                              telegram_chat_id BIGINT,                                   -- chat_id из Telegram
+                                              code            VARCHAR(64) NOT NULL UNIQUE,
+                                              expires_at      TIMESTAMPTZ NOT NULL,
+                                              used            BOOLEAN NOT NULL DEFAULT FALSE,
+                                              created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS telegram_links_user_idx ON telegram_links(user_id);
@@ -240,6 +245,21 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS password_resets_user_idx    ON password_resets(user_id);
 CREATE INDEX IF NOT EXISTS password_resets_expires_idx ON password_resets(expires_at);
+
+-- ===================== USER STATUS (online/last_seen) ================
+CREATE TABLE IF NOT EXISTS user_status (
+                                           user_id   INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                                           online    BOOLEAN NOT NULL DEFAULT FALSE,
+                                           last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ===================== CHAT READ STATE ================================
+CREATE TABLE IF NOT EXISTS chat_read_state (
+                                               chat_id             INT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                                               user_id             INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                               last_read_message_id INT,
+                                               PRIMARY KEY (chat_id, user_id)
+);
 
 -- ===================== SEED ROLES (NO STAFF) =====================
 INSERT INTO roles (id, name, description) VALUES

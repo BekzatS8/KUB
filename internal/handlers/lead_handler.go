@@ -2,11 +2,9 @@ package handlers
 
 import (
 	"errors"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
-	"time"
-
-	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -38,15 +36,13 @@ func (h *LeadHandler) Create(c *gin.Context) {
 		return
 	}
 
-	lead.OwnerID = userID
+	// статус по умолчанию, owner и финальная логика — внутри сервиса
 	if lead.Status == "" {
 		lead.Status = "new"
 	}
-	if lead.CreatedAt.IsZero() {
-		lead.CreatedAt = time.Now()
-	}
 
-	if err := h.Service.Create(&lead, userID, roleID); err != nil {
+	id, err := h.Service.Create(&lead, userID, roleID)
+	if err != nil {
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
 			forbidden(c, err.Error())
 			return
@@ -54,6 +50,7 @@ func (h *LeadHandler) Create(c *gin.Context) {
 		internalError(c, "Failed to create lead")
 		return
 	}
+	lead.ID = int(id)
 	c.JSON(http.StatusCreated, lead)
 }
 
