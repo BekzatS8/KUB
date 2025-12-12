@@ -103,26 +103,31 @@ func (s *SMS_Service) generateCode() string {
 
 func (s *SMS_Service) SendSMS(documentID int64, phone string) error {
 	code := s.generateCode()
-	text := fmt.Sprintf("Код подтверждения: %s", code)
 
-	resp, err := s.Client.SendSMS(phone, text)
-	if err != nil {
-		return fmt.Errorf("mobizon error: %w", err)
+	// 🔥 DEV MODE: логируем код
+	log.Printf("[DEV][SMS][DOC] document_id=%d phone=%s code=%s", documentID, phone, code)
+
+	// если клиента нет или dry-run — не шлём SMS
+	if s.Client != nil {
+		text := fmt.Sprintf("Код подтверждения: %s", code)
+		if _, err := s.Client.SendSMS(phone, text); err != nil {
+			return fmt.Errorf("mobizon error: %w", err)
+		}
 	}
 
 	rec := &models.SMSConfirmation{
 		DocumentID:  documentID,
 		Phone:       phone,
-		SMSCode:     code, // (можно тоже захэшировать позже)
+		SMSCode:     code,
 		SentAt:      s.now(),
 		Confirmed:   false,
 		ConfirmedAt: time.Time{},
 	}
+
 	if _, err := s.Repo.Create(rec); err != nil {
 		return fmt.Errorf("db error after SMS: %w", err)
 	}
 
-	log.Printf("[sms][doc][send] ok: doc_id=%d phone=%s code=%s messageID=%s", documentID, phone, code, resp.Data.MessageID)
 	return nil
 }
 
@@ -203,6 +208,9 @@ func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
 	}
 
 	code := s.generateCode()
+
+	log.Printf("[DEV][SMS][USER] user_id=%d phone=%s code=%s", userID, phone, code)
+
 	codeHashBytes, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("bcrypt generate: %w", err)
