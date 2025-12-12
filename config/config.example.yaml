@@ -1,0 +1,41 @@
+server:
+  port: 4000
+  tz: "Asia/Almaty"
+
+database:
+  # Формат:
+  # postgres://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=disable
+  url: "postgres://USER:PASSWORD@127.0.0.1:5432/DBNAME?sslmode=disable"
+
+email:
+  smtp_host: "smtp.example.com"
+  smtp_port: 587
+  smtp_user: "noreply@example.com"
+  smtp_password: "CHANGE_ME"
+  from_email: "noreply@example.com"
+
+files:
+  root_dir: "./files"
+
+templates:
+  docx_dir: "assets/templates/docx"
+  xlsx_dir: "assets/templates/xlsx"
+  txt_dir: "assets/templates/txt"
+
+libreoffice:
+  enable: false
+  binary: "libreoffice"
+
+mobizon:
+  # Используй "dry-run" для локальной разработки
+  api_key: "dry-run"
+  sender_id: ""
+  dry_run: true
+
+telegram:
+  enable: false
+  bot_token: "CHANGE_ME"
+  webhook_url: "https://example.com/integrations/telegram/webhook"
+
+frontend:
+  host: "https://frontend.example.com"
