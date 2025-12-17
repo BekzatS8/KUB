@@ -435,8 +435,73 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 	return abs, filepath.Base(abs), nil
 }
 
-func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, _ bool) (string, string, error) {
-	return s.resolveAndAuthorizeFile(docID, userID, roleID)
+// variant:
+//   - "main"     : всегда doc.FilePath
+//   - "pdf"      : doc.FilePathPdf если есть, иначе doc.FilePath
+//   - "docx"     : doc.FilePathDocx
+//   - "xlsx"     : doc.FilePath (только если .xlsx)
+//   - "original" : предпочесть docx если есть, иначе doc.FilePath
+func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, variant string) (string, string, error) {
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return "", "", errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return "", "", errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return "", "", errors.New("forbidden")
+	}
+
+	variant = strings.ToLower(strings.TrimSpace(variant))
+	var rel string
+	switch variant {
+	case "", "main":
+		rel = doc.FilePath
+	case "pdf":
+		if strings.TrimSpace(doc.FilePathPdf) != "" {
+			rel = doc.FilePathPdf
+		} else {
+			rel = doc.FilePath
+		}
+	case "docx":
+		rel = doc.FilePathDocx
+		if strings.TrimSpace(rel) == "" {
+			return "", "", errors.New("file not found")
+		}
+	case "xlsx":
+		rel = doc.FilePath
+		if strings.ToLower(filepath.Ext(strings.TrimSpace(rel))) != ".xlsx" {
+			return "", "", errors.New("file not found")
+		}
+	case "original", "source":
+		if strings.TrimSpace(doc.FilePathDocx) != "" {
+			rel = doc.FilePathDocx
+		} else {
+			rel = doc.FilePath
+		}
+	default:
+		rel = doc.FilePath
+	}
+
+	// normalize + validate
+	rel = strings.TrimSpace(rel)
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	if strings.HasPrefix(rel, "files/") {
+		rel = strings.TrimPrefix(rel, "files/")
+	}
+	if strings.Contains(rel, "..") || rel == "" || rel == "." {
+		return "", "", errors.New("bad filepath")
+	}
+
+	abs := filepath.Join(s.FilesRoot, rel)
+	info, statErr := os.Stat(abs)
+	if statErr != nil || info.IsDir() {
+		return "", "", errors.New("file not found")
+	}
+	return abs, filepath.Base(abs), nil
 }
 
 // ================== Документы из лида (старый контракт/invoice) ==================

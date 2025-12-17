@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -385,7 +386,7 @@ func (h *DocumentHandler) ServeFile(c *gin.Context) {
 	}
 	userID, roleID := getUserAndRole(c)
 
-	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, false)
+	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, "original")
 	if err != nil {
 		switch err.Error() {
 		case "not found", "file not found":
@@ -426,7 +427,19 @@ func (h *DocumentHandler) Download(c *gin.Context) {
 	}
 	userID, roleID := getUserAndRole(c)
 
-	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, true)
+	format := strings.ToLower(strings.TrimSpace(c.Query("format")))
+	variant := "original" // по умолчанию отдаём исходник (DOCX/XLSX), а не PDF
+	switch format {
+	case "", "original", "source":
+		variant = "original"
+	case "pdf", "docx", "xlsx":
+		variant = format
+	default:
+		badRequest(c, "Invalid format")
+		return
+	}
+
+	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, variant)
 	if err != nil {
 		switch err.Error() {
 		case "not found", "file not found":
@@ -443,8 +456,13 @@ func (h *DocumentHandler) Download(c *gin.Context) {
 		return
 	}
 
-	// attachment
-	c.Header("Content-Type", "application/pdf")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
-	c.File(abs)
+	ext := strings.ToLower(filepath.Ext(name))
+	ct := mime.TypeByExtension(ext)
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+
+	c.Header("Content-Type", ct)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.FileAttachment(abs, name) // корректный attachment + filename
 }

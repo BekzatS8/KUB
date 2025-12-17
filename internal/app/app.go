@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 
+	"turcompany/internal/audit"
 	"turcompany/internal/config"
 	"turcompany/internal/handlers"
 	"turcompany/internal/middleware"
@@ -231,6 +232,10 @@ func Run() {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 
+	auditRepo := repositories.NewAuditRepository(db)
+	auditSvc := services.NewAuditService(auditRepo)
+	router.Use(audit.AuditMiddleware(auditSvc))
+
 	// === Routes ===
 	log.Printf("[BOOT] mounting routes...")
 	routes.SetupRoutes(
@@ -264,6 +269,7 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, Content-Length")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
