@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
 	"turcompany/internal/handlers"
@@ -20,11 +22,19 @@ func SetupRoutes(
 	smsHandler *handlers.SMSHandler,
 	reportHandler *handlers.ReportHandler,
 	verifyHandler *handlers.VerifyHandler,
-	integrationsHandler *handlers.IntegrationsHandler, // ОДИН Telegram-хендлер, может быть nil
+	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
 ) *gin.Engine {
 
-	// ---- public
+	// =====================
+	// PUBLIC (no JWT)
+	// =====================
+
+	// ✅ публичный healthcheck для LB/Telegram/мониторов — всегда 200
+	r.GET("/healthz", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
 	auth := r.Group("/auth")
 	{
 		auth.POST("/login", authHandler.Login)
@@ -32,20 +42,23 @@ func SetupRoutes(
 		auth.POST("/forgot-password", authHandler.ForgotPassword)
 		auth.POST("/reset-password", authHandler.ResetPassword)
 	}
+
 	r.POST("/register", userHandler.Register)
 	r.POST("/register/confirm", verifyHandler.ConfirmUser)
 	r.POST("/register/resend", verifyHandler.ResendUser)
 
-	// PUBLIC: Telegram webhook (БЕЗ JWT!)
+	// PUBLIC: Telegram webhook (без JWT!)
 	if integrationsHandler != nil {
 		r.POST("/integrations/telegram/webhook", integrationsHandler.Webhook)
 	}
 
-	// ---- protected
+	// =====================
+	// PROTECTED (JWT)
+	// =====================
 	r.Use(middleware.AuthMiddleware())
 	r.Use(middleware.ReadOnlyGuard())
 
-	// PRIVATE (JWT): только для авторизованных пользователей
+	// PRIVATE (JWT): Telegram link endpoints
 	if integrationsHandler != nil {
 		integr := r.Group("/integrations")
 		{
@@ -66,6 +79,7 @@ func SetupRoutes(
 		users.PUT("/:id", userHandler.UpdateUser)
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
+
 	// CLIENTS
 	clients := r.Group("/clients")
 	{
@@ -123,7 +137,7 @@ func SetupRoutes(
 		docs.GET("/:id", documentHandler.GetDocument)
 		docs.DELETE("/:id", documentHandler.DeleteDocument)
 		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
-		docs.POST("/create-from-client", documentHandler.CreateDocumentFromClient) // ← НОВОЕ
+		docs.POST("/create-from-client", documentHandler.CreateDocumentFromClient)
 		docs.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
 		docs.GET("/:id/file", documentHandler.ServeFile)
 		docs.GET("/:id/download", documentHandler.Download)
@@ -151,9 +165,16 @@ func SetupRoutes(
 		chats.POST("/:id/messages", chatHandler.SendMessage)
 		chats.GET("/:id/ws", chatHandler.Stream)
 	}
+
 	// TASKS
 	tasks := r.Group("/tasks",
-		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleControl, authz.RoleManagement, authz.RoleAdminStaff),
+		middleware.RequireRoles(
+			authz.RoleSales,
+			authz.RoleOperations,
+			authz.RoleControl,
+			authz.RoleManagement,
+			authz.RoleAdminStaff,
+		),
 	)
 	{
 		tasks.POST("/", taskHandler.Create)
@@ -166,7 +187,8 @@ func SetupRoutes(
 		tasks.POST("/:id/complete", taskHandler.Complete)
 		tasks.POST("/:id/remind-later", taskHandler.RemindLater)
 	}
-	// SMS (sales/ops/mgmt)
+
+	// SMS
 	sms := r.Group("/sms",
 		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement),
 	)
@@ -178,7 +200,7 @@ func SetupRoutes(
 		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
-	// REPORTS (control/ops/mgmt)
+	// REPORTS
 	reports := r.Group("/reports",
 		middleware.RequireRoles(
 			authz.RoleSales,
