@@ -30,7 +30,7 @@ func SetupRoutes(
 	// PUBLIC (no JWT)
 	// =====================
 
-	// ✅ публичный healthcheck для LB/Telegram/мониторов — всегда 200
+	// ✅ публичный healthcheck — всегда 200
 	r.GET("/healthz", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -70,11 +70,11 @@ func SetupRoutes(
 	// USERS
 	users := r.Group("/users")
 	{
-		users.POST("/", userHandler.CreateUser)
+		users.POST("", userHandler.CreateUser)
 		users.GET("/me", userHandler.GetMyProfile)
 		users.GET("/count", userHandler.GetUserCount)
 		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
-		users.GET("/", userHandler.ListUsers)
+		users.GET("", userHandler.ListUsers)
 		users.GET("/:id", userHandler.GetUserByID)
 		users.PUT("/:id", userHandler.UpdateUser)
 		users.DELETE("/:id", userHandler.DeleteUser)
@@ -83,8 +83,8 @@ func SetupRoutes(
 	// CLIENTS
 	clients := r.Group("/clients")
 	{
-		clients.POST("/", clientHandler.Create)
-		clients.GET("/", clientHandler.List)
+		clients.POST("", clientHandler.Create)
+		clients.GET("", clientHandler.List)
 		clients.GET("/my", clientHandler.ListMy)
 		clients.PUT("/:id", clientHandler.Update)
 		clients.GET("/:id", clientHandler.GetByID)
@@ -93,10 +93,10 @@ func SetupRoutes(
 	// ROLES (Management)
 	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleManagement))
 	{
-		roles.POST("/", roleHandler.CreateRole)
+		roles.POST("", roleHandler.CreateRole)
 		roles.GET("/count", roleHandler.GetRoleCount)
 		roles.GET("/with-user-counts", roleHandler.GetRolesWithUserCounts)
-		roles.GET("/", roleHandler.ListRoles)
+		roles.GET("", roleHandler.ListRoles)
 		roles.GET("/:id", roleHandler.GetRoleByID)
 		roles.PUT("/:id", roleHandler.UpdateRole)
 		roles.DELETE("/:id", roleHandler.DeleteRole)
@@ -105,12 +105,12 @@ func SetupRoutes(
 	// LEADS
 	leads := r.Group("/leads")
 	{
-		leads.POST("/", leadHandler.Create)
+		leads.POST("", leadHandler.Create)
 		leads.GET("/:id", leadHandler.GetByID)
 		leads.PUT("/:id", leadHandler.Update)
 		leads.DELETE("/:id", leadHandler.Delete)
 		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
-		leads.GET("/", leadHandler.List)
+		leads.GET("", leadHandler.List)
 		leads.GET("/my", leadHandler.ListMy)
 		leads.POST("/:id/assign", leadHandler.Assign)
 		leads.POST("/:id/status", leadHandler.UpdateStatus)
@@ -119,11 +119,11 @@ func SetupRoutes(
 	// DEALS
 	deals := r.Group("/deals")
 	{
-		deals.POST("/", dealHandler.Create)
+		deals.POST("", dealHandler.Create)
 		deals.GET("/:id", dealHandler.GetByID)
 		deals.PUT("/:id", dealHandler.Update)
 		deals.DELETE("/:id", dealHandler.Delete)
-		deals.GET("/", dealHandler.List)
+		deals.GET("", dealHandler.List)
 		deals.GET("/my", dealHandler.ListMy)
 		deals.POST("/:id/status", dealHandler.UpdateStatus)
 	}
@@ -131,8 +131,8 @@ func SetupRoutes(
 	// DOCUMENTS
 	docs := r.Group("/documents")
 	{
-		docs.GET("/", documentHandler.ListDocuments)
-		docs.POST("/", documentHandler.CreateDocument)
+		docs.GET("", documentHandler.ListDocuments)
+		docs.POST("", documentHandler.CreateDocument)
 		docs.POST("/upload", documentHandler.Upload)
 		docs.GET("/:id", documentHandler.GetDocument)
 		docs.DELETE("/:id", documentHandler.DeleteDocument)
@@ -149,20 +149,25 @@ func SetupRoutes(
 	// CHATS
 	chats := r.Group("/chats")
 	{
-		chats.GET("/", chatHandler.ListChats)
+		chats.GET("", chatHandler.ListChats)
 		chats.GET("/search", chatHandler.SearchChats)
 		chats.GET("/unread", chatHandler.ListUnread)
 		chats.GET("/status/:id", chatHandler.GetUserStatus)
+
 		chats.POST("/personal", chatHandler.CreatePersonalChat)
 		chats.POST("/group", chatHandler.CreateGroupChat)
+
 		chats.POST("/:id/add-members", chatHandler.AddMembers)
 		chats.POST("/:id/leave", chatHandler.LeaveChat)
 		chats.POST("/:id/read", chatHandler.MarkRead)
 		chats.POST("/:id/upload", chatHandler.UploadAttachment)
+
 		chats.DELETE("/:id", chatHandler.DeleteChat)
+
 		chats.GET("/:id/search", chatHandler.SearchMessages)
 		chats.GET("/:id/messages", chatHandler.ListMessages)
 		chats.POST("/:id/messages", chatHandler.SendMessage)
+
 		chats.GET("/:id/ws", chatHandler.Stream)
 	}
 
@@ -177,8 +182,8 @@ func SetupRoutes(
 		),
 	)
 	{
-		tasks.POST("/", taskHandler.Create)
-		tasks.GET("/", taskHandler.GetAll)
+		tasks.POST("", taskHandler.Create)
+		tasks.GET("", taskHandler.GetAll)
 		tasks.GET("/:id", taskHandler.GetByID)
 		tasks.PUT("/:id", taskHandler.Update)
 		tasks.DELETE("/:id", taskHandler.Delete)
