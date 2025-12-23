@@ -17,18 +17,27 @@ func NewDealRepository(db *sql.DB) *DealRepository {
 	return &DealRepository{db: db}
 }
 
+// helper: scan nullable lead_id -> *int
+func applyLeadNull(lead sql.NullInt64) *int {
+	if lead.Valid {
+		v := int(lead.Int64)
+		return &v
+	}
+	return nil
+}
+
 // Создание сделки — возвращает ID новой записи
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
-        INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-    `
+		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`
 	var id int64
 	err := r.db.QueryRow(
 		query,
-		deal.LeadID,    // $1
-		deal.ClientID,  // $2  ← ВОТ ЭТО НУЖНО
+		deal.LeadID,    // $1 (может быть nil -> NULL)
+		deal.ClientID,  // $2
 		deal.OwnerID,   // $3
 		deal.Amount,    // $4
 		deal.Currency,  // $5
@@ -45,39 +54,46 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 // Получение сделки по lead_id (последняя по времени)
 func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	query := `
-        SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-        FROM deals
-        WHERE lead_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-    `
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		WHERE lead_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
 	deal := &models.Deals{}
+	var lead sql.NullInt64
+
 	err := r.db.QueryRow(query, leadID).Scan(
 		&deal.ID,
-		&deal.LeadID,
+		&lead,
+		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
 		&deal.Status,
 		&deal.CreatedAt,
 	)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("получение сделки по lead_id: %w", err)
 	}
+
+	deal.LeadID = applyLeadNull(lead)
 	return deal, nil
 }
 
 func (r *DealRepository) Update(deal *models.Deals) error {
 	query := `
-        UPDATE deals 
-        SET lead_id=$1, client_id=$2, owner_id=$3, amount=$4, currency=$5, status=$6
-        WHERE id=$7
-    `
+		UPDATE deals
+		SET lead_id=$1, client_id=$2, owner_id=$3, amount=$4, currency=$5, status=$6
+		WHERE id=$7
+	`
 	_, err := r.db.Exec(query,
-		deal.LeadID,   // $1
+		deal.LeadID,   // $1 (может быть nil -> NULL)
 		deal.ClientID, // $2
 		deal.OwnerID,  // $3
 		deal.Amount,   // $4
@@ -95,14 +111,17 @@ func (r *DealRepository) Update(deal *models.Deals) error {
 // Получение по ID
 func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	query := `
-        SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-        FROM deals
-        WHERE id=$1
-    `
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		WHERE id=$1
+	`
+
 	deal := &models.Deals{}
+	var lead sql.NullInt64
+
 	err := r.db.QueryRow(query, id).Scan(
 		&deal.ID,
-		&deal.LeadID,
+		&lead,
 		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
@@ -110,12 +129,15 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 		&deal.Status,
 		&deal.CreatedAt,
 	)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("получение сделки по id: %w", err)
 	}
+
+	deal.LeadID = applyLeadNull(lead)
 	return deal, nil
 }
 
@@ -144,7 +166,7 @@ func (r *DealRepository) CountDeals() (int, error) {
 	return count, err
 }
 
-// Фильтрация (оставил как у тебя; роздан owner_id при SELECT не нужен — добавь при необходимости)
+// Фильтрация
 func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy, order string, amountMin, amountMax float64, limit, offset int) ([]models.Deals, error) {
 	if sortBy == "" {
 		sortBy = "created_at"
@@ -210,19 +232,34 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 	var deals []models.Deals
 	for rows.Next() {
 		var deal models.Deals
-		if err := rows.Scan(&deal.ID, &deal.LeadID, &deal.ClientID, &deal.OwnerID, &deal.Amount, &deal.Currency, &deal.Status, &deal.CreatedAt); err != nil {
+		var lead sql.NullInt64
+
+		if err := rows.Scan(
+			&deal.ID,
+			&lead,
+			&deal.ClientID,
+			&deal.OwnerID,
+			&deal.Amount,
+			&deal.Currency,
+			&deal.Status,
+			&deal.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
+
+		deal.LeadID = applyLeadNull(lead)
 		deals = append(deals, deal)
 	}
 	return deals, nil
 }
 
 func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
-	query := `SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-                  FROM deals
-                  ORDER BY created_at DESC
-                  LIMIT $1 OFFSET $2`
+	query := `
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
 
 	rows, err := r.db.Query(query, limit, offset)
 	if err != nil {
@@ -233,9 +270,22 @@ func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 	var deals []*models.Deals
 	for rows.Next() {
 		var d models.Deals
-		if err := rows.Scan(&d.ID, &d.LeadID, &d.ClientID, &d.OwnerID, &d.Amount, &d.Currency, &d.Status, &d.CreatedAt); err != nil {
+		var lead sql.NullInt64
+
+		if err := rows.Scan(
+			&d.ID,
+			&lead,
+			&d.ClientID,
+			&d.OwnerID,
+			&d.Amount,
+			&d.Currency,
+			&d.Status,
+			&d.CreatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("ошибка чтения: %w", err)
 		}
+
+		d.LeadID = applyLeadNull(lead)
 		deals = append(deals, &d)
 	}
 	return deals, nil
@@ -245,13 +295,16 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 	return r.ListAll(limit, offset)
 }
 
-// Новое: только сделки конкретного владельца
+// Только сделки конкретного владельца
 func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deals, error) {
-	query := `SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-                  FROM deals
-                  WHERE owner_id = $1
-                  ORDER BY created_at DESC
-	          LIMIT $2 OFFSET $3`
+	query := `
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		WHERE owner_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
 	rows, err := r.db.Query(query, ownerID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -261,13 +314,27 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 	var deals []*models.Deals
 	for rows.Next() {
 		var d models.Deals
-		if err := rows.Scan(&d.ID, &d.LeadID, &d.ClientID, &d.OwnerID, &d.Amount, &d.Currency, &d.Status, &d.CreatedAt); err != nil {
+		var lead sql.NullInt64
+
+		if err := rows.Scan(
+			&d.ID,
+			&lead,
+			&d.ClientID,
+			&d.OwnerID,
+			&d.Amount,
+			&d.Currency,
+			&d.Status,
+			&d.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
+
+		d.LeadID = applyLeadNull(lead)
 		deals = append(deals, &d)
 	}
 	return deals, nil
 }
+
 func (r *DealRepository) UpdateStatus(id int, status string) error {
 	const q = `UPDATE deals SET status = $1 WHERE id = $2`
 	_, err := r.db.Exec(q, status, id)
@@ -277,16 +344,19 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
-        SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-        FROM deals
-        WHERE client_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-    `
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		WHERE client_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
 	deal := &models.Deals{}
+	var lead sql.NullInt64
+
 	err := r.db.QueryRow(query, clientID).Scan(
 		&deal.ID,
-		&deal.LeadID,
+		&lead,
 		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
@@ -294,12 +364,15 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		&deal.Status,
 		&deal.CreatedAt,
 	)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get deal by client_id: %w", err)
 	}
+
+	deal.LeadID = applyLeadNull(lead)
 	return deal, nil
 }
 
@@ -336,12 +409,12 @@ func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.
 // GetDealsRevenueStats возвращает суммы выигранных сделок по месяцам за период.
 func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.RevenueRow, error) {
 	query := `
-                SELECT
-                    TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS period,
-                    SUM(amount::float) AS total_amount,
-                    currency
-                FROM deals
-                WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
+		SELECT
+			TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS period,
+			SUM(amount::float) AS total_amount,
+			currency
+		FROM deals
+		WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 
 	if ownerID != nil {
@@ -372,14 +445,14 @@ func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time
 // GetTopClientsByRevenue возвращает топ клиентов по сумме выигранных сделок.
 func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to time.Time, ownerID *int, limit int) ([]models.TopClientRow, error) {
 	query := `
-                SELECT
-                    d.client_id,
-                    c.name AS client_name,
-                    SUM(d.amount::float) AS total_amount,
-                    d.currency
-                FROM deals d
-                JOIN clients c ON c.id = d.client_id
-                WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
+		SELECT
+			d.client_id,
+			c.name AS client_name,
+			SUM(d.amount::float) AS total_amount,
+			d.currency
+		FROM deals d
+		JOIN clients c ON c.id = d.client_id
+		WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 
 	if ownerID != nil {
