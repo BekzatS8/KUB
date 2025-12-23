@@ -6,7 +6,7 @@ import (
 
 type Deals struct {
 	ID        int       `json:"id"`
-	LeadID    int       `json:"lead_id"`
+	LeadID    *int      `json:"lead_id,omitempty"`
 	ClientID  int       `json:"client_id"`
 	OwnerID   int       `json:"owner_id"`
 	Amount    string    `json:"amount"`

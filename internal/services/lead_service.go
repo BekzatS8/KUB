@@ -171,7 +171,7 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 		return nil, err
 	}
 	deal := &models.Deals{
-		LeadID:    lead.ID,
+		LeadID:    &leadID,
 		ClientID:  client.ID,
 		OwnerID:   ownerID,
 		Amount:    amount,
