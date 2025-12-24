@@ -1,3 +1,4 @@
+// internal/handlers/integrations_handler.go
 package handlers
 
 import (
@@ -9,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"turcompany/internal/models" // ← ДОБАВЬ ЭТО
+	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
@@ -75,7 +76,6 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 		return
 	}
 
-	// ⚠️ ВАЖНО: используем ключ "user_id", как кладёт middleware
 	userIDVal, ok := c.Get("user_id")
 	if !ok {
 		unauthorized(c, "unauthorized")
@@ -95,24 +95,19 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 		return
 	}
 
-	// 🔔 Отправляем сообщение в Telegram: успешно привязано + задачи
+	// message in TG
 	if h.TG != nil && h.TaskSvc != nil {
 		ctx := c.Request.Context()
 
 		uid := int64(userID)
-		tasks, err := h.TaskSvc.GetAll(ctx, models.TaskFilter{
-			AssigneeID: &uid,
-		})
+		tasks, err := h.TaskSvc.GetAll(ctx, models.TaskFilter{AssigneeID: &uid})
 		if err != nil {
 			log.Printf("[TG:LINK] load tasks failed userID=%d: %v", userID, err)
 		}
 
-		msg := "✅ Аккаунт успешно привязан к CRM.\n\n" +
+		msg := "✅ <b>Аккаунт успешно привязан к CRM</b>\n\n" +
 			"Теперь вы будете получать уведомления о задачах.\n\n" +
-			"Чтобы в любой момент посмотреть список задач, отправьте команду: /tasks.\n\n"
-
-		// добавим текущие задачи пользователя
-		msg += h.TG.FormatTasksList(tasks)
+			h.TG.FormatTasksList(tasks)
 
 		if err := h.TG.SendMessage(chatID, msg); err != nil {
 			log.Printf("[TG:LINK] send welcome msg failed: %v", err)
@@ -122,8 +117,9 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// POST /integrations/telegram/request-link
+// Returns code and a command for bot: "/start CODE"
 func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
-
 	userIDVal, ok := c.Get("user_id")
 	if !ok {
 		unauthorized(c, "unauthorized")
@@ -149,8 +145,10 @@ func (h *IntegrationsHandler) RequestTelegramLink(c *gin.Context) {
 		internalError(c, "cannot create link")
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"code":       link.Code,
-		"expires_at": link.ExpiresAt,
+		"code":          link.Code,
+		"expires_at":    link.ExpiresAt,
+		"start_command": "/start " + link.Code,
 	})
 }

@@ -1,3 +1,4 @@
+// internal/repositories/telegram_link_repository.go
 package repositories
 
 import (
@@ -9,8 +10,8 @@ import (
 
 type TelegramLink struct {
 	ID        int
-	UserID    sql.NullInt64 // <-- может быть NULL
-	ChatID    sql.NullInt64 // <-- тоже делаем nullable на всякий
+	UserID    sql.NullInt64
+	ChatID    sql.NullInt64
 	Code      string
 	ExpiresAt time.Time
 	Used      bool
@@ -20,6 +21,11 @@ type TelegramLink struct {
 type TelegramLinkRepository interface {
 	CreateLink(ctx context.Context, userID int, chatID int64, code string, expiresAt time.Time) (*TelegramLink, error)
 	GetByCode(ctx context.Context, code string) (*TelegramLink, error)
+
+	// ✅ NEW: attach chat_id to existing code (for CRM-generated codes)
+	AttachChatID(ctx context.Context, code string, chatID int64) error
+
+	// ✅ FIXED: don't burn code if chat_id is NULL
 	ConfirmLink(ctx context.Context, code string, userID int) (int64, error)
 }
 
@@ -46,10 +52,10 @@ func (r *telegramLinkRepository) CreateLink(ctx context.Context, userID int, cha
 	}
 
 	row := r.db.QueryRowContext(ctx, `
-        INSERT INTO telegram_links (user_id, telegram_chat_id, code, expires_at)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, user_id, telegram_chat_id, code, expires_at, used, created_at
-    `, userIDVal, chatIDVal, code, expiresAt)
+		INSERT INTO telegram_links (user_id, telegram_chat_id, code, expires_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, telegram_chat_id, code, expires_at, used, created_at
+	`, userIDVal, chatIDVal, code, expiresAt)
 
 	var l TelegramLink
 	if err := row.Scan(
@@ -62,10 +68,10 @@ func (r *telegramLinkRepository) CreateLink(ctx context.Context, userID int, cha
 
 func (r *telegramLinkRepository) GetByCode(ctx context.Context, code string) (*TelegramLink, error) {
 	row := r.db.QueryRowContext(ctx, `
-        SELECT id, user_id, telegram_chat_id, code, expires_at, used, created_at
-        FROM telegram_links
-        WHERE code=$1
-    `, code)
+		SELECT id, user_id, telegram_chat_id, code, expires_at, used, created_at
+		FROM telegram_links
+		WHERE code=$1
+	`, code)
 
 	var l TelegramLink
 	if err := row.Scan(
@@ -79,6 +85,31 @@ func (r *telegramLinkRepository) GetByCode(ctx context.Context, code string) (*T
 	return &l, nil
 }
 
+// ✅ NEW: user got code in CRM, then opens bot and sends "/start CODE".
+// This stores chat_id on that code row.
+func (r *telegramLinkRepository) AttachChatID(ctx context.Context, code string, chatID int64) error {
+	if code == "" || chatID == 0 {
+		return fmt.Errorf("code/chatID required")
+	}
+
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE telegram_links
+		SET telegram_chat_id = $1
+		WHERE code = $2
+		  AND used = FALSE
+		  AND expires_at > NOW()
+	`, chatID, code)
+	if err != nil {
+		return err
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ✅ FIXED: no "burn" if chat_id NULL
 func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, userID int) (int64, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -88,11 +119,11 @@ func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, u
 
 	var l TelegramLink
 	err = tx.QueryRowContext(ctx, `
-        SELECT id, user_id, telegram_chat_id, code, expires_at, used, created_at
-        FROM telegram_links
-        WHERE code=$1
-        FOR UPDATE
-    `, code).Scan(
+		SELECT id, user_id, telegram_chat_id, code, expires_at, used, created_at
+		FROM telegram_links
+		WHERE code=$1
+		FOR UPDATE
+	`, code).Scan(
 		&l.ID, &l.UserID, &l.ChatID, &l.Code, &l.ExpiresAt, &l.Used, &l.CreatedAt,
 	)
 	if err != nil {
@@ -101,6 +132,11 @@ func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, u
 
 	if l.Used || time.Now().After(l.ExpiresAt) {
 		return 0, sql.ErrNoRows
+	}
+
+	// ✅ MUST be before update/commit
+	if !l.ChatID.Valid {
+		return 0, fmt.Errorf("telegram_chat_id is NULL for code=%s", code)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -114,8 +150,5 @@ func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, u
 		return 0, err
 	}
 
-	if !l.ChatID.Valid {
-		return 0, fmt.Errorf("telegram_chat_id is NULL for code=%s", code)
-	}
 	return l.ChatID.Int64, nil
 }

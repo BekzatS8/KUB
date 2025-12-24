@@ -1,3 +1,4 @@
+// internal/services/telegram_service.go
 package services
 
 import (
@@ -46,7 +47,6 @@ type tgResp struct {
 	Result      json.RawMessage `json:"result"`
 }
 
-// NewTelegramService constructs the Telegram bot helper.
 // linkPrefix is used when building the /integrations/telegram/link?code=... URL.
 func NewTelegramService(botToken string, linkRepo repositories.TelegramLinkRepository, usersRepo repositories.UserRepository, taskSvc TaskService, linkPrefix string) *TelegramService {
 	if botToken == "" {
@@ -55,7 +55,7 @@ func NewTelegramService(botToken string, linkRepo repositories.TelegramLinkRepos
 	return &TelegramService{
 		token:      botToken,
 		baseURL:    fmt.Sprintf("https://api.telegram.org/bot%s", botToken),
-		client:     &http.Client{},
+		client:     &http.Client{Timeout: 10 * time.Second},
 		linkRepo:   linkRepo,
 		usersRepo:  usersRepo,
 		taskSvc:    taskSvc,
@@ -104,7 +104,6 @@ func (t *TelegramService) SendMessage(chatID int64, text string) error {
 	return nil
 }
 
-// SetWebhook configures Telegram webhook.
 func (t *TelegramService) SetWebhook(url string) error {
 	if t == nil || t.token == "" || url == "" {
 		return nil
@@ -122,34 +121,52 @@ func (t *TelegramService) SetWebhook(url string) error {
 	return nil
 }
 
-// HandleUpdate processes incoming webhook updates. Errors are logged and returned to the caller,
-// but the HTTP layer must still return 200 to Telegram.
 func (t *TelegramService) HandleUpdate(update *TelegramUpdate) error {
 	if t == nil || update == nil || update.Message == nil {
 		return nil
 	}
 	text := strings.TrimSpace(update.Message.Text)
 	chatID := update.Message.Chat.ID
+
 	switch {
 	case strings.HasPrefix(text, "/start"):
-		return t.handleStart(chatID)
+		payload := ""
+		parts := strings.Fields(text)
+		if len(parts) >= 2 {
+			payload = strings.TrimSpace(parts[1])
+		}
+		return t.handleStart(chatID, payload)
+
 	case strings.HasPrefix(text, "/help"):
 		return t.SendMessage(chatID, t.FormatHelpMessage())
+
 	case strings.HasPrefix(text, "/tasks"):
 		return t.handleTasks(chatID)
+
 	default:
 		return t.SendMessage(chatID, t.FormatHelpMessage())
 	}
 }
 
-func (t *TelegramService) handleStart(chatID int64) error {
+func (t *TelegramService) handleStart(chatID int64, payload string) error {
 	if t.linkRepo == nil {
-		return t.SendMessage(chatID, "Интеграция временно недоступна. Попробуйте позже.")
+		return t.SendMessage(chatID, "⚠️ Интеграция временно недоступна. Попробуйте позже.")
 	}
+
+	// ✅ CRM-flow: "/start CODE" -> attach chatID to that code
+	if payload != "" {
+		err := t.linkRepo.AttachChatID(context.Background(), payload, chatID)
+		if err == nil {
+			return t.SendMessage(chatID, t.FormatStartAttachedMessage(payload))
+		}
+		// if code not found/expired -> fallback to normal start
+	}
+
+	// ✅ Bot-flow: generate code with chatID
 	code, err := t.generateLinkCode()
 	if err != nil {
 		log.Printf("[tg][start] code generation failed: %v", err)
-		return t.SendMessage(chatID, "Не удалось сгенерировать код привязки, попробуйте позже.")
+		return t.SendMessage(chatID, "⚠️ Не удалось сгенерировать код привязки, попробуйте позже.")
 	}
 	expiresAt := time.Now().Add(t.linkTTL)
 	if _, err := t.linkRepo.CreateLink(context.Background(), 0, chatID, code, expiresAt); err != nil {
@@ -160,73 +177,170 @@ func (t *TelegramService) handleStart(chatID int64) error {
 
 func (t *TelegramService) handleTasks(chatID int64) error {
 	if t.usersRepo == nil || t.taskSvc == nil {
-		return t.SendMessage(chatID, "Интеграция недоступна. Попробуйте позже.")
+		return t.SendMessage(chatID, "⚠️ Интеграция недоступна. Попробуйте позже.")
 	}
+
 	user, err := t.usersRepo.GetByChatID(context.Background(), chatID)
 	if err != nil {
 		log.Printf("[tg][tasks] lookup failed chatID=%d: %v", chatID, err)
-		return t.SendMessage(chatID, "Не удалось определить пользователя. Выполните /start для привязки.")
+		return t.SendMessage(chatID, "⚠️ Не удалось определить пользователя. Выполните /start для привязки.")
 	}
 	if user == nil {
-		return t.SendMessage(chatID, "Аккаунт не привязан, сначала выполните /start и привяжите код в личном кабинете.")
+		return t.SendMessage(chatID, t.FormatNotLinkedMessage())
 	}
+
 	uid := int64(user.ID)
 	tasks, err := t.taskSvc.GetAll(context.Background(), models.TaskFilter{AssigneeID: &uid})
 	if err != nil {
 		log.Printf("[tg][tasks] load failed for uid=%d: %v", uid, err)
-		return t.SendMessage(chatID, "Не удалось получить список задач.")
+		return t.SendMessage(chatID, "⚠️ Не удалось получить список задач.")
 	}
+
 	return t.SendMessage(chatID, t.FormatTasksList(tasks))
 }
 
-// FormatStartMessage builds welcome + link instructions.
-func (t *TelegramService) FormatStartMessage(code string) string {
-	link := code
+func (t *TelegramService) FormatHelpMessage() string {
+	return "🧭 <b>Команды</b>\n" +
+		"• <code>/start</code> — подключить Telegram\n" +
+		"• <code>/tasks</code> — мои задачи\n" +
+		"• <code>/help</code> — помощь"
+}
+
+func (t *TelegramService) FormatNotLinkedMessage() string {
+	return "🔗 <b>Аккаунт не привязан</b>\n\n" +
+		"1) Отправь <code>/start</code>\n" +
+		"2) Скопируй код\n" +
+		"3) Вставь его в CRM (Интеграции → Telegram)\n\n" +
+		"Команды: /start /help"
+}
+
+func (t *TelegramService) FormatStartAttachedMessage(code string) string {
+	link := ""
 	if t.linkPrefix != "" {
 		link = fmt.Sprintf("%s/integrations/telegram/link?code=%s", t.linkPrefix, code)
 	}
-	return fmt.Sprintf("Привет! Для привязки аккаунта перейдите по ссылке:\n%s\n\nили введите код в личном кабинете: <code>%s</code>\nДоступные команды: /start, /help, /tasks", html.EscapeString(link), code)
+	msg := "✅ <b>Код принят</b>\n\n" +
+		"Теперь заверши привязку в CRM.\n" +
+		"Код: <code>" + html.EscapeString(code) + "</code>\n"
+	if link != "" {
+		msg += "\n<a href=\"" + html.EscapeString(link) + "\">🔗 Подтвердить привязку</a>\n"
+	}
+	msg += "\nКоманды: /tasks /help"
+	return msg
 }
 
-func (t *TelegramService) FormatHelpMessage() string {
-	return "Доступные команды:\n/start — привязать аккаунт\n/help — помощь\n/tasks — задачи на сегодня"
+func (t *TelegramService) FormatStartMessage(code string) string {
+	link := ""
+	if t.linkPrefix != "" {
+		link = fmt.Sprintf("%s/integrations/telegram/link?code=%s", t.linkPrefix, code)
+	}
+
+	msg := "👋 <b>KUB • Telegram</b>\n" +
+		"Подключим уведомления из CRM.\n\n" +
+		"Код: <code>" + html.EscapeString(code) + "</code>\n" +
+		"Срок: <i>30 минут</i>\n\n" +
+		"1) Открой CRM → Интеграции → Telegram\n" +
+		"2) Вставь код выше и нажми «Подтвердить»\n"
+
+	if link != "" {
+		msg += "\n<a href=\"" + html.EscapeString(link) + "\">🔗 Открыть страницу привязки</a>\n"
+	}
+
+	msg += "\nКоманды: /tasks /help"
+	return msg
 }
 
 func (t *TelegramService) FormatTasksList(tasks []models.Task) string {
 	now := time.Now()
 	var b strings.Builder
 
-	activeCount := 0
+	// header
+	b.WriteString("📋 <b>Ваши актуальные задачи</b> • <i>" + now.Format("02.01.2006 15:04") + "</i>\n\n")
 
+	active := make([]models.Task, 0, len(tasks))
 	for _, tsk := range tasks {
-		// ❌ Пропускаем завершённые и отменённые
 		if tsk.Status == models.StatusDone || tsk.Status == models.StatusCancelled {
 			continue
 		}
+		active = append(active, tsk)
+	}
 
-		if activeCount == 0 {
-			b.WriteString("Ваши актуальные задачи:\n")
+	if len(active) == 0 {
+		return "✅ <b>Задач нет</b>\nВсе актуальные задачи закрыты.\n\nКоманды: /tasks /help"
+	}
+
+	for i, tsk := range active {
+		title := html.EscapeString(tsk.Title)
+
+		statusStr := string(tsk.Status)
+		priorityStr := string(tsk.Priority)
+
+		statusEmoji := map[string]string{
+			"new":         "🆕",
+			"in_progress": "🟡",
+			"confirmed":   "✅",
+			"done":        "✅",
+			"cancelled":   "⛔",
+		}[statusStr]
+		if statusEmoji == "" {
+			statusEmoji = "📌"
 		}
-		activeCount++
 
-		due := "—"
+		priEmoji := map[string]string{
+			"high":   "🔴",
+			"medium": "🟠",
+			"low":    "🟢",
+		}[priorityStr]
+
+		// due
+		dueLine := "—"
+		overdue := false
 		if tsk.DueDate != nil {
-			due = tsk.DueDate.Format("2006-01-02 15:04")
+			dueLine = tsk.DueDate.Format("02.01.2006 15:04")
+			if tsk.DueDate.Before(now) {
+				overdue = true
+			}
 		}
 
-		status := string(tsk.Status)
-		if tsk.DueDate != nil && tsk.DueDate.Before(now) {
-			status += " (просрочено)"
+		// related entity (deal/lead/etc)
+		related := ""
+		if tsk.EntityType != "" && tsk.EntityID > 0 {
+			et := strings.ToLower(tsk.EntityType)
+			switch et {
+			case "deal", "deals":
+				if t.linkPrefix != "" {
+					related = fmt.Sprintf("<a href=\"%s/deals/%d\">deal#%d</a>", html.EscapeString(t.linkPrefix), tsk.EntityID, tsk.EntityID)
+				} else {
+					related = fmt.Sprintf("deal#%d", tsk.EntityID)
+				}
+			case "lead", "leads":
+				if t.linkPrefix != "" {
+					related = fmt.Sprintf("<a href=\"%s/leads/%d\">lead#%d</a>", html.EscapeString(t.linkPrefix), tsk.EntityID, tsk.EntityID)
+				} else {
+					related = fmt.Sprintf("lead#%d", tsk.EntityID)
+				}
+			default:
+				related = html.EscapeString(tsk.EntityType) + "#" + fmt.Sprintf("%d", tsk.EntityID)
+			}
 		}
 
-		b.WriteString("• " + html.EscapeString(tsk.Title) + " — " + status + " (до " + due + ")\n")
+		b.WriteString(fmt.Sprintf("%d) %s %s <b>%s</b>\n", i+1, statusEmoji, priEmoji, title))
+		b.WriteString("   • Статус: <code>" + html.EscapeString(statusStr) + "</code>\n")
+		if priorityStr != "" {
+			b.WriteString("   • Приоритет: <code>" + html.EscapeString(priorityStr) + "</code>\n")
+		}
+		if overdue {
+			b.WriteString("   • Срок: <b>" + html.EscapeString(dueLine) + "</b> ⚠️ <b>просрочено</b>\n")
+		} else {
+			b.WriteString("   • Срок: <b>" + html.EscapeString(dueLine) + "</b>\n")
+		}
+		if related != "" {
+			b.WriteString("   • Связано: " + related + "\n")
+		}
+		b.WriteString("\n")
 	}
 
-	// Если нет активных задач
-	if activeCount == 0 {
-		return "У вас нет невыполненных задач. Все актуальные задачи закрыты ✅"
-	}
-
+	b.WriteString("Команды: /tasks /help")
 	return b.String()
 }
 
@@ -234,17 +348,58 @@ func (t *TelegramService) FormatTaskNotification(task *models.Task) string {
 	if task == nil {
 		return ""
 	}
-	due := "—"
-	if task.DueDate != nil {
-		due = task.DueDate.Format("2006-01-02 15:04")
-	}
+
 	title := html.EscapeString(task.Title)
-	entity := task.EntityType + "#" + fmt.Sprintf("%d", task.EntityID)
-	return "• <b>" + title + "</b>\n" +
-		"• Статус: <code>" + string(task.Status) + "</code>\n" +
-		"• Приоритет: <code>" + string(task.Priority) + "</code>\n" +
-		"• Срок: <code>" + due + "</code>\n" +
-		"• Связано: <code>" + entity + "</code>"
+
+	statusStr := string(task.Status)
+	priorityStr := string(task.Priority)
+
+	due := "—"
+	overdue := false
+	if task.DueDate != nil {
+		due = task.DueDate.Format("02.01.2006 15:04")
+		if task.DueDate.Before(time.Now()) {
+			overdue = true
+		}
+	}
+
+	related := ""
+	if task.EntityType != "" && task.EntityID > 0 {
+		et := strings.ToLower(task.EntityType)
+		switch et {
+		case "deal", "deals":
+			if t.linkPrefix != "" {
+				related = fmt.Sprintf("<a href=\"%s/deals/%d\">deal#%d</a>", html.EscapeString(t.linkPrefix), task.EntityID, task.EntityID)
+			} else {
+				related = fmt.Sprintf("deal#%d", task.EntityID)
+			}
+		case "lead", "leads":
+			if t.linkPrefix != "" {
+				related = fmt.Sprintf("<a href=\"%s/leads/%d\">lead#%d</a>", html.EscapeString(t.linkPrefix), task.EntityID, task.EntityID)
+			} else {
+				related = fmt.Sprintf("lead#%d", task.EntityID)
+			}
+		default:
+			related = html.EscapeString(task.EntityType) + "#" + fmt.Sprintf("%d", task.EntityID)
+		}
+	}
+
+	msg := "📌 <b>Новая задача</b>\n<b>" + title + "</b>\n\n" +
+		"• Статус: <code>" + html.EscapeString(statusStr) + "</code>\n" +
+		"• Приоритет: <code>" + html.EscapeString(priorityStr) + "</code>\n"
+
+	if overdue {
+		msg += "• Срок: <b>" + html.EscapeString(due) + "</b> ⚠️ <b>просрочено</b>\n"
+	} else {
+		msg += "• Срок: <b>" + html.EscapeString(due) + "</b>\n"
+	}
+
+	if related != "" {
+		msg += "• Связано: " + related + "\n"
+	}
+
+	msg += "\nКоманды: /tasks /help"
+	return msg
 }
 
 func (t *TelegramService) generateLinkCode() (string, error) {
