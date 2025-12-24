@@ -26,6 +26,10 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 	if roleID == authz.RoleSales {
 		deal.OwnerID = userID
 	}
+	if deal.LeadID == nil || *deal.LeadID == 0 {
+		return 0, errors.New("lead_id is required")
+	}
+
 	if deal.OwnerID == 0 {
 		deal.OwnerID = userID
 	}
@@ -48,6 +52,7 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
+
 	current, err := s.Repo.GetByID(deal.ID)
 	if err != nil {
 		return err
@@ -55,12 +60,52 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	if current == nil {
 		return errors.New("deal not found")
 	}
+
+	// 2) Проверка доступа
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
+
+	// 3) Заполняем пропущенные поля из current
+	// lead_id: если не пришёл — НЕ затираем (иначе снова будет NULL в БД)
+	if deal.LeadID == nil {
+		deal.LeadID = current.LeadID
+	}
+	// жёстко запрещаем lead_id = nil/0 (чтобы больше не появлялись такие строки)
+	if deal.LeadID == nil || *deal.LeadID == 0 {
+		return errors.New("lead_id is required")
+	}
+
+	if deal.ClientID == 0 {
+		deal.ClientID = current.ClientID
+	}
+	if deal.ClientID == 0 {
+		return errors.New("client_id is required")
+	}
+
+	if deal.Amount == "" {
+		deal.Amount = current.Amount
+	}
+	if deal.Currency == "" {
+		deal.Currency = current.Currency
+	}
+	if deal.Status == "" {
+		deal.Status = current.Status
+	}
+	if deal.Status == "" {
+		deal.Status = "new"
+	}
+
+	// owner: менять может только management, остальным фиксируем текущего владельца
 	if roleID != authz.RoleManagement {
 		deal.OwnerID = current.OwnerID
+	} else {
+		// если management не прислал owner_id — оставляем текущий
+		if deal.OwnerID == 0 {
+			deal.OwnerID = current.OwnerID
+		}
 	}
+
 	return s.Repo.Update(deal)
 }
 

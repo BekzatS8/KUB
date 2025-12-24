@@ -47,6 +47,10 @@ func (h *DealHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(&deal, userID, roleID)
 	if err != nil {
+		if err.Error() == "lead_id is required" {
+			badRequest(c, "Lead ID is required")
+			return
+		}
 		if err.Error() == "client_id is required" {
 			badRequest(c, "Client ID is required")
 			return
