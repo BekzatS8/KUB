@@ -4,9 +4,11 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/realtime"
 	"turcompany/internal/services"
 )
@@ -16,8 +18,9 @@ type ChatHandler struct {
 	hub     *realtime.ChatHub
 }
 
+// ✅ text больше НЕ required — можно отправлять только attachments
 type sendMessageRequest struct {
-	Text        string   `json:"text" binding:"required"`
+	Text        string   `json:"text"`
 	Attachments []string `json:"attachments"`
 }
 
@@ -26,12 +29,14 @@ type personalChatRequest struct {
 }
 
 type groupChatRequest struct {
-	Name    string `json:"name" binding:"required"`
-	Members []int  `json:"members"`
+	Name      string `json:"name" binding:"required"`
+	Members   []int  `json:"members"`
+	MemberIDs []int  `json:"member_ids"` // ✅ алиас, чтобы не ломаться если фронт/постман шлёт member_ids
 }
 
 type addMembersRequest struct {
-	Members []int `json:"members" binding:"required"`
+	Members   []int `json:"members"`
+	MemberIDs []int `json:"member_ids"` // ✅ алиас
 }
 
 func NewChatHandler(service *services.ChatService, hub *realtime.ChatHub) *ChatHandler {
@@ -50,12 +55,17 @@ func (h *ChatHandler) ListChats(c *gin.Context) {
 
 func (h *ChatHandler) SearchChats(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	query := c.Query("query")
-	if query == "" {
+
+	q := strings.TrimSpace(c.Query("query"))
+	if q == "" {
+		q = strings.TrimSpace(c.Query("q")) // ✅ алиас
+	}
+	if q == "" {
 		badRequest(c, "Query is required")
 		return
 	}
-	chats, err := h.service.SearchChats(userID, query)
+
+	chats, err := h.service.SearchChats(userID, q)
 	if err != nil {
 		internalError(c, "Failed to search chats")
 		return
@@ -65,11 +75,13 @@ func (h *ChatHandler) SearchChats(c *gin.Context) {
 
 func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	var req personalChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid payload")
 		return
 	}
+
 	chat, err := h.service.CreatePersonalChat(userID, req.UserID)
 	if err != nil {
 		badRequest(c, err.Error())
@@ -80,11 +92,18 @@ func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
 
 func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	var req groupChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid payload")
 		return
 	}
+
+	// ✅ поддержка member_ids
+	if len(req.Members) == 0 && len(req.MemberIDs) > 0 {
+		req.Members = req.MemberIDs
+	}
+
 	chat, err := h.service.CreateGroupChat(req.Name, userID, req.Members)
 	if err != nil {
 		badRequest(c, err.Error())
@@ -95,11 +114,13 @@ func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
 
 func (h *ChatHandler) ListMessages(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	if limit <= 0 {
@@ -128,17 +149,23 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 
 func (h *ChatHandler) SearchMessages(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
-	query := c.Query("query")
-	if query == "" {
+
+	q := strings.TrimSpace(c.Query("query"))
+	if q == "" {
+		q = strings.TrimSpace(c.Query("q")) // ✅ алиас
+	}
+	if q == "" {
 		badRequest(c, "Query is required")
 		return
 	}
-	messages, err := h.service.SearchMessages(chatID, userID, query)
+
+	messages, err := h.service.SearchMessages(chatID, userID, q)
 	if err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -157,16 +184,25 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 
 func (h *ChatHandler) SendMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	var req sendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid payload")
 		return
 	}
+
+	req.Text = strings.TrimSpace(req.Text)
+	if req.Text == "" && len(req.Attachments) == 0 {
+		badRequest(c, "Message text or attachments are required")
+		return
+	}
+
 	msg, unreadByUser, err := h.service.SendMessage(chatID, userID, req.Text, req.Attachments)
 	if err != nil {
 		switch err {
@@ -181,6 +217,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 			return
 		}
 	}
+
 	h.hub.Broadcast(msg)
 	for uid, unread := range unreadByUser {
 		h.hub.NotifyUnread(chatID, uid, unread)
@@ -190,6 +227,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -227,16 +265,31 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	var req addMembersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid payload")
 		return
 	}
+
+	// ✅ поддержка member_ids
+	members := req.Members
+	if len(members) == 0 && len(req.MemberIDs) > 0 {
+		members = req.MemberIDs
+	}
+	if len(members) == 0 {
+		badRequest(c, "Members are required")
+		return
+	}
+
 	userID, _ := getUserAndRole(c)
-	if err := h.service.AddMembers(chatID, userID, req.Members); err != nil {
+	if err := h.service.AddMembers(chatID, userID, members); err != nil {
 		switch err {
 		case services.ErrChatNotFound:
 			notFound(c, NotFoundCode, "Chat not found")
+			return
+		case services.ErrForbidden:
+			forbidden(c, "Forbidden")
 			return
 		default:
 			internalError(c, "Failed to add members")
@@ -248,11 +301,13 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 
 func (h *ChatHandler) LeaveChat(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	if err := h.service.LeaveChat(chatID, userID); err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -271,11 +326,13 @@ func (h *ChatHandler) LeaveChat(c *gin.Context) {
 
 func (h *ChatHandler) DeleteChat(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	if err := h.service.DeleteChat(chatID, userID); err != nil {
 		switch err {
 		case services.ErrChatNotFound:
@@ -298,11 +355,13 @@ func (h *ChatHandler) GetUserStatus(c *gin.Context) {
 		badRequest(c, "Invalid user id")
 		return
 	}
+
 	online, lastSeen, err := h.service.GetUserStatus(userID)
 	if err != nil {
 		internalError(c, "Failed to load status")
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"online":    online,
 		"last_seen": lastSeen,
@@ -311,6 +370,7 @@ func (h *ChatHandler) GetUserStatus(c *gin.Context) {
 
 func (h *ChatHandler) ListUnread(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chats, err := h.service.ListUnreadChats(userID)
 	if err != nil {
 		internalError(c, "Failed to load unread chats")
@@ -321,11 +381,13 @@ func (h *ChatHandler) ListUnread(c *gin.Context) {
 
 func (h *ChatHandler) MarkRead(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	unread, err := h.service.MarkChatRead(chatID, userID)
 	if err != nil {
 		switch err {
@@ -340,17 +402,20 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 			return
 		}
 	}
+
 	h.hub.NotifyUnread(chatID, userID, unread)
 	c.Status(http.StatusNoContent)
 }
 
 func (h *ChatHandler) Stream(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
 	}
+
 	if err := h.service.EnsureMember(chatID, userID); err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -371,6 +436,7 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, InternalErrorCode, "Failed to upgrade connection")
 		return
 	}
+
 	h.hub.Register(chatID, userID, conn)
 	defer h.hub.Unregister(chatID, userID, conn)
 
@@ -380,12 +446,26 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 			log.Printf("[chat_stream] read failed for chat %d user %d: %v", chatID, userID, err)
 			break
 		}
+
+		// ✅ запрещаем писать через WS для read-only (раньше ReadOnlyGuard это не ловил)
+		if authz.IsReadOnly(roleID) {
+			_ = conn.WriteJSON(map[string]string{"error": "read-only role"})
+			continue
+		}
+
+		incoming.Text = strings.TrimSpace(incoming.Text)
+		if incoming.Text == "" && len(incoming.Attachments) == 0 {
+			_ = conn.WriteJSON(map[string]string{"error": "Message text or attachments are required"})
+			continue
+		}
+
 		msg, unreadByUser, err := h.service.SendMessage(chatID, userID, incoming.Text, incoming.Attachments)
 		if err != nil {
 			log.Printf("[chat_stream] failed to persist message for chat %d user %d: %v", chatID, userID, err)
 			_ = conn.WriteJSON(APIError{ErrorCode: InternalErrorCode, Message: "Failed to send message"})
 			continue
 		}
+
 		h.hub.Broadcast(msg)
 		for uid, unread := range unreadByUser {
 			h.hub.NotifyUnread(chatID, uid, unread)

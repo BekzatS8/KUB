@@ -81,16 +81,23 @@ func (s *ChatService) SearchMessages(chatID, userID int, query string) ([]*model
 }
 
 func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments []string) (*models.ChatMessage, map[int]int, error) {
-	if text == "" {
-		return nil, nil, fmt.Errorf("message text is required")
+	text = strings.TrimSpace(text)
+	attachments = normalizeAttachments(attachments)
+
+	// ✅ теперь можно: text пустой, но attachments есть
+	if text == "" && len(attachments) == 0 {
+		return nil, nil, fmt.Errorf("message text or attachments are required")
 	}
+
 	if err := s.ensureMember(chatID, senderID); err != nil {
 		return nil, nil, err
 	}
+
 	msg, err := s.repo.CreateMessage(chatID, senderID, text, attachments)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	chat, err := s.repo.GetChatByID(chatID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -100,9 +107,11 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	}
 
 	unreadByUser := make(map[int]int)
+
 	if err := s.repo.UpdateLastRead(chatID, senderID, msg.ID); err != nil {
 		return nil, nil, err
 	}
+
 	for _, member := range chat.Members {
 		if member == senderID {
 			continue
@@ -113,6 +122,7 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 		}
 		unreadByUser[member] = count
 	}
+
 	return msg, unreadByUser, nil
 }
 
@@ -126,6 +136,7 @@ func (s *ChatService) UploadAttachment(chatID, userID int, file *multipart.FileH
 	if file.Size > 10*1024*1024 {
 		return "", fmt.Errorf("file is too large")
 	}
+
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	allowed := map[string]struct{}{
 		".pdf":  {},
@@ -137,6 +148,7 @@ func (s *ChatService) UploadAttachment(chatID, userID int, file *multipart.FileH
 	if _, ok := allowed[ext]; !ok {
 		return "", fmt.Errorf("file type not allowed")
 	}
+
 	safeName := filepath.Base(file.Filename)
 	if safeName == "" || safeName == "." {
 		return "", fmt.Errorf("invalid filename")
@@ -146,6 +158,7 @@ func (s *ChatService) UploadAttachment(chatID, userID int, file *multipart.FileH
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
+
 	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
 	destPath := filepath.Join(destDir, finalName)
 
@@ -177,6 +190,7 @@ func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error)
 }
 
 func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int) (*models.Chat, error) {
+	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("chat name is required")
 	}
@@ -191,6 +205,7 @@ func (s *ChatService) LeaveChat(chatID, userID int) error {
 	}
 	return s.repo.RemoveMember(chatID, userID)
 }
+
 func contains(slice []int, v int) bool {
 	for _, x := range slice {
 		if x == v {
@@ -217,9 +232,6 @@ func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 	if !contains(chat.Members, userID) {
 		return ErrForbidden
 	}
-
-	// можно ещё: только creator (chat.Members[0]) может добавлять
-	// if chat.Members[0] != userID { return ErrForbidden }
 
 	return s.repo.AddMembers(chatID, uniqueInts(memberIDs))
 }
@@ -342,4 +354,27 @@ func uniqueInts(values []int) []int {
 		result = append(result, v)
 	}
 	return result
+}
+
+func normalizeAttachments(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

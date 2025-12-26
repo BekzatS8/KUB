@@ -32,6 +32,24 @@ func isPublicPath(path string) bool {
 	return false
 }
 
+func isWebSocketRequest(r *http.Request) bool {
+	up := strings.ToLower(strings.TrimSpace(r.Header.Get("Upgrade")))
+	conn := strings.ToLower(r.Header.Get("Connection"))
+	return up == "websocket" && strings.Contains(conn, "upgrade")
+}
+
+func extractBearerToken(authHeader string) string {
+	authHeader = strings.TrimSpace(authHeader)
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
@@ -43,17 +61,17 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
-			return
+		// 1) Обычный путь: Authorization: Bearer <token>
+		tokenStr := extractBearerToken(c.GetHeader("Authorization"))
+
+		// 2) WS-путь: браузер не умеет Authorization header -> берём токен из query
+		if tokenStr == "" && isWebSocketRequest(c.Request) {
+			tokenStr = strings.TrimSpace(c.Query("token"))
+			if tokenStr == "" {
+				tokenStr = strings.TrimSpace(c.Query("access_token"))
+			}
 		}
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
-			return
-		}
-		tokenStr := strings.TrimSpace(parts[1])
+
 		if tokenStr == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
 			return
