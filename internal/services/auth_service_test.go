@@ -11,7 +11,7 @@ import (
 func TestAuthService_GenerateAndValidateAccessToken(t *testing.T) {
 	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
 	svc := &authService{
-		AccessSecret:  []byte("test-access"),
+		AccessSecret:  []byte("test-access-secret-32-bytes-long!!!"),
 		RefreshSecret: []byte("test-refresh"),
 		AccessTTL:     time.Minute,
 		RefreshTTL:    5 * time.Minute,
@@ -53,7 +53,7 @@ func TestAuthService_GenerateAndValidateAccessToken(t *testing.T) {
 func TestAuthService_ExpiredToken(t *testing.T) {
 	current := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
 	svc := &authService{
-		AccessSecret:  []byte("test-access"),
+		AccessSecret:  []byte("test-access-secret-32-bytes-long!!!"),
 		RefreshSecret: []byte("test-refresh"),
 		AccessTTL:     time.Minute,
 		RefreshTTL:    5 * time.Minute,
@@ -79,7 +79,7 @@ func TestAuthService_ExpiredToken(t *testing.T) {
 func TestAuthService_RefreshTokenGeneration(t *testing.T) {
 	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
 	svc := &authService{
-		AccessSecret:  []byte("test-access"),
+		AccessSecret:  []byte("test-access-secret-32-bytes-long!!!"),
 		RefreshSecret: []byte("test-refresh"),
 		AccessTTL:     time.Minute,
 		RefreshTTL:    5 * time.Minute,

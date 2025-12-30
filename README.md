@@ -55,7 +55,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 
 1) Установи Go и PostgreSQL.  
 2) Создай БД и накатай миграции (см. ниже).  
-3) Заполни `config/config.yaml` (см. пример).  
+3) Скопируй пример и заполни `config/config.yaml`.  
 4) Запуск:
 ```bash
 go run cmd/web/main.go
@@ -68,7 +68,7 @@ GIN_MODE=release go run cmd/web/main.go
 
 ## Конфиг
 
-Файл: `config/config.yaml`
+Файл: `config/config.yaml` (скопируй из `config/config.example.yaml`)
 ```yaml
 server:
   port: 4000
@@ -90,9 +90,29 @@ mobizon:
   api_key: "MOBIZON_API_KEY"
   sender_id: ""                     # опционально
   dry_run: false                    # true = не отправлять фактически SMS
+
+whatsapp:
+  enable: false
+  access_token: "WHATSAPP_TOKEN"
+  phone_number_id: "WHATSAPP_PHONE_ID"
+  api_version: "v21.0"
+  template_name: "template_name"
+  lang_code: "ru"
+  dry_run: true
+
+security:
+  jwt_secret: "CHANGE_ME"
+
+cors:
+  allow_origins: "*"
+  allow_methods: "GET, POST, PUT, DELETE, OPTIONS"
+  allow_headers: "Origin, Content-Type, Authorization"
+  expose_headers: "Content-Disposition, Content-Type, Content-Length"
 ```
 
-> **Важно:** JWT-секрет сейчас жёстко прописан в `internal/middleware/jwt.go` (переменная `JWTKey`). Для прода — вынести в ENV/конфиг.
+Путь к конфигу можно переопределить переменной окружения `CONFIG_PATH` (по умолчанию `config/config.yaml`).
+Секрет JWT можно задавать через `security.jwt_secret` в конфиге или через переменную окружения `JWT_SECRET`.
+Для удобства можно создать `.env` из `.env.example` и хранить там параметры, которые затем подставляются в `config.yaml` и/или используются при запуске.
 
 ---
 
@@ -202,7 +222,7 @@ psql "$DATABASE_URL" -f db/migrations/001_base_schema.sql
 ## Требования/запуск в проде
 
 - `GIN_MODE=release`
-- Вынести `JWTKey` в переменную окружения/конфиг
+- Задать безопасный `security.jwt_secret` или переменную `JWT_SECRET`
 - Настроить **пароль приложения** для SMTP (Mail.ru/Gmail и т. п.)
 - Включить **логирование в файл** и безопасные заголовки (CORS/CSRF по контексту)
 - Регулярные **бэкапы БД**
@@ -210,14 +230,18 @@ psql "$DATABASE_URL" -f db/migrations/001_base_schema.sql
 
 ## Деплой через Docker Compose
 
-1. Собрать и поднять сервисы:
+1. Скопировать пример конфига:
+```bash
+cp config/config.example.yaml config/config.yaml
+```
+2. Собрать и поднять сервисы:
 ```bash
 make docker-build
 docker-compose up -d
 ```
    По умолчанию используется `config/config.yaml`, каталоги `assets/` и `files/` пробрасываются в контейнер. Корень хранилища — `/opt/turcompany/files` (смонтирован как `./files`).
-2. Проверить, что Postgres поднялся (порт `5432`), а приложение слушает порт `4000`.
-3. При необходимости включить LibreOffice внутри контейнера (добавить пакет) или установить на хосте и пробросить бинарь в образ.
+3. Проверить, что Postgres поднялся (порт `5432`), а приложение слушает порт `4000`.
+4. При необходимости включить LibreOffice внутри контейнера (добавить пакет) или установить на хосте и пробросить бинарь в образ.
 
 ## Деплой через systemd (без Docker)
 
@@ -230,9 +254,10 @@ make build
 ```bash
 sudo mkdir -p /opt/turcompany/files /opt/turcompany/files/pdf /opt/turcompany/files/docx /opt/turcompany/files/excel
 ```
-3. Создать файл `/etc/turcompany.env` с переменными окружения (например, `GIN_MODE=release`).
-4. Положить юнит `docs/deploy/systemd/turcompany.service` в `/etc/systemd/system/turcompany.service`, при необходимости поправить `ExecStart`/`WorkingDirectory`.
-5. Применить и запустить сервис:
+3. Скопировать `config/config.example.yaml` в `/opt/turcompany/config/config.yaml` и заполнить значения.
+4. Создать файл `/etc/turcompany.env` с переменными окружения (например, `GIN_MODE=release` или `CONFIG_PATH=/opt/turcompany/config/config.yaml`).
+5. Положить юнит `docs/deploy/systemd/turcompany.service` в `/etc/systemd/system/turcompany.service`, при необходимости поправить `ExecStart`/`WorkingDirectory`.
+6. Применить и запустить сервис:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now turcompany.service
@@ -279,7 +304,7 @@ sudo systemctl enable --now turcompany.service
 │  └─ utils/                     # утилиты (refresh token, SMS клиент)
 ├─ assets/fonts/DejaVuSans.ttf   # шрифт для PDF
 ├─ files/                        # хранилище документов (локально)
-├─ config/config.yaml            # конфигурация
+├─ config/config.example.yaml    # пример конфигурации (копируется в config.yaml)
 └─ db/migrations/001_base_schema.sql
 ```
 

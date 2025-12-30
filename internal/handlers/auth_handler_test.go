@@ -62,7 +62,7 @@ func (fakePasswordResetService) ResetPassword(token, newPassword string) error {
 
 func TestAuthHandler_Login_Success(t *testing.T) {
 	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
-	authSvc := services.NewAuthService([]byte("test-access"), []byte("test-refresh"), time.Minute, 5*time.Minute, func() time.Time {
+	authSvc := services.NewAuthService([]byte("test-access-secret-32-bytes-long!!!"), []byte("test-refresh"), time.Minute, 5*time.Minute, func() time.Time {
 		return fixedNow
 	})
 
@@ -103,7 +103,7 @@ func TestAuthHandler_Login_Success(t *testing.T) {
 
 func TestAuthHandler_Login_InvalidPassword(t *testing.T) {
 	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
-	authSvc := services.NewAuthService([]byte("test-access"), []byte("test-refresh"), time.Minute, 5*time.Minute, func() time.Time {
+	authSvc := services.NewAuthService([]byte("test-access-secret-32-bytes-long!!!"), []byte("test-refresh"), time.Minute, 5*time.Minute, func() time.Time {
 		return fixedNow
 	})
 

@@ -30,16 +30,12 @@ func NewClientWithOptions(apiKey, sender string, dryRun bool) *Client {
 }
 
 // SendSMS — отправка SMS через Mobizon (или имитация в dry-run)
-func (c *Client) SendSMS(to, code string) (*SendSMSResponse, error) {
+func (c *Client) SendSMS(to, text string) (*SendSMSResponse, error) {
 	// DRY-RUN: не делаем HTTP-запрос
 	if c.DryRun || c.ApiKey == "" || c.ApiKey == "dry-run" {
-		fmt.Printf("📩 [Mobizon][dry-run] to=%s sender=%q text=%q\n", to, c.Sender, code)
+		fmt.Printf("📩 [Mobizon][dry-run] to=%s sender=%q text=%q\n", to, c.Sender, text)
 		return &SendSMSResponse{Code: 0}, nil
 	}
-
-	// Формируем текст сообщения с названием компании и кодом подтверждения
-	// Например: "NUSA Corp код подтверждения: 12312"
-	text := fmt.Sprintf("NUSA %s", code)
 
 	apiURL := "https://api.mobizon.kz/service/message/sendsmsmessage"
 

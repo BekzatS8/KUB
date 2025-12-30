@@ -27,6 +27,17 @@ type TelegramConfig struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
+type SecurityConfig struct {
+	JWTSecret string `yaml:"jwt_secret"`
+}
+
+type CORSConfig struct {
+	AllowOrigins  string `yaml:"allow_origins"`
+	AllowMethods  string `yaml:"allow_methods"`
+	AllowHeaders  string `yaml:"allow_headers"`
+	ExposeHeaders string `yaml:"expose_headers"`
+}
+
 type MobizonConfig struct {
 	APIKey   string `yaml:"api_key"`
 	SenderID string `yaml:"sender_id"`
@@ -74,18 +85,25 @@ type Config struct {
 
 	Telegram TelegramConfig `yaml:"telegram"`
 	Frontend FrontendConfig `yaml:"frontend"`
+	CORS     CORSConfig     `yaml:"cors"`
+	Security SecurityConfig `yaml:"security"`
 }
 
 func LoadConfig() *Config {
-	f, err := os.Open("config/config.yaml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config/config.yaml"
+	}
+
+	f, err := os.Open(configPath)
 	if err != nil {
-		panic("Failed to open config.yaml: " + err.Error())
+		panic("Failed to open config file: " + configPath + ": " + err.Error())
 	}
 	defer f.Close()
 
 	var cfg Config
 	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
-		panic("Failed to parse config.yaml: " + err.Error())
+		panic("Failed to parse config file: " + configPath + ": " + err.Error())
 	}
 
 	// defaults
@@ -106,6 +124,21 @@ func LoadConfig() *Config {
 	}
 	if cfg.Frontend.Host == "" {
 		cfg.Frontend.Host = "http://localhost:3000"
+	}
+	if cfg.CORS.AllowOrigins == "" {
+		cfg.CORS.AllowOrigins = "*"
+	}
+	if cfg.CORS.AllowMethods == "" {
+		cfg.CORS.AllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
+	}
+	if cfg.CORS.AllowHeaders == "" {
+		cfg.CORS.AllowHeaders = "Origin, Content-Type, Authorization"
+	}
+	if cfg.CORS.ExposeHeaders == "" {
+		cfg.CORS.ExposeHeaders = "Content-Disposition, Content-Type, Content-Length"
+	}
+	if envSecret := os.Getenv("JWT_SECRET"); envSecret != "" {
+		cfg.Security.JWTSecret = envSecret
 	}
 
 	// WhatsApp defaults

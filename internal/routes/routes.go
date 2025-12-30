@@ -24,6 +24,7 @@ func SetupRoutes(
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
+	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
 	// =====================
@@ -55,7 +56,7 @@ func SetupRoutes(
 	// =====================
 	// PROTECTED (JWT)
 	// =====================
-	r.Use(middleware.AuthMiddleware())
+	r.Use(authMiddleware)
 	r.Use(middleware.ReadOnlyGuard())
 
 	// PRIVATE (JWT): Telegram link endpoints

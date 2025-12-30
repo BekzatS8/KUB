@@ -49,11 +49,14 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		case "read-only role", "forbidden":
 			forbidden(c, "Read-only role")
 			return
-		case "deal not found", "lead not found":
-			badRequest(c, "Invalid deal or lead")
+		case "deal not found":
+			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		case "lead not found":
+			notFound(c, LeadNotFoundCode, "Lead not found")
 			return
 		case "unsupported doc_type":
-			badRequest(c, "Unsupported document type")
+			writeError(c, http.StatusBadRequest, UnsupportedDocType, "Unsupported document type")
 			return
 		case "pdf generator not configured":
 			internalError(c, "Failed to create document")
@@ -90,13 +93,13 @@ func (h *DocumentHandler) Upload(c *gin.Context) {
 			forbidden(c, "Read-only role")
 			return
 		case "deal not found":
-			notFound(c, DocumentNotFound, "Document not found")
+			notFound(c, DealNotFoundCode, "Deal not found")
 			return
 		case "doc_type is required", "invalid filename":
 			badRequest(c, "Invalid payload")
 			return
 		case "unsupported doc_type":
-			badRequest(c, "Unsupported document type")
+			writeError(c, http.StatusBadRequest, UnsupportedDocType, "Unsupported document type")
 			return
 		}
 		internalError(c, "Failed to upload document")
@@ -225,8 +228,11 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 	doc, err := h.Service.CreateDocumentFromLead(req.LeadID, req.DocType, userID, roleID)
 	if err != nil {
 		switch err.Error() {
-		case "lead not found", "deal not found":
-			badRequest(c, "Invalid deal or lead")
+		case "lead not found":
+			notFound(c, LeadNotFoundCode, "Lead not found")
+			return
+		case "deal not found":
+			notFound(c, DealNotFoundCode, "Deal not found")
 			return
 		case "forbidden", "read-only role":
 			forbidden(c, "Read-only role")
@@ -262,11 +268,14 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 	)
 	if err != nil {
 		switch err.Error() {
-		case "client not found", "deal not found":
-			notFound(c, DocumentNotFound, "Document not found")
+		case "client not found":
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		case "deal not found":
+			notFound(c, DealNotFoundCode, "Deal not found")
 			return
 		case "unsupported doc_type":
-			badRequest(c, "Unsupported document type")
+			writeError(c, http.StatusBadRequest, UnsupportedDocType, "Unsupported document type")
 			return
 		case "forbidden", "read-only role":
 			forbidden(c, "Read-only role")
@@ -305,7 +314,7 @@ func (h *DocumentHandler) Submit(c *gin.Context) {
 			notFound(c, DocumentNotFound, "Document not found")
 			return
 		case "invalid status":
-			badRequest(c, "Invalid status")
+			writeError(c, http.StatusBadRequest, InvalidStatusCode, "Invalid status")
 			return
 		}
 		internalError(c, "Failed to submit document")
@@ -339,7 +348,7 @@ func (h *DocumentHandler) Review(c *gin.Context) {
 			notFound(c, DocumentNotFound, "Document not found")
 			return
 		case "invalid status", "bad action":
-			badRequest(c, "Invalid status")
+			writeError(c, http.StatusBadRequest, InvalidStatusCode, "Invalid status")
 			return
 		}
 		internalError(c, "Failed to review document")
@@ -370,7 +379,7 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 			notFound(c, DocumentNotFound, "Document not found")
 			return
 		case "invalid status":
-			badRequest(c, "Invalid status")
+			writeError(c, http.StatusBadRequest, InvalidStatusCode, "Invalid status")
 			return
 		}
 		internalError(c, "Failed to sign document")

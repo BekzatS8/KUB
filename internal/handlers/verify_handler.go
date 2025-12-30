@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/services"
@@ -9,9 +12,19 @@ import (
 
 type VerifyHandler struct {
 	SMS *services.SMS_Service
+
+	mu          sync.Mutex
+	lastResends map[string]time.Time
 }
 
-func NewVerifyHandler(s *services.SMS_Service) *VerifyHandler { return &VerifyHandler{SMS: s} }
+const resendMinInterval = time.Minute
+
+func NewVerifyHandler(s *services.SMS_Service) *VerifyHandler {
+	return &VerifyHandler{
+		SMS:         s,
+		lastResends: make(map[string]time.Time),
+	}
+}
 
 func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 	var req struct {
@@ -49,15 +62,20 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 
 func (h *VerifyHandler) ResendUser(c *gin.Context) {
 	var req struct {
-		UserID int    `json:"user_id" binding:"required"`
-		Phone  string `json:"phone" binding:"required"`
+		UserID int `json:"user_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid code")
 		return
 	}
 
-	if err := h.SMS.ResendUserSMS(req.UserID, req.Phone); err != nil {
+	key := fmt.Sprintf("%d:%s", req.UserID, c.ClientIP())
+	if !h.allowResend(key) {
+		writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
+		return
+	}
+
+	if err := h.SMS.ResendUserSMS(req.UserID); err != nil {
 		if err == services.ErrResendThrottled {
 			writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 			return
@@ -66,4 +84,15 @@ func (h *VerifyHandler) ResendUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "SMS sent"})
+}
+
+func (h *VerifyHandler) allowResend(key string) bool {
+	now := time.Now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if last, ok := h.lastResends[key]; ok && now.Sub(last) < resendMinInterval {
+		return false
+	}
+	h.lastResends[key] = now
+	return true
 }

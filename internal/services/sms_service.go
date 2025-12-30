@@ -1,10 +1,12 @@
 package services
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/big"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -32,7 +34,6 @@ const (
 type SMSConfirmationRepo interface {
 	Create(sms *models.SMSConfirmation) (int64, error)
 	GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error)
-	GetByDocumentIDAndCode(documentID int64, code string) (*models.SMSConfirmation, error)
 	Update(sms *models.SMSConfirmation) error
 	DeleteByDocumentID(documentID int64) error
 }
@@ -94,34 +95,58 @@ func NewSMSService(
 
 // --- утилита генерации 6-значного кода ---
 func (s *SMS_Service) generateCode() string {
-	src := rand.NewSource(s.now().UnixNano())
-	rnd := rand.New(src)
-	return fmt.Sprintf("%06d", rnd.Intn(1000000))
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	}
+	return fmt.Sprintf("%06d", n.Int64())
+}
+
+func buildOTPMessage(code string) string {
+	return fmt.Sprintf("Код подтверждения: %s", code)
 }
 
 // ================== БЛОК: ДОКУМЕНТЫ ==================
 
-func (s *SMS_Service) SendSMS(documentID int64, phone string) error {
+func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int) error {
+	if s.DocSvc != nil {
+		if err := s.DocSvc.EnsureSMSAllowed(documentID, userID, roleID); err != nil {
+			return err
+		}
+	}
 	code := s.generateCode()
+	text := buildOTPMessage(code)
 
 	// 🔥 DEV MODE: логируем код
 	log.Printf("[DEV][SMS][DOC] document_id=%d phone=%s code=%s", documentID, phone, code)
 
 	// если клиента нет или dry-run — не шлём SMS
 	if s.Client != nil {
-		text := fmt.Sprintf("Код подтверждения: %s", code)
 		if _, err := s.Client.SendSMS(phone, text); err != nil {
 			return fmt.Errorf("mobizon error: %w", err)
 		}
 	}
 
+	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash code: %w", err)
+	}
+	ttl := s.CodeTTL
+	if ttl <= 0 {
+		ttl = defaultVerificationTTL
+	}
+	now := s.now()
 	rec := &models.SMSConfirmation{
-		DocumentID:  documentID,
-		Phone:       phone,
-		SMSCode:     code,
-		SentAt:      s.now(),
-		Confirmed:   false,
-		ConfirmedAt: time.Time{},
+		DocumentID:   documentID,
+		Phone:        phone,
+		CodeHash:     string(codeHash),
+		SentAt:       now,
+		ExpiresAt:    now.Add(ttl),
+		Attempts:     0,
+		Confirmed:    false,
+		ConfirmedAt:  time.Time{},
+		LastResendAt: &now,
+		ResendCount:  0,
 	}
 
 	if _, err := s.Repo.Create(rec); err != nil {
@@ -131,7 +156,12 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string) error {
 	return nil
 }
 
-func (s *SMS_Service) ResendSMS(documentID int64, phone string) error {
+func (s *SMS_Service) ResendSMS(documentID int64, phone string, userID, roleID int) error {
+	if s.DocSvc != nil {
+		if err := s.DocSvc.EnsureSMSAllowed(documentID, userID, roleID); err != nil {
+			return err
+		}
+	}
 	existing, err := s.Repo.GetLatestByDocumentID(documentID)
 	if err != nil {
 		return err
@@ -141,19 +171,55 @@ func (s *SMS_Service) ResendSMS(documentID int64, phone string) error {
 		if phone == "" {
 			return fmt.Errorf("phone required for first/expired resend")
 		}
-		return s.SendSMS(documentID, phone)
+		return s.SendSMS(documentID, phone, userID, roleID)
 	}
-	// переотправляем тот же код
-	text := fmt.Sprintf("Код подтверждения: %s", existing.SMSCode)
-	if _, err := s.Client.SendSMS(existing.Phone, text); err != nil {
-		return fmt.Errorf("resend error: %w", err)
+	now := s.now()
+	if now.Sub(existing.SentAt) <= resendWindow && existing.ResendCount >= maxResendsPerWindow {
+		return ErrResendThrottled
 	}
-	log.Printf("[sms][doc][resend] doc_id=%d phone=%s code=%s", documentID, existing.Phone, existing.SMSCode)
+	if phone == "" {
+		phone = existing.Phone
+	}
+	code := s.generateCode()
+	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash code: %w", err)
+	}
+	ttl := s.CodeTTL
+	if ttl <= 0 {
+		ttl = defaultVerificationTTL
+	}
+	existing.Phone = phone
+	existing.CodeHash = string(codeHash)
+	existing.SentAt = now
+	existing.ExpiresAt = now.Add(ttl)
+	existing.Attempts = 0
+	existing.Confirmed = false
+	existing.ConfirmedAt = time.Time{}
+	existing.LastResendAt = &now
+	existing.ResendCount++
+
+	if err := s.Repo.Update(existing); err != nil {
+		return err
+	}
+
+	text := buildOTPMessage(code)
+	if s.Client != nil {
+		if _, err := s.Client.SendSMS(existing.Phone, text); err != nil {
+			return fmt.Errorf("resend error: %w", err)
+		}
+	}
+	log.Printf("[sms][doc][resend] doc_id=%d phone=%s", documentID, existing.Phone)
 	return nil
 }
 
-func (s *SMS_Service) ConfirmCode(documentID int64, code string) (bool, error) {
-	rec, err := s.Repo.GetByDocumentIDAndCode(documentID, code)
+func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID int) (bool, error) {
+	if s.DocSvc != nil {
+		if err := s.DocSvc.EnsureSMSAllowed(documentID, userID, roleID); err != nil {
+			return false, err
+		}
+	}
+	rec, err := s.Repo.GetLatestByDocumentID(documentID)
 	if err != nil {
 		return false, err
 	}
@@ -162,13 +228,27 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string) (bool, error) {
 		return false, nil
 	}
 	// код истёк
-	if s.IsCodeExpired(rec.SentAt) {
-		return false, nil
+	if s.IsCodeExpired(rec.SentAt) || s.now().After(rec.ExpiresAt) {
+		return false, ErrCodeExpired
+	}
+	if rec.Attempts >= maxConfirmAttempts {
+		return false, ErrTooManyAttempts
 	}
 
 	// уже подтверждён – считаем это УСПЕХОМ (идемпотентность)
 	if rec.Confirmed {
 		return true, nil
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(rec.CodeHash), []byte(code)); err != nil {
+		rec.Attempts++
+		if err := s.Repo.Update(rec); err != nil {
+			return false, err
+		}
+		if rec.Attempts >= maxConfirmAttempts {
+			return false, ErrTooManyAttempts
+		}
+		return false, ErrCodeInvalid
 	}
 
 	// первое успешное подтверждение
@@ -229,7 +309,7 @@ func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
 		return err
 	}
 
-	text := fmt.Sprintf("Код подтверждения: %s", code)
+	text := buildOTPMessage(code)
 	if _, err := s.Client.SendSMS(phone, text); err != nil {
 		return fmt.Errorf("mobizon error: %w", err)
 	}
@@ -239,13 +319,18 @@ func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
 }
 
 // ResendUserSMS — просто вызывает SendUserSMS (он уже проверяет троттлинг).
-func (s *SMS_Service) ResendUserSMS(userID int, phone string) error {
-	if phone == "" {
-		// На первом шаге регистрации телефон обязателен. Если resend из клиента приходит без телефона —
-		// обычно телефон уже хранится у пользователя; но для простоты оставим как есть.
+func (s *SMS_Service) ResendUserSMS(userID int) error {
+	if s.UserSvc == nil {
+		return fmt.Errorf("user service is nil")
+	}
+	user, err := s.UserSvc.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+	if user == nil || strings.TrimSpace(user.Phone) == "" {
 		return fmt.Errorf("phone required")
 	}
-	return s.SendUserSMS(userID, phone)
+	return s.SendUserSMS(userID, user.Phone)
 }
 
 // ConfirmUserCode — сверяет с bcrypt-хэшем, считает попытки, TTL.

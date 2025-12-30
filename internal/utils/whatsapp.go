@@ -50,15 +50,21 @@ func NewWhatsAppClient(accessToken, phoneNumberID, apiVersion, templateName, lan
 }
 
 var reDigits = regexp.MustCompile(`\d{4,8}`)
+var reNonDigits = regexp.MustCompile(`\D+`)
 
-func sanitizeE164Digits(phone string) string {
+func sanitizeE164Digits(phone string) (string, error) {
 	p := strings.TrimSpace(phone)
-	p = strings.ReplaceAll(p, " ", "")
-	p = strings.ReplaceAll(p, "-", "")
-	p = strings.ReplaceAll(p, "(", "")
-	p = strings.ReplaceAll(p, ")", "")
-	p = strings.TrimPrefix(p, "+")
-	return p
+	p = reNonDigits.ReplaceAllString(p, "")
+	if p == "" {
+		return "", errors.New("empty phone")
+	}
+	if len(p) == 11 && strings.HasPrefix(p, "8") {
+		p = "7" + p[1:]
+	}
+	if len(p) < 11 || len(p) > 15 {
+		return "", fmt.Errorf("invalid phone length: %d", len(p))
+	}
+	return p, nil
 }
 
 func extractOTP(text string) string {
@@ -81,9 +87,17 @@ func (c *WhatsAppClient) SendSMS(to, text string) (*SendSMSResponse, error) {
 	if c == nil {
 		return nil, errors.New("whatsapp client is nil")
 	}
-	toDigits := sanitizeE164Digits(to)
-	if toDigits == "" {
-		return nil, errors.New("empty phone")
+	if !c.DryRun {
+		if strings.TrimSpace(c.AccessToken) == "" || strings.TrimSpace(c.PhoneNumberID) == "" {
+			return nil, errors.New("whatsapp configuration is incomplete")
+		}
+		if strings.TrimSpace(c.TemplateName) == "" {
+			return nil, errors.New("whatsapp template is required")
+		}
+	}
+	toDigits, err := sanitizeE164Digits(to)
+	if err != nil {
+		return nil, err
 	}
 
 	otp := extractOTP(text)
@@ -92,8 +106,8 @@ func (c *WhatsAppClient) SendSMS(to, text string) (*SendSMSResponse, error) {
 		paramText = strings.TrimSpace(text)
 	}
 
-	// DRY-RUN or not configured
-	if c.DryRun || c.AccessToken == "" || c.PhoneNumberID == "" {
+	// DRY-RUN
+	if c.DryRun {
 		fmt.Printf("📩 [WhatsApp][dry-run] to=%s template=%q lang=%q param=%q full_text=%q\n",
 			toDigits, c.TemplateName, c.LangCode, paramText, text)
 		return &SendSMSResponse{Code: 0}, nil
@@ -106,27 +120,21 @@ func (c *WhatsAppClient) SendSMS(to, text string) (*SendSMSResponse, error) {
 		"to":                toDigits,
 	}
 
-	if c.TemplateName != "" {
-		// Template sending (recommended for OTP)
-		payload["type"] = "template"
-		payload["template"] = map[string]any{
-			"name": c.TemplateName,
-			"language": map[string]any{
-				"code": c.LangCode,
-			},
-			"components": []any{
-				map[string]any{
-					"type": "body",
-					"parameters": []any{
-						map[string]any{"type": "text", "text": paramText},
-					},
+	// Template sending (required for OTP)
+	payload["type"] = "template"
+	payload["template"] = map[string]any{
+		"name": c.TemplateName,
+		"language": map[string]any{
+			"code": c.LangCode,
+		},
+		"components": []any{
+			map[string]any{
+				"type": "body",
+				"parameters": []any{
+					map[string]any{"type": "text", "text": paramText},
 				},
 			},
-		}
-	} else {
-		// Plain text (works only inside the customer service window)
-		payload["type"] = "text"
-		payload["text"] = map[string]any{"body": strings.TrimSpace(text)}
+		},
 	}
 
 	b, _ := json.Marshal(payload)

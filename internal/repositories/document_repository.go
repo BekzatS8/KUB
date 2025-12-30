@@ -16,8 +16,9 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 	const q = `
 		INSERT INTO documents (deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id`
+		RETURNING id, created_at`
 	var id int64
+	var createdAt sql.NullTime
 	if err := r.db.QueryRow(q,
 		doc.DealID,
 		doc.DocType,
@@ -25,8 +26,12 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 		doc.FilePathDocx,
 		doc.FilePathPdf,
 		doc.Status,
-	).Scan(&id); err != nil {
+	).Scan(&id, &createdAt); err != nil {
 		return 0, fmt.Errorf("create document: %w", err)
+	}
+	doc.ID = id
+	if createdAt.Valid {
+		doc.CreatedAt = createdAt.Time
 	}
 	return id, nil
 }
@@ -34,10 +39,12 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 // GetByID — читаем базовые поля + пути; signed_at игнорируем (если не нужен в модели).
 func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
 		FROM documents
 		WHERE id = $1`
 	var d models.Document
+	var signedAt sql.NullTime
+	var createdAt sql.NullTime
 	err := r.db.QueryRow(q, id).Scan(
 		&d.ID,
 		&d.DealID,
@@ -46,12 +53,20 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 		&d.FilePathDocx,
 		&d.FilePathPdf,
 		&d.Status,
+		&signedAt,
+		&createdAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if signedAt.Valid {
+		d.SignedAt = &signedAt.Time
+	}
+	if createdAt.Valid {
+		d.CreatedAt = createdAt.Time
 	}
 	return &d, nil
 }
@@ -90,7 +105,7 @@ func (r *DocumentRepository) Delete(id int64) error {
 
 func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
 		FROM documents
 		WHERE deal_id = $1
 		ORDER BY id DESC`
@@ -103,6 +118,8 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 	var res []*models.Document
 	for rows.Next() {
 		var d models.Document
+		var signedAt sql.NullTime
+		var createdAt sql.NullTime
 		if err := rows.Scan(
 			&d.ID,
 			&d.DealID,
@@ -111,8 +128,16 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 			&d.FilePathDocx,
 			&d.FilePathPdf,
 			&d.Status,
+			&signedAt,
+			&createdAt,
 		); err != nil {
 			return nil, err
+		}
+		if signedAt.Valid {
+			d.SignedAt = &signedAt.Time
+		}
+		if createdAt.Valid {
+			d.CreatedAt = createdAt.Time
 		}
 		res = append(res, &d)
 	}
@@ -142,7 +167,7 @@ func (r *DocumentRepository) UpdateStatus(id int64, status string) error {
 
 func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
 		FROM documents
 		ORDER BY id DESC
 		LIMIT $1 OFFSET $2`
@@ -155,6 +180,8 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 	var res []*models.Document
 	for rows.Next() {
 		var d models.Document
+		var signedAt sql.NullTime
+		var createdAt sql.NullTime
 		if err := rows.Scan(
 			&d.ID,
 			&d.DealID,
@@ -163,8 +190,16 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 			&d.FilePathDocx,
 			&d.FilePathPdf,
 			&d.Status,
+			&signedAt,
+			&createdAt,
 		); err != nil {
 			return nil, err
+		}
+		if signedAt.Valid {
+			d.SignedAt = &signedAt.Time
+		}
+		if createdAt.Valid {
+			d.CreatedAt = createdAt.Time
 		}
 		res = append(res, &d)
 	}

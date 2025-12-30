@@ -45,7 +45,6 @@ type ClientRepo interface {
 type SMSConfirmRepo interface {
 	Create(sms *models.SMSConfirmation) (int64, error)
 	GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error)
-	GetByDocumentIDAndCode(documentID int64, code string) (*models.SMSConfirmation, error)
 	Update(sms *models.SMSConfirmation) error
 }
 
@@ -163,6 +162,32 @@ var clientExcelTemplates = map[string]struct {
 	},
 }
 
+var supportedDocTypes = func() map[string]struct{} {
+	types := map[string]struct{}{
+		"contract": {},
+		"invoice":  {},
+	}
+	for key := range clientDocTemplates {
+		types[key] = struct{}{}
+	}
+	for key := range clientDocDocxMap {
+		types[key] = struct{}{}
+	}
+	for key := range clientExcelTemplates {
+		types[key] = struct{}{}
+	}
+	return types
+}()
+
+func normalizeDocType(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func isSupportedDocType(value string) bool {
+	_, ok := supportedDocTypes[normalizeDocType(value)]
+	return ok
+}
+
 // ====================== CRUD ======================
 
 func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID int) (int64, error) {
@@ -180,6 +205,11 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	deal, err := s.DealRepo.GetByID(int(doc.DealID))
 	if err != nil || deal == nil {
 		return 0, errors.New("deal not found")
+	}
+
+	doc.DocType = normalizeDocType(doc.DocType)
+	if !isSupportedDocType(doc.DocType) {
+		return 0, errors.New("unsupported doc_type")
 	}
 
 	// Sales может создавать документ только по своей сделке
@@ -213,8 +243,12 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, errors.New("forbidden")
 	}
-	if strings.TrimSpace(docType) == "" {
+	docType = normalizeDocType(docType)
+	if docType == "" {
 		return nil, errors.New("doc_type is required")
+	}
+	if !isSupportedDocType(docType) {
+		return nil, errors.New("unsupported doc_type")
 	}
 	if file == nil {
 		return nil, errors.New("file is required")
@@ -309,6 +343,9 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return errors.New("forbidden")
 	}
+	if err := s.deleteDocumentFiles(doc); err != nil {
+		return err
+	}
 	return s.DocRepo.Delete(id)
 }
 
@@ -383,13 +420,11 @@ func (s *DocumentService) SignBySMS(docID int64) error {
 		return nil
 	}
 
-	// Разрешаем подписывать из этих статусов
-	switch doc.Status {
-	case "draft", "under_review", "approved", "returned":
-		return s.DocRepo.UpdateStatus(docID, "signed")
-	default:
+	if doc.Status != "approved" {
 		return errors.New("invalid status")
 	}
+
+	return s.DocRepo.UpdateStatus(docID, "signed")
 }
 
 // ================== Работа с файлами ==================
@@ -433,6 +468,24 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 		return "", "", errors.New("file not found")
 	}
 	return abs, filepath.Base(abs), nil
+}
+
+func (s *DocumentService) EnsureSMSAllowed(docID int64, userID, roleID int) error {
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	if doc.Status != "approved" {
+		return errors.New("invalid status")
+	}
+	return nil
 }
 
 // variant:
@@ -504,9 +557,55 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	return abs, filepath.Base(abs), nil
 }
 
+func (s *DocumentService) resolveStoragePath(rel string) (string, error) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return "", nil
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	if strings.HasPrefix(rel, "files/") {
+		rel = strings.TrimPrefix(rel, "files/")
+	}
+	if strings.Contains(rel, "..") || rel == "." || rel == "" {
+		return "", errors.New("bad filepath")
+	}
+	return filepath.Join(s.FilesRoot, rel), nil
+}
+
+func (s *DocumentService) deleteDocumentFiles(doc *models.Document) error {
+	paths := []string{
+		doc.FilePath,
+		doc.FilePathPdf,
+		doc.FilePathDocx,
+	}
+	unique := make(map[string]struct{}, len(paths))
+	for _, rel := range paths {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			continue
+		}
+		unique[rel] = struct{}{}
+	}
+	for rel := range unique {
+		abs, err := s.resolveStoragePath(rel)
+		if err != nil {
+			return err
+		}
+		if abs == "" {
+			continue
+		}
+		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("file delete failed: %w", err)
+		}
+	}
+	return nil
+}
+
 // ================== Документы из лида (старый контракт/invoice) ==================
 
 func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, userID, roleID int) (*models.Document, error) {
+	docType = normalizeDocType(docType)
 	lead, err := s.LeadRepo.GetByID(leadID)
 	if err != nil || lead == nil {
 		return nil, errors.New("lead not found")
@@ -548,6 +647,8 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 		return nil, err
 	}
 
+	relPath = normalizeStoragePath(relPath)
+
 	doc := &models.Document{
 		DealID:      int64(deal.ID),
 		DocType:     docType,
@@ -572,6 +673,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 	userID, roleID int,
 	extra map[string]string,
 ) (*models.Document, error) {
+	docType = normalizeDocType(docType)
 
 	// хотя бы один генератор должен быть сконфигурирован
 	if s.PDFGen == nil && s.DocxGen == nil && s.XlsxGen == nil {

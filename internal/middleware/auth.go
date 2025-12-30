@@ -9,8 +9,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var JWTKey = []byte("your-secret-key") // TODO: вынести в конфиг
-
 type Claims struct {
 	UserID int `json:"user_id"`
 	RoleID int `json:"role_id"`
@@ -50,7 +48,7 @@ func extractBearerToken(authHeader string) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func AuthMiddleware() gin.HandlerFunc {
+func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
 			c.Next()
@@ -82,7 +80,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrTokenSignatureInvalid
 			}
-			return JWTKey, nil
+			return jwtSecret, nil
 		})
 		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})

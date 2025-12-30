@@ -87,9 +87,6 @@ func (r *fakeSMSConfirmRepo) Create(sms *models.SMSConfirmation) (int64, error) 
 func (r *fakeSMSConfirmRepo) GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error) {
 	return nil, nil
 }
-func (r *fakeSMSConfirmRepo) GetByDocumentIDAndCode(documentID int64, code string) (*models.SMSConfirmation, error) {
-	return nil, nil
-}
 func (r *fakeSMSConfirmRepo) Update(sms *models.SMSConfirmation) error { return nil }
 
 type fakePDFGen struct {

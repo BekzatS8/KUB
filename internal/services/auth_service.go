@@ -28,7 +28,7 @@ type authService struct {
 
 func NewAuthService(accessSecret, refreshSecret []byte, accessTTL, refreshTTL time.Duration, now func() time.Time) AuthService {
 	if len(accessSecret) == 0 {
-		accessSecret = middleware.JWTKey
+		panic("access secret is required")
 	}
 	if accessTTL <= 0 {
 		accessTTL = 15 * time.Minute

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"turcompany/internal/docx"
 	"turcompany/internal/xlsx"
@@ -40,6 +41,14 @@ func Run() {
 	log.Printf("[BOOT] config: files.root_dir=%s", cfg.Files.RootDir)
 	log.Printf("[BOOT] config: templates docx=%s xlsx=%s txt=%s", cfg.Templates.DocxDir, cfg.Templates.XlsxDir, cfg.Templates.TxtDir)
 	log.Printf("[BOOT] config: libreoffice.enable=%v binary=%s", cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)
+	jwtSecret := []byte(cfg.Security.JWTSecret)
+	if len(jwtSecret) < 32 {
+		if gin.Mode() == gin.ReleaseMode {
+			log.Fatalf("[BOOT] JWT secret too short or missing (len=%d). Set security.jwt_secret or JWT_SECRET (min 32 bytes).", len(jwtSecret))
+		}
+		log.Printf("[BOOT] WARNING: JWT secret too short or missing (len=%d). Using insecure dev secret.", len(jwtSecret))
+		jwtSecret = []byte("dev-insecure-jwt-secret-min-32-bytes")
+	}
 	for _, dir := range []string{
 		cfg.Files.RootDir,
 		filepath.Join(cfg.Files.RootDir, "pdf"),
@@ -88,7 +97,7 @@ func Run() {
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 
 	// === Services (общие) ===
-	authService := services.NewAuthService(middleware.JWTKey, nil, 15*time.Minute, 30*24*time.Hour, nil)
+	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
 	emailService := services.NewEmailService(
 		cfg.Email.SMTPHost,
 		cfg.Email.SMTPPort,
@@ -161,6 +170,21 @@ func Run() {
 	// === OTP provider: WhatsApp OR Mobizon (same interface) ===
 	var otpClient services.MobizonClient
 	if cfg.WhatsApp.Enable {
+		if !cfg.WhatsApp.DryRun {
+			missing := []string{}
+			if strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
+				missing = append(missing, "access_token")
+			}
+			if strings.TrimSpace(cfg.WhatsApp.PhoneNumberID) == "" {
+				missing = append(missing, "phone_number_id")
+			}
+			if strings.TrimSpace(cfg.WhatsApp.TemplateName) == "" {
+				missing = append(missing, "template_name")
+			}
+			if len(missing) > 0 {
+				log.Fatalf("[BOOT] WhatsApp config missing: %s", strings.Join(missing, ", "))
+			}
+		}
 		otpClient = utils.NewWhatsAppClient(
 			cfg.WhatsApp.AccessToken,
 			cfg.WhatsApp.PhoneNumberID,
@@ -233,7 +257,7 @@ func Run() {
 
 	// === Gin ===
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
+	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware(cfg))
 
 	auditRepo := repositories.NewAuditRepository(db)
 	auditSvc := services.NewAuditService(auditRepo)
@@ -256,6 +280,7 @@ func Run() {
 		verifyHandler,
 		integrationsHandler,
 		chatHandler,
+		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
 
@@ -266,12 +291,12 @@ func Run() {
 	}
 }
 
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, Content-Length")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", cfg.CORS.AllowOrigins)
+		c.Writer.Header().Set("Access-Control-Allow-Methods", cfg.CORS.AllowMethods)
+		c.Writer.Header().Set("Access-Control-Allow-Headers", cfg.CORS.AllowHeaders)
+		c.Writer.Header().Set("Access-Control-Expose-Headers", cfg.CORS.ExposeHeaders)
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
 
@@ -29,7 +30,12 @@ func (h *SMSHandler) SendSMSHandler(c *gin.Context) {
 		return
 	}
 
-	if err := h.Service.SendSMS(input.DocumentID, input.Phone); err != nil {
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.SendSMS(input.DocumentID, input.Phone, userID, roleID); err != nil {
+		if err == services.ErrResendThrottled || err == services.ErrTooManyAttempts {
+			badRequest(c, err.Error())
+			return
+		}
 		fmt.Printf("❌ Failed to send SMS: %v\n", err)
 		internalError(c, "Failed to send SMS")
 		return
@@ -48,7 +54,12 @@ func (h *SMSHandler) ResendSMSHandler(c *gin.Context) {
 		return
 	}
 
-	if err := h.Service.ResendSMS(input.DocumentID, input.Phone); err != nil {
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.ResendSMS(input.DocumentID, input.Phone, userID, roleID); err != nil {
+		if err == services.ErrResendThrottled {
+			badRequest(c, err.Error())
+			return
+		}
 		internalError(c, "Failed to resend SMS")
 		return
 	}
@@ -66,8 +77,13 @@ func (h *SMSHandler) ConfirmSMSHandler(c *gin.Context) {
 		return
 	}
 
-	ok, err := h.Service.ConfirmCode(input.DocumentID, input.Code)
+	userID, roleID := getUserAndRole(c)
+	ok, err := h.Service.ConfirmCode(input.DocumentID, input.Code, userID, roleID)
 	if err != nil {
+		if err == services.ErrCodeExpired || err == services.ErrCodeInvalid || err == services.ErrTooManyAttempts {
+			badRequest(c, err.Error())
+			return
+		}
 		internalError(c, "Confirmation failed")
 		return
 	}
@@ -97,7 +113,20 @@ func (h *SMSHandler) GetLatestSMSHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, sms)
+	type smsResponse struct {
+		DocumentID  int64     `json:"document_id"`
+		Phone       string    `json:"phone"`
+		SentAt      time.Time `json:"sent_at"`
+		Confirmed   bool      `json:"confirmed"`
+		ConfirmedAt time.Time `json:"confirmed_at"`
+	}
+	c.JSON(http.StatusOK, smsResponse{
+		DocumentID:  sms.DocumentID,
+		Phone:       maskPhone(sms.Phone),
+		SentAt:      sms.SentAt,
+		Confirmed:   sms.Confirmed,
+		ConfirmedAt: sms.ConfirmedAt,
+	})
 }
 
 func (h *SMSHandler) DeleteSMSHandler(c *gin.Context) {
@@ -114,4 +143,17 @@ func (h *SMSHandler) DeleteSMSHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Confirmations deleted"})
+}
+
+func maskPhone(phone string) string {
+	trimmed := ""
+	for _, r := range phone {
+		if r != ' ' {
+			trimmed += string(r)
+		}
+	}
+	if len(trimmed) <= 4 {
+		return "****"
+	}
+	return fmt.Sprintf("****%s", trimmed[len(trimmed)-4:])
 }
