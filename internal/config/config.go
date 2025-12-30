@@ -97,6 +97,11 @@ func LoadConfig() *Config {
 
 	f, err := os.Open(configPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			cfg := Config{}
+			applyDefaults(&cfg)
+			return &cfg
+		}
 		panic("Failed to open config file: " + configPath + ": " + err.Error())
 	}
 	defer f.Close()
@@ -106,6 +111,11 @@ func LoadConfig() *Config {
 		panic("Failed to parse config file: " + configPath + ": " + err.Error())
 	}
 
+	applyDefaults(&cfg)
+	return &cfg
+}
+
+func applyDefaults(cfg *Config) {
 	// defaults
 	if cfg.Files.RootDir == "" {
 		cfg.Files.RootDir = "./files"
@@ -140,6 +150,9 @@ func LoadConfig() *Config {
 	if envSecret := os.Getenv("JWT_SECRET"); envSecret != "" {
 		cfg.Security.JWTSecret = envSecret
 	}
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		cfg.Database.DSN = dbURL
+	}
 
 	// WhatsApp defaults
 	if cfg.WhatsApp.APIVersion == "" {
@@ -148,6 +161,4 @@ func LoadConfig() *Config {
 	if cfg.WhatsApp.LangCode == "" {
 		cfg.WhatsApp.LangCode = "ru"
 	}
-
-	return &cfg
 }
