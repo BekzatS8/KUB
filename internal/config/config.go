@@ -1,8 +1,9 @@
 package config
 
 import (
-	"gopkg.in/yaml.v3"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type FilesConfig struct {
@@ -19,15 +20,27 @@ type LibreOfficeConfig struct {
 	Enable bool   `yaml:"enable"`
 	Binary string `yaml:"binary"`
 }
+
 type TelegramConfig struct {
 	Enable     bool   `yaml:"enable"`
 	BotToken   string `yaml:"bot_token"`
-	WebhookURL string `yaml:"webhook_url"` // публичный URL вида https://domain/tg/webhook
+	WebhookURL string `yaml:"webhook_url"`
 }
+
 type MobizonConfig struct {
 	APIKey   string `yaml:"api_key"`
 	SenderID string `yaml:"sender_id"`
 	DryRun   bool   `yaml:"dry_run"`
+}
+
+type WhatsAppConfig struct {
+	Enable        bool   `yaml:"enable"`
+	AccessToken   string `yaml:"access_token"`
+	PhoneNumberID string `yaml:"phone_number_id"`
+	APIVersion    string `yaml:"api_version"`
+	TemplateName  string `yaml:"template_name"`
+	LangCode      string `yaml:"lang_code"`
+	DryRun        bool   `yaml:"dry_run"`
 }
 
 type FrontendConfig struct {
@@ -39,9 +52,11 @@ type Config struct {
 		Port int    `yaml:"port"`
 		TZ   string `yaml:"tz"`
 	} `yaml:"server"`
+
 	Database struct {
 		DSN string `yaml:"url"`
 	} `yaml:"database"`
+
 	Email struct {
 		SMTPHost     string `yaml:"smtp_host"`
 		SMTPPort     int    `yaml:"smtp_port"`
@@ -49,12 +64,16 @@ type Config struct {
 		SMTPPassword string `yaml:"smtp_password"`
 		FromEmail    string `yaml:"from_email"`
 	} `yaml:"email"`
+
 	Files       FilesConfig       `yaml:"files"`
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
-	Mobizon     MobizonConfig     `yaml:"mobizon"`
-	Telegram    TelegramConfig    `yaml:"telegram"`
-	Frontend    FrontendConfig    `yaml:"frontend"`
+
+	Mobizon  MobizonConfig  `yaml:"mobizon"`
+	WhatsApp WhatsAppConfig `yaml:"whatsapp"`
+
+	Telegram TelegramConfig `yaml:"telegram"`
+	Frontend FrontendConfig `yaml:"frontend"`
 }
 
 func LoadConfig() *Config {
@@ -69,6 +88,7 @@ func LoadConfig() *Config {
 		panic("Failed to parse config.yaml: " + err.Error())
 	}
 
+	// defaults
 	if cfg.Files.RootDir == "" {
 		cfg.Files.RootDir = "./files"
 	}
@@ -87,5 +107,14 @@ func LoadConfig() *Config {
 	if cfg.Frontend.Host == "" {
 		cfg.Frontend.Host = "http://localhost:3000"
 	}
+
+	// WhatsApp defaults
+	if cfg.WhatsApp.APIVersion == "" {
+		cfg.WhatsApp.APIVersion = "v21.0"
+	}
+	if cfg.WhatsApp.LangCode == "" {
+		cfg.WhatsApp.LangCode = "ru"
+	}
+
 	return &cfg
 }

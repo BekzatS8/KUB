@@ -56,12 +56,10 @@ func Run() {
 	if err != nil {
 		log.Fatal("[BOOT] Ошибка подключения к БД: ", err)
 	}
-	// Параметры пула подключений (по желанию)
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	// Быстрая проверка соединения
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -83,11 +81,12 @@ func Run() {
 	clientRepo := repositories.NewClientRepository(db)
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
-	smsRepo := repositories.NewSMSConfirmationRepository(db)    // для документов
-	verifRepo := repositories.NewUserVerificationRepository(db) // для верификации пользователей
-	teleLinkRepo := repositories.NewTelegramLinkRepository(db)  // для привязки Telegram
+	smsRepo := repositories.NewSMSConfirmationRepository(db)
+	verifRepo := repositories.NewUserVerificationRepository(db)
+	teleLinkRepo := repositories.NewTelegramLinkRepository(db)
 	chatRepo := repositories.NewChatRepository(db)
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
+
 	// === Services (общие) ===
 	authService := services.NewAuthService(middleware.JWTKey, nil, 15*time.Minute, 30*24*time.Hour, nil)
 	emailService := services.NewEmailService(
@@ -98,13 +97,12 @@ func Run() {
 		cfg.Email.FromEmail,
 	)
 
-	// Подготовим переменные под Telegram и интеграционный хендлер
 	var (
 		tgSvc               *services.TelegramService
 		integrationsHandler *handlers.IntegrationsHandler
 	)
 
-	// Telegram (если включен)
+	// Telegram
 	if cfg.Telegram.Enable && cfg.Telegram.BotToken != "" {
 		log.Printf("[BOOT] Telegram enabled: true (token len=%d)", len(cfg.Telegram.BotToken))
 		tgSvc = services.NewTelegramService(cfg.Telegram.BotToken, teleLinkRepo, userRepo, nil, cfg.Frontend.Host)
@@ -131,13 +129,8 @@ func Run() {
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
-	pdfGen := pdf.NewDocumentGenerator(
-		cfg.Files.RootDir,
-		cfg.Templates.TxtDir,
-		"assets/fonts/DejaVuSans.ttf",
-	)
+	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, cfg.Templates.TxtDir, "assets/fonts/DejaVuSans.ttf")
 
-	// DOCX-генератор (LibreOffice)
 	docxGen := docx.NewDocxGenerator(
 		cfg.Files.RootDir,
 		cfg.Templates.DocxDir,
@@ -160,32 +153,46 @@ func Run() {
 		excelGen,
 	)
 
-	// --- ВАЖНО: создаём TaskService ДО сборки хендлеров, т.к. он нужен и TaskHandler, и IntegrationsHandler
 	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)
 	if tgSvc != nil {
 		tgSvc.SetTaskService(taskService)
 	}
 
-	// SMS провайдер (Mobizon)
-	mobizonClient := utils.NewClientWithOptions(
-		cfg.Mobizon.APIKey,
-		cfg.Mobizon.SenderID,
-		cfg.Mobizon.DryRun,
-	)
-	log.Printf("[BOOT] Mobizon: dry_run=%v sender_id=%q", cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
+	// === OTP provider: WhatsApp OR Mobizon (same interface) ===
+	var otpClient services.MobizonClient
+	if cfg.WhatsApp.Enable {
+		otpClient = utils.NewWhatsAppClient(
+			cfg.WhatsApp.AccessToken,
+			cfg.WhatsApp.PhoneNumberID,
+			cfg.WhatsApp.APIVersion,
+			cfg.WhatsApp.TemplateName,
+			cfg.WhatsApp.LangCode,
+			cfg.WhatsApp.DryRun,
+		)
+		log.Printf("[BOOT] WhatsApp: enable=true dry_run=%v phone_number_id=%q template=%q api_version=%q lang=%q",
+			cfg.WhatsApp.DryRun, cfg.WhatsApp.PhoneNumberID, cfg.WhatsApp.TemplateName, cfg.WhatsApp.APIVersion, cfg.WhatsApp.LangCode)
+	} else {
+		otpClient = utils.NewClientWithOptions(
+			cfg.Mobizon.APIKey,
+			cfg.Mobizon.SenderID,
+			cfg.Mobizon.DryRun,
+		)
+		log.Printf("[BOOT] Mobizon: enable=true dry_run=%v sender_id=%q", cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
+	}
 
-	// Сервис SMS — для документов + для верификации пользователей
+	// Сервис OTP — для документов + для верификации пользователей
 	smsService := services.NewSMSService(
-		smsRepo,       // репозиторий подтверждений по документам
-		mobizonClient, // провайдер
+		smsRepo,
+		otpClient,
 		documentService,
-		verifRepo,   // репозиторий верификации пользователей
-		userService, // чтобы отмечать is_verified
+		verifRepo,
+		userService,
 		nil,
 	)
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo)
+
 	chatHub := realtime.NewChatHub(chatRepo)
 	go chatHub.Run()
 	defer chatHub.Stop()
@@ -200,14 +207,13 @@ func Run() {
 	documentHandler := handlers.NewDocumentHandler(documentService)
 	chatHandler := handlers.NewChatHandler(chatService, chatHub)
 
-	// ✔ TaskHandler теперь получает TelegramService и UserRepository для уведомлений
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
 
 	smsHandler := handlers.NewSMSHandler(smsService)
 	verifyHandler := handlers.NewVerifyHandler(smsService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
-	// === Загружаем локаль (тайм-зону) и прокидываем в интеграции ===
+	// timezone
 	var loc *time.Location
 	if tz := cfg.Server.TZ; tz != "" {
 		if l, err := time.LoadLocation(tz); err != nil {
@@ -221,14 +227,11 @@ func Run() {
 	}
 	log.Printf("[BOOT] server timezone set to: %s", loc.String())
 
-	// ✔ IntegrationsHandler должен создаваться ПОСЛЕ taskService, и получает его в конструктор
 	if tgSvc != nil {
 		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)
 	}
 
 	// === Gin ===
-	// Для продакшена можно включить gin.ReleaseMode()
-	// gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 
@@ -256,7 +259,6 @@ func Run() {
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
 
-	// === Run ===
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("[BOOT] HTTP listen on %s", addr)
 	if err := router.Run(addr); err != nil {
