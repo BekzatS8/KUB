@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -128,12 +129,15 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 
 // ConvertLeadToDeal оставляем как у тебя, только напомню,
 // что он требует lead.Status == "confirmed"
-func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
+func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
 	if roleID == authz.RoleAdminStaff {
 		return nil, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
 		return nil, ErrReadOnly
+	}
+	if amount <= 0 {
+		return nil, errors.New("amount must be greater than 0")
 	}
 	lead, err := s.Repo.GetByID(leadID)
 	if err != nil || lead == nil {
@@ -141,19 +145,6 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return nil, ErrForbidden
-	}
-	// допустимый статус для конвертации
-	if lead.Status != "confirmed" {
-		return nil, errors.New("lead is not in a convertible status")
-	}
-
-	// идемпотентность — не создаём вторую сделку
-	existingDeal, err := s.DealRepo.GetByLeadID(leadID)
-	if err != nil {
-		return nil, err
-	}
-	if existingDeal != nil {
-		return nil, errors.New("deal already exists for this lead")
 	}
 	if s.ClientSvc == nil {
 		return nil, errors.New("client repository not configured")
@@ -165,33 +156,25 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount, currency string, own
 	if clientData.OwnerID == 0 {
 		clientData.OwnerID = ownerID
 	}
-	var client *models.Client
-	client, err = s.ClientSvc.GetOrCreateByBIN(clientData.BinIin, clientData)
-	if err != nil {
+	if err = s.ClientSvc.NormalizeAndValidate(clientData); err != nil {
 		return nil, err
 	}
 	deal := &models.Deals{
-		LeadID:    &leadID,
-		ClientID:  client.ID,
+		LeadID:    leadID,
 		OwnerID:   ownerID,
 		Amount:    amount,
 		Currency:  currency,
 		Status:    "new",
 		CreatedAt: time.Now(),
 	}
-
-	dealID, err := s.DealRepo.Create(deal)
+	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, clientData)
 	if err != nil {
+		if errors.Is(err, repositories.ErrDealAlreadyExists) {
+			return converted, ErrDealAlreadyExists
+		}
 		return nil, err
 	}
-	deal.ID = int(dealID)
-
-	lead.Status = "converted"
-	if err := s.Repo.Update(lead); err != nil {
-		_ = s.DealRepo.Delete(deal.ID) // best-effort rollback
-		return nil, err
-	}
-	return deal, nil
+	return converted, nil
 }
 
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {

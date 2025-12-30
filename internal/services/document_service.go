@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -622,13 +623,14 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 		return nil, errors.New("pdf generator not configured")
 	}
 
+	amountStr := strconv.FormatFloat(deal.Amount, 'f', 2, 64)
 	var relPath string
 	switch docType {
 	case "contract":
 		relPath, err = s.PDFGen.GenerateContract(pdf.ContractData{
 			LeadTitle: lead.Title,
 			DealID:    deal.ID,
-			Amount:    deal.Amount,
+			Amount:    amountStr,
 			Currency:  deal.Currency,
 			CreatedAt: deal.CreatedAt,
 		})
@@ -636,7 +638,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 		relPath, err = s.PDFGen.GenerateInvoice(pdf.InvoiceData{
 			LeadTitle: lead.Title,
 			DealID:    deal.ID,
-			Amount:    deal.Amount,
+			Amount:    amountStr,
 			Currency:  deal.Currency,
 			CreatedAt: deal.CreatedAt,
 		})

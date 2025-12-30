@@ -49,8 +49,11 @@ CREATE TABLE IF NOT EXISTS leads (
                                      title       VARCHAR(255) NOT NULL,
                                      description TEXT,
                                      owner_id    INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-                                     status      VARCHAR(100),
-                                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                                     status      VARCHAR(100) NOT NULL DEFAULT 'new',
+                                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                     CONSTRAINT leads_status_chk CHECK (
+                                         status IN ('new','in_progress','confirmed','converted','cancelled')
+                                         )
 );
 
 CREATE INDEX IF NOT EXISTS leads_owner_idx  ON leads(owner_id);
@@ -60,7 +63,7 @@ CREATE INDEX IF NOT EXISTS leads_status_idx ON leads(status);
 CREATE TABLE IF NOT EXISTS clients (
                                        id                    SERIAL PRIMARY KEY,
                                        name                  VARCHAR(255) NOT NULL,
-                                       bin_iin               VARCHAR(255) UNIQUE,
+                                       bin_iin               VARCHAR(255),
                                        address               TEXT,
                                        contact_info          TEXT,
                                        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -79,11 +82,14 @@ CREATE TABLE IF NOT EXISTS clients (
                                        actual_address        TEXT,
 
     -- привязка к менеджеру (владелец клиента)
-                                       owner_id              INT REFERENCES users(id)
+                                       owner_id              INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS clients_name_idx     ON clients(name);
 CREATE INDEX IF NOT EXISTS clients_bin_iin_idx  ON clients(bin_iin);
+CREATE UNIQUE INDEX IF NOT EXISTS clients_bin_iin_unique_idx
+    ON clients(bin_iin)
+    WHERE bin_iin IS NOT NULL AND bin_iin <> '';
 CREATE INDEX IF NOT EXISTS idx_clients_iin      ON clients(iin);
 CREATE INDEX IF NOT EXISTS idx_clients_phone    ON clients(phone);
 CREATE INDEX IF NOT EXISTS clients_owner_idx    ON clients(owner_id);
@@ -91,12 +97,12 @@ CREATE INDEX IF NOT EXISTS clients_owner_idx    ON clients(owner_id);
 -- ===================== DEALS =====================
 CREATE TABLE IF NOT EXISTS deals (
                                      id         SERIAL PRIMARY KEY,
-                                     lead_id    INT REFERENCES leads(id)   ON DELETE SET NULL,
+                                     lead_id    INT NOT NULL REFERENCES leads(id) ON DELETE RESTRICT,
                                      client_id  INT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
-                                     owner_id   INT REFERENCES users(id)   ON DELETE SET NULL,
-                                     amount     VARCHAR(20) NOT NULL,
+                                     owner_id   INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                                     amount     NUMERIC(12,2) NOT NULL,
                                      currency   VARCHAR(10) NOT NULL,
-                                     status     VARCHAR(100),
+                                     status     VARCHAR(100) NOT NULL DEFAULT 'new',
                                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                                      CONSTRAINT deals_status_chk CHECK (
                                          status IN ('new','in_progress','negotiation','won','lost','cancelled')
@@ -104,6 +110,7 @@ CREATE TABLE IF NOT EXISTS deals (
 );
 
 CREATE INDEX IF NOT EXISTS deals_lead_idx   ON deals(lead_id);
+CREATE UNIQUE INDEX IF NOT EXISTS deals_lead_unique_idx ON deals(lead_id);
 CREATE INDEX IF NOT EXISTS deals_owner_idx  ON deals(owner_id);
 CREATE INDEX IF NOT EXISTS deals_client_idx ON deals(client_id);
 CREATE INDEX IF NOT EXISTS deals_status_idx ON deals(status);
@@ -118,6 +125,7 @@ CREATE TABLE IF NOT EXISTS documents (
                                          file_path_pdf   TEXT,
                                          status          VARCHAR(100),
                                          signed_at       TIMESTAMPTZ,
+                                         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                                          CONSTRAINT documents_status_chk CHECK (
                                              status IN ('draft','under_review','approved','returned','signed')
                                              )
@@ -160,11 +168,17 @@ CREATE INDEX IF NOT EXISTS tasks_reminder_idx  ON tasks(reminder_at) WHERE remin
 CREATE TABLE IF NOT EXISTS sms_confirmations (
                                                  id            SERIAL PRIMARY KEY,
                                                  document_id   INT REFERENCES documents(id) ON DELETE CASCADE,
-                                                 sms_code      VARCHAR(100),
+                                                 code_hash     TEXT NOT NULL,
                                                  sent_at       TIMESTAMPTZ,
+                                                 expires_at    TIMESTAMPTZ NOT NULL,
                                                  confirmed     BOOLEAN DEFAULT FALSE,
                                                  confirmed_at  TIMESTAMPTZ,
-                                                 phone         VARCHAR(20)
+                                                 phone         VARCHAR(20),
+                                                 attempts      INT NOT NULL DEFAULT 0,
+                                                 last_resend_at TIMESTAMPTZ,
+                                                 resend_count  INT NOT NULL DEFAULT 0,
+                                                 CONSTRAINT sms_confirmations_attempts_chk CHECK (attempts >= 0),
+                                                 CONSTRAINT sms_confirmations_resend_count_chk CHECK (resend_count >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS sms_document_idx   ON sms_confirmations(document_id);
@@ -210,6 +224,7 @@ CREATE INDEX IF NOT EXISTS telegram_links_exp_idx  ON telegram_links(expires_at)
 CREATE TABLE IF NOT EXISTS chats (
                                      id         SERIAL PRIMARY KEY,
                                      name       VARCHAR(255) NOT NULL,
+                                     creator_id INT REFERENCES users(id) ON DELETE SET NULL,
                                      is_group   BOOLEAN      NOT NULL DEFAULT FALSE,
                                      created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

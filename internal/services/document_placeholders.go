@@ -169,8 +169,9 @@ func buildClientPlaceholders(
 
 	// ================== СДЕЛКА ==================
 	if deal != nil {
+		amountStr := strconv.FormatFloat(deal.Amount, 'f', 2, 64)
 		ph["DEAL_ID"] = strconv.Itoa(deal.ID)
-		ph["DEAL_AMOUNT_NUM"] = strings.TrimSpace(deal.Amount)
+		ph["DEAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
 		ph["DEAL_CURRENCY"] = strings.TrimSpace(deal.Currency)
 		ph["DEAL_STATUS"] = strings.TrimSpace(deal.Status)
 		ph["DEAL_DATE"] = deal.CreatedAt.Format("02.01.2006")
@@ -182,7 +183,7 @@ func buildClientPlaceholders(
 
 		// Общая сумма договора по умолчанию = сумма сделки
 		if _, ok := ph["TOTAL_AMOUNT_NUM"]; !ok {
-			ph["TOTAL_AMOUNT_NUM"] = strings.TrimSpace(deal.Amount)
+			ph["TOTAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
 		}
 	}
 

@@ -271,12 +271,12 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 
 // --- Convert ---
 type ConvertLeadRequest struct {
-	Amount            string `json:"amount" example:"50000"`
-	Currency          string `json:"currency" example:"USD"`
-	ClientName        string `json:"client_name" binding:"required"`
-	ClientBinIin      string `json:"client_bin_iin"`
-	ClientAddress     string `json:"client_address"`
-	ClientContactInfo string `json:"client_contact_info"`
+	Amount            float64 `json:"amount" example:"50000"`
+	Currency          string  `json:"currency" example:"USD"`
+	ClientName        string  `json:"client_name" binding:"required"`
+	ClientBinIin      string  `json:"client_bin_iin"`
+	ClientAddress     string  `json:"client_address"`
+	ClientContactInfo string  `json:"client_contact_info"`
 }
 
 func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
@@ -319,6 +319,10 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
 	if convErr != nil {
+		if errors.Is(convErr, services.ErrDealAlreadyExists) && deal != nil {
+			c.JSON(http.StatusConflict, deal)
+			return
+		}
 		conflict(c, ValidationFailed, "Lead conversion conflict")
 		return
 	}

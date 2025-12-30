@@ -12,8 +12,71 @@ type ClientRepository struct {
 	db *sql.DB
 }
 
+type clientRowScanner interface {
+	Scan(dest ...any) error
+}
+
 func NewClientRepository(db *sql.DB) *ClientRepository {
 	return &ClientRepository{db: db}
+}
+
+func scanClient(scanner clientRowScanner) (*models.Client, error) {
+	var c models.Client
+	var binIin sql.NullString
+	var address sql.NullString
+	var contactInfo sql.NullString
+	var lastName sql.NullString
+	var firstName sql.NullString
+	var middleName sql.NullString
+	var iin sql.NullString
+	var idNumber sql.NullString
+	var passportSeries sql.NullString
+	var passportNumber sql.NullString
+	var phone sql.NullString
+	var email sql.NullString
+	var registrationAddress sql.NullString
+	var actualAddress sql.NullString
+
+	err := scanner.Scan(
+		&c.ID,
+		&c.Name,
+		&binIin,
+		&address,
+		&contactInfo,
+		&lastName,
+		&firstName,
+		&middleName,
+		&iin,
+		&idNumber,
+		&passportSeries,
+		&passportNumber,
+		&phone,
+		&email,
+		&registrationAddress,
+		&actualAddress,
+		&c.OwnerID,
+		&c.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	c.BinIin = stringFromNull(binIin)
+	c.Address = stringFromNull(address)
+	c.ContactInfo = stringFromNull(contactInfo)
+	c.LastName = stringFromNull(lastName)
+	c.FirstName = stringFromNull(firstName)
+	c.MiddleName = stringFromNull(middleName)
+	c.IIN = stringFromNull(iin)
+	c.IDNumber = stringFromNull(idNumber)
+	c.PassportSeries = stringFromNull(passportSeries)
+	c.PassportNumber = stringFromNull(passportNumber)
+	c.Phone = stringFromNull(phone)
+	c.Email = stringFromNull(email)
+	c.RegistrationAddress = stringFromNull(registrationAddress)
+	c.ActualAddress = stringFromNull(actualAddress)
+
+	return &c, nil
 }
 
 func (r *ClientRepository) Create(c *models.Client) (int64, error) {
@@ -39,13 +102,13 @@ func (r *ClientRepository) Create(c *models.Client) (int64, error) {
 	err := r.db.QueryRow(
 		q,
 		c.Name,
-		c.BinIin,
+		nullStringFromEmpty(c.BinIin),
 		c.Address,
 		c.ContactInfo,
 		c.LastName,
 		c.FirstName,
 		c.MiddleName,
-		c.IIN,
+		nullStringFromEmpty(c.IIN),
 		c.IDNumber,
 		c.PassportSeries,
 		c.PassportNumber,
@@ -88,13 +151,13 @@ func (r *ClientRepository) Update(c *models.Client) error {
 	_, err := r.db.Exec(
 		q,
 		c.Name,
-		c.BinIin,
+		nullStringFromEmpty(c.BinIin),
 		c.Address,
 		c.ContactInfo,
 		c.LastName,
 		c.FirstName,
 		c.MiddleName,
-		c.IIN,
+		nullStringFromEmpty(c.IIN),
 		c.IDNumber,
 		c.PassportSeries,
 		c.PassportNumber,
@@ -137,34 +200,15 @@ func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
         WHERE id = $1
 `
 
-	var c models.Client
-	err := r.db.QueryRow(q, id).Scan(
-		&c.ID,
-		&c.Name,
-		&c.BinIin,
-		&c.Address,
-		&c.ContactInfo,
-		&c.LastName,
-		&c.FirstName,
-		&c.MiddleName,
-		&c.IIN,
-		&c.IDNumber,
-		&c.PassportSeries,
-		&c.PassportNumber,
-		&c.Phone,
-		&c.Email,
-		&c.RegistrationAddress,
-		&c.ActualAddress,
-		&c.OwnerID,
-		&c.CreatedAt,
-	)
+	row := r.db.QueryRow(q, id)
+	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get client: %w", err)
 	}
-	return &c, nil
+	return c, nil
 }
 
 func (r *ClientRepository) GetByBIN(bin string) (*models.Client, error) {
@@ -192,34 +236,87 @@ func (r *ClientRepository) GetByBIN(bin string) (*models.Client, error) {
         WHERE bin_iin = $1
 `
 
-	var c models.Client
-	err := r.db.QueryRow(q, bin).Scan(
-		&c.ID,
-		&c.Name,
-		&c.BinIin,
-		&c.Address,
-		&c.ContactInfo,
-		&c.LastName,
-		&c.FirstName,
-		&c.MiddleName,
-		&c.IIN,
-		&c.IDNumber,
-		&c.PassportSeries,
-		&c.PassportNumber,
-		&c.Phone,
-		&c.Email,
-		&c.RegistrationAddress,
-		&c.ActualAddress,
-		&c.OwnerID,
-		&c.CreatedAt,
-	)
+	row := r.db.QueryRow(q, bin)
+	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get client by BIN/IIN: %w", err)
 	}
-	return &c, nil
+	return c, nil
+}
+
+func (r *ClientRepository) GetByIIN(iin string) (*models.Client, error) {
+	const q = `
+        SELECT
+                id,
+                name,
+                bin_iin,
+                address,
+                contact_info,
+                last_name,
+                first_name,
+                middle_name,
+                iin,
+                id_number,
+                passport_series,
+                passport_number,
+                phone,
+                email,
+                registration_address,
+                actual_address,
+                owner_id,
+                created_at
+        FROM clients
+        WHERE iin = $1
+`
+
+	row := r.db.QueryRow(q, iin)
+	c, err := scanClient(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get client by IIN: %w", err)
+	}
+	return c, nil
+}
+
+func (r *ClientRepository) GetByPhone(phone string) (*models.Client, error) {
+	const q = `
+        SELECT
+                id,
+                name,
+                bin_iin,
+                address,
+                contact_info,
+                last_name,
+                first_name,
+                middle_name,
+                iin,
+                id_number,
+                passport_series,
+                passport_number,
+                phone,
+                email,
+                registration_address,
+                actual_address,
+                owner_id,
+                created_at
+        FROM clients
+        WHERE phone = $1
+`
+
+	row := r.db.QueryRow(q, phone)
+	c, err := scanClient(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get client by phone: %w", err)
+	}
+	return c, nil
 }
 
 func (r *ClientRepository) ListAll(limit, offset int) ([]*models.Client, error) {
@@ -256,30 +353,11 @@ func (r *ClientRepository) ListAll(limit, offset int) ([]*models.Client, error) 
 
 	var res []*models.Client
 	for rows.Next() {
-		var c models.Client
-		if err := rows.Scan(
-			&c.ID,
-			&c.Name,
-			&c.BinIin,
-			&c.Address,
-			&c.ContactInfo,
-			&c.LastName,
-			&c.FirstName,
-			&c.MiddleName,
-			&c.IIN,
-			&c.IDNumber,
-			&c.PassportSeries,
-			&c.PassportNumber,
-			&c.Phone,
-			&c.Email,
-			&c.RegistrationAddress,
-			&c.ActualAddress,
-			&c.OwnerID,
-			&c.CreatedAt,
-		); err != nil {
+		c, err := scanClient(rows)
+		if err != nil {
 			return nil, err
 		}
-		res = append(res, &c)
+		res = append(res, c)
 	}
 	return res, nil
 }
@@ -323,30 +401,11 @@ func (r *ClientRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Cl
 
 	var res []*models.Client
 	for rows.Next() {
-		var c models.Client
-		if err := rows.Scan(
-			&c.ID,
-			&c.Name,
-			&c.BinIin,
-			&c.Address,
-			&c.ContactInfo,
-			&c.LastName,
-			&c.FirstName,
-			&c.MiddleName,
-			&c.IIN,
-			&c.IDNumber,
-			&c.PassportSeries,
-			&c.PassportNumber,
-			&c.Phone,
-			&c.Email,
-			&c.RegistrationAddress,
-			&c.ActualAddress,
-			&c.OwnerID,
-			&c.CreatedAt,
-		); err != nil {
+		c, err := scanClient(rows)
+		if err != nil {
 			return nil, err
 		}
-		res = append(res, &c)
+		res = append(res, c)
 	}
 	return res, nil
 }
@@ -385,30 +444,11 @@ func (r *ClientRepository) FindByName(name string) ([]*models.Client, error) {
 
 	var res []*models.Client
 	for rows.Next() {
-		var c models.Client
-		if err := rows.Scan(
-			&c.ID,
-			&c.Name,
-			&c.BinIin,
-			&c.Address,
-			&c.ContactInfo,
-			&c.LastName,
-			&c.FirstName,
-			&c.MiddleName,
-			&c.IIN,
-			&c.IDNumber,
-			&c.PassportSeries,
-			&c.PassportNumber,
-			&c.Phone,
-			&c.Email,
-			&c.RegistrationAddress,
-			&c.ActualAddress,
-			&c.OwnerID,
-			&c.CreatedAt,
-		); err != nil {
+		c, err := scanClient(rows)
+		if err != nil {
 			return nil, err
 		}
-		res = append(res, &c)
+		res = append(res, c)
 	}
 	return res, nil
 }

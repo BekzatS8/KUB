@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -68,6 +69,14 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 	return &ClientHandler{Service: service}
 }
 
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == "23505"
+	}
+	return false
+}
+
 // POST /clients
 func (h *ClientHandler) Create(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
@@ -108,6 +117,10 @@ func (h *ClientHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
+		if isUniqueViolation(err) {
+			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+			return
+		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
 			forbidden(c, err.Error())
 			return
@@ -170,6 +183,10 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	current.ActualAddress = req.ActualAddress
 
 	if err := h.Service.Update(current, userID, roleID); err != nil {
+		if isUniqueViolation(err) {
+			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+			return
+		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
 			forbidden(c, err.Error())
 			return

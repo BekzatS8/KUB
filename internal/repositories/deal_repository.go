@@ -17,13 +17,11 @@ func NewDealRepository(db *sql.DB) *DealRepository {
 	return &DealRepository{db: db}
 }
 
-// helper: scan nullable lead_id -> *int
-func applyLeadNull(lead sql.NullInt64) *int {
-	if lead.Valid {
-		v := int(lead.Int64)
-		return &v
+func normalizeDealStatus(status sql.NullString) string {
+	if status.Valid && status.String != "" {
+		return status.String
 	}
-	return nil
+	return "new"
 }
 
 // Создание сделки — возвращает ID новой записи
@@ -36,7 +34,7 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(
 		query,
-		deal.LeadID,    // $1 (может быть nil -> NULL)
+		deal.LeadID,    // $1
 		deal.ClientID,  // $2
 		deal.OwnerID,   // $3
 		deal.Amount,    // $4
@@ -62,16 +60,16 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	`
 
 	deal := &models.Deals{}
-	var lead sql.NullInt64
+	var status sql.NullString
 
 	err := r.db.QueryRow(query, leadID).Scan(
 		&deal.ID,
-		&lead,
+		&deal.LeadID,
 		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
-		&deal.Status,
+		&status,
 		&deal.CreatedAt,
 	)
 
@@ -82,7 +80,7 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 		return nil, fmt.Errorf("получение сделки по lead_id: %w", err)
 	}
 
-	deal.LeadID = applyLeadNull(lead)
+	deal.Status = normalizeDealStatus(status)
 	return deal, nil
 }
 
@@ -93,7 +91,7 @@ func (r *DealRepository) Update(deal *models.Deals) error {
 		WHERE id=$7
 	`
 	_, err := r.db.Exec(query,
-		deal.LeadID,   // $1 (может быть nil -> NULL)
+		deal.LeadID,   // $1
 		deal.ClientID, // $2
 		deal.OwnerID,  // $3
 		deal.Amount,   // $4
@@ -117,16 +115,16 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	`
 
 	deal := &models.Deals{}
-	var lead sql.NullInt64
+	var status sql.NullString
 
 	err := r.db.QueryRow(query, id).Scan(
 		&deal.ID,
-		&lead,
+		&deal.LeadID,
 		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
-		&deal.Status,
+		&status,
 		&deal.CreatedAt,
 	)
 
@@ -137,7 +135,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 		return nil, fmt.Errorf("получение сделки по id: %w", err)
 	}
 
-	deal.LeadID = applyLeadNull(lead)
+	deal.Status = normalizeDealStatus(status)
 	return deal, nil
 }
 
@@ -210,12 +208,12 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		i++
 	}
 	if amountMin > 0 {
-		query += fmt.Sprintf(" AND amount::float >= $%d", i)
+		query += fmt.Sprintf(" AND amount >= $%d", i)
 		args = append(args, amountMin)
 		i++
 	}
 	if amountMax > 0 {
-		query += fmt.Sprintf(" AND amount::float <= $%d", i)
+		query += fmt.Sprintf(" AND amount <= $%d", i)
 		args = append(args, amountMax)
 		i++
 	}
@@ -232,22 +230,22 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 	var deals []models.Deals
 	for rows.Next() {
 		var deal models.Deals
-		var lead sql.NullInt64
+		var status sql.NullString
 
 		if err := rows.Scan(
 			&deal.ID,
-			&lead,
+			&deal.LeadID,
 			&deal.ClientID,
 			&deal.OwnerID,
 			&deal.Amount,
 			&deal.Currency,
-			&deal.Status,
+			&status,
 			&deal.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 
-		deal.LeadID = applyLeadNull(lead)
+		deal.Status = normalizeDealStatus(status)
 		deals = append(deals, deal)
 	}
 	return deals, nil
@@ -270,22 +268,22 @@ func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 	var deals []*models.Deals
 	for rows.Next() {
 		var d models.Deals
-		var lead sql.NullInt64
+		var status sql.NullString
 
 		if err := rows.Scan(
 			&d.ID,
-			&lead,
+			&d.LeadID,
 			&d.ClientID,
 			&d.OwnerID,
 			&d.Amount,
 			&d.Currency,
-			&d.Status,
+			&status,
 			&d.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("ошибка чтения: %w", err)
 		}
 
-		d.LeadID = applyLeadNull(lead)
+		d.Status = normalizeDealStatus(status)
 		deals = append(deals, &d)
 	}
 	return deals, nil
@@ -314,22 +312,22 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 	var deals []*models.Deals
 	for rows.Next() {
 		var d models.Deals
-		var lead sql.NullInt64
+		var status sql.NullString
 
 		if err := rows.Scan(
 			&d.ID,
-			&lead,
+			&d.LeadID,
 			&d.ClientID,
 			&d.OwnerID,
 			&d.Amount,
 			&d.Currency,
-			&d.Status,
+			&status,
 			&d.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 
-		d.LeadID = applyLeadNull(lead)
+		d.Status = normalizeDealStatus(status)
 		deals = append(deals, &d)
 	}
 	return deals, nil
@@ -352,16 +350,16 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 	`
 
 	deal := &models.Deals{}
-	var lead sql.NullInt64
+	var status sql.NullString
 
 	err := r.db.QueryRow(query, clientID).Scan(
 		&deal.ID,
-		&lead,
+		&deal.LeadID,
 		&deal.ClientID,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
-		&deal.Status,
+		&status,
 		&deal.CreatedAt,
 	)
 
@@ -372,13 +370,13 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		return nil, fmt.Errorf("get deal by client_id: %w", err)
 	}
 
-	deal.LeadID = applyLeadNull(lead)
+	deal.Status = normalizeDealStatus(status)
 	return deal, nil
 }
 
 // GetDealsFunnelStats возвращает количество сделок по статусам за указанный период.
 func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.FunnelRow, error) {
-	query := `SELECT status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2`
+	query := `SELECT COALESCE(status, 'new') AS status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 
 	if ownerID != nil {
@@ -411,7 +409,7 @@ func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time
 	query := `
 		SELECT
 			TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS period,
-			SUM(amount::float) AS total_amount,
+			SUM(amount) AS total_amount,
 			currency
 		FROM deals
 		WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
@@ -448,7 +446,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 		SELECT
 			d.client_id,
 			c.name AS client_name,
-			SUM(d.amount::float) AS total_amount,
+			SUM(d.amount) AS total_amount,
 			d.currency
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id

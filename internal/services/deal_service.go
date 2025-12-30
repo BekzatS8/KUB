@@ -26,8 +26,11 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 	if roleID == authz.RoleSales {
 		deal.OwnerID = userID
 	}
-	if deal.LeadID == nil || *deal.LeadID == 0 {
+	if deal.LeadID == 0 {
 		return 0, errors.New("lead_id is required")
+	}
+	if deal.Amount <= 0 {
+		return 0, errors.New("amount must be greater than 0")
 	}
 
 	if deal.OwnerID == 0 {
@@ -68,11 +71,10 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 
 	// 3) Заполняем пропущенные поля из current
 	// lead_id: если не пришёл — НЕ затираем (иначе снова будет NULL в БД)
-	if deal.LeadID == nil {
+	if deal.LeadID == 0 {
 		deal.LeadID = current.LeadID
 	}
-	// жёстко запрещаем lead_id = nil/0 (чтобы больше не появлялись такие строки)
-	if deal.LeadID == nil || *deal.LeadID == 0 {
+	if deal.LeadID == 0 {
 		return errors.New("lead_id is required")
 	}
 
@@ -83,8 +85,11 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		return errors.New("client_id is required")
 	}
 
-	if deal.Amount == "" {
+	if deal.Amount == 0 {
 		deal.Amount = current.Amount
+	}
+	if deal.Amount <= 0 {
+		return errors.New("amount must be greater than 0")
 	}
 	if deal.Currency == "" {
 		deal.Currency = current.Currency

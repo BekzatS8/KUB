@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -16,6 +18,18 @@ type ClientService struct {
 
 func NewClientService(repo *repositories.ClientRepository) *ClientService {
 	return &ClientService{Repo: repo}
+}
+
+func (s *ClientService) NormalizeAndValidate(c *models.Client) error {
+	return s.normalizeAndValidate(c)
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == "23505"
+	}
+	return false
 }
 
 func (s *ClientService) authorizeWrite(roleID int) error {
@@ -38,7 +52,7 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.MiddleName = trim(c.MiddleName)
 	c.IIN = trim(c.IIN)
 	c.BinIin = trim(c.BinIin)
-	c.Phone = trim(c.Phone)
+	c.Phone = normalizePhone(trim(c.Phone))
 	c.Email = trim(c.Email)
 
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
@@ -66,6 +80,19 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	}
 
 	return nil
+}
+
+func normalizePhone(value string) string {
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, error) {
@@ -125,8 +152,34 @@ func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, err
 }
 
 func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*models.Client, error) {
-	if strings.TrimSpace(bin) != "" {
+	bin = strings.TrimSpace(bin)
+	if bin != "" {
 		existing, err := s.Repo.GetByBIN(bin)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+
+	if fallback != nil {
+		fallback.IIN = strings.TrimSpace(fallback.IIN)
+		fallback.Phone = normalizePhone(strings.TrimSpace(fallback.Phone))
+	}
+
+	if fallback != nil && fallback.IIN != "" {
+		existing, err := s.Repo.GetByIIN(fallback.IIN)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+
+	if fallback != nil && fallback.IIN == "" && fallback.Phone != "" {
+		existing, err := s.Repo.GetByPhone(fallback.Phone)
 		if err != nil {
 			return nil, err
 		}
@@ -145,6 +198,26 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 
 	id, err := s.Repo.Create(fallback)
 	if err != nil {
+		if isUniqueViolation(err) {
+			if fallback.BinIin != "" {
+				existing, lookupErr := s.Repo.GetByBIN(fallback.BinIin)
+				if lookupErr != nil {
+					return nil, lookupErr
+				}
+				if existing != nil {
+					return existing, nil
+				}
+			}
+			if fallback.IIN != "" {
+				existing, lookupErr := s.Repo.GetByIIN(fallback.IIN)
+				if lookupErr != nil {
+					return nil, lookupErr
+				}
+				if existing != nil {
+					return existing, nil
+				}
+			}
+		}
 		return nil, err
 	}
 	fallback.ID = int(id)

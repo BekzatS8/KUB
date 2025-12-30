@@ -25,11 +25,18 @@ var LeadTransitions = map[string]map[string]bool{
 var DealTransitions = map[string]map[string]bool{
 	"new": {
 		"in_progress": true,
+		"negotiation": true,
 		"won":         true,
 		"lost":        true,
 		"cancelled":   true,
 	},
 	"in_progress": {
+		"negotiation": true,
+		"won":         true,
+		"lost":        true,
+		"cancelled":   true,
+	},
+	"negotiation": {
 		"won":       true,
 		"lost":      true,
 		"cancelled": true,

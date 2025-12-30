@@ -15,11 +15,43 @@ type LeadRepository struct {
 	db *sql.DB
 }
 
+type leadRowScanner interface {
+	Scan(dest ...any) error
+}
+
 func NewLeadRepository(db *sql.DB) *LeadRepository {
 	if db == nil {
 		log.Fatalf("received nil database connection")
 	}
 	return &LeadRepository{db: db}
+}
+
+func normalizeLeadStatus(status sql.NullString) string {
+	if status.Valid && status.String != "" {
+		return status.String
+	}
+	return "new"
+}
+
+func scanLead(scanner leadRowScanner) (*models.Leads, error) {
+	lead := &models.Leads{}
+	var description sql.NullString
+	var status sql.NullString
+
+	if err := scanner.Scan(
+		&lead.ID,
+		&lead.Title,
+		&description,
+		&lead.CreatedAt,
+		&lead.OwnerID,
+		&status,
+	); err != nil {
+		return nil, err
+	}
+
+	lead.Description = stringFromNull(description)
+	lead.Status = normalizeLeadStatus(status)
+	return lead, nil
 }
 
 // Создание лида с возвратом ID + created_at из БД
@@ -76,15 +108,8 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 		WHERE id = $1
 	`
 	row := r.db.QueryRow(query, id)
-	lead := &models.Leads{}
-	if err := row.Scan(
-		&lead.ID,
-		&lead.Title,
-		&lead.Description,
-		&lead.CreatedAt,
-		&lead.OwnerID,
-		&lead.Status,
-	); err != nil {
+	lead, err := scanLead(row)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -143,11 +168,11 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 
 	var out []models.Leads
 	for rows.Next() {
-		var l models.Leads
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.CreatedAt, &l.OwnerID, &l.Status); err != nil {
+		l, err := scanLead(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, l)
+		out = append(out, *l)
 	}
 	return out, nil
 }
@@ -167,11 +192,11 @@ func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
 
 	var out []*models.Leads
 	for rows.Next() {
-		var l models.Leads
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.CreatedAt, &l.OwnerID, &l.Status); err != nil {
+		l, err := scanLead(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, &l)
+		out = append(out, l)
 	}
 	return out, nil
 }
@@ -197,11 +222,11 @@ func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Lead
 
 	var out []*models.Leads
 	for rows.Next() {
-		var l models.Leads
-		if err := rows.Scan(&l.ID, &l.Title, &l.Description, &l.CreatedAt, &l.OwnerID, &l.Status); err != nil {
+		l, err := scanLead(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, &l)
+		out = append(out, l)
 	}
 	return out, nil
 }
@@ -220,7 +245,7 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
 func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.LeadSummaryRow, error) {
-	query := `SELECT status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
+	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 
 	if ownerID != nil {
@@ -246,4 +271,241 @@ func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time
 	}
 
 	return result, nil
+}
+
+func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *models.Deals, client *models.Client) (*models.Deals, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin convert lead tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var leadStatus sql.NullString
+	if err = tx.QueryRow(`SELECT status FROM leads WHERE id = $1 FOR UPDATE`, leadID).Scan(&leadStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("lead not found")
+		}
+		return nil, fmt.Errorf("lock lead: %w", err)
+	}
+
+	existing := &models.Deals{}
+	var status sql.NullString
+	row := tx.QueryRow(`
+		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+		FROM deals
+		WHERE lead_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, leadID)
+	if err = row.Scan(
+		&existing.ID,
+		&existing.LeadID,
+		&existing.ClientID,
+		&existing.OwnerID,
+		&existing.Amount,
+		&existing.Currency,
+		&status,
+		&existing.CreatedAt,
+	); err == nil {
+		existing.Status = normalizeDealStatus(status)
+		if normalizeLeadStatus(leadStatus) != "converted" {
+			if _, err = tx.Exec(`UPDATE leads SET status = 'converted' WHERE id = $1`, leadID); err != nil {
+				return nil, fmt.Errorf("update lead status after existing deal: %w", err)
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit existing deal conversion: %w", err)
+		}
+		return existing, ErrDealAlreadyExists
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("check existing deal: %w", err)
+	}
+
+	leadStatusValue := normalizeLeadStatus(leadStatus)
+	if leadStatusValue != "confirmed" {
+		return nil, errors.New("lead is not in a convertible status")
+	}
+
+	if client == nil {
+		return nil, errors.New("client data is required")
+	}
+
+	if client.OwnerID == 0 {
+		client.OwnerID = deal.OwnerID
+	}
+	if client.CreatedAt.IsZero() {
+		client.CreatedAt = time.Now()
+	}
+
+	var clientID int
+	if err = tx.QueryRow(`
+		SELECT id FROM clients
+		WHERE ($1 <> '' AND bin_iin = $1)
+		   OR ($2 <> '' AND iin = $2)
+		   OR ($3 <> '' AND phone = $3)
+		LIMIT 1
+	`, client.BinIin, client.IIN, client.Phone).Scan(&clientID); err == nil {
+		deal.ClientID = clientID
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("lookup client: %w", err)
+	}
+
+	if deal.ClientID == 0 {
+		if client.BinIin != "" {
+			insertClientQuery := `
+				INSERT INTO clients (
+					name, bin_iin, address, contact_info,
+					last_name, first_name, middle_name,
+					iin, id_number, passport_series, passport_number,
+					phone, email, registration_address, actual_address,
+					owner_id, created_at
+				)
+				VALUES (
+					$1, $2, $3, $4,
+					$5, $6, $7,
+					$8, $9, $10, $11,
+					$12, $13, $14, $15,
+					$16, $17
+				)
+				ON CONFLICT (bin_iin) WHERE bin_iin IS NOT NULL AND bin_iin <> ''
+				DO NOTHING
+				RETURNING id
+			`
+
+			err = tx.QueryRow(
+				insertClientQuery,
+				client.Name,
+				nullStringFromEmpty(client.BinIin),
+				client.Address,
+				client.ContactInfo,
+				client.LastName,
+				client.FirstName,
+				client.MiddleName,
+				nullStringFromEmpty(client.IIN),
+				client.IDNumber,
+				client.PassportSeries,
+				client.PassportNumber,
+				client.Phone,
+				client.Email,
+				client.RegistrationAddress,
+				client.ActualAddress,
+				client.OwnerID,
+				client.CreatedAt,
+			).Scan(&clientID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					if err = tx.QueryRow(`SELECT id FROM clients WHERE bin_iin = $1`, client.BinIin).Scan(&clientID); err != nil {
+						return nil, fmt.Errorf("get client by bin/iin: %w", err)
+					}
+				} else {
+					return nil, fmt.Errorf("insert client: %w", err)
+				}
+			}
+		} else {
+			insertClientQuery := `
+				INSERT INTO clients (
+					name, bin_iin, address, contact_info,
+					last_name, first_name, middle_name,
+					iin, id_number, passport_series, passport_number,
+					phone, email, registration_address, actual_address,
+					owner_id, created_at
+				)
+				VALUES (
+					$1, $2, $3, $4,
+					$5, $6, $7,
+					$8, $9, $10, $11,
+					$12, $13, $14, $15,
+					$16, $17
+				)
+				RETURNING id
+			`
+			if err = tx.QueryRow(
+				insertClientQuery,
+				client.Name,
+				nullStringFromEmpty(client.BinIin),
+				client.Address,
+				client.ContactInfo,
+				client.LastName,
+				client.FirstName,
+				client.MiddleName,
+				nullStringFromEmpty(client.IIN),
+				client.IDNumber,
+				client.PassportSeries,
+				client.PassportNumber,
+				client.Phone,
+				client.Email,
+				client.RegistrationAddress,
+				client.ActualAddress,
+				client.OwnerID,
+				client.CreatedAt,
+			).Scan(&clientID); err != nil {
+				return nil, fmt.Errorf("insert client without bin: %w", err)
+			}
+		}
+		deal.ClientID = clientID
+	}
+
+	err = tx.QueryRow(`
+		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (lead_id) DO NOTHING
+		RETURNING id
+	`,
+		deal.LeadID,
+		deal.ClientID,
+		deal.OwnerID,
+		deal.Amount,
+		deal.Currency,
+		deal.Status,
+		deal.CreatedAt,
+	).Scan(&deal.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			row := tx.QueryRow(`
+				SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
+				FROM deals
+				WHERE lead_id = $1
+				ORDER BY created_at DESC
+				LIMIT 1
+				FOR UPDATE
+			`, leadID)
+			if err = row.Scan(
+				&existing.ID,
+				&existing.LeadID,
+				&existing.ClientID,
+				&existing.OwnerID,
+				&existing.Amount,
+				&existing.Currency,
+				&status,
+				&existing.CreatedAt,
+			); err != nil {
+				return nil, fmt.Errorf("fetch existing deal after conflict: %w", err)
+			}
+			existing.Status = normalizeDealStatus(status)
+			if _, err = tx.Exec(`UPDATE leads SET status = 'converted' WHERE id = $1`, leadID); err != nil {
+				return nil, fmt.Errorf("update lead status after conflict: %w", err)
+			}
+			if err = tx.Commit(); err != nil {
+				return nil, fmt.Errorf("commit conflict conversion: %w", err)
+			}
+			return existing, ErrDealAlreadyExists
+		}
+		return nil, fmt.Errorf("insert deal: %w", err)
+	}
+
+	if _, err = tx.Exec(`UPDATE leads SET status = 'converted' WHERE id = $1`, leadID); err != nil {
+		return nil, fmt.Errorf("update lead status: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit convert lead tx: %w", err)
+	}
+
+	return deal, nil
 }

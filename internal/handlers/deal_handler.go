@@ -37,7 +37,9 @@ func (h *DealHandler) Create(c *gin.Context) {
 		forbidden(c, "Read-only role")
 		return
 	}
-	deal.OwnerID = userID
+	if roleID == authz.RoleSales {
+		deal.OwnerID = userID
+	}
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
@@ -53,6 +55,10 @@ func (h *DealHandler) Create(c *gin.Context) {
 		}
 		if err.Error() == "client_id is required" {
 			badRequest(c, "Client ID is required")
+			return
+		}
+		if err.Error() == "amount must be greater than 0" {
+			badRequest(c, "Amount must be greater than 0")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
@@ -100,6 +106,10 @@ func (h *DealHandler) Update(c *gin.Context) {
 	}
 	body.ID = id
 	if err := h.Service.Update(&body, userID, roleID); err != nil {
+		if err.Error() == "amount must be greater than 0" {
+			badRequest(c, "Amount must be greater than 0")
+			return
+		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
 			forbidden(c, err.Error())
 			return
