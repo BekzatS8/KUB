@@ -312,7 +312,7 @@ func TestSMSService_ConfirmCode_AttemptsAndLockout(t *testing.T) {
 		CodeTTL: 2 * time.Minute,
 	}
 
-	for i := 0; i < maxConfirmAttempts-1; i++ {
+	for i := 0; i < MaxConfirmAttempts-1; i++ {
 		ok, err := svc.ConfirmCode(3, "wrong", 1, authz.RoleSales)
 		if ok {
 			t.Fatalf("expected confirmation to fail")
@@ -331,8 +331,8 @@ func TestSMSService_ConfirmCode_AttemptsAndLockout(t *testing.T) {
 	}
 
 	rec, _ := repo.GetLatestByDocumentID(3)
-	if rec.Attempts != maxConfirmAttempts {
-		t.Fatalf("expected attempts %d, got %d", maxConfirmAttempts, rec.Attempts)
+	if rec.Attempts != MaxConfirmAttempts {
+		t.Fatalf("expected attempts %d, got %d", MaxConfirmAttempts, rec.Attempts)
 	}
 	if docRepo.docs[3].Status == "signed" {
 		t.Fatalf("expected document to remain unsigned")

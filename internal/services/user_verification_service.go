@@ -101,10 +101,10 @@ func (s *UserVerificationService) Resend(email string) error {
 	if existing == nil || existing.Confirmed || now.After(existing.ExpiresAt) {
 		return s.Send(user.ID, user.Email)
 	}
-	if existing.LastResendAt != nil && now.Sub(*existing.LastResendAt) < userResendCooldown {
+	if existing.LastResendAt != nil && now.Sub(*existing.LastResendAt) < UserResendCooldown {
 		return ErrResendThrottled
 	}
-	if existing.ResendCount >= userMaxResends {
+	if existing.ResendCount >= UserMaxResends {
 		return ErrResendThrottled
 	}
 
@@ -173,7 +173,7 @@ func (s *UserVerificationService) Confirm(email, code string) (bool, error) {
 		if incErr != nil {
 			return false, incErr
 		}
-		if attempts >= maxConfirmAttempts {
+		if attempts >= MaxConfirmAttempts {
 			_ = s.Repo.ExpireNow(v.ID)
 			return false, ErrTooManyAttempts
 		}

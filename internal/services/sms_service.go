@@ -22,7 +22,6 @@ var (
 const (
 	maxResendsPerWindow = 3
 	resendWindow        = 10 * time.Minute
-	maxConfirmAttempts  = 5
 )
 
 type SMSConfirmationRepo interface {
@@ -58,7 +57,7 @@ type SMS_Service struct {
 	DocSvc *DocumentService
 
 	Client  MobizonClient
-	CodeTTL time.Duration // если 0 — возьмём defaultVerificationTTL
+	CodeTTL time.Duration // если 0 — возьмём DefaultVerificationTTL
 	now     func() time.Time
 }
 
@@ -95,8 +94,7 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int
 	code := GenerateVerificationCode()
 	text := buildOTPMessage(code)
 
-	// 🔥 DEV MODE: логируем код
-	log.Printf("[DEV][SMS][DOC] document_id=%d phone=%s code=%s", documentID, phone, code)
+	log.Printf("[sms][doc][send] document_id=%d phone=%s", documentID, phone)
 
 	// если клиента нет или dry-run — не шлём SMS
 	if s.Client != nil {
@@ -209,7 +207,7 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID 
 	if s.IsCodeExpired(rec.SentAt) || s.now().After(rec.ExpiresAt) {
 		return false, ErrCodeExpired
 	}
-	if rec.Attempts >= maxConfirmAttempts {
+	if rec.Attempts >= MaxConfirmAttempts {
 		return false, ErrTooManyAttempts
 	}
 
@@ -223,7 +221,7 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID 
 		if err := s.Repo.Update(rec); err != nil {
 			return false, err
 		}
-		if rec.Attempts >= maxConfirmAttempts {
+		if rec.Attempts >= MaxConfirmAttempts {
 			return false, ErrTooManyAttempts
 		}
 		return false, ErrCodeInvalid
@@ -251,7 +249,7 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID 
 func (s *SMS_Service) IsCodeExpired(sentAt time.Time) bool {
 	ttl := s.CodeTTL
 	if ttl <= 0 {
-		ttl = defaultVerificationTTL
+		ttl = DefaultVerificationTTL
 	}
 	return s.now().After(sentAt.Add(ttl))
 }

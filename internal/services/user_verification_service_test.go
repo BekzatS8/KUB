@@ -291,19 +291,19 @@ func TestUserVerificationService_ResendCooldownAndMax(t *testing.T) {
 	}
 
 	repo.records[0].LastResendAt = ptrTime(fixedNow.Add(-2 * time.Minute))
-	repo.records[0].ResendCount = userMaxResends
+	repo.records[0].ResendCount = UserMaxResends
 	if err := svc.Resend("user@example.com"); !errors.Is(err, ErrResendThrottled) {
 		t.Fatalf("expected ErrResendThrottled due to max resends, got %v", err)
 	}
 
-	repo.records[0].ResendCount = userMaxResends - 1
+	repo.records[0].ResendCount = UserMaxResends - 1
 	if err := svc.Resend("user@example.com"); err != nil {
 		t.Fatalf("expected resend to succeed, got %v", err)
 	}
 	if emailSvc.sent != 1 {
 		t.Fatalf("expected verification email to be sent")
 	}
-	if repo.records[0].ResendCount != userMaxResends {
+	if repo.records[0].ResendCount != UserMaxResends {
 		t.Fatalf("expected resend_count to increment")
 	}
 	if repo.records[0].LastResendAt == nil || !repo.records[0].LastResendAt.Equal(fixedNow) {

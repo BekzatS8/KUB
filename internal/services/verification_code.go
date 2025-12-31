@@ -9,7 +9,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const DefaultVerificationTTL = 5 * time.Minute
+const (
+	DefaultVerificationTTL = 5 * time.Minute
+	MaxConfirmAttempts     = 5
+	UserResendCooldown     = time.Minute
+	UserMaxResends         = 5
+)
 
 // GenerateVerificationCode returns a 6-digit numeric OTP.
 func GenerateVerificationCode() string {
