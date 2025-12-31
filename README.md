@@ -232,7 +232,7 @@ psql "$DATABASE_URL" -f db/migrations/001_base_schema.sql
 
 1. Скопировать пример конфига:
 ```bash
-cp config/config.example.yaml config/config.yaml
+cp config/config.yaml config/config.yaml
 ```
 2. Собрать и поднять сервисы:
 ```bash

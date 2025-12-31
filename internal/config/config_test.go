@@ -15,7 +15,7 @@ func TestLoadConfigMissingFile(t *testing.T) {
 }
 
 func TestLoadConfigExample(t *testing.T) {
-	examplePath := filepath.Join("..", "..", "config", "config.example.yaml")
+	examplePath := filepath.Join("..", "..", "config", "config.yaml")
 	absPath, err := filepath.Abs(examplePath)
 	if err != nil {
 		t.Fatalf("failed to resolve example path: %v", err)
