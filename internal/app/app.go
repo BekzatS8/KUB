@@ -210,13 +210,18 @@ func Run() {
 		log.Printf("[BOOT] Mobizon: enable=true dry_run=%v sender_id=%q", cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
 	}
 
-	// Сервис OTP — для документов + для верификации пользователей
+	// Сервис OTP — для документов
 	smsService := services.NewSMSService(
 		smsRepo,
 		otpClient,
 		documentService,
+		nil,
+	)
+
+	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
 		userService,
+		emailService,
 		nil,
 	)
 
@@ -230,7 +235,7 @@ func Run() {
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	userHandler := handlers.NewUserHandler(userService, smsService)
+	userHandler := handlers.NewUserHandler(userService, userVerificationService)
 	clientHandler := handlers.NewClientHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
@@ -240,7 +245,7 @@ func Run() {
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
 
 	smsHandler := handlers.NewSMSHandler(smsService)
-	verifyHandler := handlers.NewVerifyHandler(smsService)
+	verifyHandler := handlers.NewVerifyHandler(userVerificationService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
 	// timezone

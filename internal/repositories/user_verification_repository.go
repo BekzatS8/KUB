@@ -19,8 +19,8 @@ func NewUserVerificationRepository(db *sql.DB) *UserVerificationRepository {
 // Create — создаёт новую запись верификации (каждая отправка — новая строка).
 func (r *UserVerificationRepository) Create(userID int, codeHash string, sentAt, expiresAt time.Time) (int64, error) {
 	const q = `
-		INSERT INTO user_verifications (user_id, code_hash, sent_at, expires_at, confirmed, attempts)
-		VALUES ($1, $2, $3, $4, FALSE, 0)
+		INSERT INTO user_verifications (user_id, code_hash, sent_at, expires_at, confirmed, attempts, last_resend_at, resend_count)
+		VALUES ($1, $2, $3, $4, FALSE, 0, $3, 0)
 		RETURNING id
 	`
 	var id int64
@@ -33,7 +33,7 @@ func (r *UserVerificationRepository) Create(userID int, codeHash string, sentAt,
 // GetLatestByUserID — берём последнюю отправку (по sent_at DESC).
 func (r *UserVerificationRepository) GetLatestByUserID(userID int) (*models.UserVerification, error) {
 	const q = `
-		SELECT id, user_id, code_hash, sent_at, expires_at, confirmed, attempts
+		SELECT id, user_id, code_hash, sent_at, expires_at, confirmed, attempts, confirmed_at, last_resend_at, resend_count
 		FROM user_verifications
 		WHERE user_id = $1
 		ORDER BY sent_at DESC
@@ -41,7 +41,18 @@ func (r *UserVerificationRepository) GetLatestByUserID(userID int) (*models.User
 	`
 	row := r.DB.QueryRow(q, userID)
 	var v models.UserVerification
-	if err := row.Scan(&v.ID, &v.UserID, &v.CodeHash, &v.SentAt, &v.ExpiresAt, &v.Confirmed, &v.Attempts); err != nil {
+	if err := row.Scan(
+		&v.ID,
+		&v.UserID,
+		&v.CodeHash,
+		&v.SentAt,
+		&v.ExpiresAt,
+		&v.Confirmed,
+		&v.Attempts,
+		&v.ConfirmedAt,
+		&v.LastResendAt,
+		&v.ResendCount,
+	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -79,8 +90,39 @@ func (r *UserVerificationRepository) IncrementAttempts(id int64) (int, error) {
 	return attempts, nil
 }
 
+func (r *UserVerificationRepository) Update(v *models.UserVerification) error {
+	const q = `
+		UPDATE user_verifications
+		SET code_hash = $1,
+			sent_at = $2,
+			expires_at = $3,
+			confirmed = $4,
+			attempts = $5,
+			confirmed_at = $6,
+			last_resend_at = $7,
+			resend_count = $8
+		WHERE id = $9
+	`
+	_, err := r.DB.Exec(
+		q,
+		v.CodeHash,
+		v.SentAt,
+		v.ExpiresAt,
+		v.Confirmed,
+		v.Attempts,
+		v.ConfirmedAt,
+		v.LastResendAt,
+		v.ResendCount,
+		v.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("user_verification update: %w", err)
+	}
+	return nil
+}
+
 func (r *UserVerificationRepository) MarkConfirmed(id int64) error {
-	_, err := r.DB.Exec(`UPDATE user_verifications SET confirmed=TRUE WHERE id=$1`, id)
+	_, err := r.DB.Exec(`UPDATE user_verifications SET confirmed=TRUE, confirmed_at=NOW() WHERE id=$1`, id)
 	return err
 }
 

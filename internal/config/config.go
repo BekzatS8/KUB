@@ -197,6 +197,24 @@ func (cfg *Config) Validate() error {
 			}
 		}
 	}
+	if mode == "release" {
+		missing := []string{}
+		if strings.TrimSpace(cfg.Email.SMTPHost) == "" {
+			missing = append(missing, "email.smtp_host")
+		}
+		if strings.TrimSpace(cfg.Email.SMTPUser) == "" {
+			missing = append(missing, "email.smtp_user")
+		}
+		if strings.TrimSpace(cfg.Email.SMTPPassword) == "" {
+			missing = append(missing, "email.smtp_password")
+		}
+		if strings.TrimSpace(cfg.Email.FromEmail) == "" {
+			missing = append(missing, "email.from_email")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("email settings required in release mode: %s", strings.Join(missing, ", "))
+		}
+	}
 
 	return nil
 }

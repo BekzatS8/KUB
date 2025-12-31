@@ -12,8 +12,8 @@ import (
 )
 
 type UserHandler struct {
-	service    services.UserService
-	smsService *services.SMS_Service
+	service             services.UserService
+	verificationService *services.UserVerificationService
 }
 
 type createUserRequest struct {
@@ -25,8 +25,14 @@ type createUserRequest struct {
 	RoleID      int    `json:"role_id"`                  // игнорится если создатель не админ
 }
 
-func NewUserHandler(service services.UserService, smsService *services.SMS_Service) *UserHandler {
-	return &UserHandler{service: service, smsService: smsService}
+func NewUserHandler(
+	service services.UserService,
+	verificationService *services.UserVerificationService,
+) *UserHandler {
+	return &UserHandler{
+		service:             service,
+		verificationService: verificationService,
+	}
 }
 
 func sanitizeUser(u *models.User) *models.User {
@@ -69,10 +75,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Отправим SMS с кодом (можно игнорить ошибку, юзер сможет переслать код публичной ручкой)
-	if h.smsService != nil {
-		if err := h.smsService.SendUserSMS(user.ID, user.Phone); err != nil {
-			log.Printf("[users][create] send user sms failed: %v", err)
+	// Отправим письмо с кодом (можно игнорить ошибку, юзер сможет переслать код публичной ручкой)
+	if h.verificationService != nil {
+		if err := h.verificationService.Send(user.ID, user.Email); err != nil {
+			log.Printf("[users][create] send user verification email failed: %v", err)
 		}
 	}
 
@@ -258,7 +264,7 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count, "role_id": roleIDVal})
 }
 
-// Публичная регистрация: создаём sales + is_verified=false, шлём SMS
+// Публичная регистрация: создаём sales + is_verified=false, шлём код на email
 func (h *UserHandler) Register(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -281,15 +287,19 @@ func (h *UserHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if h.smsService != nil {
-		if err := h.smsService.SendUserSMS(user.ID, user.Phone); err != nil {
-			log.Printf("[register] send sms failed: %v", err)
+	verificationSent := false
+	if h.verificationService != nil {
+		if err := h.verificationService.Send(user.ID, user.Email); err != nil {
+			log.Printf("[register] send verification email failed: %v", err)
+		} else {
+			verificationSent = true
 		}
 	}
 
 	user.PasswordHash = ""
 	c.JSON(http.StatusCreated, gin.H{
-		"user":    user,
-		"message": "Registered. SMS code sent.",
+		"user":              user,
+		"message":           "Registered. Email code sent.",
+		"verification_sent": verificationSent,
 	})
 }

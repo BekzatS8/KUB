@@ -104,11 +104,6 @@ func (r *fakeSMSRepo) DeleteByDocumentID(documentID int64) error {
 	return nil
 }
 
-type fakeUserVerificationRepo struct {
-	records []*models.UserVerification
-	nextID  int64
-}
-
 type fakeSMSDealRepo struct {
 	deals map[int]*models.Deals
 }
@@ -126,95 +121,6 @@ func (r *fakeSMSDealRepo) GetByID(id int) (*models.Deals, error) {
 
 func (r *fakeSMSDealRepo) GetByLeadID(leadID int) (*models.Deals, error) { return nil, nil }
 func (r *fakeSMSDealRepo) GetLatestByClientID(clientID int) (*models.Deals, error) {
-	return nil, nil
-}
-
-func newFakeUserVerificationRepo() *fakeUserVerificationRepo {
-	return &fakeUserVerificationRepo{records: make([]*models.UserVerification, 0), nextID: 1}
-}
-
-func (r *fakeUserVerificationRepo) CountRecentSends(userID int, since time.Time) (int, error) {
-	cnt := 0
-	for _, v := range r.records {
-		if v.UserID == userID && (v.SentAt.Equal(since) || v.SentAt.After(since)) {
-			cnt++
-		}
-	}
-	return cnt, nil
-}
-
-func (r *fakeUserVerificationRepo) Create(userID int, codeHash string, sentAt, expiresAt time.Time) (int64, error) {
-	id := r.nextID
-	r.nextID++
-	rec := &models.UserVerification{ID: id, UserID: userID, CodeHash: codeHash, SentAt: sentAt, ExpiresAt: expiresAt, Attempts: 0}
-	r.records = append(r.records, rec)
-	return id, nil
-}
-
-func (r *fakeUserVerificationRepo) GetLatestByUserID(userID int) (*models.UserVerification, error) {
-	for i := len(r.records) - 1; i >= 0; i-- {
-		if r.records[i].UserID == userID {
-			return r.records[i], nil
-		}
-	}
-	return nil, nil
-}
-
-func (r *fakeUserVerificationRepo) IncrementAttempts(id int64) (int, error) {
-	for _, v := range r.records {
-		if v.ID == id {
-			v.Attempts++
-			return v.Attempts, nil
-		}
-	}
-	return 0, errors.New("not found")
-}
-
-func (r *fakeUserVerificationRepo) ExpireNow(id int64) error {
-	for _, v := range r.records {
-		if v.ID == id {
-			v.ExpiresAt = time.Now()
-			return nil
-		}
-	}
-	return errors.New("not found")
-}
-
-func (r *fakeUserVerificationRepo) MarkConfirmed(id int64) error {
-	for _, v := range r.records {
-		if v.ID == id {
-			v.Confirmed = true
-			return nil
-		}
-	}
-	return errors.New("not found")
-}
-
-type fakeUserService struct {
-	verifiedUsers []int
-}
-
-func (f *fakeUserService) VerifyUser(userID int) error {
-	f.verifiedUsers = append(f.verifiedUsers, userID)
-	return nil
-}
-
-func (f *fakeUserService) CreateUser(user *models.User) error { return nil }
-func (f *fakeUserService) CreateUserWithPassword(user *models.User, plainPassword string) error {
-	return nil
-}
-func (f *fakeUserService) GetUserByID(id int) (*models.User, error)            { return nil, nil }
-func (f *fakeUserService) UpdateUser(user *models.User) error                  { return nil }
-func (f *fakeUserService) DeleteUser(id int) error                             { return nil }
-func (f *fakeUserService) ListUsers(limit, offset int) ([]*models.User, error) { return nil, nil }
-func (f *fakeUserService) GetUserByEmail(email string) (*models.User, error)   { return nil, nil }
-func (f *fakeUserService) GetUserCount() (int, error)                          { return 0, nil }
-func (f *fakeUserService) GetUserCountByRole(roleID int) (int, error)          { return 0, nil }
-func (f *fakeUserService) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
-	return nil
-}
-func (f *fakeUserService) GetByRefreshToken(token string) (*models.User, error) { return nil, nil }
-func (f *fakeUserService) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
 	return nil, nil
 }
 
@@ -333,41 +239,6 @@ func TestSMSService_ConfirmCode_InvalidOrExpired(t *testing.T) {
 	}
 	if ok {
 		t.Fatalf("expected confirmation to fail for wrong code")
-	}
-}
-
-func TestSMSService_SendUserSMS(t *testing.T) {
-	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
-	verifRepo := newFakeUserVerificationRepo()
-	mobizon := &fakeMobizonClient{}
-	svc := &SMS_Service{
-		VerifRepo: verifRepo,
-		Client:    mobizon,
-		CodeTTL:   2 * time.Minute,
-		now:       func() time.Time { return fixedNow },
-	}
-
-	if err := svc.SendUserSMS(7, "+111"); err != nil {
-		t.Fatalf("SendUserSMS returned error: %v", err)
-	}
-
-	v, _ := verifRepo.GetLatestByUserID(7)
-	if v == nil {
-		t.Fatalf("expected verification record")
-	}
-	code := strings.TrimPrefix(mobizon.lastText, "Код подтверждения: ")
-	if code == mobizon.lastText {
-		t.Fatalf("could not extract code from message: %q", mobizon.lastText)
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(v.CodeHash), []byte(code)); err != nil {
-		t.Errorf("code hash mismatch: %v", err)
-	}
-	expectedExp := fixedNow.Add(2 * time.Minute)
-	if !v.ExpiresAt.Equal(expectedExp) {
-		t.Errorf("ExpiresAt mismatch: got %s want %s", v.ExpiresAt, expectedExp)
-	}
-	if mobizon.lastTo != "+111" {
-		t.Errorf("mobizon recipient mismatch: got %s", mobizon.lastTo)
 	}
 }
 
@@ -547,73 +418,5 @@ func TestSMSService_ConfirmCode_SignsDocument(t *testing.T) {
 	}
 	if docRepo.docs[5].SignedAt == nil {
 		t.Fatalf("expected signed_at to be set")
-	}
-}
-
-func TestSMSService_ConfirmUserCode(t *testing.T) {
-	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
-	hash, _ := bcrypt.GenerateFromPassword([]byte("654321"), bcrypt.DefaultCost)
-	verifRepo := newFakeUserVerificationRepo()
-	verifRepo.records = append(verifRepo.records, &models.UserVerification{
-		ID: 1, UserID: 9, CodeHash: string(hash), SentAt: fixedNow, ExpiresAt: fixedNow.Add(5 * time.Minute), Attempts: 0,
-	})
-	userSvc := &fakeUserService{}
-
-	svc := &SMS_Service{
-		VerifRepo: verifRepo,
-		UserSvc:   userSvc,
-		Client:    &fakeMobizonClient{},
-		now:       func() time.Time { return fixedNow },
-	}
-
-	ok, err := svc.ConfirmUserCode(9, "654321")
-	if err != nil {
-		t.Fatalf("ConfirmUserCode returned error: %v", err)
-	}
-	if !ok {
-		t.Fatalf("expected confirmation to succeed")
-	}
-	v, _ := verifRepo.GetLatestByUserID(9)
-	if !v.Confirmed {
-		t.Errorf("expected verification to be marked confirmed")
-	}
-	if len(userSvc.verifiedUsers) != 1 || userSvc.verifiedUsers[0] != 9 {
-		t.Errorf("expected user service to verify user 9")
-	}
-}
-
-func TestSMSService_ConfirmUserCode_InvalidAndExpired(t *testing.T) {
-	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
-	hash, _ := bcrypt.GenerateFromPassword([]byte("000111"), bcrypt.DefaultCost)
-	verifRepo := newFakeUserVerificationRepo()
-	verifRepo.records = append(verifRepo.records, &models.UserVerification{
-		ID: 1, UserID: 11, CodeHash: string(hash), SentAt: fixedNow.Add(-time.Minute), ExpiresAt: fixedNow.Add(time.Minute), Attempts: 0,
-	})
-
-	svc := &SMS_Service{
-		VerifRepo: verifRepo,
-		Client:    &fakeMobizonClient{},
-		now:       func() time.Time { return fixedNow },
-	}
-
-	ok, err := svc.ConfirmUserCode(11, "999999")
-	if !errors.Is(err, ErrCodeInvalid) {
-		t.Fatalf("expected ErrCodeInvalid, got %v", err)
-	}
-	if ok {
-		t.Fatalf("expected confirmation to fail for wrong code")
-	}
-	v, _ := verifRepo.GetLatestByUserID(11)
-	if v.Attempts != 1 {
-		t.Errorf("expected attempts to increment, got %d", v.Attempts)
-	}
-
-	v.ExpiresAt = fixedNow.Add(-time.Minute)
-	ok, err = svc.ConfirmUserCode(11, "000111")
-	if !errors.Is(err, ErrCodeExpired) {
-		t.Fatalf("expected ErrCodeExpired, got %v", err)
-	}
-	if ok {
-		t.Fatalf("expected expired confirmation to fail")
 	}
 }

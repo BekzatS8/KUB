@@ -8,6 +8,7 @@ import (
 type EmailService interface {
 	SendWelcomeEmail(email, companyName string) error
 	SendPasswordResetEmail(email, resetURL string) error
+	SendVerificationCode(toEmail, code string, ttlMinutes int) error
 }
 
 type emailService struct {
@@ -62,6 +63,29 @@ func (s *emailService) SendPasswordResetEmail(email, resetURL string) error {
 
 	if err := s.dialer.DialAndSend(m); err != nil {
 		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+
+	return nil
+}
+
+func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "Код подтверждения регистрации")
+
+	text := fmt.Sprintf("Ваш код: %s. Действует %d минут.", code, ttlMinutes)
+	html := fmt.Sprintf(`
+                <h3>Код подтверждения регистрации</h3>
+                <p>Ваш код: <strong>%s</strong>.</p>
+                <p>Действует %d минут.</p>
+        `, code, ttlMinutes)
+
+	m.SetBody("text/plain", text)
+	m.AddAlternative("text/html", html)
+
+	if err := s.dialer.DialAndSend(m); err != nil {
+		return fmt.Errorf("failed to send verification email: %w", err)
 	}
 
 	return nil

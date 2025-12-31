@@ -77,6 +77,18 @@ func TestValidateConfigRejectsInvalidSSLModes(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRequiresEmailInRelease(t *testing.T) {
+	t.Setenv("GIN_MODE", "release")
+	cfg := &Config{}
+	cfg.Server.Port = 4000
+	cfg.Database.DSN = "postgres://user:pass@localhost:5432/dbname?sslmode=require"
+	cfg.CORS.AllowOrigins = []string{"https://example.com"}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for missing email settings")
+	}
+}
+
 func TestLoadConfigDatabaseURLFallback(t *testing.T) {
 	configContent := []byte(`server:
   port: 4000

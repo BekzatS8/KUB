@@ -11,7 +11,7 @@ import (
 )
 
 type VerifyHandler struct {
-	SMS *services.SMS_Service
+	verification *services.UserVerificationService
 
 	mu          sync.Mutex
 	lastResends map[string]time.Time
@@ -19,24 +19,24 @@ type VerifyHandler struct {
 
 const resendMinInterval = time.Minute
 
-func NewVerifyHandler(s *services.SMS_Service) *VerifyHandler {
+func NewVerifyHandler(s *services.UserVerificationService) *VerifyHandler {
 	return &VerifyHandler{
-		SMS:         s,
-		lastResends: make(map[string]time.Time),
+		verification: s,
+		lastResends:  make(map[string]time.Time),
 	}
 }
 
 func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 	var req struct {
-		UserID int    `json:"user_id" binding:"required"`
-		Code   string `json:"code" binding:"required"`
+		Email string `json:"email" binding:"required,email"`
+		Code  string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid code")
 		return
 	}
 
-	ok, err := h.SMS.ConfirmUserCode(req.UserID, req.Code)
+	ok, err := h.verification.Confirm(req.Email, req.Code)
 	if err != nil {
 		switch err {
 		case services.ErrCodeExpired:
@@ -57,25 +57,25 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 		badRequest(c, "Invalid or expired code")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Phone verified"})
+	c.JSON(http.StatusOK, gin.H{"message": "Email verified"})
 }
 
 func (h *VerifyHandler) ResendUser(c *gin.Context) {
 	var req struct {
-		UserID int `json:"user_id" binding:"required"`
+		Email string `json:"email" binding:"required,email"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid code")
 		return
 	}
 
-	key := fmt.Sprintf("%d:%s", req.UserID, c.ClientIP())
+	key := fmt.Sprintf("%s:%s", req.Email, c.ClientIP())
 	if !h.allowResend(key) {
 		writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 		return
 	}
 
-	if err := h.SMS.ResendUserSMS(req.UserID); err != nil {
+	if err := h.verification.Resend(req.Email); err != nil {
 		if err == services.ErrResendThrottled {
 			writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 			return
@@ -83,7 +83,7 @@ func (h *VerifyHandler) ResendUser(c *gin.Context) {
 		badRequest(c, "Invalid code")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "SMS sent"})
+	c.JSON(http.StatusOK, gin.H{"message": "Email sent"})
 }
 
 func (h *VerifyHandler) allowResend(key string) bool {

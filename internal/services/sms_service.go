@@ -1,15 +1,10 @@
 package services
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
-	"math/big"
-	"strings"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -25,10 +20,9 @@ var (
 
 // Настройки безопасности (можно вынести в конфиг при желании)
 const (
-	maxResendsPerWindow    = 3
-	resendWindow           = 10 * time.Minute
-	maxConfirmAttempts     = 5
-	defaultVerificationTTL = 5 * time.Minute
+	maxResendsPerWindow = 3
+	resendWindow        = 10 * time.Minute
+	maxConfirmAttempts  = 5
 )
 
 type SMSConfirmationRepo interface {
@@ -45,6 +39,7 @@ type UserVerificationRepo interface {
 	IncrementAttempts(id int64) (int, error)
 	ExpireNow(id int64) error
 	MarkConfirmed(id int64) error
+	Update(v *models.UserVerification) error
 }
 
 type MobizonClient interface {
@@ -62,10 +57,6 @@ type SMS_Service struct {
 	Repo   SMSConfirmationRepo
 	DocSvc *DocumentService
 
-	// Регистрация/верификация пользователя (НОВОЕ)
-	VerifRepo UserVerificationRepo
-	UserSvc   UserService
-
 	Client  MobizonClient
 	CodeTTL time.Duration // если 0 — возьмём defaultVerificationTTL
 	now     func() time.Time
@@ -75,31 +66,18 @@ func NewSMSService(
 	docRepo SMSConfirmationRepo,
 	client MobizonClient,
 	docSvc *DocumentService,
-	verifRepo UserVerificationRepo,
-	userSvc UserService,
 	now func() time.Time,
 ) *SMS_Service {
 	if now == nil {
 		now = time.Now
 	}
 	return &SMS_Service{
-		Repo:      docRepo,
-		Client:    client,
-		DocSvc:    docSvc,
-		VerifRepo: verifRepo,
-		UserSvc:   userSvc,
-		CodeTTL:   defaultVerificationTTL,
-		now:       now,
+		Repo:    docRepo,
+		Client:  client,
+		DocSvc:  docSvc,
+		CodeTTL: DefaultVerificationTTL,
+		now:     now,
 	}
-}
-
-// --- утилита генерации 6-значного кода ---
-func (s *SMS_Service) generateCode() string {
-	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
-	if err != nil {
-		return fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
-	}
-	return fmt.Sprintf("%06d", n.Int64())
 }
 
 func buildOTPMessage(code string) string {
@@ -114,7 +92,7 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int
 			return err
 		}
 	}
-	code := s.generateCode()
+	code := GenerateVerificationCode()
 	text := buildOTPMessage(code)
 
 	// 🔥 DEV MODE: логируем код
@@ -127,13 +105,13 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int
 		}
 	}
 
-	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	codeHash, err := HashVerificationCode(code)
 	if err != nil {
-		return fmt.Errorf("hash code: %w", err)
+		return err
 	}
 	ttl := s.CodeTTL
 	if ttl <= 0 {
-		ttl = defaultVerificationTTL
+		ttl = DefaultVerificationTTL
 	}
 	now := s.now()
 	rec := &models.SMSConfirmation{
@@ -180,14 +158,14 @@ func (s *SMS_Service) ResendSMS(documentID int64, phone string, userID, roleID i
 	if phone == "" {
 		phone = existing.Phone
 	}
-	code := s.generateCode()
-	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	code := GenerateVerificationCode()
+	codeHash, err := HashVerificationCode(code)
 	if err != nil {
-		return fmt.Errorf("hash code: %w", err)
+		return err
 	}
 	ttl := s.CodeTTL
 	if ttl <= 0 {
-		ttl = defaultVerificationTTL
+		ttl = DefaultVerificationTTL
 	}
 	existing.Phone = phone
 	existing.CodeHash = string(codeHash)
@@ -240,7 +218,7 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID 
 		return true, nil
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(rec.CodeHash), []byte(code)); err != nil {
+	if err := CompareVerificationCode(rec.CodeHash, code); err != nil {
 		rec.Attempts++
 		if err := s.Repo.Update(rec); err != nil {
 			return false, err
@@ -265,115 +243,6 @@ func (s *SMS_Service) ConfirmCode(documentID int64, code string, userID, roleID 
 		}
 	}
 
-	return true, nil
-}
-
-// ================== БЛОК: ПОЛЬЗОВАТЕЛИ ==================
-
-// SendUserSMS — отправляем новый код (каждый resend — новый код).
-// Храним только bcrypt-хэш.
-func (s *SMS_Service) SendUserSMS(userID int, phone string) error {
-	if s.VerifRepo == nil {
-		return fmt.Errorf("verification repo is nil")
-	}
-
-	// Троттлинг отправок: не чаще 3/10мин
-	since := s.now().Add(-resendWindow)
-	cnt, err := s.VerifRepo.CountRecentSends(userID, since)
-	if err != nil {
-		return err
-	}
-	if cnt >= maxResendsPerWindow {
-		return ErrResendThrottled
-	}
-
-	code := s.generateCode()
-
-	log.Printf("[DEV][SMS][USER] user_id=%d phone=%s code=%s", userID, phone, code)
-
-	codeHashBytes, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("bcrypt generate: %w", err)
-	}
-	codeHash := string(codeHashBytes)
-
-	ttl := s.CodeTTL
-	if ttl <= 0 {
-		ttl = defaultVerificationTTL
-	}
-	sentAt := s.now()
-	expiresAt := sentAt.Add(ttl)
-
-	// Сохраняем запись (attempts=0, confirmed=false)
-	if _, err := s.VerifRepo.Create(userID, codeHash, sentAt, expiresAt); err != nil {
-		return err
-	}
-
-	text := buildOTPMessage(code)
-	if _, err := s.Client.SendSMS(phone, text); err != nil {
-		return fmt.Errorf("mobizon error: %w", err)
-	}
-
-	log.Printf("[sms][user][send] user_id=%d phone=%s", userID, phone)
-	return nil
-}
-
-// ResendUserSMS — просто вызывает SendUserSMS (он уже проверяет троттлинг).
-func (s *SMS_Service) ResendUserSMS(userID int) error {
-	if s.UserSvc == nil {
-		return fmt.Errorf("user service is nil")
-	}
-	user, err := s.UserSvc.GetUserByID(userID)
-	if err != nil {
-		return err
-	}
-	if user == nil || strings.TrimSpace(user.Phone) == "" {
-		return fmt.Errorf("phone required")
-	}
-	return s.SendUserSMS(userID, user.Phone)
-}
-
-// ConfirmUserCode — сверяет с bcrypt-хэшем, считает попытки, TTL.
-// При успехе проставляет is_verified у User.
-func (s *SMS_Service) ConfirmUserCode(userID int, code string) (bool, error) {
-	if s.VerifRepo == nil {
-		return false, fmt.Errorf("verification repo is nil")
-	}
-	v, err := s.VerifRepo.GetLatestByUserID(userID)
-	if err != nil {
-		return false, err
-	}
-	if v == nil || v.Confirmed {
-		return false, ErrCodeInvalid
-	}
-	if s.now().After(v.ExpiresAt) {
-		return false, ErrCodeExpired
-	}
-
-	// сравниваем с bcrypt
-	if err := bcrypt.CompareHashAndPassword([]byte(v.CodeHash), []byte(code)); err != nil {
-		// неверный код => увеличиваем attempts
-		attempts, incErr := s.VerifRepo.IncrementAttempts(v.ID)
-		if incErr != nil {
-			return false, incErr
-		}
-		if attempts >= maxConfirmAttempts {
-			_ = s.VerifRepo.ExpireNow(v.ID)
-			return false, ErrTooManyAttempts
-		}
-		return false, ErrCodeInvalid
-	}
-
-	// Успех
-	if err := s.VerifRepo.MarkConfirmed(v.ID); err != nil {
-		return false, err
-	}
-	if s.UserSvc != nil {
-		if err := s.UserSvc.VerifyUser(userID); err != nil {
-			return false, err
-		}
-	}
-	log.Printf("[sms][user][confirm] OK user_id=%d", userID)
 	return true, nil
 }
 
