@@ -28,7 +28,13 @@ import (
 )
 
 func Run() {
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("[BOOT] failed to load config: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("[BOOT] invalid config: %v", err)
+	}
 	log.Printf("[BOOT] starting backend...")
 	log.Printf("[BOOT] config: server.port=%d, telegram.enable=%v", cfg.Server.Port, cfg.Telegram.Enable)
 	if cfg.Telegram.WebhookURL != "" {
@@ -36,7 +42,7 @@ func Run() {
 	} else {
 		log.Printf("[BOOT] config: telegram.webhook_url is empty")
 	}
-	log.Printf("[BOOT] config: db.dsn=%s", cfg.Database.DSN)
+	log.Printf("[BOOT] config: db=%s", utils.MaskDSN(cfg.Database.DSN))
 	cfg.Files.RootDir = filepath.Clean(cfg.Files.RootDir)
 	log.Printf("[BOOT] config: files.root_dir=%s", cfg.Files.RootDir)
 	log.Printf("[BOOT] config: templates docx=%s xlsx=%s txt=%s", cfg.Templates.DocxDir, cfg.Templates.XlsxDir, cfg.Templates.TxtDir)
@@ -292,12 +298,29 @@ func Run() {
 }
 
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
+	allowedOrigins := make(map[string]struct{}, len(cfg.CORS.AllowOrigins))
+	for _, origin := range cfg.CORS.AllowOrigins {
+		allowedOrigins[origin] = struct{}{}
+	}
+
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", cfg.CORS.AllowOrigins)
+		origin := c.Request.Header.Get("Origin")
+		if origin != "" {
+			c.Writer.Header().Add("Vary", "Origin")
+			if _, ok := allowedOrigins[origin]; ok {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", cfg.CORS.AllowMethods)
 		c.Writer.Header().Set("Access-Control-Allow-Headers", cfg.CORS.AllowHeaders)
 		c.Writer.Header().Set("Access-Control-Expose-Headers", cfg.CORS.ExposeHeaders)
 		if c.Request.Method == "OPTIONS" {
+			if origin != "" {
+				if _, ok := allowedOrigins[origin]; !ok {
+					c.AbortWithStatus(403)
+					return
+				}
+			}
 			c.AbortWithStatus(204)
 			return
 		}

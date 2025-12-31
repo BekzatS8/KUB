@@ -1,7 +1,12 @@
 package config
 
 import (
+	"fmt"
+	"log"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -32,10 +37,10 @@ type SecurityConfig struct {
 }
 
 type CORSConfig struct {
-	AllowOrigins  string `yaml:"allow_origins"`
-	AllowMethods  string `yaml:"allow_methods"`
-	AllowHeaders  string `yaml:"allow_headers"`
-	ExposeHeaders string `yaml:"expose_headers"`
+	AllowOrigins  []string `yaml:"allow_origins"`
+	AllowMethods  string   `yaml:"allow_methods"`
+	AllowHeaders  string   `yaml:"allow_headers"`
+	ExposeHeaders string   `yaml:"expose_headers"`
 }
 
 type MobizonConfig struct {
@@ -65,8 +70,13 @@ type Config struct {
 	} `yaml:"server"`
 
 	Database struct {
-		DSN string `yaml:"url"`
+		DSN string `yaml:"dsn"`
+		URL string `yaml:"url"`
 	} `yaml:"database"`
+
+	DB struct {
+		DSN string `yaml:"dsn"`
+	} `yaml:"db"`
 
 	Email struct {
 		SMTPHost     string `yaml:"smtp_host"`
@@ -89,30 +99,141 @@ type Config struct {
 	Security SecurityConfig `yaml:"security"`
 }
 
-func LoadConfig() *Config {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config/config.yaml"
+func LoadConfig() (*Config, error) {
+	configPath, source, err := resolveConfigPath()
+	if err != nil {
+		return nil, err
 	}
+
+	absPath, err := filepath.Abs(configPath)
+	if err == nil {
+		configPath = absPath
+	}
+	appMode := configMode()
+	log.Printf("[BOOT] config source=%s path=%s", source, configPath)
+	log.Printf("[BOOT] loaded config from %s, mode=%s", configPath, appMode)
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			cfg := Config{}
-			applyDefaults(&cfg)
-			return &cfg
-		}
-		panic("Failed to open config file: " + configPath + ": " + err.Error())
+		return nil, fmt.Errorf("failed to open config file: %s: %w", configPath, err)
 	}
 	defer f.Close()
 
 	var cfg Config
 	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
-		panic("Failed to parse config file: " + configPath + ": " + err.Error())
+		return nil, fmt.Errorf("failed to parse config file: %s: %w", configPath, err)
 	}
 
+	normalizeConfig(&cfg)
 	applyDefaults(&cfg)
-	return &cfg
+	return &cfg, nil
+}
+
+func configMode() string {
+	if mode := os.Getenv("GIN_MODE"); mode == "release" {
+		return "release"
+	}
+	return "dev"
+}
+
+func resolveConfigPath() (string, string, error) {
+	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
+		return configPath, "env", nil
+	}
+
+	paths := []string{"config/config.yaml", "config.yaml"}
+	for _, candidate := range paths {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, "file", nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return "", "", fmt.Errorf("failed to stat config file: %s: %w", candidate, err)
+		}
+	}
+
+	return "", "", fmt.Errorf("config file not found in %v", paths)
+}
+
+func normalizeConfig(cfg *Config) {
+	if cfg.DB.DSN != "" {
+		cfg.Database.DSN = cfg.DB.DSN
+	}
+	if cfg.Database.DSN == "" && cfg.Database.URL != "" {
+		cfg.Database.DSN = cfg.Database.URL
+	}
+}
+
+func (cfg *Config) Validate() error {
+	if cfg.Server.Port <= 0 {
+		return fmt.Errorf("invalid server.port: %d", cfg.Server.Port)
+	}
+	if cfg.Database.DSN == "" {
+		return fmt.Errorf("database.dsn is required")
+	}
+
+	mode := configMode()
+	normalizedDSN, err := normalizeDSN(cfg.Database.DSN, mode)
+	if err != nil {
+		return err
+	}
+	cfg.Database.DSN = normalizedDSN
+
+	if len(cfg.CORS.AllowOrigins) == 0 {
+		if mode == "release" {
+			return fmt.Errorf("cors.allow_origins is required in release mode")
+		}
+		cfg.CORS.AllowOrigins = []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+		}
+	}
+	if mode == "release" {
+		for _, origin := range cfg.CORS.AllowOrigins {
+			if origin == "*" {
+				return fmt.Errorf("cors.allow_origins cannot include '*' in release mode")
+			}
+		}
+	}
+
+	return nil
+}
+
+func normalizeDSN(dsn string, mode string) (string, error) {
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return "", fmt.Errorf("invalid database.dsn: %w", err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid database.dsn: missing scheme or host")
+	}
+
+	values := parsed.Query()
+	sslMode := values.Get("sslmode")
+	if sslMode == "" {
+		if mode == "release" {
+			return "", fmt.Errorf("database.dsn must include sslmode in release mode")
+		}
+		values.Set("sslmode", "disable")
+		parsed.RawQuery = values.Encode()
+		return parsed.String(), nil
+	}
+
+	validSSLModes := map[string]struct{}{
+		"disable":     {},
+		"allow":       {},
+		"prefer":      {},
+		"require":     {},
+		"verify-ca":   {},
+		"verify-full": {},
+	}
+	if _, ok := validSSLModes[strings.ToLower(sslMode)]; !ok {
+		return "", fmt.Errorf("invalid sslmode in database.dsn: %s", sslMode)
+	}
+
+	return parsed.String(), nil
 }
 
 func applyDefaults(cfg *Config) {
@@ -135,9 +256,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.Frontend.Host == "" {
 		cfg.Frontend.Host = "http://localhost:3000"
 	}
-	if cfg.CORS.AllowOrigins == "" {
-		cfg.CORS.AllowOrigins = "*"
-	}
 	if cfg.CORS.AllowMethods == "" {
 		cfg.CORS.AllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 	}
@@ -151,7 +269,9 @@ func applyDefaults(cfg *Config) {
 		cfg.Security.JWTSecret = envSecret
 	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		cfg.Database.DSN = dbURL
+		if cfg.Database.DSN == "" {
+			cfg.Database.DSN = dbURL
+		}
 	}
 
 	// WhatsApp defaults

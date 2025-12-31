@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS tasks (
                                      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                                      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-                                     CONSTRAINT tasks_entity_type_chk CHECK (entity_type IN ('deal','lead')),
+                                     CONSTRAINT tasks_entity_type_chk CHECK (entity_type IN ('deal','lead','client')),
                                      CONSTRAINT tasks_status_chk      CHECK (status IN ('new','in_progress','done','cancelled')),
                                      CONSTRAINT tasks_priority_chk    CHECK (priority IN ('low','normal','high','urgent'))
 );

@@ -5,7 +5,7 @@ server:
 database:
   # Формат:
   # postgres://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=disable
-  url: "postgres://USER:PASSWORD@127.0.0.1:5432/DBNAME?sslmode=disable"
+  dsn: "postgres://USER:PASSWORD@127.0.0.1:5432/DBNAME?sslmode=disable"
 
 email:
   smtp_host: "smtp.example.com"
@@ -42,7 +42,7 @@ whatsapp:
   dry_run: true
 
 telegram:
-  enable: false
+  enable: true
   bot_token: "CHANGE_ME"
   webhook_url: "https://example.com/integrations/telegram/webhook"
 
@@ -53,7 +53,8 @@ security:
   jwt_secret: "CHANGE_ME"
 
 cors:
-  allow_origins: "*"
+  allow_origins:
+    - "https://frontend.example.com"
   allow_methods: "GET, POST, PUT, DELETE, OPTIONS"
   allow_headers: "Origin, Content-Type, Authorization"
   expose_headers: "Content-Disposition, Content-Type, Content-Length"

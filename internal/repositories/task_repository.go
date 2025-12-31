@@ -46,7 +46,7 @@ func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
 }
 
 func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, error) {
-	query := `SELECT id, creator_id, assignee_id, entity_id, entity_type, title, description,
+	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at
        FROM tasks WHERE id = $1`
 	task := &models.Task{}
@@ -65,7 +65,7 @@ func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, 
 }
 
 func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
-	baseQuery := `SELECT id, creator_id, assignee_id, entity_id, entity_type, title, description,
+	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at FROM tasks`
 
 	conditions := []string{}
@@ -80,6 +80,16 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	if filter.CreatorID != nil {
 		conditions = append(conditions, fmt.Sprintf("creator_id = $%d", argID))
 		args = append(args, *filter.CreatorID)
+		argID++
+	}
+	if filter.EntityID != nil {
+		conditions = append(conditions, fmt.Sprintf("entity_id = $%d", argID))
+		args = append(args, *filter.EntityID)
+		argID++
+	}
+	if filter.EntityType != nil {
+		conditions = append(conditions, fmt.Sprintf("entity_type = $%d", argID))
+		args = append(args, *filter.EntityType)
 		argID++
 	}
 	if filter.Status != nil {
@@ -146,7 +156,7 @@ func (r *taskRepository) UpdateAssignee(ctx context.Context, id int64, assigneeI
 
 func (r *taskRepository) ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error) {
 	q := `
-SELECT id, creator_id, assignee_id, entity_id, entity_type, title, description,
+SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at
 FROM tasks
 WHERE reminder_at IS NOT NULL
