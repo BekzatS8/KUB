@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"gopkg.in/gomail.v2"
+	"log"
 )
 
 type EmailService interface {
@@ -69,17 +70,15 @@ func (s *emailService) SendPasswordResetEmail(email, resetURL string) error {
 }
 
 func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int) error {
+	log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
+
 	m := gomail.NewMessage()
 	m.SetHeader("From", s.from)
 	m.SetHeader("To", toEmail)
 	m.SetHeader("Subject", "Код подтверждения регистрации")
 
 	text := fmt.Sprintf("Ваш код: %s. Действует %d минут.", code, ttlMinutes)
-	html := fmt.Sprintf(`
-                <h3>Код подтверждения регистрации</h3>
-                <p>Ваш код: <strong>%s</strong>.</p>
-                <p>Действует %d минут.</p>
-        `, code, ttlMinutes)
+	html := fmt.Sprintf(`<h3>Код подтверждения регистрации</h3><p>Ваш код: <strong>%s</strong>.</p><p>Действует %d минут.</p>`, code, ttlMinutes)
 
 	m.SetBody("text/plain", text)
 	m.AddAlternative("text/html", html)
@@ -87,6 +86,5 @@ func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int
 	if err := s.dialer.DialAndSend(m); err != nil {
 		return fmt.Errorf("failed to send verification email: %w", err)
 	}
-
 	return nil
 }

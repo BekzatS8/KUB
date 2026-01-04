@@ -65,7 +65,9 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 	}
 
 	if err := s.EmailSvc.SendVerificationCode(email, code, ttlMinutes(ttl)); err != nil {
+
 		return fmt.Errorf("send verification email: %w", err)
+
 	}
 
 	log.Printf("[email][user][send] user_id=%d email=%s", userID, email)
@@ -134,6 +136,7 @@ func (s *UserVerificationService) Resend(email string) error {
 
 	if err := s.EmailSvc.SendVerificationCode(user.Email, code, ttlMinutes(ttl)); err != nil {
 		return fmt.Errorf("send verification email: %w", err)
+
 	}
 
 	log.Printf("[email][user][resend] user_id=%d email=%s", user.ID, user.Email)

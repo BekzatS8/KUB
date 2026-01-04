@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 	"testing"
 	"time"
 
@@ -113,6 +114,7 @@ func (f *fakeEmailService) SendVerificationCode(toEmail, code string, ttlMinutes
 	f.lastCode = code
 	f.lastTTL = ttlMinutes
 	f.sent++
+	log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
 	return nil
 }
 
