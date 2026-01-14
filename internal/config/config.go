@@ -62,7 +62,13 @@ type WhatsAppConfig struct {
 type FrontendConfig struct {
 	Host string `yaml:"host"`
 }
-
+type GreenAPIConfig struct {
+	Enable           bool   `yaml:"enable"`
+	URL              string `yaml:"url"`
+	IDInstance       string `yaml:"id_instance"`
+	APITokenInstance string `yaml:"api_token_instance"`
+	DryRun           bool   `yaml:"dry_run"`
+}
 type Config struct {
 	Server struct {
 		Port int    `yaml:"port"`
@@ -89,9 +95,9 @@ type Config struct {
 	Files       FilesConfig       `yaml:"files"`
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
-
-	Mobizon  MobizonConfig  `yaml:"mobizon"`
-	WhatsApp WhatsAppConfig `yaml:"whatsapp"`
+	GreenAPI    GreenAPIConfig    `yaml:"greenapi"`
+	Mobizon     MobizonConfig     `yaml:"mobizon"`
+	WhatsApp    WhatsAppConfig    `yaml:"whatsapp"`
 
 	Telegram TelegramConfig `yaml:"telegram"`
 	Frontend FrontendConfig `yaml:"frontend"`

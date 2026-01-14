@@ -86,35 +86,71 @@ func buildOTPMessage(code string) string {
 // ================== БЛОК: ДОКУМЕНТЫ ==================
 
 func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int) error {
+	log.Printf("[sms][send][start] doc=%d user=%d role=%d phone=%q",
+		documentID, userID, roleID, phone,
+	)
+
+	// 1️⃣ Проверка прав
 	if s.DocSvc != nil {
 		if err := s.DocSvc.EnsureSMSAllowed(documentID, userID, roleID); err != nil {
+			log.Printf("[sms][send][forbidden] doc=%d err=%v", documentID, err)
 			return err
 		}
 	}
-	code := GenerateVerificationCode()
-	text := buildOTPMessage(code)
 
-	log.Printf("[sms][doc][send] document_id=%d phone=%s", documentID, phone)
-
-	// если клиента нет или dry-run — не шлём SMS
-	if s.Client != nil {
-		if _, err := s.Client.SendSMS(phone, text); err != nil {
-			return fmt.Errorf("mobizon error: %w", err)
-		}
+	// 2️⃣ Нормализация телефона
+	toDigits, err := utils.SanitizeE164Digits(phone)
+	if err != nil {
+		log.Printf("[sms][send][invalid_phone] doc=%d phone=%q err=%v",
+			documentID, phone, err,
+		)
+		return fmt.Errorf("invalid phone: %w", err)
 	}
 
+	// 3️⃣ Генерация кода
+	code := GenerateVerificationCode()
+	text := fmt.Sprintf("Код подтверждения: %s", code)
+
+	log.Printf("[sms][send][otp_generated] doc=%d phone=%s code=%s provider=%T",
+		documentID, toDigits, code, s.Client,
+	)
+
+	// 4️⃣ Отправка через клиент (GreenAPI / WhatsApp / SMS)
+	if s.Client != nil {
+		log.Printf("[sms][send][provider_call] doc=%d phone=%s",
+			documentID, toDigits)
+
+		resp, err := s.Client.SendSMS(toDigits, text)
+		if err != nil {
+			log.Printf("[sms][send][provider_error] doc=%d phone=%s err=%v",
+				documentID, toDigits, err,
+			)
+			return fmt.Errorf("sms provider error: %w", err)
+		}
+
+		log.Printf("[sms][send][provider_success] doc=%d message_id=%s",
+			documentID, resp.Data.MessageID)
+	} else {
+		log.Printf("[sms][send][skip] doc=%d reason=client_is_nil", documentID)
+	}
+
+	// 5️⃣ Сохраняем в БД
 	codeHash, err := HashVerificationCode(code)
 	if err != nil {
+		log.Printf("[sms][send][hash_error] doc=%d err=%v", documentID, err)
 		return err
 	}
+
 	ttl := s.CodeTTL
 	if ttl <= 0 {
 		ttl = DefaultVerificationTTL
 	}
+
 	now := s.now()
+
 	rec := &models.SMSConfirmation{
 		DocumentID:   documentID,
-		Phone:        phone,
+		Phone:        toDigits, // Сохраняем нормализованный номер
 		CodeHash:     string(codeHash),
 		SentAt:       now,
 		ExpiresAt:    now.Add(ttl),
@@ -126,9 +162,13 @@ func (s *SMS_Service) SendSMS(documentID int64, phone string, userID, roleID int
 	}
 
 	if _, err := s.Repo.Create(rec); err != nil {
+		log.Printf("[sms][send][db_error] doc=%d phone=%s err=%v",
+			documentID, toDigits, err,
+		)
 		return fmt.Errorf("db error after SMS: %w", err)
 	}
 
+	log.Printf("[sms][send][success] doc=%d phone=%s", documentID, toDigits)
 	return nil
 }
 

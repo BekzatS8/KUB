@@ -166,7 +166,11 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if err := h.service.UpdateUser(&body); err != nil {
 		log.Printf("UpdateUser: service error: %v", err)
-		internalError(c, "Failed to update user")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error_code": "INTERNAL_ERROR",
+			"message":    "Failed to update user",
+			"details":    err.Error(), // <-- важно
+		})
 		return
 	}
 

@@ -173,9 +173,22 @@ func Run() {
 		tgSvc.SetTaskService(taskService)
 	}
 
-	// === OTP provider: WhatsApp OR Mobizon (same interface) ===
+	// === OTP provider: GreenAPI, WhatsApp OR Mobizon (same interface) ===
 	var otpClient services.MobizonClient
-	if cfg.WhatsApp.Enable {
+
+	if cfg.GreenAPI.Enable {
+		// Используем GreenAPI
+		otpClient = utils.NewGreenAPIClient(
+			cfg.GreenAPI.URL,
+			cfg.GreenAPI.IDInstance,
+			cfg.GreenAPI.APITokenInstance,
+			cfg.GreenAPI.DryRun,
+		)
+		log.Printf("[BOOT] GreenAPI: enable=true dry_run=%v id_instance=%s",
+			cfg.GreenAPI.DryRun, cfg.GreenAPI.IDInstance)
+
+	} else if cfg.WhatsApp.Enable {
+		// WhatsApp как запасной вариант
 		if !cfg.WhatsApp.DryRun {
 			missing := []string{}
 			if strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
@@ -191,6 +204,7 @@ func Run() {
 				log.Fatalf("[BOOT] WhatsApp config missing: %s", strings.Join(missing, ", "))
 			}
 		}
+
 		otpClient = utils.NewWhatsAppClient(
 			cfg.WhatsApp.AccessToken,
 			cfg.WhatsApp.PhoneNumberID,
@@ -199,15 +213,18 @@ func Run() {
 			cfg.WhatsApp.LangCode,
 			cfg.WhatsApp.DryRun,
 		)
-		log.Printf("[BOOT] WhatsApp: enable=true dry_run=%v phone_number_id=%q template=%q api_version=%q lang=%q",
-			cfg.WhatsApp.DryRun, cfg.WhatsApp.PhoneNumberID, cfg.WhatsApp.TemplateName, cfg.WhatsApp.APIVersion, cfg.WhatsApp.LangCode)
+		log.Printf("[BOOT] WhatsApp: enable=true dry_run=%v phone_number_id=%q template=%q",
+			cfg.WhatsApp.DryRun, cfg.WhatsApp.PhoneNumberID, cfg.WhatsApp.TemplateName)
+
 	} else {
+		// Mobizon как последний вариант
 		otpClient = utils.NewClientWithOptions(
 			cfg.Mobizon.APIKey,
 			cfg.Mobizon.SenderID,
 			cfg.Mobizon.DryRun,
 		)
-		log.Printf("[BOOT] Mobizon: enable=true dry_run=%v sender_id=%q", cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
+		log.Printf("[BOOT] Mobizon: enable=true dry_run=%v sender_id=%q",
+			cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
 	}
 
 	// Сервис OTP — для документов

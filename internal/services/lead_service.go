@@ -55,6 +55,7 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
+
 	current, err := s.Repo.GetByID(lead.ID)
 	if err != nil {
 		return err
@@ -62,13 +63,37 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	if current == nil {
 		return errors.New("lead not found")
 	}
+
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
+
+	// owner запрещаем менять всем кроме management
+	// owner
 	if roleID != authz.RoleManagement {
 		lead.OwnerID = current.OwnerID
+	} else {
+		// ✅ management: если owner не прислали — не затирать на 0
+		if lead.OwnerID == 0 {
+			lead.OwnerID = current.OwnerID
+		}
 	}
-	// created_at не трогаем — его вообще не обновляем в репозитории
+
+	// ✅ статус запрещаем менять через обычный Update
+	if lead.Status == "" {
+		lead.Status = current.Status
+	} else if lead.Status != current.Status {
+		return errors.New("status must be updated via /leads/:id/status")
+	}
+
+	// (опционально) если title/description пустые — оставляем старые
+	if lead.Title == "" {
+		lead.Title = current.Title
+	}
+	if lead.Description == "" {
+		lead.Description = current.Description
+	}
+
 	return s.Repo.Update(lead)
 }
 
