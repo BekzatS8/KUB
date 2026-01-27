@@ -20,6 +20,7 @@ func SetupRoutes(
 	documentHandler *handlers.DocumentHandler,
 	taskHandler *handlers.TaskHandler,
 	smsHandler *handlers.SMSHandler,
+	signHandler *handlers.SignSessionHandler,
 	reportHandler *handlers.ReportHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
@@ -48,6 +49,16 @@ func SetupRoutes(
 	r.POST("/register/confirm", verifyHandler.ConfirmUser)
 	r.POST("/register/resend", verifyHandler.ResendUser)
 
+	if signHandler != nil {
+		r.GET("/sign/:token", signHandler.ServeSignPage)
+
+		signPublic := r.Group("/api/v1/sign/sessions")
+		{
+			signPublic.POST("/:token/verify", signHandler.Verify)
+			signPublic.POST("/:token/sign", signHandler.Sign)
+		}
+	}
+
 	// PUBLIC: Telegram webhook (без JWT!)
 	if integrationsHandler != nil {
 		r.POST("/integrations/telegram/webhook", integrationsHandler.Webhook)
@@ -58,6 +69,13 @@ func SetupRoutes(
 	// =====================
 	r.Use(authMiddleware)
 	r.Use(middleware.ReadOnlyGuard())
+
+	if signHandler != nil {
+		signProtected := r.Group("/api/v1/sign/sessions")
+		{
+			signProtected.POST("", signHandler.Create)
+		}
+	}
 
 	// PRIVATE (JWT): Telegram link endpoints
 	if integrationsHandler != nil {

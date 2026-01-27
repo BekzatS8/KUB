@@ -13,31 +13,31 @@ import (
 	"turcompany/internal/services"
 )
 
-type fakeUserService struct {
+type fakeUserServiceUser struct {
 	createdUser *models.User
 }
 
-func (f *fakeUserService) CreateUser(user *models.User) error { return nil }
-func (f *fakeUserService) CreateUserWithPassword(user *models.User, plainPassword string) error {
+func (f *fakeUserServiceUser) CreateUser(user *models.User) error { return nil }
+func (f *fakeUserServiceUser) CreateUserWithPassword(user *models.User, plainPassword string) error {
 	user.ID = 1
 	f.createdUser = user
 	return nil
 }
-func (f *fakeUserService) GetUserByID(id int) (*models.User, error)            { return nil, nil }
-func (f *fakeUserService) UpdateUser(user *models.User) error                  { return nil }
-func (f *fakeUserService) DeleteUser(id int) error                             { return nil }
-func (f *fakeUserService) ListUsers(limit, offset int) ([]*models.User, error) { return nil, nil }
-func (f *fakeUserService) GetUserByEmail(email string) (*models.User, error)   { return nil, nil }
-func (f *fakeUserService) GetUserCount() (int, error)                          { return 0, nil }
-func (f *fakeUserService) GetUserCountByRole(roleID int) (int, error)          { return 0, nil }
-func (f *fakeUserService) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
+func (f *fakeUserServiceUser) GetUserByID(id int) (*models.User, error)            { return nil, nil }
+func (f *fakeUserServiceUser) UpdateUser(user *models.User) error                  { return nil }
+func (f *fakeUserServiceUser) DeleteUser(id int) error                             { return nil }
+func (f *fakeUserServiceUser) ListUsers(limit, offset int) ([]*models.User, error) { return nil, nil }
+func (f *fakeUserServiceUser) GetUserByEmail(email string) (*models.User, error)   { return nil, nil }
+func (f *fakeUserServiceUser) GetUserCount() (int, error)                          { return 0, nil }
+func (f *fakeUserServiceUser) GetUserCountByRole(roleID int) (int, error)          { return 0, nil }
+func (f *fakeUserServiceUser) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
 	return nil
 }
-func (f *fakeUserService) GetByRefreshToken(token string) (*models.User, error) { return nil, nil }
-func (f *fakeUserService) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
+func (f *fakeUserServiceUser) GetByRefreshToken(token string) (*models.User, error) { return nil, nil }
+func (f *fakeUserServiceUser) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
 	return nil, nil
 }
-func (f *fakeUserService) VerifyUser(userID int) error { return nil }
+func (f *fakeUserServiceUser) VerifyUser(userID int) error { return nil }
 
 type fakeEmailService struct {
 	lastTo   string
@@ -102,7 +102,7 @@ func (r *fakeUserVerificationRepo) Update(v *models.UserVerification) error { re
 
 func TestRegisterCreatesVerificationAndSendsEmail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	userSvc := &fakeUserService{}
+	userSvc := &fakeUserServiceUser{}
 	repo := newFakeUserVerificationRepo()
 	emailSvc := &fakeEmailService{}
 	verificationSvc := services.NewUserVerificationService(repo, nil, emailSvc, func() time.Time {

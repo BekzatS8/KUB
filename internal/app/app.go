@@ -101,6 +101,7 @@ func Run() {
 	teleLinkRepo := repositories.NewTelegramLinkRepository(db)
 	chatRepo := repositories.NewChatRepository(db)
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
+	signSessionRepo := repositories.NewSignSessionRepository(db)
 
 	// === Services (общие) ===
 	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
@@ -173,59 +174,38 @@ func Run() {
 		tgSvc.SetTaskService(taskService)
 	}
 
-	// === OTP provider: GreenAPI, WhatsApp OR Mobizon (same interface) ===
-	var otpClient services.MobizonClient
+	// === OTP provider: WhatsApp (same interface) ===
+	var otpClient services.SMSClient
 
-	if cfg.GreenAPI.Enable {
-		// Используем GreenAPI
-		otpClient = utils.NewGreenAPIClient(
-			cfg.GreenAPI.URL,
-			cfg.GreenAPI.IDInstance,
-			cfg.GreenAPI.APITokenInstance,
-			cfg.GreenAPI.DryRun,
-		)
-		log.Printf("[BOOT] GreenAPI: enable=true dry_run=%v id_instance=%s",
-			cfg.GreenAPI.DryRun, cfg.GreenAPI.IDInstance)
-
-	} else if cfg.WhatsApp.Enable {
-		// WhatsApp как запасной вариант
-		if !cfg.WhatsApp.DryRun {
-			missing := []string{}
-			if strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
-				missing = append(missing, "access_token")
-			}
-			if strings.TrimSpace(cfg.WhatsApp.PhoneNumberID) == "" {
-				missing = append(missing, "phone_number_id")
-			}
-			if strings.TrimSpace(cfg.WhatsApp.TemplateName) == "" {
-				missing = append(missing, "template_name")
-			}
-			if len(missing) > 0 {
-				log.Fatalf("[BOOT] WhatsApp config missing: %s", strings.Join(missing, ", "))
-			}
-		}
-
-		otpClient = utils.NewWhatsAppClient(
-			cfg.WhatsApp.AccessToken,
-			cfg.WhatsApp.PhoneNumberID,
-			cfg.WhatsApp.APIVersion,
-			cfg.WhatsApp.TemplateName,
-			cfg.WhatsApp.LangCode,
-			cfg.WhatsApp.DryRun,
-		)
-		log.Printf("[BOOT] WhatsApp: enable=true dry_run=%v phone_number_id=%q template=%q",
-			cfg.WhatsApp.DryRun, cfg.WhatsApp.PhoneNumberID, cfg.WhatsApp.TemplateName)
-
-	} else {
-		// Mobizon как последний вариант
-		otpClient = utils.NewClientWithOptions(
-			cfg.Mobizon.APIKey,
-			cfg.Mobizon.SenderID,
-			cfg.Mobizon.DryRun,
-		)
-		log.Printf("[BOOT] Mobizon: enable=true dry_run=%v sender_id=%q",
-			cfg.Mobizon.DryRun, cfg.Mobizon.SenderID)
+	if !cfg.WhatsApp.Enabled {
+		log.Fatal("[BOOT] WhatsApp is disabled but required for OTP delivery")
 	}
+	if !cfg.WhatsApp.DryRun {
+		missing := []string{}
+		if strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
+			missing = append(missing, "access_token")
+		}
+		if strings.TrimSpace(cfg.WhatsApp.PhoneNumberID) == "" {
+			missing = append(missing, "phone_number_id")
+		}
+		if strings.TrimSpace(cfg.WhatsApp.TemplateCodeName) == "" {
+			missing = append(missing, "template_code_name")
+		}
+		if len(missing) > 0 {
+			log.Fatalf("[BOOT] WhatsApp config missing: %s", strings.Join(missing, ", "))
+		}
+	}
+
+	otpClient = utils.NewWhatsAppClient(
+		cfg.WhatsApp.AccessToken,
+		cfg.WhatsApp.PhoneNumberID,
+		cfg.WhatsApp.GraphBaseURL,
+		cfg.WhatsApp.TemplateCodeName,
+		cfg.WhatsApp.TemplateLang,
+		cfg.WhatsApp.DryRun,
+	)
+	log.Printf("[BOOT] WhatsApp: enabled=true dry_run=%v phone_number_id=%q template_code=%q",
+		cfg.WhatsApp.DryRun, cfg.WhatsApp.PhoneNumberID, cfg.WhatsApp.TemplateCodeName)
 
 	// Сервис OTP — для документов
 	smsService := services.NewSMSService(
@@ -235,6 +215,28 @@ func Run() {
 		nil,
 	)
 	smsService.SetAdditionalRepos(clientRepo, dealRepo)
+
+	signDelivery := services.NewWhatsAppSignDelivery(services.SignDeliveryConfig{
+		Enabled:          cfg.WhatsApp.Enabled,
+		DryRun:           cfg.WhatsApp.DryRun,
+		GraphBaseURL:     cfg.WhatsApp.GraphBaseURL,
+		PhoneNumberID:    cfg.WhatsApp.PhoneNumberID,
+		AccessToken:      cfg.WhatsApp.AccessToken,
+		TemplateCodeName: cfg.WhatsApp.TemplateCodeName,
+		TemplateLinkName: cfg.WhatsApp.TemplateLinkName,
+		TemplateLang:     cfg.WhatsApp.TemplateLang,
+	})
+	signSessionService := services.NewSignSessionService(
+		signSessionRepo,
+		documentService,
+		signDelivery,
+		services.SignSessionConfig{
+			SignBaseURL:  cfg.WhatsApp.SignBaseURL,
+			DryRun:       cfg.WhatsApp.DryRun,
+			TokenVisible: cfg.WhatsApp.DryRun,
+		},
+		nil,
+	)
 	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
 		userService,
@@ -263,6 +265,7 @@ func Run() {
 
 	smsHandler := handlers.NewSMSHandler(smsService)
 	verifyHandler := handlers.NewVerifyHandler(userVerificationService)
+	signHandler := handlers.NewSignSessionHandler(signSessionService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
 	// timezone
@@ -304,6 +307,7 @@ func Run() {
 		documentHandler,
 		taskHandler,
 		smsHandler,
+		signHandler,
 		reportHandler,
 		verifyHandler,
 		integrationsHandler,

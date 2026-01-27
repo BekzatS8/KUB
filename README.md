@@ -1,7 +1,7 @@
 # KUB API — CRM-бэкенд с RBAC, SMS-верификацией и документооборотом
 
 KUB — это REST API на **Go + Gin**, с ролевой моделью доступа (**RBAC**), безопасной регистрацией через **SMS-код**, управлением лидами/сделками/задачами/документами, и отчётами.  
-Хранилище — **PostgreSQL**. SMS-шлюз — **Mobizon**. PDF-генерация — встроенная.
+Хранилище — **PostgreSQL**. SMS-уведомления — через **WhatsApp Cloud API**. PDF-генерация — встроенная.
 
 ---
 
@@ -44,7 +44,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 
 - **Go 1.22+**, **Gin** (HTTP, middleware)
 - **PostgreSQL** (модель данных и индексы заточены под RBAC/аудит/фильтры)
-- **Mobizon** (SMS), **SMTP** (почта)
+- **WhatsApp Cloud API** (SMS/OTP), **SMTP** (почта)
 - **JWT**: access (короткий), refresh (длинный, хранится в БД с ротацией)
 - **bcrypt** для паролей и верификационных кодов
 - Генерация PDF (пользовательские шаблоны/шрифты)
@@ -86,19 +86,16 @@ email:
 files:
   root_dir: "./files"               # корень хранилища документов
 
-mobizon:
-  api_key: "MOBIZON_API_KEY"
-  sender_id: ""                     # опционально
-  dry_run: false                    # true = не отправлять фактически SMS
-
 whatsapp:
-  enable: false
-  access_token: "WHATSAPP_TOKEN"
-  phone_number_id: "WHATSAPP_PHONE_ID"
-  api_version: "v21.0"
-  template_name: "template_name"
-  lang_code: "ru"
-  dry_run: true
+  enabled: true
+  dry_run: false
+  graph_base_url: "https://graph.facebook.com/v20.0"
+  phone_number_id: "<ENV:WHATSAPP_PHONE_NUMBER_ID>"
+  access_token: "<ENV:WHATSAPP_ACCESS_TOKEN>"
+  template_code_name: "auth_sign_code"
+  template_link_name: "util_sign_link"
+  template_lang: "ru"
+  sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
 
 security:
   jwt_secret: "CHANGE_ME"
@@ -110,6 +107,25 @@ cors:
   expose_headers: "Content-Disposition, Content-Type, Content-Length"
 ```
 
+### WhatsApp Cloud API для подписания (новый flow)
+
+Для WhatsApp подписания **токены и секреты только через ENV**:
+
+```bash
+# WhatsApp Cloud API
+WHATSAPP_PHONE_NUMBER_ID="..."
+WHATSAPP_ACCESS_TOKEN="..."
+WHATSAPP_TEMPLATE_CODE_NAME="auth_sign_code"
+WHATSAPP_TEMPLATE_LINK_NAME="util_sign_link"
+WHATSAPP_TEMPLATE_LANG="ru"
+WHATSAPP_GRAPH_BASE_URL="https://graph.facebook.com/v20.0"
+WHATSAPP_ENABLED="true"
+WHATSAPP_DRY_RUN="false"
+
+# базовый URL страницы подписи (без токена)
+SIGN_BASE_URL="https://example.com/sign"
+```
+
 Путь к конфигу можно переопределить переменной окружения `CONFIG_PATH` (по умолчанию `config/config.yaml`).
 Секрет JWT можно задавать через `security.jwt_secret` в конфиге или через переменную окружения `JWT_SECRET`.
 Для удобства можно создать `.env` из `.env.example` и хранить там параметры, которые затем подставляются в `config.yaml` и/или используются при запуске.
@@ -118,9 +134,11 @@ cors:
 
 ## Миграции БД
 
-Положи миграцию в `db/migrations/001_base_schema.sql` и выполни:
+Применяй миграции вручную (автоприменения нет). В staging/prod последовательно выполни:
 ```bash
-psql "$DATABASE_URL" -f db/migrations/001_base_schema.sql
+psql "$DATABASE_URL" -f db/migrations/001_init.up.sql
+psql "$DATABASE_URL" -f db/migrations/002_sign_sessions.up.sql
+psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 ```
 **Миграция содержит:**
 - `roles`, `users` (+refresh-поля, телефон, флаг верификации)
@@ -331,3 +349,44 @@ curl -X POST http://localhost:4000/login   -H "Content-Type: application/json"  
 ```bash
 curl -X POST http://localhost:4000/refresh   -H "Content-Type: application/json"   -d '{"refresh_token":"<your_refresh_token>"}'
 ```
+### Подписание документа через WhatsApp (OTP + ссылка)
+
+**Создать сессию подписи (требует JWT):**
+```bash
+curl -X POST http://localhost:4000/api/v1/sign/sessions \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": 123, "phone": "+77001234567"}'
+```
+
+Ответ: `{ "status": "sent" }` (в dry_run дополнительно вернётся token/sign_url).
+
+**Подтвердить код (публичный):**
+```bash
+curl -X POST http://localhost:4000/api/v1/sign/sessions/{token}/verify \
+  -H "Content-Type: application/json" \
+  -d '{"code": "123456"}'
+```
+
+**Подписать документ (публичный):**
+```bash
+curl -X POST http://localhost:4000/api/v1/sign/sessions/{token}/sign \
+  -H "Content-Type: application/json" \
+  -d '{"agree": true}'
+```
+
+**Публичная HTML-страница:**
+```
+GET /sign/{token}
+```
+
+---
+
+## Что проверить после деплоя
+
+- ✅ WhatsApp templates доступны и опубликованы (code/link), корректные language codes.
+- ✅ ENV-переменные для WhatsApp Cloud API заданы на окружении.
+- ✅ SIGN_BASE_URL указывает на публичный домен с доступным `/sign/{token}`.
+- ✅ Миграция `002_sign_sessions.up.sql` применена.
+- ✅ Проверить rate limit: >3 сессий за 10 минут на документ/телефон возвращает 429.
+- ✅ Проверить TTL: по истечении 10 минут verify/sign возвращает 410.

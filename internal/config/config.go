@@ -43,31 +43,20 @@ type CORSConfig struct {
 	ExposeHeaders string   `yaml:"expose_headers"`
 }
 
-type MobizonConfig struct {
-	APIKey   string `yaml:"api_key"`
-	SenderID string `yaml:"sender_id"`
-	DryRun   bool   `yaml:"dry_run"`
-}
-
 type WhatsAppConfig struct {
-	Enable        bool   `yaml:"enable"`
-	AccessToken   string `yaml:"access_token"`
-	PhoneNumberID string `yaml:"phone_number_id"`
-	APIVersion    string `yaml:"api_version"`
-	TemplateName  string `yaml:"template_name"`
-	LangCode      string `yaml:"lang_code"`
-	DryRun        bool   `yaml:"dry_run"`
+	Enabled          bool   `yaml:"enabled"`
+	DryRun           bool   `yaml:"dry_run"`
+	GraphBaseURL     string `yaml:"graph_base_url"`
+	PhoneNumberID    string `yaml:"phone_number_id"`
+	AccessToken      string `yaml:"access_token"`
+	TemplateCodeName string `yaml:"template_code_name"`
+	TemplateLinkName string `yaml:"template_link_name"`
+	TemplateLang     string `yaml:"template_lang"`
+	SignBaseURL      string `yaml:"sign_base_url"`
 }
 
 type FrontendConfig struct {
 	Host string `yaml:"host"`
-}
-type GreenAPIConfig struct {
-	Enable           bool   `yaml:"enable"`
-	URL              string `yaml:"url"`
-	IDInstance       string `yaml:"id_instance"`
-	APITokenInstance string `yaml:"api_token_instance"`
-	DryRun           bool   `yaml:"dry_run"`
 }
 type Config struct {
 	Server struct {
@@ -95,8 +84,6 @@ type Config struct {
 	Files       FilesConfig       `yaml:"files"`
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
-	GreenAPI    GreenAPIConfig    `yaml:"greenapi"`
-	Mobizon     MobizonConfig     `yaml:"mobizon"`
 	WhatsApp    WhatsAppConfig    `yaml:"whatsapp"`
 
 	Telegram TelegramConfig `yaml:"telegram"`
@@ -130,6 +117,7 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %s: %w", configPath, err)
 	}
 
+	applyEnvOverrides(&cfg)
 	normalizeConfig(&cfg)
 	applyDefaults(&cfg)
 	return &cfg, nil
@@ -299,10 +287,43 @@ func applyDefaults(cfg *Config) {
 	}
 
 	// WhatsApp defaults
-	if cfg.WhatsApp.APIVersion == "" {
-		cfg.WhatsApp.APIVersion = "v21.0"
+	if cfg.WhatsApp.GraphBaseURL == "" {
+		cfg.WhatsApp.GraphBaseURL = "https://graph.facebook.com/v20.0"
 	}
-	if cfg.WhatsApp.LangCode == "" {
-		cfg.WhatsApp.LangCode = "ru"
+	if cfg.WhatsApp.TemplateLang == "" {
+		cfg.WhatsApp.TemplateLang = "ru"
+	}
+	if cfg.WhatsApp.SignBaseURL == "" && cfg.Frontend.Host != "" {
+		cfg.WhatsApp.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
+	}
+}
+
+func applyEnvOverrides(cfg *Config) {
+	setString := func(value string, target *string) {
+		if strings.TrimSpace(value) != "" {
+			*target = strings.TrimSpace(value)
+		}
+	}
+	if value := os.Getenv("WHATSAPP_ENABLED"); value != "" {
+		cfg.WhatsApp.Enabled = parseBoolEnvValue(value)
+	}
+	if value := os.Getenv("WHATSAPP_DRY_RUN"); value != "" {
+		cfg.WhatsApp.DryRun = parseBoolEnvValue(value)
+	}
+	setString(os.Getenv("WHATSAPP_GRAPH_BASE_URL"), &cfg.WhatsApp.GraphBaseURL)
+	setString(os.Getenv("WHATSAPP_PHONE_NUMBER_ID"), &cfg.WhatsApp.PhoneNumberID)
+	setString(os.Getenv("WHATSAPP_ACCESS_TOKEN"), &cfg.WhatsApp.AccessToken)
+	setString(os.Getenv("WHATSAPP_TEMPLATE_CODE_NAME"), &cfg.WhatsApp.TemplateCodeName)
+	setString(os.Getenv("WHATSAPP_TEMPLATE_LINK_NAME"), &cfg.WhatsApp.TemplateLinkName)
+	setString(os.Getenv("WHATSAPP_TEMPLATE_LANG"), &cfg.WhatsApp.TemplateLang)
+	setString(os.Getenv("SIGN_BASE_URL"), &cfg.WhatsApp.SignBaseURL)
+}
+
+func parseBoolEnvValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
 	}
 }

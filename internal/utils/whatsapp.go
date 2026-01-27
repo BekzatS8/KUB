@@ -13,7 +13,7 @@ import (
 )
 
 // WhatsAppClient sends messages via Meta WhatsApp Cloud API (Graph API).
-// It keeps the same method signature as Mobizon Client (SendSMS) so your services don't change.
+// It keeps the same method signature as other SMS clients (SendSMS) so your services don't change.
 //
 // IMPORTANT
 // 1) If you want to start a conversation (OTP before user wrote to you), use an APPROVED TEMPLATE.
@@ -22,16 +22,16 @@ import (
 type WhatsAppClient struct {
 	AccessToken   string
 	PhoneNumberID string
-	APIVersion    string
+	GraphBaseURL  string
 	TemplateName  string
 	LangCode      string
 	DryRun        bool
 	HTTPClient    *http.Client
 }
 
-func NewWhatsAppClient(accessToken, phoneNumberID, apiVersion, templateName, langCode string, dryRun bool) *WhatsAppClient {
-	if strings.TrimSpace(apiVersion) == "" {
-		apiVersion = "v21.0"
+func NewWhatsAppClient(accessToken, phoneNumberID, graphBaseURL, templateName, langCode string, dryRun bool) *WhatsAppClient {
+	if strings.TrimSpace(graphBaseURL) == "" {
+		graphBaseURL = "https://graph.facebook.com/v20.0"
 	}
 	if strings.TrimSpace(langCode) == "" {
 		langCode = "ru"
@@ -39,7 +39,7 @@ func NewWhatsAppClient(accessToken, phoneNumberID, apiVersion, templateName, lan
 	return &WhatsAppClient{
 		AccessToken:   strings.TrimSpace(accessToken),
 		PhoneNumberID: strings.TrimSpace(phoneNumberID),
-		APIVersion:    strings.TrimSpace(apiVersion),
+		GraphBaseURL:  strings.TrimRight(strings.TrimSpace(graphBaseURL), "/"),
 		TemplateName:  strings.TrimSpace(templateName),
 		LangCode:      strings.TrimSpace(langCode),
 		DryRun:        dryRun,
@@ -49,7 +49,10 @@ func NewWhatsAppClient(accessToken, phoneNumberID, apiVersion, templateName, lan
 	}
 }
 
-var reDigits = regexp.MustCompile(`\d{4,8}`)
+var (
+	reDigits    = regexp.MustCompile(`\d{4,8}`)
+	reNonDigits = regexp.MustCompile(`\D+`)
+)
 
 // SanitizeE164Digits приводит номер к формату E.164 без плюса
 func SanitizeE164Digits(phone string) (string, error) {
@@ -123,7 +126,7 @@ func (c *WhatsAppClient) SendSMS(to, text string) (*SendSMSResponse, error) {
 		return &SendSMSResponse{Code: 0}, nil
 	}
 
-	endpoint := fmt.Sprintf("https://graph.facebook.com/%s/%s/messages", c.APIVersion, c.PhoneNumberID)
+	endpoint := fmt.Sprintf("%s/%s/messages", c.GraphBaseURL, c.PhoneNumberID)
 
 	payload := map[string]any{
 		"messaging_product": "whatsapp",

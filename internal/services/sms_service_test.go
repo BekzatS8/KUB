@@ -13,13 +13,13 @@ import (
 	"turcompany/internal/utils"
 )
 
-type fakeMobizonClient struct {
+type fakeSMSClient struct {
 	lastTo   string
 	lastText string
 	err      error
 }
 
-func (f *fakeMobizonClient) SendSMS(to, code string) (*utils.SendSMSResponse, error) {
+func (f *fakeSMSClient) SendSMS(to, code string) (*utils.SendSMSResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -127,10 +127,10 @@ func (r *fakeSMSDealRepo) GetLatestByClientID(clientID int) (*models.Deals, erro
 func TestSMSService_SendSMS(t *testing.T) {
 	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
 	repo := newFakeSMSRepo()
-	mobizon := &fakeMobizonClient{}
+	smsClient := &fakeSMSClient{}
 	svc := &SMS_Service{
 		Repo:    repo,
-		Client:  mobizon,
+		Client:  smsClient,
 		CodeTTL: 2 * time.Minute,
 		now:     func() time.Time { return fixedNow },
 	}
@@ -149,11 +149,11 @@ func TestSMSService_SendSMS(t *testing.T) {
 	if !rec.SentAt.Equal(fixedNow) {
 		t.Errorf("SentAt mismatch: got %s want %s", rec.SentAt, fixedNow)
 	}
-	if mobizon.lastTo != "+123" {
-		t.Errorf("mobizon recipient mismatch: got %s", mobizon.lastTo)
+	if smsClient.lastTo != "+123" {
+		t.Errorf("sms recipient mismatch: got %s", smsClient.lastTo)
 	}
-	if !strings.Contains(mobizon.lastText, "Код подтверждения") {
-		t.Errorf("mobizon text should contain prefix, got %q", mobizon.lastText)
+	if !strings.Contains(smsClient.lastText, "Код подтверждения") {
+		t.Errorf("sms text should contain prefix, got %q", smsClient.lastText)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestSMSService_ConfirmCode(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:    repo,
-		Client:  &fakeMobizonClient{},
+		Client:  &fakeSMSClient{},
 		DocSvc:  docSvc,
 		CodeTTL: 2 * time.Minute,
 		now:     func() time.Time { return fixedNow },
@@ -220,7 +220,7 @@ func TestSMSService_ConfirmCode_InvalidOrExpired(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:    repo,
-		Client:  &fakeMobizonClient{},
+		Client:  &fakeSMSClient{},
 		CodeTTL: time.Minute,
 		now:     func() time.Time { return fixedNow.Add(2 * time.Minute) },
 	}
@@ -252,7 +252,7 @@ func TestSMSService_SendSMS_RequiresApproved(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:   repo,
-		Client: &fakeMobizonClient{},
+		Client: &fakeSMSClient{},
 		DocSvc: docSvc,
 		now:    time.Now,
 	}
@@ -273,7 +273,7 @@ func TestSMSService_SendSMS_SalesOwnership(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:   repo,
-		Client: &fakeMobizonClient{},
+		Client: &fakeSMSClient{},
 		DocSvc: docSvc,
 		now:    time.Now,
 	}
@@ -306,7 +306,7 @@ func TestSMSService_ConfirmCode_AttemptsAndLockout(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:    repo,
-		Client:  &fakeMobizonClient{},
+		Client:  &fakeSMSClient{},
 		DocSvc:  docSvc,
 		now:     func() time.Time { return fixedNow },
 		CodeTTL: 2 * time.Minute,
@@ -361,7 +361,7 @@ func TestSMSService_ConfirmCode_ExpiredDoesNotSign(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:   repo,
-		Client: &fakeMobizonClient{},
+		Client: &fakeSMSClient{},
 		DocSvc: docSvc,
 		now:    func() time.Time { return fixedNow },
 	}
@@ -400,7 +400,7 @@ func TestSMSService_ConfirmCode_SignsDocument(t *testing.T) {
 
 	svc := &SMS_Service{
 		Repo:    repo,
-		Client:  &fakeMobizonClient{},
+		Client:  &fakeSMSClient{},
 		DocSvc:  docSvc,
 		now:     func() time.Time { return fixedNow },
 		CodeTTL: 2 * time.Minute,

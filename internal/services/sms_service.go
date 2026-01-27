@@ -43,7 +43,7 @@ type UserVerificationRepo interface {
 	Update(v *models.UserVerification) error
 }
 
-type MobizonClient interface {
+type SMSClient interface {
 	SendSMS(to, code string) (*utils.SendSMSResponse, error)
 }
 
@@ -53,7 +53,6 @@ type MobizonClient interface {
 var (
 	_ SMSConfirmationRepo  = (*repositories.SMSConfirmationRepository)(nil)
 	_ UserVerificationRepo = (*repositories.UserVerificationRepository)(nil)
-	_ MobizonClient        = (*utils.Client)(nil)
 )
 
 // SignatureMetadata - метаданные для юридически значимой подписи
@@ -72,7 +71,7 @@ type SignatureMetadata struct {
 type SMS_Service struct {
 	Repo    SMSConfirmationRepo
 	DocRepo DocumentRepo // Используем интерфейс из document_service.go
-	Client  MobizonClient
+	Client  SMSClient
 	CodeTTL time.Duration
 	now     func() time.Time
 
@@ -83,7 +82,7 @@ type SMS_Service struct {
 
 func NewSMSService(
 	docRepo SMSConfirmationRepo,
-	client MobizonClient,
+	client SMSClient,
 	docRepo2 DocumentRepo, // Переименуем для ясности
 	now func() time.Time,
 ) *SMS_Service {
