@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+
 	"turcompany/internal/models"
 	"turcompany/internal/services"
 
@@ -41,7 +43,10 @@ func (h *SMSHandler) SendSMSHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "SMS sent"})
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "SMS sent",
+		"legal_notice": "Client received a legally binding signature request with full disclosure",
+	})
 }
 
 func (h *SMSHandler) ResendSMSHandler(c *gin.Context) {
@@ -64,7 +69,10 @@ func (h *SMSHandler) ResendSMSHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "SMS resent"})
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "SMS resent",
+		"legal_notice": "Client received a legally binding signature request",
+	})
 }
 
 func (h *SMSHandler) ConfirmSMSHandler(c *gin.Context) {
@@ -77,8 +85,12 @@ func (h *SMSHandler) ConfirmSMSHandler(c *gin.Context) {
 		return
 	}
 
-	userID, roleID := getUserAndRole(c)
-	ok, err := h.Service.ConfirmCode(input.DocumentID, input.Code, userID, roleID)
+	// Получаем IP и User-Agent для юридической значимости
+	ip := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+
+	// Используем новую версию с метаданными
+	ok, err := h.Service.ConfirmCodeWithMetadata(input.DocumentID, input.Code, ip, userAgent)
 	if err != nil {
 		if err == services.ErrCodeExpired || err == services.ErrCodeInvalid || err == services.ErrTooManyAttempts {
 			badRequest(c, err.Error())
@@ -92,7 +104,16 @@ func (h *SMSHandler) ConfirmSMSHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Code confirmed"})
+	// Логируем юридически значимую подпись
+	logSignatureEvent(c, input.DocumentID, input.Code, ip, userAgent)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":             "Document successfully signed",
+		"legal_notice":        "The document has been legally signed and is now binding",
+		"signature_timestamp": time.Now().Format(time.RFC3339),
+		"signature_method":    "SMS OTP with legal consent",
+		"ip_address":          ip,
+	})
 }
 
 func (h *SMSHandler) GetLatestSMSHandler(c *gin.Context) {
@@ -119,14 +140,22 @@ func (h *SMSHandler) GetLatestSMSHandler(c *gin.Context) {
 		SentAt      time.Time `json:"sent_at"`
 		Confirmed   bool      `json:"confirmed"`
 		ConfirmedAt time.Time `json:"confirmed_at"`
+		LegalNotice string    `json:"legal_notice,omitempty"`
 	}
-	c.JSON(http.StatusOK, smsResponse{
+
+	response := smsResponse{
 		DocumentID:  sms.DocumentID,
 		Phone:       maskPhone(sms.Phone),
 		SentAt:      sms.SentAt,
 		Confirmed:   sms.Confirmed,
 		ConfirmedAt: sms.ConfirmedAt,
-	})
+	}
+
+	if sms.Confirmed {
+		response.LegalNotice = "Document has been legally signed via SMS OTP"
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *SMSHandler) DeleteSMSHandler(c *gin.Context) {
@@ -143,6 +172,32 @@ func (h *SMSHandler) DeleteSMSHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Confirmations deleted"})
+}
+
+// Вспомогательная функция для логирования юридически значимой подписи
+func logSignatureEvent(c *gin.Context, documentID int64, code string, ip, userAgent string) {
+	// Маскируем код для безопасности
+	maskedCode := ""
+	if len(code) > 2 {
+		maskedCode = code[:2] + strings.Repeat("*", len(code)-2)
+	} else {
+		maskedCode = "******"
+	}
+
+	// Определяем устройство
+	deviceInfo := "Unknown"
+	if strings.Contains(userAgent, "Mobile") {
+		deviceInfo = "Mobile Device"
+	} else if strings.Contains(userAgent, "Windows") {
+		deviceInfo = "Windows PC"
+	} else if strings.Contains(userAgent, "Mac") {
+		deviceInfo = "Mac"
+	}
+
+	fmt.Printf("[SIGNATURE][LEGAL] Document %d signed via SMS OTP\n", documentID)
+	fmt.Printf("[SIGNATURE][LEGAL] IP: %s, Device: %s\n", ip, deviceInfo)
+	fmt.Printf("[SIGNATURE][LEGAL] Code used: %s\n", maskedCode)
+	fmt.Printf("[SIGNATURE][LEGAL] Timestamp: %s\n", time.Now().Format(time.RFC3339))
 }
 
 func maskPhone(phone string) string {

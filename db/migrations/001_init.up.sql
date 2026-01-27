@@ -285,6 +285,12 @@ INSERT INTO roles (id, name, description) VALUES
                                               (50,'admin','Администратор: управление системой.')
 ON CONFLICT (id) DO NOTHING;
 
+ALTER TABLE documents
+    ADD COLUMN IF NOT EXISTS sign_method VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS sign_ip VARCHAR(45),
+    ADD COLUMN IF NOT EXISTS sign_user_agent TEXT,
+    ADD COLUMN IF NOT EXISTS sign_metadata TEXT;
+
 COMMIT;
 
 -- =====================================================================

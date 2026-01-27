@@ -27,6 +27,7 @@ type DocumentRepo interface {
 	ListDocumentsByDeal(dealID int64) ([]*models.Document, error)
 	Delete(id int64) error
 	UpdateStatus(id int64, status string) error
+	Update(doc *models.Document) error
 }
 
 type LeadRepo interface {
@@ -187,6 +188,98 @@ func normalizeDocType(value string) string {
 func isSupportedDocType(value string) bool {
 	_, ok := supportedDocTypes[normalizeDocType(value)]
 	return ok
+}
+
+// PrepareForSignature подготавливает документ к юридически значимой подписи
+func (s *DocumentService) PrepareForSignature(id int64, userID, roleID int) error {
+	if authz.IsReadOnly(roleID) {
+		return errors.New("read-only role")
+	}
+
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+
+	if doc.Status != "approved" {
+		return errors.New("document must be approved before signature")
+	}
+
+	// Меняем статус на "готов к подписи"
+	return s.DocRepo.UpdateStatus(id, "sent_for_signature")
+}
+
+// GetSignatureMetadata получает метаданные подписи документа
+func (s *DocumentService) GetSignatureMetadata(id int64, userID, roleID int) (map[string]interface{}, error) {
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return nil, errors.New("not found")
+	}
+
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return nil, errors.New("not found")
+	}
+
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, errors.New("forbidden")
+	}
+
+	result := map[string]interface{}{
+		"document_id": doc.ID,
+		"status":      doc.Status,
+		"signed_at":   doc.SignedAt,
+		"sign_method": doc.SignMethod,
+	}
+
+	// Если есть метаданные подписи
+	if doc.SignMetadata != "" {
+		result["has_metadata"] = true
+		result["sign_ip"] = doc.SignIP
+		result["sign_user_agent"] = doc.SignUserAgent
+	} else {
+		result["has_metadata"] = false
+	}
+
+	return result, nil
+}
+
+// GetLegalConsentText возвращает юридический текст для подписи
+func (s *DocumentService) GetLegalConsentText(docType string) string {
+	docNames := map[string]string{
+		"contract":              "Договор оказания услуг",
+		"contract_full":         "Договор оказания услуг (полная оплата)",
+		"contract_50_50":        "Договор оказания услуг (50/50)",
+		"personal_data_consent": "Согласие на обработку персональных данных",
+		"refund_application":    "Заявление на возврат средств",
+		"pause_application":     "Заявление на приостановку услуг",
+		"additional_agreement":  "Дополнительное соглашение",
+	}
+
+	docName := docNames[docType]
+	if docName == "" {
+		docName = "Документ"
+	}
+
+	return fmt.Sprintf(
+		"Настоящим я подтверждаю, что ознакомлен(а) с содержанием документа «%s» и соглашаюсь со всеми его условиями.\n\n"+
+			"Я понимаю, что:\n"+
+			"1. Данный документ имеет юридическую силу\n"+
+			"2. Подписание документа означает мое согласие с изложенными условиями\n"+
+			"3. Подпись осуществляется с использованием одноразового кода подтверждения\n"+
+			"4. Факт ввода кода считается аналогом собственноручной подписи\n"+
+			"5. Я несу ответственность за последствия подписания документа",
+		docName,
+	)
 }
 
 // ====================== CRUD ======================

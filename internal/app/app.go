@@ -231,10 +231,10 @@ func Run() {
 	smsService := services.NewSMSService(
 		smsRepo,
 		otpClient,
-		documentService,
+		documentRepo, // Теперь documentRepo передается как третий параметр
 		nil,
 	)
-
+	smsService.SetAdditionalRepos(clientRepo, dealRepo)
 	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
 		userService,

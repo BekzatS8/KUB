@@ -6,10 +6,15 @@ type Document struct {
 	ID           int64      `json:"id"`
 	DealID       int64      `json:"deal_id"`
 	DocType      string     `json:"doc_type"`
-	Status       string     `json:"status"`
-	FilePath     string     `json:"file_path"`      // старый PDF или upload
-	FilePathDocx string     `json:"file_path_docx"` // DOCX путь
-	FilePathPdf  string     `json:"file_path_pdf"`  // PDF путь
+	Status       string     `json:"status"` // draft, under_review, approved, sent_for_signature, signed, cancelled
+	FilePath     string     `json:"file_path"`
+	FilePathDocx string     `json:"file_path_docx"`
+	FilePathPdf  string     `json:"file_path_pdf"`
 	CreatedAt    time.Time  `json:"created_at"`
 	SignedAt     *time.Time `json:"signed_at,omitempty"`
+	// Добавляем поля для юридической значимости
+	SignMethod    string `json:"sign_method,omitempty"`     // sms, manual, e-sign
+	SignIP        string `json:"sign_ip,omitempty"`         // IP адрес подписавшего
+	SignUserAgent string `json:"sign_user_agent,omitempty"` // User-Agent браузера
+	SignMetadata  string `json:"sign_metadata,omitempty"`   // JSON с метаданными подписи
 }

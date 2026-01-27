@@ -23,32 +23,38 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 	if authz.IsReadOnly(roleID) {
 		return 0, ErrReadOnly
 	}
-	if roleID == authz.RoleSales {
-		deal.OwnerID = userID
-	}
+
+	// Validate required fields first
 	if deal.LeadID == 0 {
-		return 0, errors.New("lead_id is required")
+		return 0, ErrLeadIDRequired
 	}
 	if deal.Amount <= 0 {
-		return 0, errors.New("amount must be greater than 0")
+		return 0, ErrAmountInvalid
+	}
+	if deal.ClientID == 0 {
+		return 0, ErrClientIDRequired
 	}
 
+	// Ownership rules
 	if deal.OwnerID == 0 {
 		deal.OwnerID = userID
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return 0, ErrForbidden
+	if roleID == authz.RoleSales {
+		// Sales can create deals only for themselves
+		if deal.OwnerID != userID {
+			return 0, ErrForbidden
+		}
 	}
-	if deal.ClientID == 0 {
-		return 0, errors.New("client_id is required")
-	}
+
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
+
 	return s.Repo.Create(deal)
 }
 
 func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
+	// 1) Базовые проверки ролей
 	if roleID == authz.RoleAdminStaff {
 		return ErrForbidden
 	}
@@ -56,21 +62,22 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		return ErrReadOnly
 	}
 
+	// 2) Получаем текущую сделку
 	current, err := s.Repo.GetByID(deal.ID)
 	if err != nil {
 		return err
 	}
 	if current == nil {
-		return errors.New("deal not found")
+		return ErrDealNotFound
 	}
 
-	// 2) Проверка доступа
+	// 3) Проверка доступа для sales
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
 
-	// 3) Заполняем пропущенные поля из current
-	// lead_id: если не пришёл — НЕ затираем (иначе снова будет NULL в БД)
+	// 4) Заполняем пропущенные поля из current
+
 	if deal.LeadID == 0 {
 		deal.LeadID = current.LeadID
 	}
@@ -91,9 +98,11 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	if deal.Amount <= 0 {
 		return errors.New("amount must be greater than 0")
 	}
+
 	if deal.Currency == "" {
 		deal.Currency = current.Currency
 	}
+
 	if deal.Status == "" {
 		deal.Status = current.Status
 	}
@@ -101,17 +110,19 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		deal.Status = "new"
 	}
 
-	// owner: менять может только management, остальным фиксируем текущего владельца
+	// 5) Логика owner
 	if roleID != authz.RoleManagement {
+		// всем кроме management запрещаем менять владельца
 		deal.OwnerID = current.OwnerID
 	} else {
-		// если management не прислал owner_id — оставляем текущий
+		// если management не передал owner_id — оставляем текущий
 		if deal.OwnerID == 0 {
 			deal.OwnerID = current.OwnerID
 		}
 	}
 
-	return s.Repo.Update(deal)
+	// 6) Тут дальше будет реальное обновление в БД
+	return errors.New("not implemented")
 }
 
 func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error) {
