@@ -102,6 +102,7 @@ func Run() {
 	chatRepo := repositories.NewChatRepository(db)
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 	signSessionRepo := repositories.NewSignSessionRepository(db)
+	signatureConfirmRepo := repositories.NewSignatureConfirmationRepository(db)
 
 	// === Services (общие) ===
 	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
@@ -237,6 +238,19 @@ func Run() {
 		},
 		nil,
 	)
+	signConfirmService := services.NewDocumentSigningConfirmationService(
+		signatureConfirmRepo,
+		userRepo,
+		documentRepo,
+		documentService,
+		emailService,
+		tgSvc,
+		services.DocumentSigningConfirmationConfig{
+			ConfirmPolicy: cfg.SignConfirmPolicy,
+			BaseURL:       cfg.SignEmailVerifyBaseURL,
+		},
+		nil,
+	)
 	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
 		userService,
@@ -260,6 +274,12 @@ func Run() {
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
 	chatHandler := handlers.NewChatHandler(chatService, chatHub)
+	signConfirmHandler := handlers.NewDocumentSigningConfirmationHandler(
+		signConfirmService,
+		documentService,
+		cfg.Frontend.Host,
+	)
+	telegramSignHandler := handlers.NewTelegramSignWebhookHandler(tgSvc, signConfirmService)
 
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
 
@@ -308,6 +328,8 @@ func Run() {
 		taskHandler,
 		smsHandler,
 		signHandler,
+		signConfirmHandler,
+		telegramSignHandler,
 		reportHandler,
 		verifyHandler,
 		integrationsHandler,

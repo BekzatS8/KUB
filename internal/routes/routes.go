@@ -21,6 +21,8 @@ func SetupRoutes(
 	taskHandler *handlers.TaskHandler,
 	smsHandler *handlers.SMSHandler,
 	signHandler *handlers.SignSessionHandler,
+	signConfirmHandler *handlers.DocumentSigningConfirmationHandler,
+	telegramSignHandler *handlers.TelegramSignWebhookHandler,
 	reportHandler *handlers.ReportHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
@@ -57,6 +59,12 @@ func SetupRoutes(
 			signPublic.POST("/:token/verify", signHandler.Verify)
 			signPublic.POST("/:token/sign", signHandler.Sign)
 		}
+	}
+	if signConfirmHandler != nil {
+		r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+	}
+	if telegramSignHandler != nil {
+		r.POST("/telegram/webhook", telegramSignHandler.Handle)
 	}
 
 	// PUBLIC: Telegram webhook (без JWT!)
@@ -163,6 +171,11 @@ func SetupRoutes(
 		docs.POST("/:id/submit", documentHandler.Submit)
 		docs.POST("/:id/review", documentHandler.Review)
 		docs.POST("/:id/sign", documentHandler.Sign)
+		if signConfirmHandler != nil {
+			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
+			docs.POST("/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
+			docs.GET("/:id/sign/status", signConfirmHandler.Status)
+		}
 	}
 
 	// CHATS
