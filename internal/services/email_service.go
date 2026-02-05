@@ -10,12 +10,15 @@ type EmailService interface {
 	SendWelcomeEmail(email, companyName string) error
 	SendPasswordResetEmail(email, resetURL string) error
 	SendVerificationCode(toEmail, code string, ttlMinutes int) error
+	SendSigningConfirm(email, code, magicLink string) error
 }
 
 type emailService struct {
 	dialer *gomail.Dialer
 	from   string
 }
+
+const signConfirmTTLMinutes = 15
 
 func NewEmailService(smtpHost string, smtpPort int, smtpUser, smtpPassword, fromEmail string) EmailService {
 	dialer := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPassword)
@@ -85,6 +88,34 @@ func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int
 
 	if err := s.dialer.DialAndSend(m); err != nil {
 		return fmt.Errorf("failed to send verification email: %w", err)
+	}
+	return nil
+}
+
+func (s *emailService) SendSigningConfirm(email, code, magicLink string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", email)
+	m.SetHeader("Subject", "Подтверждение подписи документа")
+
+	text := fmt.Sprintf(
+		"Документ для подписи.\nКод подтверждения: %s.\nСсылка для подтверждения: %s\nСрок действия: %d минут.",
+		code,
+		magicLink,
+		signConfirmTTLMinutes,
+	)
+	html := fmt.Sprintf(
+		`<h3>Подтверждение подписи документа</h3><p>Документ для подписи.</p><p>Код: <strong>%s</strong></p><p>Ссылка: <a href="%s">%s</a></p><p>Срок действия: %d минут.</p>`,
+		code,
+		magicLink,
+		magicLink,
+		signConfirmTTLMinutes,
+	)
+	m.SetBody("text/plain", text)
+	m.AddAlternative("text/html", html)
+
+	if err := s.dialer.DialAndSend(m); err != nil {
+		return fmt.Errorf("failed to send signing confirm email: %w", err)
 	}
 	return nil
 }

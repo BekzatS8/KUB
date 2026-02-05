@@ -55,6 +55,9 @@ func (f *fakeEmailService) SendVerificationCode(toEmail, code string, ttlMinutes
 	f.lastTTL = ttlMinutes
 	return nil
 }
+func (f *fakeEmailService) SendSigningConfirm(email, code, magicLink string) error {
+	return nil
+}
 
 type fakeUserVerificationRepo struct {
 	records []*models.UserVerification

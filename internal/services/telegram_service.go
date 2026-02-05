@@ -76,11 +76,46 @@ func (t *TelegramService) SendMessage(chatID int64, text string) error {
 		return nil
 	}
 
+	return t.sendMessage(chatID, text, nil)
+}
+
+func (t *TelegramService) SendSigningConfirm(chatID int64, docInfo, approveToken, rejectToken string) error {
+	if t == nil {
+		return nil
+	}
+	docInfo = strings.TrimSpace(docInfo)
+	if docInfo == "" {
+		docInfo = "Документ"
+	}
+	message := fmt.Sprintf(
+		"✍️ <b>%s</b>\n\nПодтвердите или отклоните подписание:",
+		html.EscapeString(docInfo),
+	)
+	replyMarkup := map[string]any{
+		"inline_keyboard": [][]map[string]string{
+			{
+				{"text": "✅ Подтвердить", "callback_data": fmt.Sprintf("sign:approve:%s", approveToken)},
+				{"text": "❌ Отклонить", "callback_data": fmt.Sprintf("sign:reject:%s", rejectToken)},
+			},
+		},
+	}
+	return t.sendMessage(chatID, message, replyMarkup)
+}
+
+func (t *TelegramService) sendMessage(chatID int64, text string, replyMarkup any) error {
+	if t == nil || t.token == "" || chatID == 0 {
+		log.Printf("[tg][skip] token or chatID empty (token? %v chatID=%d)", t != nil && t.token != "", chatID)
+		return nil
+	}
+
 	body := map[string]any{
 		"chat_id":                  chatID,
 		"text":                     text,
 		"parse_mode":               "HTML",
 		"disable_web_page_preview": true,
+	}
+	if replyMarkup != nil {
+		body["reply_markup"] = replyMarkup
 	}
 	b, _ := json.Marshal(body)
 	url := t.baseURL + "/sendMessage"

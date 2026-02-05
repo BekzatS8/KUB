@@ -90,6 +90,9 @@ type Config struct {
 	Frontend FrontendConfig `yaml:"frontend"`
 	CORS     CORSConfig     `yaml:"cors"`
 	Security SecurityConfig `yaml:"security"`
+
+	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
+	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -190,6 +193,11 @@ func (cfg *Config) Validate() error {
 				return fmt.Errorf("cors.allow_origins cannot include '*' in release mode")
 			}
 		}
+	}
+	switch cfg.SignConfirmPolicy {
+	case "ANY", "BOTH":
+	default:
+		return fmt.Errorf("invalid sign_confirm_policy: %s", cfg.SignConfirmPolicy)
 	}
 	if mode == "release" {
 		missing := []string{}
@@ -296,6 +304,13 @@ func applyDefaults(cfg *Config) {
 	if cfg.WhatsApp.SignBaseURL == "" && cfg.Frontend.Host != "" {
 		cfg.WhatsApp.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
 	}
+	if strings.TrimSpace(cfg.SignConfirmPolicy) == "" {
+		cfg.SignConfirmPolicy = "ANY"
+	}
+	cfg.SignConfirmPolicy = strings.ToUpper(strings.TrimSpace(cfg.SignConfirmPolicy))
+	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
+		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
+	}
 }
 
 func applyEnvOverrides(cfg *Config) {
@@ -317,6 +332,9 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("WHATSAPP_TEMPLATE_LINK_NAME"), &cfg.WhatsApp.TemplateLinkName)
 	setString(os.Getenv("WHATSAPP_TEMPLATE_LANG"), &cfg.WhatsApp.TemplateLang)
 	setString(os.Getenv("SIGN_BASE_URL"), &cfg.WhatsApp.SignBaseURL)
+	setString(os.Getenv("SIGN_CONFIRM_POLICY"), &cfg.SignConfirmPolicy)
+	setString(os.Getenv("EMAIL_FROM"), &cfg.Email.FromEmail)
+	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
 }
 
 func parseBoolEnvValue(value string) bool {
