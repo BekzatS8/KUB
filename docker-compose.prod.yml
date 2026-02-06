@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.prod
+    environment:
+      GIN_MODE: ${GIN_MODE:-release}
+      CONFIG_PATH: ${CONFIG_PATH:-/opt/turcompany/config/config.yaml}
+      DB_WAIT_RETRIES: ${DB_WAIT_RETRIES:-30}
+      DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./config:/opt/turcompany/config:ro
+      - ./files:/opt/turcompany/files
+    ports:
+      - "${API_PORT:-4000}:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    profiles: ["db"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-turcompany}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-turcompany}
+      POSTGRES_DB: ${POSTGRES_DB:-turcompany}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-turcompany} -d ${POSTGRES_DB:-turcompany}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    image: postgres:15
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable}
+    volumes:
+      - ./db/migrations:/migrations:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        psql "$${DATABASE_URL}" -f /migrations/001_init.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/002_sign_sessions.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/003_signature_confirmations.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/999_audit_logs.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["nginx"]
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
