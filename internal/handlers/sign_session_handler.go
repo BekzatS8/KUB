@@ -162,7 +162,7 @@ func signPageHTML(token string) string {
 <body>
   <div class="card">
     <h2>Подписание документа</h2>
-    <p>Введите код из сообщения WhatsApp, чтобы подтвердить подпись.</p>
+    <p>Введите код из сообщения, чтобы подтвердить подпись.</p>
     <label for="code">Код подтверждения</label>
     <input id="code" type="text" placeholder="123456" />
     <button id="submit">Подписать</button>

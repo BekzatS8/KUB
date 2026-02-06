@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"turcompany/internal/models"
@@ -45,7 +46,7 @@ type SigningTelegramSender interface {
 }
 
 type DocumentSigner interface {
-	SignBySMS(docID int64) error
+	FinalizeSigning(docID int64) error
 }
 
 type SignatureConfirmationStore interface {
@@ -93,6 +94,7 @@ type DocumentSigningConfirmationService struct {
 	policy    string
 	baseURL   string
 	now       func() time.Time
+	debug     *signConfirmDebugStore
 }
 
 func NewDocumentSigningConfirmationService(
@@ -123,6 +125,86 @@ func NewDocumentSigningConfirmationService(
 		baseURL:   strings.TrimSpace(cfg.BaseURL),
 		now:       now,
 	}
+}
+
+type DebugSigningInfo struct {
+	DocumentID    int64     `json:"document_id"`
+	UserID        int64     `json:"user_id"`
+	EmailCode     string    `json:"email_code"`
+	EmailToken    string    `json:"email_token"`
+	TelegramToken string    `json:"telegram_token"`
+	ExpiresAt     time.Time `json:"expires_at"`
+}
+
+type signConfirmDebugStore struct {
+	key     string
+	entries map[string]*DebugSigningInfo
+	mu      sync.RWMutex
+}
+
+func (s *DocumentSigningConfirmationService) EnableDebug(key string) {
+	if s == nil {
+		return
+	}
+	if s.debug == nil {
+		s.debug = &signConfirmDebugStore{
+			key:     strings.TrimSpace(key),
+			entries: make(map[string]*DebugSigningInfo),
+		}
+		return
+	}
+	s.debug.mu.Lock()
+	defer s.debug.mu.Unlock()
+	s.debug.key = strings.TrimSpace(key)
+}
+
+func (s *DocumentSigningConfirmationService) DebugEnabled() bool {
+	return s != nil && s.debug != nil
+}
+
+func (s *DocumentSigningConfirmationService) DebugKey() string {
+	if s == nil || s.debug == nil {
+		return ""
+	}
+	s.debug.mu.RLock()
+	defer s.debug.mu.RUnlock()
+	return s.debug.key
+}
+
+func (s *DocumentSigningConfirmationService) DebugLatest(documentID, userID int64) (*DebugSigningInfo, bool) {
+	if s == nil || s.debug == nil {
+		return nil, false
+	}
+	key := debugKey(documentID, userID)
+	s.debug.mu.RLock()
+	defer s.debug.mu.RUnlock()
+	entry := s.debug.entries[key]
+	if entry == nil {
+		return nil, false
+	}
+	out := *entry
+	return &out, true
+}
+
+func (s *DocumentSigningConfirmationService) storeDebug(documentID, userID int64, emailCode, emailToken, telegramToken string, expiresAt time.Time) {
+	if s == nil || s.debug == nil {
+		return
+	}
+	key := debugKey(documentID, userID)
+	s.debug.mu.Lock()
+	defer s.debug.mu.Unlock()
+	s.debug.entries[key] = &DebugSigningInfo{
+		DocumentID:    documentID,
+		UserID:        userID,
+		EmailCode:     emailCode,
+		EmailToken:    emailToken,
+		TelegramToken: telegramToken,
+		ExpiresAt:     expiresAt,
+	}
+}
+
+func debugKey(documentID, userID int64) string {
+	return fmt.Sprintf("%d:%d", documentID, userID)
 }
 
 func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, documentID, userID int64) (*SigningStartResult, error) {
@@ -221,6 +303,7 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 	if err := s.telegram.SendSigningConfirm(user.TelegramChatID, docInfo, telegramToken, telegramToken); err != nil {
 		return nil, fmt.Errorf("send telegram signing confirm: %w", err)
 	}
+	s.storeDebug(documentID, userID, code, emailToken, telegramToken, expiresAt)
 
 	return &SigningStartResult{
 		DocumentID: documentID,
@@ -410,7 +493,7 @@ func (s *DocumentSigningConfirmationService) evaluatePolicy(ctx context.Context,
 	}
 	switch s.policy {
 	case SignConfirmPolicyAny:
-		return s.docSigner.SignBySMS(documentID)
+		return s.docSigner.FinalizeSigning(documentID)
 	case SignConfirmPolicyBoth:
 		telegramApproved, err := s.repo.HasApproved(ctx, documentID, userID, "telegram")
 		if err != nil {
@@ -421,7 +504,7 @@ func (s *DocumentSigningConfirmationService) evaluatePolicy(ctx context.Context,
 			return err
 		}
 		if telegramApproved && emailApproved {
-			return s.docSigner.SignBySMS(documentID)
+			return s.docSigner.FinalizeSigning(documentID)
 		}
 		return nil
 	default:

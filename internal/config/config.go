@@ -43,18 +43,6 @@ type CORSConfig struct {
 	ExposeHeaders string   `yaml:"expose_headers"`
 }
 
-type WhatsAppConfig struct {
-	Enabled          bool   `yaml:"enabled"`
-	DryRun           bool   `yaml:"dry_run"`
-	GraphBaseURL     string `yaml:"graph_base_url"`
-	PhoneNumberID    string `yaml:"phone_number_id"`
-	AccessToken      string `yaml:"access_token"`
-	TemplateCodeName string `yaml:"template_code_name"`
-	TemplateLinkName string `yaml:"template_link_name"`
-	TemplateLang     string `yaml:"template_lang"`
-	SignBaseURL      string `yaml:"sign_base_url"`
-}
-
 type FrontendConfig struct {
 	Host string `yaml:"host"`
 }
@@ -84,13 +72,13 @@ type Config struct {
 	Files       FilesConfig       `yaml:"files"`
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
-	WhatsApp    WhatsAppConfig    `yaml:"whatsapp"`
 
 	Telegram TelegramConfig `yaml:"telegram"`
 	Frontend FrontendConfig `yaml:"frontend"`
 	CORS     CORSConfig     `yaml:"cors"`
 	Security SecurityConfig `yaml:"security"`
 
+	SignBaseURL            string `yaml:"sign_base_url"`
 	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
 	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
 }
@@ -294,20 +282,13 @@ func applyDefaults(cfg *Config) {
 		}
 	}
 
-	// WhatsApp defaults
-	if cfg.WhatsApp.GraphBaseURL == "" {
-		cfg.WhatsApp.GraphBaseURL = "https://graph.facebook.com/v20.0"
-	}
-	if cfg.WhatsApp.TemplateLang == "" {
-		cfg.WhatsApp.TemplateLang = "ru"
-	}
-	if cfg.WhatsApp.SignBaseURL == "" && cfg.Frontend.Host != "" {
-		cfg.WhatsApp.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
-	}
 	if strings.TrimSpace(cfg.SignConfirmPolicy) == "" {
 		cfg.SignConfirmPolicy = "ANY"
 	}
 	cfg.SignConfirmPolicy = strings.ToUpper(strings.TrimSpace(cfg.SignConfirmPolicy))
+	if strings.TrimSpace(cfg.SignBaseURL) == "" && cfg.Frontend.Host != "" {
+		cfg.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
+	}
 	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
 	}
@@ -319,19 +300,7 @@ func applyEnvOverrides(cfg *Config) {
 			*target = strings.TrimSpace(value)
 		}
 	}
-	if value := os.Getenv("WHATSAPP_ENABLED"); value != "" {
-		cfg.WhatsApp.Enabled = parseBoolEnvValue(value)
-	}
-	if value := os.Getenv("WHATSAPP_DRY_RUN"); value != "" {
-		cfg.WhatsApp.DryRun = parseBoolEnvValue(value)
-	}
-	setString(os.Getenv("WHATSAPP_GRAPH_BASE_URL"), &cfg.WhatsApp.GraphBaseURL)
-	setString(os.Getenv("WHATSAPP_PHONE_NUMBER_ID"), &cfg.WhatsApp.PhoneNumberID)
-	setString(os.Getenv("WHATSAPP_ACCESS_TOKEN"), &cfg.WhatsApp.AccessToken)
-	setString(os.Getenv("WHATSAPP_TEMPLATE_CODE_NAME"), &cfg.WhatsApp.TemplateCodeName)
-	setString(os.Getenv("WHATSAPP_TEMPLATE_LINK_NAME"), &cfg.WhatsApp.TemplateLinkName)
-	setString(os.Getenv("WHATSAPP_TEMPLATE_LANG"), &cfg.WhatsApp.TemplateLang)
-	setString(os.Getenv("SIGN_BASE_URL"), &cfg.WhatsApp.SignBaseURL)
+	setString(os.Getenv("SIGN_BASE_URL"), &cfg.SignBaseURL)
 	setString(os.Getenv("SIGN_CONFIRM_POLICY"), &cfg.SignConfirmPolicy)
 	setString(os.Getenv("EMAIL_FROM"), &cfg.Email.FromEmail)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)

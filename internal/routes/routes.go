@@ -19,7 +19,6 @@ func SetupRoutes(
 	authHandler *handlers.AuthHandler,
 	documentHandler *handlers.DocumentHandler,
 	taskHandler *handlers.TaskHandler,
-	smsHandler *handlers.SMSHandler,
 	signHandler *handlers.SignSessionHandler,
 	signConfirmHandler *handlers.DocumentSigningConfirmationHandler,
 	telegramSignHandler *handlers.TelegramSignWebhookHandler,
@@ -82,6 +81,12 @@ func SetupRoutes(
 		signProtected := r.Group("/api/v1/sign/sessions")
 		{
 			signProtected.POST("", signHandler.Create)
+		}
+	}
+	if signConfirmHandler != nil {
+		debug := r.Group("/debug")
+		{
+			debug.GET("/sign-confirmations/latest", signConfirmHandler.DebugLatest)
 		}
 	}
 
@@ -223,18 +228,6 @@ func SetupRoutes(
 		tasks.POST("/:id/assign", taskHandler.Assign)
 		tasks.POST("/:id/complete", taskHandler.Complete)
 		tasks.POST("/:id/remind-later", taskHandler.RemindLater)
-	}
-
-	// SMS
-	sms := r.Group("/sms",
-		middleware.RequireRoles(authz.RoleSales, authz.RoleOperations, authz.RoleManagement),
-	)
-	{
-		sms.POST("/send", smsHandler.SendSMSHandler)
-		sms.POST("/resend", smsHandler.ResendSMSHandler)
-		sms.POST("/confirm", smsHandler.ConfirmSMSHandler)
-		sms.GET("/latest/:document_id", smsHandler.GetLatestSMSHandler)
-		sms.DELETE("/:document_id", smsHandler.DeleteSMSHandler)
 	}
 
 	// REPORTS

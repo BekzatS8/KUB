@@ -35,16 +35,9 @@ git pull
    files:
      root_dir: "/opt/turcompany/files"
 
-   whatsapp:
-     enabled: true
-     dry_run: false
-     graph_base_url: "https://graph.facebook.com/v20.0"
-     phone_number_id: "<ENV:WHATSAPP_PHONE_NUMBER_ID>"
-     access_token: "<ENV:WHATSAPP_ACCESS_TOKEN>"
-     template_code_name: "auth_sign_code"
-     template_link_name: "util_sign_link"
-     template_lang: "ru"
-     sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
+   sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
+   sign_confirm_policy: "ANY"
+   sign_email_verify_base_url: "https://YOUR-DOMAIN.TLD"
 
    telegram:
      enable: true

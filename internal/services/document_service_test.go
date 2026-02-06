@@ -81,14 +81,6 @@ func (r *fakeClientRepo) GetByID(id int) (*models.Client, error) {
 	return r.clients[id], nil
 }
 
-type fakeSMSConfirmRepo struct{}
-
-func (r *fakeSMSConfirmRepo) Create(sms *models.SMSConfirmation) (int64, error) { return 0, nil }
-func (r *fakeSMSConfirmRepo) GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error) {
-	return nil, nil
-}
-func (r *fakeSMSConfirmRepo) Update(sms *models.SMSConfirmation) error { return nil }
-
 type fakePDFGen struct {
 	lastTemplate string
 	lastFilename string
@@ -267,7 +259,7 @@ func TestCreateDocumentFromClient(t *testing.T) {
 
 			tt.setupRepos(docRepo, dealRepo, clientRepo)
 
-			svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, &fakeSMSConfirmRepo{}, "sign", "files", pdfGen, docxGen, xlsxGen)
+			svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, "sign", "files", pdfGen, docxGen, xlsxGen)
 
 			doc, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, tt.docType, deal.OwnerID, authz.RoleOperations, nil)
 			if err != nil {
@@ -288,7 +280,7 @@ func TestCreateDocumentFromClientErrors(t *testing.T) {
 	baseDeal := &models.Deals{ID: 2, ClientID: baseClient.ID, OwnerID: 1}
 
 	newService := func(docRepo *fakeDocumentRepo, dealRepo *fakeDealRepo, clientRepo *fakeClientRepo) *DocumentService {
-		return NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, &fakeSMSConfirmRepo{}, "sign", "files", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+		return NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, "sign", "files", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
 	}
 
 	t.Run("no client", func(t *testing.T) {
@@ -335,12 +327,11 @@ func TestNewDocumentService(t *testing.T) {
 	leadRepo := &fakeLeadRepo{}
 	dealRepo := &fakeDealRepo{}
 	clientRepo := &fakeClientRepo{}
-	smsRepo := &fakeSMSConfirmRepo{}
 	pdfGen := &fakePDFGen{}
 	docxGen := &fakeDocxGen{}
 	xlsxGen := &fakeXlsxGen{}
 
-	svc := NewDocumentService(docRepo, leadRepo, dealRepo, clientRepo, smsRepo, "secret", "/files", pdfGen, docxGen, xlsxGen)
+	svc := NewDocumentService(docRepo, leadRepo, dealRepo, clientRepo, "secret", "/files", pdfGen, docxGen, xlsxGen)
 
 	if svc.DocRepo != docRepo {
 		t.Fatalf("DocRepo not set")
@@ -353,9 +344,6 @@ func TestNewDocumentService(t *testing.T) {
 	}
 	if svc.ClientRepo != clientRepo {
 		t.Fatalf("ClientRepo not set")
-	}
-	if svc.SMSRepo != smsRepo {
-		t.Fatalf("SMSRepo not set")
 	}
 	if svc.PDFGen != pdfGen || svc.DocxGen != docxGen || svc.XlsxGen != xlsxGen {
 		t.Fatalf("generators not set")

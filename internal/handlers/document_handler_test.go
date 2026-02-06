@@ -66,14 +66,6 @@ func (r *fakeClientRepo) GetByID(id int) (*models.Client, error) {
 	return nil, nil
 }
 
-type fakeSMSConfirmRepo struct{}
-
-func (fakeSMSConfirmRepo) Create(sms *models.SMSConfirmation) (int64, error) { return 0, nil }
-func (fakeSMSConfirmRepo) GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error) {
-	return nil, nil
-}
-func (fakeSMSConfirmRepo) Update(sms *models.SMSConfirmation) error { return nil }
-
 type fakePDFGen struct {
 	lastTemplate string
 	lastFilename string
@@ -135,7 +127,7 @@ func TestDocumentHandler_CreateDocumentFromClient_Success(t *testing.T) {
 	clientRepo := &fakeClientRepo{clients: map[int]*models.Client{1: {ID: 1, Name: "Acme"}}}
 	docxGen := &fakeDocxGen{}
 
-	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, fakeSMSConfirmRepo{}, "", "", &fakePDFGen{}, docxGen, &fakeXlsxGen{})
+	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, "", "", &fakePDFGen{}, docxGen, &fakeXlsxGen{})
 	handler := NewDocumentHandler(svc)
 
 	r := gin.Default()
@@ -186,7 +178,7 @@ func TestDocumentHandler_CreateDocumentFromClient_ClientNotFound(t *testing.T) {
 	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{2: {ID: 2, ClientID: 1}}}
 	clientRepo := &fakeClientRepo{clients: map[int]*models.Client{}}
 
-	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, fakeSMSConfirmRepo{}, "", "", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, "", "", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
 	handler := NewDocumentHandler(svc)
 
 	r := gin.Default()

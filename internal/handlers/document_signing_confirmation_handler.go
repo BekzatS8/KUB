@@ -184,6 +184,34 @@ func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {
 	})
 }
 
+func (h *DocumentSigningConfirmationHandler) DebugLatest(c *gin.Context) {
+	if gin.Mode() == gin.ReleaseMode {
+		notFound(c, DocumentNotFound, "Not found")
+		return
+	}
+	if h.Service == nil || !h.Service.DebugEnabled() {
+		notFound(c, DocumentNotFound, "Not found")
+		return
+	}
+	debugKey := h.Service.DebugKey()
+	if debugKey != "" && c.GetHeader("X-Debug-Key") != debugKey {
+		forbidden(c, "Forbidden")
+		return
+	}
+	documentID, err := strconv.ParseInt(c.Query("document_id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid document_id")
+		return
+	}
+	userID, _ := getUserAndRole(c)
+	info, ok := h.Service.DebugLatest(documentID, int64(userID))
+	if !ok {
+		notFound(c, DocumentNotFound, "Not found")
+		return
+	}
+	c.JSON(http.StatusOK, info)
+}
+
 func handleSignConfirmError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrSignConfirmExpired):
