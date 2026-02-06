@@ -1,0 +1,422 @@
+{
+  "info": {
+    "name": "KUB API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data?.tokens?.access_token) pm.environment.set('accessToken', data.tokens.access_token);",
+                  "if (data?.tokens?.refresh_token) pm.environment.set('refreshToken', data.tokens.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data?.tokens?.access_token) pm.environment.set('accessToken', data.tokens.access_token);",
+                  "if (data?.tokens?.refresh_token) pm.environment.set('refreshToken', data.tokens.refresh_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Demo document\",\n  \"doc_type\": \"contract\",\n  \"client_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data?.id) pm.environment.set('documentId', data.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Signing",
+      "item": [
+        {
+          "name": "Start Signing",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/sign/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "sign",
+                "start"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Signing Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/sign/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "sign",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirm Email Code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{emailCode}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/sign/confirm/email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "sign",
+                "confirm",
+                "email"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Email Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sign/email/verify?token={{emailToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sign",
+                "email",
+                "verify"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{emailToken}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Telegram",
+      "item": [
+        {
+          "name": "Telegram Approve Callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"callback_query\": {\n    \"id\": \"cbq-1\",\n    \"data\": \"sign:approve:{{tgCallbackToken}}\",\n    \"from\": {\"id\": 111, \"username\": \"user\"},\n    \"message\": {\"message_id\": 777, \"chat\": {\"id\": 123456789}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{telegramWebhookPath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{telegramWebhookPath}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Telegram Reject Callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"callback_query\": {\n    \"id\": \"cbq-2\",\n    \"data\": \"sign:reject:{{tgCallbackToken}}\",\n    \"from\": {\"id\": 111, \"username\": \"user\"},\n    \"message\": {\"message_id\": 778, \"chat\": {\"id\": 123456789}}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{telegramWebhookPath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{telegramWebhookPath}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Debug",
+      "item": [
+        {
+          "name": "Latest Sign Tokens (dev only)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "X-Debug-Key",
+                "value": "{{debugKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/debug/sign-confirmations/latest?document_id={{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "debug",
+                "sign-confirmations",
+                "latest"
+              ],
+              "query": [
+                {
+                  "key": "document_id",
+                  "value": "{{documentId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data?.email_code) pm.environment.set('emailCode', data.email_code);",
+                  "if (data?.email_token) pm.environment.set('emailToken', data.email_token);",
+                  "if (data?.telegram_token) pm.environment.set('tgCallbackToken', data.telegram_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

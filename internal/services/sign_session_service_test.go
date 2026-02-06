@@ -84,7 +84,7 @@ type fakeSignDocService struct {
 	allowError error
 }
 
-func (s *fakeSignDocService) EnsureSMSAllowed(docID int64, userID, roleID int) error {
+func (s *fakeSignDocService) EnsureSigningAllowed(docID int64, userID, roleID int) error {
 	if s.allowError != nil {
 		return s.allowError
 	}
@@ -94,7 +94,7 @@ func (s *fakeSignDocService) EnsureSMSAllowed(docID int64, userID, roleID int) e
 	return nil
 }
 
-func (s *fakeSignDocService) SignBySMS(docID int64) error {
+func (s *fakeSignDocService) FinalizeSigning(docID int64) error {
 	s.signedDoc = docID
 	return nil
 }

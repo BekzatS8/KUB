@@ -51,8 +51,8 @@ type SignSessionConfig struct {
 }
 
 type SignDocumentService interface {
-	EnsureSMSAllowed(docID int64, userID, roleID int) error
-	SignBySMS(docID int64) error
+	EnsureSigningAllowed(docID int64, userID, roleID int) error
+	FinalizeSigning(docID int64) error
 }
 
 type SignSessionService struct {
@@ -90,7 +90,7 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 	if s.docService == nil {
 		return "", "", nil, errors.New("document service unavailable")
 	}
-	if err := s.docService.EnsureSMSAllowed(documentID, userID, roleID); err != nil {
+	if err := s.docService.EnsureSigningAllowed(documentID, userID, roleID); err != nil {
 		return "", "", nil, err
 	}
 
@@ -231,7 +231,7 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 		return nil, err
 	}
 
-	if err := s.docService.SignBySMS(session.DocumentID); err != nil {
+	if err := s.docService.FinalizeSigning(session.DocumentID); err != nil {
 		return nil, err
 	}
 

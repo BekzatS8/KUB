@@ -44,18 +44,11 @@ type ClientRepo interface {
 	GetByID(id int) (*models.Client, error)
 }
 
-type SMSConfirmRepo interface {
-	Create(sms *models.SMSConfirmation) (int64, error)
-	GetLatestByDocumentID(documentID int64) (*models.SMSConfirmation, error)
-	Update(sms *models.SMSConfirmation) error
-}
-
 type DocumentService struct {
 	DocRepo    DocumentRepo
 	LeadRepo   LeadRepo
 	DealRepo   DealRepo
 	ClientRepo ClientRepo
-	SMSRepo    SMSConfirmRepo
 	SignSecret string
 
 	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
@@ -65,11 +58,10 @@ type DocumentService struct {
 }
 
 var (
-	_ DocumentRepo   = (*repositories.DocumentRepository)(nil)
-	_ LeadRepo       = (*repositories.LeadRepository)(nil)
-	_ DealRepo       = (*repositories.DealRepository)(nil)
-	_ ClientRepo     = (*repositories.ClientRepository)(nil)
-	_ SMSConfirmRepo = (*repositories.SMSConfirmationRepository)(nil)
+	_ DocumentRepo = (*repositories.DocumentRepository)(nil)
+	_ LeadRepo     = (*repositories.LeadRepository)(nil)
+	_ DealRepo     = (*repositories.DealRepository)(nil)
+	_ ClientRepo   = (*repositories.ClientRepository)(nil)
 )
 
 func NewDocumentService(
@@ -77,7 +69,6 @@ func NewDocumentService(
 	leadRepo LeadRepo,
 	dealRepo DealRepo,
 	clientRepo ClientRepo,
-	smsRepo SMSConfirmRepo,
 	signSecret string,
 	filesRoot string,
 	pdfGen pdf.Generator,
@@ -89,7 +80,6 @@ func NewDocumentService(
 		LeadRepo:   leadRepo,
 		DealRepo:   dealRepo,
 		ClientRepo: clientRepo,
-		SMSRepo:    smsRepo,
 		SignSecret: signSecret,
 		FilesRoot:  filesRoot,
 		PDFGen:     pdfGen,
@@ -503,7 +493,7 @@ func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 	return s.DocRepo.UpdateStatus(id, "signed")
 }
 
-func (s *DocumentService) SignBySMS(docID int64) error {
+func (s *DocumentService) FinalizeSigning(docID int64) error {
 	doc, err := s.DocRepo.GetByID(docID)
 	if err != nil || doc == nil {
 		return errors.New("not found")
@@ -564,7 +554,7 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 	return abs, filepath.Base(abs), nil
 }
 
-func (s *DocumentService) EnsureSMSAllowed(docID int64, userID, roleID int) error {
+func (s *DocumentService) EnsureSigningAllowed(docID int64, userID, roleID int) error {
 	doc, err := s.DocRepo.GetByID(docID)
 	if err != nil || doc == nil {
 		return errors.New("not found")

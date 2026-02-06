@@ -203,7 +203,7 @@ type fakeDocumentSigner struct {
 	calls   int
 }
 
-func (s *fakeDocumentSigner) SignBySMS(docID int64) error {
+func (s *fakeDocumentSigner) FinalizeSigning(docID int64) error {
 	s.calls++
 	if s.docRepo != nil {
 		return s.docRepo.UpdateStatus(docID, "signed")

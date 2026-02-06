@@ -1,7 +1,7 @@
-# KUB API — CRM-бэкенд с RBAC, SMS-верификацией и документооборотом
+# KUB API — CRM-бэкенд с RBAC, верификацией телефона и документооборотом
 
-KUB — это REST API на **Go + Gin**, с ролевой моделью доступа (**RBAC**), безопасной регистрацией через **SMS-код**, управлением лидами/сделками/задачами/документами, и отчётами.  
-Хранилище — **PostgreSQL**. SMS-уведомления — через **WhatsApp Cloud API**. PDF-генерация — встроенная.
+KUB — это REST API на **Go + Gin**, с ролевой моделью доступа (**RBAC**), безопасной регистрацией через **код подтверждения**, управлением лидами/сделками/задачами/документами, и отчётами.  
+Хранилище — **PostgreSQL**. PDF-генерация — встроенная.
 
 ---
 
@@ -29,12 +29,12 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 
 ## Возможности
 
-- ✅ Регистрация пользователя с SMS-верификацией телефона
+- ✅ Регистрация пользователя с верификацией телефона
 - ✅ Троттлинг и защита от брутфорса для кода подтверждения
 - ✅ Безопасное хранение кода (bcrypt-хэш), TTL, попытки, resend-лимиты
 - ✅ JWT-аутентификация + ротация refresh-токена
 - ✅ RBAC: sales / staff / operations / audit / management / admin
-- ✅ Лиды, сделки, задачи, сообщения; документы с SMS-подписанием
+- ✅ Лиды, сделки, задачи, сообщения; документы с подтверждением подписи кодом
 - ✅ Отчёты и фильтры
 - ✅ Скачивание/просмотр PDF из защищённого стора
 
@@ -44,7 +44,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 
 - **Go 1.22+**, **Gin** (HTTP, middleware)
 - **PostgreSQL** (модель данных и индексы заточены под RBAC/аудит/фильтры)
-- **WhatsApp Cloud API** (SMS/OTP), **SMTP** (почта)
+- **SMTP** (почта)
 - **JWT**: access (короткий), refresh (длинный, хранится в БД с ротацией)
 - **bcrypt** для паролей и верификационных кодов
 - Генерация PDF (пользовательские шаблоны/шрифты)
@@ -86,16 +86,9 @@ email:
 files:
   root_dir: "./files"               # корень хранилища документов
 
-whatsapp:
-  enabled: true
-  dry_run: false
-  graph_base_url: "https://graph.facebook.com/v20.0"
-  phone_number_id: "<ENV:WHATSAPP_PHONE_NUMBER_ID>"
-  access_token: "<ENV:WHATSAPP_ACCESS_TOKEN>"
-  template_code_name: "auth_sign_code"
-  template_link_name: "util_sign_link"
-  template_lang: "ru"
-  sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
+sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
+sign_confirm_policy: "ANY"         # ANY или BOTH (Email + Telegram)
+sign_email_verify_base_url: "https://YOUR-DOMAIN.TLD"
 
 security:
   jwt_secret: "CHANGE_ME"
@@ -107,23 +100,19 @@ cors:
   expose_headers: "Content-Disposition, Content-Type, Content-Length"
 ```
 
-### WhatsApp Cloud API для подписания (новый flow)
+### Подписание документа (Email + Telegram)
 
-Для WhatsApp подписания **токены и секреты только через ENV**:
+Подпись подтверждается через email и telegram. Политика задаётся параметром `sign_confirm_policy`: `ANY` (достаточно одного канала) или `BOTH` (нужны оба канала). 
 
 ```bash
-# WhatsApp Cloud API
-WHATSAPP_PHONE_NUMBER_ID="..."
-WHATSAPP_ACCESS_TOKEN="..."
-WHATSAPP_TEMPLATE_CODE_NAME="auth_sign_code"
-WHATSAPP_TEMPLATE_LINK_NAME="util_sign_link"
-WHATSAPP_TEMPLATE_LANG="ru"
-WHATSAPP_GRAPH_BASE_URL="https://graph.facebook.com/v20.0"
-WHATSAPP_ENABLED="true"
-WHATSAPP_DRY_RUN="false"
-
 # базовый URL страницы подписи (без токена)
 SIGN_BASE_URL="https://example.com/sign"
+
+# политика подтверждения подписи: ANY (email или telegram) / BOTH (email и telegram)
+SIGN_CONFIRM_POLICY="ANY"
+
+# базовый URL для email-подтверждения подписи
+SIGN_EMAIL_VERIFY_BASE_URL="https://example.com"
 ```
 
 Путь к конфигу можно переопределить переменной окружения `CONFIG_PATH` (по умолчанию `config/config.yaml`).
@@ -143,7 +132,6 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 **Миграция содержит:**
 - `roles`, `users` (+refresh-поля, телефон, флаг верификации)
 - `leads`, `deals`, `documents`, `messages`, `tasks`
-- `sms_confirmations` (для документов)
 - `user_verifications` (для регистрации/логина по телефону): `code_hash`, `expires_at`, `attempts`, `confirmed`
 - Индексы для производительности и уникальности
 - Сиды для ролей (10/15/20/30/40/50)
@@ -155,7 +143,7 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 ## Аутентификация и безопасность
 
 - **Пароли пользователей**: bcrypt.  
-- **SMS-коды для регистрации**: **НЕ храним** в открытом виде — только `bcrypt`-хэш.  
+- **Коды подтверждения для регистрации**: **НЕ храним** в открытом виде — только `bcrypt`-хэш.  
 - **TTL кода**: 5 минут (по умолчанию, настраивается в сервисе).  
 - **Лимит попыток подтверждения**: max **5** (после этого код инвалидируется, нужен resend).  
 - **Resend-троттлинг**: не более **3** раз за **10 минут** (на превышении — **429 Too Many Requests**).  
@@ -184,7 +172,7 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 ## Эндпоинты
 
 ### Публичные
-- `POST /register` — регистрация sales + SMS код  
+- `POST /register` — регистрация sales + код подтверждения  
 - `POST /register/confirm` — подтвердить телефон (код)  
 - `POST /register/resend` — повторная отправка кода (ограничения по троттлингу)  
 - `POST /login` — логин (если `is_verified=false` → 403)  
@@ -217,8 +205,7 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 **Messages** (staff/ops/mgmt/admin)
 - Отправка, список диалогов, история
 
-**SMS (для документов)** (sales/ops/mgmt/admin)
-- `POST /sms/send`, `POST /sms/resend`, `POST /sms/confirm`, `GET /sms/latest/:document_id`, `DELETE /sms/:document_id`
+**Подписание документов по коду** (sales/ops/mgmt/admin)
 
 **Reports** (audit/ops/mgmt/admin)
 - `/reports/summary`, `/reports/leads/filter`, `/reports/deals/filter`
@@ -284,7 +271,7 @@ sudo systemctl enable --now turcompany.service
 ## Проверка генерации документов
 
 1. Создать тестовых клиента/сделку (через API или админку).
-2. Отправить запрос на генерацию, например `POST /documents/from-client` (DocumentHandler.CreateDocumentFromClient) через Postman с нужным `template_id` и заполненными полями.
+2. Отправить запрос на генерацию, например `POST /documents/from-client` (DocumentHandler.CreateDocumentFromClient) через Postman с нужным типом документа и заполненными полями.
 3. Убедиться, что в каталоге `files/pdf`, `files/docx` или `files/excel` появились новые файлы.
 4. Если `libreoffice.enable=true` — убедиться, что `soffice` доступен по пути из конфига; при ошибке в логах будет строка вида `libreoffice conversion failed: ...`.
 
@@ -318,8 +305,8 @@ sudo systemctl enable --now turcompany.service
 │  ├─ pdf/                       # генерация PDF
 │  ├─ repositories/              # SQL-репозитории (Postgres)
 │  ├─ routes/                    # роутинг Gin
-│  ├─ services/                  # бизнес-логика (Auth, User, SMS и т.д.)
-│  └─ utils/                     # утилиты (refresh token, SMS клиент)
+│  ├─ services/                  # бизнес-логика (Auth, User и т.д.)
+│  └─ utils/                     # утилиты (refresh token, phone utils)
 ├─ assets/fonts/DejaVuSans.ttf   # шрифт для PDF
 ├─ files/                        # хранилище документов (локально)
 ├─ config/config.example.yaml    # пример конфигурации (копируется в config.yaml)
@@ -349,8 +336,7 @@ curl -X POST http://localhost:4000/login   -H "Content-Type: application/json"  
 ```bash
 curl -X POST http://localhost:4000/refresh   -H "Content-Type: application/json"   -d '{"refresh_token":"<your_refresh_token>"}'
 ```
-### Подписание документа через WhatsApp (OTP + ссылка)
-
+### Подписание документа (Email + Telegram)
 **Создать сессию подписи (требует JWT):**
 ```bash
 curl -X POST http://localhost:4000/api/v1/sign/sessions \
@@ -384,8 +370,6 @@ GET /sign/{token}
 
 ## Что проверить после деплоя
 
-- ✅ WhatsApp templates доступны и опубликованы (code/link), корректные language codes.
-- ✅ ENV-переменные для WhatsApp Cloud API заданы на окружении.
 - ✅ SIGN_BASE_URL указывает на публичный домен с доступным `/sign/{token}`.
 - ✅ Миграция `002_sign_sessions.up.sql` применена.
 - ✅ Проверить rate limit: >3 сессий за 10 минут на документ/телефон возвращает 429.
