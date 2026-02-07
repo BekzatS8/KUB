@@ -55,7 +55,7 @@ func (f *fakeEmailService) SendVerificationCode(toEmail, code string, ttlMinutes
 	f.lastTTL = ttlMinutes
 	return nil
 }
-func (f *fakeEmailService) SendSigningConfirm(email, code, magicLink string) error {
+func (f *fakeEmailService) SendSigningConfirm(email string, data services.SigningEmailData) error {
 	return nil
 }
 

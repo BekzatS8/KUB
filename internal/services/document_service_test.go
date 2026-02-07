@@ -44,6 +44,8 @@ func (r *fakeDocumentRepo) Delete(id int64) error { return nil }
 
 func (r *fakeDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
 
+func (r *fakeDocumentRepo) Update(doc *models.Document) error { return nil }
+
 type fakeLeadRepo struct{}
 
 func (r *fakeLeadRepo) GetByID(id int) (*models.Leads, error) { return nil, nil }

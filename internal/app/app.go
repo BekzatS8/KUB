@@ -110,6 +110,7 @@ func Run() {
 		cfg.Email.SMTPUser,
 		cfg.Email.SMTPPassword,
 		cfg.Email.FromEmail,
+		cfg.Email.FromName,
 	)
 
 	var (
@@ -190,8 +191,11 @@ func Run() {
 		emailService,
 		tgSvc,
 		services.DocumentSigningConfirmationConfig{
-			ConfirmPolicy: cfg.SignConfirmPolicy,
-			BaseURL:       cfg.SignEmailVerifyBaseURL,
+			ConfirmPolicy:      cfg.SignConfirmPolicy,
+			EmailVerifyBaseURL: cfg.SignEmailVerifyBaseURL,
+			EmailTokenPepper:   cfg.SignEmailTokenPepper,
+			EmailTTL:           time.Duration(cfg.SignEmailTTLMinutes) * time.Minute,
+			FilesRoot:          cfg.Files.RootDir,
 		},
 		nil,
 	)

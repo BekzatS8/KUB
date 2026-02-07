@@ -2,25 +2,21 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/services"
 )
 
 const (
-	SignConfirmExpiredCode      = "EXPIRED"
-	SignConfirmTooManyAttempts  = "TOO_MANY_ATTEMPTS"
-	SignConfirmInvalidCode      = "INVALID_CODE"
-	SignConfirmNotFoundCode     = "NOT_FOUND"
-	signConfirmSuccessPath      = "/sign/confirm"
-	signConfirmStatusQuery      = "status"
-	signConfirmErrorQuery       = "error"
-	signConfirmStatusSuccessVal = "success"
-	signConfirmStatusFailVal    = "fail"
+	SignConfirmExpiredCode     = "EXPIRED"
+	SignConfirmTooManyAttempts = "TOO_MANY_ATTEMPTS"
+	SignConfirmInvalidCode     = "INVALID_CODE"
+	SignConfirmNotFoundCode    = "NOT_FOUND"
 )
 
 type DocumentSigningConfirmationHandler struct {
@@ -51,6 +47,13 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		badRequest(c, "Invalid id")
 		return
 	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid request body")
+		return
+	}
 	userID, roleID := getUserAndRole(c)
 	if _, err := h.DocumentSvc.GetDocument(documentID, userID, roleID); err != nil {
 		switch err.Error() {
@@ -65,16 +68,34 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 
-	result, err := h.Service.StartSigning(c.Request.Context(), documentID, int64(userID))
+	signerEmail, err := h.DocumentSvc.ResolveSignerEmail(documentID, userID, roleID, body.Email)
+	if err != nil {
+		switch err.Error() {
+		case "forbidden":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		default:
+			badRequest(c, err.Error())
+			return
+		}
+	}
+	result, err := h.Service.StartSigning(c.Request.Context(), documentID, int64(userID), signerEmail)
 	if err != nil {
 		handleSignConfirmError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, result)
+	expiresAt := result.Channels[0].ExpiresAt
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "pending",
+		"expires_at": expiresAt,
+	})
 }
 
 type emailConfirmRequest struct {
-	Code string `json:"code" binding:"required"`
+	Token string `json:"token" binding:"required"`
 }
 
 func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) {
@@ -92,28 +113,12 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		badRequest(c, "Invalid request body")
 		return
 	}
-	userID, roleID := getUserAndRole(c)
-	if h.DocumentSvc != nil {
-		if _, err := h.DocumentSvc.GetDocument(documentID, userID, roleID); err != nil {
-			switch err.Error() {
-			case "forbidden":
-				forbidden(c, "Forbidden")
-				return
-			case "not found":
-				notFound(c, DocumentNotFound, "Document not found")
-				return
-			}
-			internalError(c, "Failed to fetch document")
-			return
-		}
-	}
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
-	confirmation, err := h.Service.ConfirmByEmailCode(
+	status, err := h.Service.ConfirmByEmailToken(
 		c.Request.Context(),
 		documentID,
-		int64(userID),
-		body.Code,
+		body.Token,
 		ip,
 		userAgent,
 	)
@@ -121,7 +126,9 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		handleSignConfirmError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, confirmation)
+	c.JSON(http.StatusOK, gin.H{
+		"status": status,
+	})
 }
 
 func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
@@ -134,14 +141,14 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 		badRequest(c, "Token required")
 		return
 	}
-	_, err := h.Service.ConfirmByEmailToken(c.Request.Context(), token)
+	ip := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	payload, err := h.Service.ValidateEmailToken(c.Request.Context(), token, ip, userAgent)
 	if err != nil {
-		redirect := h.buildFrontendRedirect(signConfirmStatusFailVal, mapErrorCode(err))
-		c.Redirect(http.StatusFound, redirect)
+		handleSignConfirmError(c, err)
 		return
 	}
-	redirect := h.buildFrontendRedirect(signConfirmStatusSuccessVal, "")
-	c.Redirect(http.StatusFound, redirect)
+	c.JSON(http.StatusOK, payload)
 }
 
 func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {
@@ -174,13 +181,24 @@ func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {
 		internalError(c, "Failed to fetch status")
 		return
 	}
+	var emailStatus *services.SigningChannelStatus
+	for _, channel := range channels {
+		if channel.Channel == "email" {
+			copy := channel
+			emailStatus = &copy
+			break
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"document": gin.H{
 			"id":     doc.ID,
 			"status": doc.Status,
 		},
-		"channels": channels,
+		"status":      statusOrDefault(emailStatus, "expired"),
+		"expires_at":  expiresAtOrZero(emailStatus),
+		"approved_at": approvedAtOrNil(emailStatus),
+		"channels":    channels,
 	})
 }
 
@@ -218,6 +236,8 @@ func handleSignConfirmError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, SignConfirmExpiredCode, "Expired")
 	case errors.Is(err, services.ErrSignConfirmTooManyTries):
 		writeError(c, http.StatusTooManyRequests, SignConfirmTooManyAttempts, "Too many attempts")
+	case errors.Is(err, services.ErrSignConfirmAlreadyUsed):
+		writeError(c, http.StatusConflict, SignConfirmInvalidCode, "Already used")
 	case errors.Is(err, services.ErrSignConfirmInvalidCode), errors.Is(err, services.ErrSignConfirmInvalidToken):
 		writeError(c, http.StatusBadRequest, SignConfirmInvalidCode, "Invalid code")
 	case errors.Is(err, services.ErrSignConfirmNotFound):
@@ -242,21 +262,23 @@ func mapErrorCode(err error) string {
 	}
 }
 
-func (h *DocumentSigningConfirmationHandler) buildFrontendRedirect(status, errCode string) string {
-	base := h.FrontendHost
-	if base == "" {
-		return signConfirmSuccessPath
+func statusOrDefault(status *services.SigningChannelStatus, fallback string) string {
+	if status == nil || status.Status == "" {
+		return fallback
 	}
-	target, parseErr := url.Parse(base)
-	if parseErr != nil {
-		return signConfirmSuccessPath
+	return status.Status
+}
+
+func expiresAtOrZero(status *services.SigningChannelStatus) time.Time {
+	if status == nil {
+		return time.Time{}
 	}
-	target.Path = strings.TrimRight(target.Path, "/") + signConfirmSuccessPath
-	query := target.Query()
-	query.Set(signConfirmStatusQuery, status)
-	if errCode != "" {
-		query.Set(signConfirmErrorQuery, errCode)
+	return status.ExpiresAt
+}
+
+func approvedAtOrNil(status *services.SigningChannelStatus) *time.Time {
+	if status == nil {
+		return nil
 	}
-	target.RawQuery = query.Encode()
-	return target.String()
+	return status.ApprovedAt
 }

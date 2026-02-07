@@ -396,6 +396,41 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	return doc, nil
 }
 
+func (s *DocumentService) ResolveSignerEmail(id int64, userID, roleID int, fallbackEmail string) (string, error) {
+	doc, err := s.GetDocument(id, userID, roleID)
+	if err != nil || doc == nil {
+		return "", err
+	}
+	fallbackEmail = strings.TrimSpace(fallbackEmail)
+	if s.DealRepo == nil || s.ClientRepo == nil {
+		if fallbackEmail == "" {
+			return "", errors.New("signer email is required")
+		}
+		return fallbackEmail, nil
+	}
+	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	if err != nil || deal == nil {
+		if fallbackEmail == "" {
+			return "", errors.New("signer email is required")
+		}
+		return fallbackEmail, nil
+	}
+	client, err := s.ClientRepo.GetByID(deal.ClientID)
+	if err != nil || client == nil {
+		if fallbackEmail == "" {
+			return "", errors.New("signer email is required")
+		}
+		return fallbackEmail, nil
+	}
+	if email := strings.TrimSpace(client.Email); email != "" {
+		return email, nil
+	}
+	if fallbackEmail == "" {
+		return "", errors.New("signer email is required")
+	}
+	return fallbackEmail, nil
+}
+
 func (s *DocumentService) ListDocuments(limit, offset int) ([]*models.Document, error) {
 	return s.DocRepo.ListDocuments(limit, offset)
 }

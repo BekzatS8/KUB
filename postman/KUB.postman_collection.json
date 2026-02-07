@@ -213,7 +213,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{}"
+              "raw": "{\n  \"email\": \"{{signerEmail}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/documents/{{documentId}}/sign/start",
@@ -254,8 +254,8 @@
           }
         },
         {
-          "name": "Confirm Email Code",
-          "description": "Подставьте email OTP в переменную {{emailCode}}. Пример: 123456.",
+          "name": "Confirm Email Token",
+          "description": "Подставьте token из magic-link в переменную {{emailToken}}. Пример: abcd1234efgh.",
           "request": {
             "method": "POST",
             "header": [
@@ -270,7 +270,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"{{emailCode}}\"\n}"
+              "raw": "{\n  \"token\": \"{{emailToken}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/documents/{{documentId}}/sign/confirm/email",
@@ -289,7 +289,7 @@
         },
         {
           "name": "Verify Email Token",
-          "description": "Подставьте token из magic-link в переменную {{emailToken}}. Пример: abcd1234efgh.",
+          "description": "Подставьте token из magic-link в переменную {{emailToken}}. Этот запрос только валидирует токен и не подписывает документ.",
           "request": {
             "method": "GET",
             "header": [],

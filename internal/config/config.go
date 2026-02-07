@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,6 +69,7 @@ type Config struct {
 		SMTPUser     string `yaml:"smtp_user"`
 		SMTPPassword string `yaml:"smtp_password"`
 		FromEmail    string `yaml:"from_email"`
+		FromName     string `yaml:"from_name"`
 	} `yaml:"email"`
 
 	Files       FilesConfig       `yaml:"files"`
@@ -81,6 +84,8 @@ type Config struct {
 	SignBaseURL            string `yaml:"sign_base_url"`
 	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
 	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
+	SignEmailTTLMinutes    int    `yaml:"sign_email_ttl_minutes"`
+	SignEmailTokenPepper   string `yaml:"sign_email_token_pepper"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -201,6 +206,9 @@ func (cfg *Config) Validate() error {
 		if strings.TrimSpace(cfg.Email.FromEmail) == "" {
 			missing = append(missing, "email.from_email")
 		}
+		if strings.TrimSpace(cfg.SignEmailTokenPepper) == "" {
+			missing = append(missing, "sign_email_token_pepper")
+		}
 		if len(missing) > 0 {
 			return fmt.Errorf("email settings required in release mode: %s", strings.Join(missing, ", "))
 		}
@@ -292,6 +300,9 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
 	}
+	if cfg.SignEmailTTLMinutes <= 0 {
+		cfg.SignEmailTTLMinutes = 30
+	}
 }
 
 func applyEnvOverrides(cfg *Config) {
@@ -300,10 +311,35 @@ func applyEnvOverrides(cfg *Config) {
 			*target = strings.TrimSpace(value)
 		}
 	}
+	setInt := func(value string, target *int) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		if intVal, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			*target = intVal
+		}
+	}
 	setString(os.Getenv("SIGN_BASE_URL"), &cfg.SignBaseURL)
 	setString(os.Getenv("SIGN_CONFIRM_POLICY"), &cfg.SignConfirmPolicy)
 	setString(os.Getenv("EMAIL_FROM"), &cfg.Email.FromEmail)
+	setString(os.Getenv("SMTP_FROM"), &cfg.Email.FromEmail)
+	setString(os.Getenv("SMTP_FROM_NAME"), &cfg.Email.FromName)
+	setString(os.Getenv("SMTP_HOST"), &cfg.Email.SMTPHost)
+	setString(os.Getenv("SMTP_USER"), &cfg.Email.SMTPUser)
+	setString(os.Getenv("SMTP_PASS"), &cfg.Email.SMTPPassword)
+	setInt(os.Getenv("SMTP_PORT"), &cfg.Email.SMTPPort)
+	setString(os.Getenv("SIGN_EMAIL_TOKEN_PEPPER"), &cfg.SignEmailTokenPepper)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
+	if ttl := strings.TrimSpace(os.Getenv("SIGN_EMAIL_TTL")); ttl != "" {
+		if duration, err := time.ParseDuration(ttl); err == nil {
+			minutes := int(duration.Minutes())
+			if minutes > 0 {
+				cfg.SignEmailTTLMinutes = minutes
+			}
+		} else if minutes, err := strconv.Atoi(ttl); err == nil && minutes > 0 {
+			cfg.SignEmailTTLMinutes = minutes
+		}
+	}
 }
 
 func parseBoolEnvValue(value string) bool {
