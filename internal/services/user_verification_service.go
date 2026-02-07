@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"strings"
 	"time"
+
+	"turcompany/internal/models"
 )
 
 // UserVerificationService handles registration verification via email.
@@ -47,7 +50,7 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 		return fmt.Errorf("email required")
 	}
 
-	code := GenerateVerificationCode()
+	code := NormalizeVerificationCode(GenerateVerificationCode())
 	codeHash, err := HashVerificationCode(code)
 	if err != nil {
 		return err
@@ -136,7 +139,7 @@ func (s *UserVerificationService) Resend(userID int) error {
 		return ErrResendThrottled
 	}
 
-	code := GenerateVerificationCode()
+	code := NormalizeVerificationCode(GenerateVerificationCode())
 	codeHash, err := HashVerificationCode(code)
 	if err != nil {
 		return err
@@ -177,7 +180,7 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 		return false, fmt.Errorf("verification repo is nil")
 	}
 
-	code = strings.TrimSpace(code)
+	code = NormalizeVerificationCode(code)
 	if userID <= 0 || code == "" {
 		return false, ErrCodeInvalid
 	}
@@ -200,10 +203,14 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 		return false, err
 	}
 	if v == nil || v.Confirmed {
+		if shouldLogVerificationDebug() {
+			log.Printf("[verify][confirm][debug] user_id=%d email=%s record=%t reason=NOT_FOUND", userID, user.Email, v != nil)
+		}
 		log.Printf("[verify][confirm] user_id=%d record=%t reason=no_pending", userID, v != nil)
 		return false, ErrNoPendingVerification
 	}
 	if s.now().After(v.ExpiresAt) {
+		logVerifyConfirmDebug(userID, user.Email, v, code, "EXPIRED")
 		log.Printf(
 			"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=expired",
 			userID,
@@ -214,6 +221,7 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 	}
 
 	if err := CompareVerificationCode(v.CodeHash, code); err != nil {
+		logVerifyConfirmDebug(userID, user.Email, v, code, "HASH_MISMATCH")
 		attempts, incErr := s.Repo.IncrementAttempts(v.ID)
 		if incErr != nil {
 			return false, incErr
@@ -248,9 +256,69 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 	return true, nil
 }
 
+// Latest returns the most recent verification record for debugging.
+func (s *UserVerificationService) Latest(userID int) (*models.UserVerification, *models.User, error) {
+	if s.UserSvc == nil {
+		return nil, nil, fmt.Errorf("user service is nil")
+	}
+	if s.Repo == nil {
+		return nil, nil, fmt.Errorf("verification repo is nil")
+	}
+	if userID <= 0 {
+		return nil, nil, ErrNoPendingVerification
+	}
+	user, err := s.UserSvc.GetUserByID(userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user == nil {
+		return nil, nil, ErrNoPendingVerification
+	}
+	v, err := s.Repo.GetLatestByUserID(user.ID)
+	if err != nil {
+		return nil, user, err
+	}
+	return v, user, nil
+}
+
 func ttlMinutes(ttl time.Duration) int {
 	if ttl <= 0 {
 		ttl = DefaultVerificationTTL
 	}
 	return int(math.Ceil(ttl.Minutes()))
+}
+
+func logVerifyConfirmDebug(userID int, email string, v *models.UserVerification, code, reason string) {
+	if v == nil || !shouldLogVerificationDebug() {
+		return
+	}
+	now := time.Now()
+	codeHashPrefix := ""
+	if len(v.CodeHash) >= 8 {
+		codeHashPrefix = v.CodeHash[:8]
+	} else {
+		codeHashPrefix = v.CodeHash
+	}
+	debugHash := VerificationCodeDebugHash(code)
+	debugHashPrefix := debugHash
+	if len(debugHashPrefix) >= 8 {
+		debugHashPrefix = debugHashPrefix[:8]
+	}
+	log.Printf(
+		"[verify][confirm][debug] user_id=%d email=%s record=true expires_at=%s now=%s expired=%t attempts=%d code_hash_len=%d code_hash_prefix=%s code_debug_hash_prefix=%s reason=%s",
+		userID,
+		email,
+		v.ExpiresAt.Format(time.RFC3339),
+		now.Format(time.RFC3339),
+		now.After(v.ExpiresAt),
+		v.Attempts,
+		len(v.CodeHash),
+		codeHashPrefix,
+		debugHashPrefix,
+		reason,
+	)
+}
+
+func shouldLogVerificationDebug() bool {
+	return strings.ToLower(os.Getenv("GIN_MODE")) != "release"
 }

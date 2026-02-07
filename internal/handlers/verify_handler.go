@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -105,4 +106,53 @@ func (h *VerifyHandler) allowResend(key string) bool {
 	}
 	h.lastResends[key] = now
 	return true
+}
+
+// DebugLatest is a DEV-only endpoint to inspect the latest verification record.
+func (h *VerifyHandler) DebugLatest(c *gin.Context) {
+	if gin.Mode() == gin.ReleaseMode {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	userID, err := strconv.Atoi(c.Query("user_id"))
+	if err != nil || userID <= 0 {
+		badRequest(c, "Invalid user_id")
+		return
+	}
+	v, user, err := h.verification.Latest(userID)
+	if err != nil {
+		if errors.Is(err, services.ErrNoPendingVerification) {
+			badRequest(c, "No pending verification")
+			return
+		}
+		internalError(c, "Failed to fetch verification")
+		return
+	}
+	if v == nil {
+		badRequest(c, "No pending verification")
+		return
+	}
+	status := "pending"
+	if v.Confirmed {
+		status = "confirmed"
+	} else if time.Now().After(v.ExpiresAt) {
+		status = "expired"
+	}
+	codeHashPrefix := v.CodeHash
+	if len(codeHashPrefix) > 8 {
+		codeHashPrefix = codeHashPrefix[:8]
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":          v.UserID,
+		"email":            user.Email,
+		"channel":          "email",
+		"status":           status,
+		"expires_at":       v.ExpiresAt,
+		"attempts":         v.Attempts,
+		"created_at":       v.SentAt,
+		"last_resend_at":   v.LastResendAt,
+		"resend_count":     v.ResendCount,
+		"code_hash_prefix": codeHashPrefix,
+		"code_hash_len":    len(v.CodeHash),
+	})
 }
