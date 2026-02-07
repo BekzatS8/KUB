@@ -255,6 +255,7 @@
         },
         {
           "name": "Confirm Email Code",
+          "description": "Подставьте email OTP в переменную {{emailCode}}. Пример: 123456.",
           "request": {
             "method": "POST",
             "header": [
@@ -288,6 +289,7 @@
         },
         {
           "name": "Verify Email Token",
+          "description": "Подставьте token из magic-link в переменную {{emailToken}}. Пример: abcd1234efgh.",
           "request": {
             "method": "GET",
             "header": [],
@@ -309,6 +311,30 @@
               ]
             }
           }
+        },
+        {
+          "name": "Signing Status (final)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/sign/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "sign",
+                "status"
+              ]
+            }
+          }
         }
       ]
     },
@@ -317,6 +343,7 @@
       "item": [
         {
           "name": "Telegram Approve Callback",
+          "description": "Подставьте токен из callback_data (sign:approve:<token>) в {{tgCallbackToken}}. Пример: sign:approve:token123.",
           "request": {
             "method": "POST",
             "header": [
@@ -342,6 +369,7 @@
         },
         {
           "name": "Telegram Reject Callback",
+          "description": "Подставьте токен из callback_data (sign:reject:<token>) в {{tgCallbackToken}}. Пример: sign:reject:token123.",
           "request": {
             "method": "POST",
             "header": [
