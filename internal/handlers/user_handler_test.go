@@ -98,6 +98,16 @@ func (r *fakeUserVerificationRepo) GetLatestByUserID(userID int) (*models.UserVe
 	return nil, nil
 }
 
+func (r *fakeUserVerificationRepo) GetLatestPendingByUserID(userID int, now time.Time) (*models.UserVerification, error) {
+	for i := len(r.records) - 1; i >= 0; i-- {
+		rec := r.records[i]
+		if rec.UserID == userID && !rec.Confirmed && rec.ExpiresAt.After(now) {
+			return rec, nil
+		}
+	}
+	return nil, nil
+}
+
 func (r *fakeUserVerificationRepo) IncrementAttempts(id int64) (int, error) { return 0, nil }
 func (r *fakeUserVerificationRepo) ExpireNow(id int64) error                { return nil }
 func (r *fakeUserVerificationRepo) MarkConfirmed(id int64) error            { return nil }

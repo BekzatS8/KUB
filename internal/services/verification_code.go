@@ -52,6 +52,7 @@ func VerificationCodeDebugHash(code string) string {
 
 // HashVerificationCode returns bcrypt hash for a verification code.
 func HashVerificationCode(code string) (string, error) {
+	code = strings.TrimSpace(code)
 	codeHashBytes, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
 	if err != nil {
 		return "", fmt.Errorf("bcrypt generate: %w", err)
@@ -61,5 +62,6 @@ func HashVerificationCode(code string) (string, error) {
 
 // CompareVerificationCode compares a bcrypt hash with a plaintext code.
 func CompareVerificationCode(codeHash, code string) error {
+	code = strings.TrimSpace(code)
 	return bcrypt.CompareHashAndPassword([]byte(codeHash), []byte(code))
 }

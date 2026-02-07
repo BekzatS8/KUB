@@ -20,6 +20,7 @@ type UserVerificationRepo interface {
 	CountRecentSends(userID int, since time.Time) (int, error)
 	Create(userID int, codeHash string, sentAt, expiresAt time.Time) (int64, error)
 	GetLatestByUserID(userID int) (*models.UserVerification, error)
+	GetLatestPendingByUserID(userID int, now time.Time) (*models.UserVerification, error)
 	IncrementAttempts(id int64) (int, error)
 	ExpireNow(id int64) error
 	MarkConfirmed(id int64) error

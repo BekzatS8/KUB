@@ -56,6 +56,16 @@ func (r *fakeUserVerificationRepo) GetLatestByUserID(userID int) (*models.UserVe
 	return nil, nil
 }
 
+func (r *fakeUserVerificationRepo) GetLatestPendingByUserID(userID int, now time.Time) (*models.UserVerification, error) {
+	for i := len(r.records) - 1; i >= 0; i-- {
+		rec := r.records[i]
+		if rec.UserID == userID && !rec.Confirmed && rec.ExpiresAt.After(now) {
+			return rec, nil
+		}
+	}
+	return nil, nil
+}
+
 func (r *fakeUserVerificationRepo) IncrementAttempts(id int64) (int, error) {
 	for _, v := range r.records {
 		if v.ID == id {
@@ -257,6 +267,33 @@ func TestUserVerificationService_ConfirmInvalidAndExpired(t *testing.T) {
 
 	repo.records[0].ExpiresAt = fixedNow.Add(-time.Minute)
 	ok, err = svc.Confirm(11, "000111")
+	if !errors.Is(err, ErrCodeExpired) {
+		t.Fatalf("expected ErrCodeExpired, got %v", err)
+	}
+	if ok {
+		t.Fatalf("expected expired confirmation to fail")
+	}
+}
+
+func TestVerificationTTL(t *testing.T) {
+	fixedNow := time.Date(2025, 12, 10, 10, 0, 0, 0, time.UTC)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("123123"), bcrypt.DefaultCost)
+	repo := newFakeUserVerificationRepo()
+	repo.records = append(repo.records, &models.UserVerification{
+		ID: 1, UserID: 12, CodeHash: string(hash), SentAt: fixedNow.Add(-10 * time.Minute), ExpiresAt: fixedNow.Add(-time.Minute), Attempts: 0,
+	})
+	userSvc := &fakeUserService{
+		usersByID: map[int]*models.User{
+			12: {ID: 12, Email: "ttl@example.com"},
+		},
+	}
+	svc := &UserVerificationService{
+		Repo:    repo,
+		UserSvc: userSvc,
+		now:     func() time.Time { return fixedNow },
+	}
+
+	ok, err := svc.Confirm(12, "123123")
 	if !errors.Is(err, ErrCodeExpired) {
 		t.Fatalf("expected ErrCodeExpired, got %v", err)
 	}
