@@ -117,7 +117,7 @@ func (f *fakeEmailService) SendVerificationCode(toEmail, code string, ttlMinutes
 	log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
 	return nil
 }
-func (f *fakeEmailService) SendSigningConfirm(email, code, magicLink string) error {
+func (f *fakeEmailService) SendSigningConfirm(email string, data SigningEmailData) error {
 	return nil
 }
 

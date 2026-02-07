@@ -2,35 +2,46 @@ package services
 
 import (
 	"fmt"
-	"gopkg.in/gomail.v2"
 	"log"
+	"strings"
+	"time"
+
+	"gopkg.in/gomail.v2"
 )
 
 type EmailService interface {
 	SendWelcomeEmail(email, companyName string) error
 	SendPasswordResetEmail(email, resetURL string) error
 	SendVerificationCode(toEmail, code string, ttlMinutes int) error
-	SendSigningConfirm(email, code, magicLink string) error
+	SendSigningConfirm(email string, data SigningEmailData) error
 }
 
 type emailService struct {
-	dialer *gomail.Dialer
-	from   string
+	dialer   *gomail.Dialer
+	from     string
+	fromName string
 }
 
-const signConfirmTTLMinutes = 15
+type SigningEmailData struct {
+	DocumentID   int64
+	DocumentType string
+	Sender       string
+	MagicLink    string
+	ExpiresAt    time.Time
+}
 
-func NewEmailService(smtpHost string, smtpPort int, smtpUser, smtpPassword, fromEmail string) EmailService {
+func NewEmailService(smtpHost string, smtpPort int, smtpUser, smtpPassword, fromEmail, fromName string) EmailService {
 	dialer := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPassword)
 	return &emailService{
-		dialer: dialer,
-		from:   fromEmail,
+		dialer:   dialer,
+		from:     fromEmail,
+		fromName: fromName,
 	}
 }
 
 func (s *emailService) SendWelcomeEmail(email, companyName string) error {
 	m := gomail.NewMessage()
-	m.SetHeader("From", s.from)
+	setFromHeader(m, s.from, s.fromName)
 	m.SetHeader("To", email)
 	m.SetHeader("Subject", "Welcome to TurCompany!")
 
@@ -51,7 +62,7 @@ func (s *emailService) SendWelcomeEmail(email, companyName string) error {
 }
 func (s *emailService) SendPasswordResetEmail(email, resetURL string) error {
 	m := gomail.NewMessage()
-	m.SetHeader("From", s.from)
+	setFromHeader(m, s.from, s.fromName)
 	m.SetHeader("To", email)
 	m.SetHeader("Subject", "Password reset request")
 
@@ -76,7 +87,7 @@ func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int
 	log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
 
 	m := gomail.NewMessage()
-	m.SetHeader("From", s.from)
+	setFromHeader(m, s.from, s.fromName)
 	m.SetHeader("To", toEmail)
 	m.SetHeader("Subject", "Код подтверждения регистрации")
 
@@ -92,24 +103,42 @@ func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int
 	return nil
 }
 
-func (s *emailService) SendSigningConfirm(email, code, magicLink string) error {
+func (s *emailService) SendSigningConfirm(email string, data SigningEmailData) error {
 	m := gomail.NewMessage()
-	m.SetHeader("From", s.from)
+	setFromHeader(m, s.from, s.fromName)
 	m.SetHeader("To", email)
-	m.SetHeader("Subject", "Подтверждение подписи документа")
+	m.SetHeader("Subject", fmt.Sprintf("Подписание документа №%d", data.DocumentID))
+
+	sender := strings.TrimSpace(data.Sender)
+	if sender == "" {
+		sender = "TurCompany"
+	}
+	docTitle := strings.TrimSpace(data.DocumentType)
+	if docTitle == "" {
+		docTitle = "документ"
+	}
+	expiresAt := data.ExpiresAt
+	ttlMinutes := int(time.Until(expiresAt).Minutes())
+	if ttlMinutes < 1 {
+		ttlMinutes = 1
+	}
 
 	text := fmt.Sprintf(
-		"Документ для подписи.\nКод подтверждения: %s.\nСсылка для подтверждения: %s\nСрок действия: %d минут.",
-		code,
-		magicLink,
-		signConfirmTTLMinutes,
+		"Отправитель: %s.\nДокумент: %s.\nОткрыть и подписать: %s\nСрок действия: %d минут.",
+		sender,
+		docTitle,
+		data.MagicLink,
+		ttlMinutes,
 	)
 	html := fmt.Sprintf(
-		`<h3>Подтверждение подписи документа</h3><p>Документ для подписи.</p><p>Код: <strong>%s</strong></p><p>Ссылка: <a href="%s">%s</a></p><p>Срок действия: %d минут.</p>`,
-		code,
-		magicLink,
-		magicLink,
-		signConfirmTTLMinutes,
+		`<h3>Подписание документа №%d</h3><p>Отправитель: %s</p><p>Документ: %s</p><p><a href="%s" style="display:inline-block;padding:12px 18px;background-color:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Открыть и подписать</a></p><p>Ссылка: <a href="%s">%s</a></p><p>Срок действия: %d минут.</p>`,
+		data.DocumentID,
+		sender,
+		docTitle,
+		data.MagicLink,
+		data.MagicLink,
+		data.MagicLink,
+		ttlMinutes,
 	)
 	m.SetBody("text/plain", text)
 	m.AddAlternative("text/html", html)
@@ -118,4 +147,12 @@ func (s *emailService) SendSigningConfirm(email, code, magicLink string) error {
 		return fmt.Errorf("failed to send signing confirm email: %w", err)
 	}
 	return nil
+}
+
+func setFromHeader(m *gomail.Message, from, fromName string) {
+	if strings.TrimSpace(fromName) == "" {
+		m.SetHeader("From", from)
+		return
+	}
+	m.SetAddressHeader("From", from, fromName)
 }

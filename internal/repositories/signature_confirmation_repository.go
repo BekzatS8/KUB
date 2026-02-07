@@ -170,6 +170,30 @@ func (r *SignatureConfirmationRepository) FindPendingByTokenHash(
 	return confirmation, nil
 }
 
+func (r *SignatureConfirmationRepository) FindByTokenHash(
+	ctx context.Context,
+	channel string,
+	tokenHash string,
+) (*models.SignatureConfirmation, error) {
+	const q = `
+		SELECT id, document_id, user_id, channel, status, otp_hash, token_hash,
+		       attempts, expires_at, approved_at, rejected_at, meta
+		FROM signature_confirmations
+		WHERE channel = $1
+		  AND token_hash = $2
+		ORDER BY expires_at DESC
+		LIMIT 1`
+	row := r.DB.QueryRowContext(ctx, q, channel, tokenHash)
+	confirmation, err := scanSignatureConfirmation(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find confirmation by token: %w", err)
+	}
+	return confirmation, nil
+}
+
 func (r *SignatureConfirmationRepository) HasApproved(
 	ctx context.Context,
 	documentID int64,
@@ -273,19 +297,50 @@ func (r *SignatureConfirmationRepository) CancelPrevious(
 	ctx context.Context,
 	documentID int64,
 	userID int64,
+	channel string,
 ) (int64, error) {
 	const q = `
 		UPDATE signature_confirmations
 		SET status = 'cancelled'
 		WHERE document_id = $1
 		  AND user_id = $2
+		  AND channel = $3
 		  AND status = 'pending'`
-	res, err := r.DB.ExecContext(ctx, q, documentID, userID)
+	res, err := r.DB.ExecContext(ctx, q, documentID, userID, channel)
 	if err != nil {
 		return 0, fmt.Errorf("cancel previous confirmations: %w", err)
 	}
 	affected, _ := res.RowsAffected()
 	return affected, nil
+}
+
+func (r *SignatureConfirmationRepository) UpdateMeta(
+	ctx context.Context,
+	id string,
+	metaUpdate []byte,
+) (*models.SignatureConfirmation, error) {
+	const q = `
+		UPDATE signature_confirmations
+		SET meta = CASE
+		    WHEN $2 IS NULL THEN meta
+		    ELSE COALESCE(meta, '{}'::jsonb) || $2::jsonb
+		END
+		WHERE id = $1
+		RETURNING id, document_id, user_id, channel, status, otp_hash, token_hash,
+		          attempts, expires_at, approved_at, rejected_at, meta`
+	var metaVal any
+	if len(metaUpdate) > 0 {
+		metaVal = metaUpdate
+	}
+	row := r.DB.QueryRowContext(ctx, q, id, metaVal)
+	confirmation, err := scanSignatureConfirmation(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update confirmation meta: %w", err)
+	}
+	return confirmation, nil
 }
 
 func (r *SignatureConfirmationRepository) IncrementAttempts(ctx context.Context, id string) (int, error) {
