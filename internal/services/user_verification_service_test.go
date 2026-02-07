@@ -123,7 +123,7 @@ func (f *fakeEmailService) SendSigningConfirm(email string, data SigningEmailDat
 
 type fakeUserService struct {
 	verifiedUsers []int
-	usersByEmail  map[string]*models.User
+	usersByID     map[int]*models.User
 }
 
 func (f *fakeUserService) VerifyUser(userID int) error {
@@ -135,18 +135,18 @@ func (f *fakeUserService) CreateUser(user *models.User) error { return nil }
 func (f *fakeUserService) CreateUserWithPassword(user *models.User, plainPassword string) error {
 	return nil
 }
-func (f *fakeUserService) GetUserByID(id int) (*models.User, error)            { return nil, nil }
+func (f *fakeUserService) GetUserByID(id int) (*models.User, error) {
+	if f.usersByID == nil {
+		return nil, nil
+	}
+	return f.usersByID[id], nil
+}
 func (f *fakeUserService) UpdateUser(user *models.User) error                  { return nil }
 func (f *fakeUserService) DeleteUser(id int) error                             { return nil }
 func (f *fakeUserService) ListUsers(limit, offset int) ([]*models.User, error) { return nil, nil }
-func (f *fakeUserService) GetUserByEmail(email string) (*models.User, error) {
-	if f.usersByEmail == nil {
-		return nil, nil
-	}
-	return f.usersByEmail[email], nil
-}
-func (f *fakeUserService) GetUserCount() (int, error)                 { return 0, nil }
-func (f *fakeUserService) GetUserCountByRole(roleID int) (int, error) { return 0, nil }
+func (f *fakeUserService) GetUserByEmail(email string) (*models.User, error)   { return nil, nil }
+func (f *fakeUserService) GetUserCount() (int, error)                          { return 0, nil }
+func (f *fakeUserService) GetUserCountByRole(roleID int) (int, error)          { return 0, nil }
 func (f *fakeUserService) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
 	return nil
 }
@@ -197,8 +197,8 @@ func TestUserVerificationService_Confirm(t *testing.T) {
 		ID: 1, UserID: 9, CodeHash: string(hash), SentAt: fixedNow, ExpiresAt: fixedNow.Add(5 * time.Minute), Attempts: 0,
 	})
 	userSvc := &fakeUserService{
-		usersByEmail: map[string]*models.User{
-			"person@example.com": {ID: 9, Email: "person@example.com"},
+		usersByID: map[int]*models.User{
+			9: {ID: 9, Email: "person@example.com"},
 		},
 	}
 
@@ -208,7 +208,7 @@ func TestUserVerificationService_Confirm(t *testing.T) {
 		now:     func() time.Time { return fixedNow },
 	}
 
-	ok, err := svc.Confirm("person@example.com", "654321")
+	ok, err := svc.Confirm(9, "654321")
 	if err != nil {
 		t.Fatalf("Confirm returned error: %v", err)
 	}
@@ -232,8 +232,8 @@ func TestUserVerificationService_ConfirmInvalidAndExpired(t *testing.T) {
 		ID: 1, UserID: 11, CodeHash: string(hash), SentAt: fixedNow.Add(-time.Minute), ExpiresAt: fixedNow.Add(time.Minute), Attempts: 0,
 	})
 	userSvc := &fakeUserService{
-		usersByEmail: map[string]*models.User{
-			"user@example.com": {ID: 11, Email: "user@example.com"},
+		usersByID: map[int]*models.User{
+			11: {ID: 11, Email: "user@example.com"},
 		},
 	}
 
@@ -243,7 +243,7 @@ func TestUserVerificationService_ConfirmInvalidAndExpired(t *testing.T) {
 		now:     func() time.Time { return fixedNow },
 	}
 
-	ok, err := svc.Confirm("user@example.com", "999999")
+	ok, err := svc.Confirm(11, "999999")
 	if !errors.Is(err, ErrCodeInvalid) {
 		t.Fatalf("expected ErrCodeInvalid, got %v", err)
 	}
@@ -256,7 +256,7 @@ func TestUserVerificationService_ConfirmInvalidAndExpired(t *testing.T) {
 	}
 
 	repo.records[0].ExpiresAt = fixedNow.Add(-time.Minute)
-	ok, err = svc.Confirm("user@example.com", "000111")
+	ok, err = svc.Confirm(11, "000111")
 	if !errors.Is(err, ErrCodeExpired) {
 		t.Fatalf("expected ErrCodeExpired, got %v", err)
 	}
@@ -279,8 +279,8 @@ func TestUserVerificationService_ResendCooldownAndMax(t *testing.T) {
 		ResendCount:  0,
 	})
 	userSvc := &fakeUserService{
-		usersByEmail: map[string]*models.User{
-			"user@example.com": {ID: 7, Email: "user@example.com"},
+		usersByID: map[int]*models.User{
+			7: {ID: 7, Email: "user@example.com"},
 		},
 	}
 	emailSvc := &fakeEmailService{}
@@ -291,18 +291,18 @@ func TestUserVerificationService_ResendCooldownAndMax(t *testing.T) {
 		now:      func() time.Time { return fixedNow },
 	}
 
-	if err := svc.Resend("user@example.com"); !errors.Is(err, ErrResendThrottled) {
+	if err := svc.Resend(7); !errors.Is(err, ErrResendThrottled) {
 		t.Fatalf("expected ErrResendThrottled due to cooldown, got %v", err)
 	}
 
 	repo.records[0].LastResendAt = ptrTime(fixedNow.Add(-2 * time.Minute))
 	repo.records[0].ResendCount = UserMaxResends
-	if err := svc.Resend("user@example.com"); !errors.Is(err, ErrResendThrottled) {
+	if err := svc.Resend(7); !errors.Is(err, ErrResendThrottled) {
 		t.Fatalf("expected ErrResendThrottled due to max resends, got %v", err)
 	}
 
 	repo.records[0].ResendCount = UserMaxResends - 1
-	if err := svc.Resend("user@example.com"); err != nil {
+	if err := svc.Resend(7); err != nil {
 		t.Fatalf("expected resend to succeed, got %v", err)
 	}
 	if emailSvc.sent != 1 {

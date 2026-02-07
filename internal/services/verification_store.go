@@ -8,10 +8,12 @@ import (
 )
 
 var (
-	ErrResendThrottled = errors.New("resend throttled")
-	ErrTooManyAttempts = errors.New("too many attempts")
-	ErrCodeExpired     = errors.New("code expired")
-	ErrCodeInvalid     = errors.New("code invalid")
+	ErrResendThrottled       = errors.New("resend throttled")
+	ErrTooManyAttempts       = errors.New("too many attempts")
+	ErrCodeExpired           = errors.New("code expired")
+	ErrCodeInvalid           = errors.New("code invalid")
+	ErrNoPendingVerification = errors.New("no pending verification")
+	ErrAlreadyVerified       = errors.New("already verified")
 )
 
 type UserVerificationRepo interface {

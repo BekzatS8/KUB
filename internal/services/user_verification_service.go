@@ -65,9 +65,7 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 	}
 
 	if err := s.EmailSvc.SendVerificationCode(email, code, ttlMinutes(ttl)); err != nil {
-
 		return fmt.Errorf("send verification email: %w", err)
-
 	}
 
 	log.Printf("[email][user][send] user_id=%d email=%s", userID, email)
@@ -75,7 +73,7 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 }
 
 // Resend generates a new code, updates the record, and sends email.
-func (s *UserVerificationService) Resend(email string) error {
+func (s *UserVerificationService) Resend(userID int) error {
 	if s.UserSvc == nil {
 		return fmt.Errorf("user service is nil")
 	}
@@ -86,12 +84,25 @@ func (s *UserVerificationService) Resend(email string) error {
 		return fmt.Errorf("email service is nil")
 	}
 
-	user, err := s.UserSvc.GetUserByEmail(email)
+	if userID <= 0 {
+		return ErrNoPendingVerification
+	}
+
+	user, err := s.UserSvc.GetUserByID(userID)
 	if err != nil {
 		return err
 	}
-	if user == nil || strings.TrimSpace(user.Email) == "" {
-		return fmt.Errorf("email required")
+	if user == nil {
+		log.Printf("[verify][resend] user_id=%d record=false reason=user_not_found", userID)
+		return ErrNoPendingVerification
+	}
+	if user.IsVerified {
+		log.Printf("[verify][resend] user_id=%d record=false reason=already_verified", userID)
+		return ErrAlreadyVerified
+	}
+	if strings.TrimSpace(user.Email) == "" {
+		log.Printf("[verify][resend] user_id=%d record=false reason=missing_email", userID)
+		return ErrNoPendingVerification
 	}
 
 	existing, err := s.Repo.GetLatestByUserID(user.ID)
@@ -100,13 +111,28 @@ func (s *UserVerificationService) Resend(email string) error {
 	}
 
 	now := s.now()
+	if existing == nil {
+		log.Printf("[verify][resend] user_id=%d record=false reason=not_found", userID)
+	}
+	if existing != nil {
+		log.Printf(
+			"[verify][resend] user_id=%d record=true expires_at=%s attempts=%d resend_count=%d reason=check_active",
+			userID,
+			existing.ExpiresAt.Format(time.RFC3339),
+			existing.Attempts,
+			existing.ResendCount,
+		)
+	}
+
 	if existing == nil || existing.Confirmed || now.After(existing.ExpiresAt) {
 		return s.Send(user.ID, user.Email)
 	}
 	if existing.LastResendAt != nil && now.Sub(*existing.LastResendAt) < UserResendCooldown {
+		log.Printf("[verify][resend] user_id=%d record=true reason=cooldown", userID)
 		return ErrResendThrottled
 	}
 	if existing.ResendCount >= UserMaxResends {
+		log.Printf("[verify][resend] user_id=%d record=true reason=max_resends", userID)
 		return ErrResendThrottled
 	}
 
@@ -136,7 +162,6 @@ func (s *UserVerificationService) Resend(email string) error {
 
 	if err := s.EmailSvc.SendVerificationCode(user.Email, code, ttlMinutes(ttl)); err != nil {
 		return fmt.Errorf("send verification email: %w", err)
-
 	}
 
 	log.Printf("[email][user][resend] user_id=%d email=%s", user.ID, user.Email)
@@ -144,7 +169,7 @@ func (s *UserVerificationService) Resend(email string) error {
 }
 
 // Confirm checks the verification code and marks the user verified.
-func (s *UserVerificationService) Confirm(email, code string) (bool, error) {
+func (s *UserVerificationService) Confirm(userID int, code string) (bool, error) {
 	if s.UserSvc == nil {
 		return false, fmt.Errorf("user service is nil")
 	}
@@ -152,12 +177,22 @@ func (s *UserVerificationService) Confirm(email, code string) (bool, error) {
 		return false, fmt.Errorf("verification repo is nil")
 	}
 
-	user, err := s.UserSvc.GetUserByEmail(email)
+	code = strings.TrimSpace(code)
+	if userID <= 0 || code == "" {
+		return false, ErrCodeInvalid
+	}
+
+	user, err := s.UserSvc.GetUserByID(userID)
 	if err != nil {
 		return false, err
 	}
 	if user == nil {
-		return false, ErrCodeInvalid
+		log.Printf("[verify][confirm] user_id=%d record=false reason=user_not_found", userID)
+		return false, ErrNoPendingVerification
+	}
+	if user.IsVerified {
+		log.Printf("[verify][confirm] user_id=%d record=false reason=already_verified", userID)
+		return false, ErrAlreadyVerified
 	}
 
 	v, err := s.Repo.GetLatestByUserID(user.ID)
@@ -165,9 +200,16 @@ func (s *UserVerificationService) Confirm(email, code string) (bool, error) {
 		return false, err
 	}
 	if v == nil || v.Confirmed {
-		return false, ErrCodeInvalid
+		log.Printf("[verify][confirm] user_id=%d record=%t reason=no_pending", userID, v != nil)
+		return false, ErrNoPendingVerification
 	}
 	if s.now().After(v.ExpiresAt) {
+		log.Printf(
+			"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=expired",
+			userID,
+			v.ExpiresAt.Format(time.RFC3339),
+			v.Attempts,
+		)
 		return false, ErrCodeExpired
 	}
 
@@ -178,8 +220,20 @@ func (s *UserVerificationService) Confirm(email, code string) (bool, error) {
 		}
 		if attempts >= MaxConfirmAttempts {
 			_ = s.Repo.ExpireNow(v.ID)
+			log.Printf(
+				"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=too_many_attempts",
+				userID,
+				v.ExpiresAt.Format(time.RFC3339),
+				attempts,
+			)
 			return false, ErrTooManyAttempts
 		}
+		log.Printf(
+			"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=invalid_code",
+			userID,
+			v.ExpiresAt.Format(time.RFC3339),
+			attempts,
+		)
 		return false, ErrCodeInvalid
 	}
 
