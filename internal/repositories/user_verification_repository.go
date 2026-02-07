@@ -61,6 +61,39 @@ func (r *UserVerificationRepository) GetLatestByUserID(userID int) (*models.User
 	return &v, nil
 }
 
+// GetLatestPendingByUserID — берём последнюю активную (pending) запись.
+func (r *UserVerificationRepository) GetLatestPendingByUserID(userID int, now time.Time) (*models.UserVerification, error) {
+	const q = `
+		SELECT id, user_id, code_hash, sent_at, expires_at, confirmed, attempts, confirmed_at, last_resend_at, resend_count
+		FROM user_verifications
+		WHERE user_id = $1
+		  AND confirmed = FALSE
+		  AND expires_at > $2
+		ORDER BY sent_at DESC, id DESC
+		LIMIT 1
+	`
+	row := r.DB.QueryRow(q, userID, now)
+	var v models.UserVerification
+	if err := row.Scan(
+		&v.ID,
+		&v.UserID,
+		&v.CodeHash,
+		&v.SentAt,
+		&v.ExpiresAt,
+		&v.Confirmed,
+		&v.Attempts,
+		&v.ConfirmedAt,
+		&v.LastResendAt,
+		&v.ResendCount,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("user_verification latest pending: %w", err)
+	}
+	return &v, nil
+}
+
 // CountRecentSends — сколько раз отправляли за последнее окно (для троттлинга).
 func (r *UserVerificationRepository) CountRecentSends(userID int, since time.Time) (int, error) {
 	const q = `

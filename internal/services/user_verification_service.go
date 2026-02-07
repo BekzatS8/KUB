@@ -55,6 +55,7 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 	if err != nil {
 		return err
 	}
+	logVerifySendDebug("send", userID, email, code, codeHash)
 
 	ttl := s.CodeTTL
 	if ttl <= 0 {
@@ -144,6 +145,7 @@ func (s *UserVerificationService) Resend(userID int) error {
 	if err != nil {
 		return err
 	}
+	logVerifySendDebug("resend", userID, user.Email, code, codeHash)
 
 	ttl := s.CodeTTL
 	if ttl <= 0 {
@@ -198,18 +200,30 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 		return false, ErrAlreadyVerified
 	}
 
-	v, err := s.Repo.GetLatestByUserID(user.ID)
+	now := s.now()
+	v, err := s.Repo.GetLatestPendingByUserID(user.ID, now)
 	if err != nil {
 		return false, err
 	}
 	if v == nil || v.Confirmed {
+		latest, latestErr := s.Repo.GetLatestByUserID(user.ID)
+		if latestErr == nil && latest != nil && !latest.Confirmed && now.After(latest.ExpiresAt) {
+			logVerifyConfirmDebug(userID, user.Email, latest, code, "EXPIRED")
+			log.Printf(
+				"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=expired",
+				userID,
+				latest.ExpiresAt.Format(time.RFC3339),
+				latest.Attempts,
+			)
+			return false, ErrCodeExpired
+		}
 		if shouldLogVerificationDebug() {
 			log.Printf("[verify][confirm][debug] user_id=%d email=%s record=%t reason=NOT_FOUND", userID, user.Email, v != nil)
 		}
 		log.Printf("[verify][confirm] user_id=%d record=%t reason=no_pending", userID, v != nil)
 		return false, ErrNoPendingVerification
 	}
-	if s.now().After(v.ExpiresAt) {
+	if now.After(v.ExpiresAt) {
 		logVerifyConfirmDebug(userID, user.Email, v, code, "EXPIRED")
 		log.Printf(
 			"[verify][confirm] user_id=%d record=true expires_at=%s attempts=%d reason=expired",
@@ -219,6 +233,8 @@ func (s *UserVerificationService) Confirm(userID int, code string) (bool, error)
 		)
 		return false, ErrCodeExpired
 	}
+
+	logVerifyConfirmAttemptDebug(userID, code, v)
 
 	if err := CompareVerificationCode(v.CodeHash, code); err != nil {
 		logVerifyConfirmDebug(userID, user.Email, v, code, "HASH_MISMATCH")
@@ -316,6 +332,35 @@ func logVerifyConfirmDebug(userID int, email string, v *models.UserVerification,
 		codeHashPrefix,
 		debugHashPrefix,
 		reason,
+	)
+}
+
+func logVerifySendDebug(action string, userID int, email, code, codeHash string) {
+	if !shouldLogVerificationDebug() {
+		return
+	}
+	hashPrefix := codeHash
+	if len(hashPrefix) > 12 {
+		hashPrefix = hashPrefix[:12]
+	}
+	log.Printf("[verify][%s][debug] user_id=%d email=%s code=%s hash_prefix=%s", action, userID, email, code, hashPrefix)
+}
+
+func logVerifyConfirmAttemptDebug(userID int, code string, v *models.UserVerification) {
+	if !shouldLogVerificationDebug() || v == nil {
+		return
+	}
+	hashPrefix := v.CodeHash
+	if len(hashPrefix) > 12 {
+		hashPrefix = hashPrefix[:12]
+	}
+	log.Printf(
+		"[verify][confirm][debug] user_id=%d code=%s stored_hash_prefix=%s expires_at=%s attempts=%d",
+		userID,
+		code,
+		hashPrefix,
+		v.ExpiresAt.Format(time.RFC3339),
+		v.Attempts,
 	)
 }
 
