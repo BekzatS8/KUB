@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/models"
 	"turcompany/internal/services"
 )
 
@@ -27,26 +29,29 @@ func NewVerifyHandler(s *services.UserVerificationService) *VerifyHandler {
 }
 
 func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
-	var req struct {
-		Email string `json:"email" binding:"required,email"`
-		Code  string `json:"code" binding:"required"`
-	}
+	var req models.RegisterConfirmRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid code")
+		badRequest(c, "Invalid confirmation payload")
 		return
 	}
 
-	ok, err := h.verification.Confirm(req.Email, req.Code)
+	ok, err := h.verification.Confirm(req.UserID, req.Code)
 	if err != nil {
-		switch err {
-		case services.ErrCodeExpired:
+		switch {
+		case errors.Is(err, services.ErrCodeExpired):
 			badRequest(c, "Code expired, please resend")
 			return
-		case services.ErrTooManyAttempts:
-			badRequest(c, "Too many attempts, please resend")
+		case errors.Is(err, services.ErrTooManyAttempts):
+			writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many attempts, please resend")
 			return
-		case services.ErrCodeInvalid:
+		case errors.Is(err, services.ErrCodeInvalid):
 			badRequest(c, "Invalid code")
+			return
+		case errors.Is(err, services.ErrNoPendingVerification):
+			badRequest(c, "No pending verification")
+			return
+		case errors.Is(err, services.ErrAlreadyVerified):
+			badRequest(c, "Already verified")
 			return
 		default:
 			internalError(c, "Confirmation failed")
@@ -61,29 +66,34 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 }
 
 func (h *VerifyHandler) ResendUser(c *gin.Context) {
-	var req struct {
-		Email string `json:"email" binding:"required,email"`
-	}
+	var req models.RegisterResendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid code")
+		badRequest(c, "Invalid resend payload")
 		return
 	}
 
-	key := fmt.Sprintf("%s:%s", req.Email, c.ClientIP())
+	key := fmt.Sprintf("%d:%s", req.UserID, c.ClientIP())
 	if !h.allowResend(key) {
 		writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 		return
 	}
 
-	if err := h.verification.Resend(req.Email); err != nil {
-		if err == services.ErrResendThrottled {
+	if err := h.verification.Resend(req.UserID); err != nil {
+		if errors.Is(err, services.ErrResendThrottled) {
 			writeError(c, http.StatusTooManyRequests, ValidationFailed, "Too many requests, try later")
 			return
 		}
-		badRequest(c, "Invalid code")
+		switch {
+		case errors.Is(err, services.ErrAlreadyVerified):
+			badRequest(c, "Already verified")
+		case errors.Is(err, services.ErrNoPendingVerification):
+			badRequest(c, "No pending verification")
+		default:
+			internalError(c, "Failed to resend verification")
+		}
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Email sent"})
+	c.JSON(http.StatusOK, gin.H{"message": "Verification code sent"})
 }
 
 func (h *VerifyHandler) allowResend(key string) bool {

@@ -173,8 +173,8 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 
 ### Публичные
 - `POST /register` — регистрация sales + код подтверждения  
-- `POST /register/confirm` — подтвердить телефон (код)  
-- `POST /register/resend` — повторная отправка кода (ограничения по троттлингу)  
+- `POST /register/confirm` — подтвердить email (payload: `user_id`, `code`)  
+- `POST /register/resend` — повторная отправка кода (payload: `user_id`)  
 - `POST /login` — логин (если `is_verified=false` → 403)  
 - `POST /refresh` — ротация refresh и выдача нового access  
 
@@ -285,8 +285,8 @@ sudo systemctl enable --now turcompany.service
 ## Траблшутинг
 
 - **SMTP 535**: Mail.ru ругается — нужен **пароль приложения** (включить 2FA и создать app-password).  
-- **/register/resend → 429**: сработал троттлинг (больше 3 запросов за 10 минут). Подожди 10 минут или снизь частоту.  
-- **/register/confirm → 400**: неверный/просроченный код или превышен лимит попыток (5). Сделай resend.
+- **/register/resend → 429**: сработал троттлинг (частые запросы). Подожди минуту или снизь частоту.  
+- **/register/confirm → 400**: неверный код, код просрочен или нет активной верификации. Сделай resend.
 
 ---
 
@@ -327,12 +327,17 @@ curl -X POST http://localhost:4000/register   -H "Content-Type: application/json
 curl -X POST http://localhost:4000/register/confirm   -H "Content-Type: application/json"   -d '{"user_id":1,"code":"123456"}'
 ```
 
-3) **Вход**
+3) **Повторная отправка кода**
+```bash
+curl -X POST http://localhost:4000/register/resend   -H "Content-Type: application/json"   -d '{"user_id":1}'
+```
+
+4) **Вход**
 ```bash
 curl -X POST http://localhost:4000/login   -H "Content-Type: application/json"   -d '{"email":"sales1@example.com","password":"sales12345"}'
 ```
 
-4) **Ротация refresh**
+5) **Ротация refresh**
 ```bash
 curl -X POST http://localhost:4000/refresh   -H "Content-Type: application/json"   -d '{"refresh_token":"<your_refresh_token>"}'
 ```

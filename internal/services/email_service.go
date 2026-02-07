@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -84,7 +85,9 @@ func (s *emailService) SendPasswordResetEmail(email, resetURL string) error {
 }
 
 func (s *emailService) SendVerificationCode(toEmail, code string, ttlMinutes int) error {
-	log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
+	if shouldLogVerificationCode() {
+		log.Printf("[DEV][email][verify] to=%s code=%s ttl=%d", toEmail, code, ttlMinutes)
+	}
 
 	m := gomail.NewMessage()
 	setFromHeader(m, s.from, s.fromName)
@@ -155,4 +158,8 @@ func setFromHeader(m *gomail.Message, from, fromName string) {
 		return
 	}
 	m.SetAddressHeader("From", from, fromName)
+}
+
+func shouldLogVerificationCode() bool {
+	return strings.ToLower(os.Getenv("GIN_MODE")) != "release"
 }
