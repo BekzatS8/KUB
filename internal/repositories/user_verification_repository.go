@@ -36,7 +36,7 @@ func (r *UserVerificationRepository) GetLatestByUserID(userID int) (*models.User
 		SELECT id, user_id, code_hash, sent_at, expires_at, confirmed, attempts, confirmed_at, last_resend_at, resend_count
 		FROM user_verifications
 		WHERE user_id = $1
-		ORDER BY sent_at DESC
+		ORDER BY sent_at DESC, id DESC
 		LIMIT 1
 	`
 	row := r.DB.QueryRow(q, userID)

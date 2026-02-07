@@ -83,10 +83,15 @@ func SetupRoutes(
 			signProtected.POST("", signHandler.Create)
 		}
 	}
-	if signConfirmHandler != nil {
+	if gin.Mode() != gin.ReleaseMode {
 		debug := r.Group("/debug")
 		{
-			debug.GET("/sign-confirmations/latest", signConfirmHandler.DebugLatest)
+			if signConfirmHandler != nil {
+				debug.GET("/sign-confirmations/latest", signConfirmHandler.DebugLatest)
+			}
+			if verifyHandler != nil {
+				debug.GET("/register-verification/latest", verifyHandler.DebugLatest)
+			}
 		}
 	}
 
