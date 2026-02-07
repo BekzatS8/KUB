@@ -1,9 +1,12 @@
 # KUB Postman коллекция
 
 1) Импортируйте `KUB.postman_collection.json` и `KUB.postman_environment.json`.
-   Legacy коллекция `kub_api.postman_collection.json` удалена как устаревшая (в ней нет актуальных маршрутов подписания `/documents/:id/sign/start`, `/documents/:id/sign/status`, `/documents/:id/sign/confirm/email` и `/sign/email/verify`) — используйте только актуальную `KUB.postman_collection.json`.
-2) Заполните переменные окружения: `baseUrl`, `email`, `password`, `signerEmail`. `documentId` заполняется автоматически после Create Document (или вручную из List Documents).
-3) (Dev) Для debug-эндпоинта задайте `debugKey` и включите `DEBUG_KEY` на сервере; в release debug недоступен.
+2) Заполните базовые переменные окружения:
+   - `baseUrl`
+   - `email`, `password` (для логина)
+   - `companyName`, `phone` (для регистрации)
+3) Остальные переменные (`userId`, `clientId`, `leadId`, `dealId`, `documentId`, `taskId`, `chatId`) заполняются автоматически тест-скриптами после `Create *` запросов. При необходимости можно указать вручную.
+4) (Dev) Debug-эндпоинты доступны только вне `GIN_MODE=release`.
 
 Последовательность нажатий (без ручных шагов, кроме documentId если не делаете Create):
 1) Auth -> Login (в Tests сохранит `accessToken`/`refreshToken`).
@@ -23,3 +26,10 @@
 Если Debug endpoint недоступен, заполните вручную переменные окружения:
 - `emailToken` — token из magic-link (параметр `token=...` в ссылке).
 - `tgCallbackToken` — токен из callback_data в Telegram, формат `sign:approve:<token>` или `sign:reject:<token>`.
+
+## Быстрый старт для фронтендера
+
+1) Register -> Register (сохранит `userId`), затем Register -> Register Confirm.
+2) Auth -> Login (сохранит `accessToken`/`refreshToken`).
+3) Используйте разделы Users/Clients/Leads/Deals/Documents/Tasks/Chats/Reports для проверки всего API.
+4) Для файловых ручек (`documents/upload`, `chats/{id}/upload`) заполните `uploadFile`.
