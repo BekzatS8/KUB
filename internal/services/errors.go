@@ -14,4 +14,5 @@ var (
 	ErrClientIDRequired = errors.New("client_id is required")
 	ErrAmountInvalid    = errors.New("amount must be greater than 0")
 	ErrDealNotFound     = errors.New("deal not found")
+	ErrClientNotFound   = errors.New("client not found")
 )

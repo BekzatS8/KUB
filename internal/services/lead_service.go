@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"turcompany/internal/authz"
@@ -154,7 +155,7 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 
 // ConvertLeadToDeal оставляем как у тебя, только напомню,
 // что он требует lead.Status == "confirmed"
-func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
+func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int) (*models.Deals, error) {
 	if roleID == authz.RoleAdminStaff {
 		return nil, ErrForbidden
 	}
@@ -162,7 +163,13 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 		return nil, ErrReadOnly
 	}
 	if amount <= 0 {
-		return nil, errors.New("amount must be greater than 0")
+		return nil, ErrAmountInvalid
+	}
+	if strings.TrimSpace(currency) == "" {
+		return nil, errors.New("currency is required")
+	}
+	if clientID <= 0 {
+		return nil, ErrClientIDRequired
 	}
 	lead, err := s.Repo.GetByID(leadID)
 	if err != nil || lead == nil {
@@ -174,15 +181,12 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 	if s.ClientSvc == nil {
 		return nil, errors.New("client repository not configured")
 	}
-
-	if clientData == nil {
-		return nil, errors.New("client data is required")
-	}
-	if clientData.OwnerID == 0 {
-		clientData.OwnerID = ownerID
-	}
-	if err = s.ClientSvc.NormalizeAndValidate(clientData); err != nil {
+	client, err := s.ClientSvc.GetByID(clientID, userID, roleID)
+	if err != nil {
 		return nil, err
+	}
+	if client == nil {
+		return nil, ErrClientNotFound
 	}
 	deal := &models.Deals{
 		LeadID:    leadID,
@@ -192,14 +196,50 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 		Status:    "new",
 		CreatedAt: time.Now(),
 	}
-	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, clientData)
+	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, client)
 	if err != nil {
+		if errors.Is(err, repositories.ErrClientNotFound) {
+			return nil, ErrClientNotFound
+		}
 		if errors.Is(err, repositories.ErrDealAlreadyExists) {
 			return converted, ErrDealAlreadyExists
 		}
 		return nil, err
 	}
 	return converted, nil
+}
+
+func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
+	if roleID == authz.RoleAdminStaff {
+		return nil, ErrForbidden
+	}
+	if authz.IsReadOnly(roleID) {
+		return nil, ErrReadOnly
+	}
+	if amount <= 0 {
+		return nil, ErrAmountInvalid
+	}
+	if strings.TrimSpace(currency) == "" {
+		return nil, errors.New("currency is required")
+	}
+	if clientData == nil {
+		return nil, errors.New("client data is required")
+	}
+	if clientData.OwnerID == 0 {
+		clientData.OwnerID = ownerID
+	}
+	if s.ClientSvc == nil {
+		return nil, errors.New("client repository not configured")
+	}
+
+	client, err := s.ClientSvc.GetOrCreateByBIN(clientData.BinIin, clientData)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, ErrClientNotFound
+	}
+	return s.ConvertLeadToDeal(leadID, amount, currency, ownerID, userID, roleID, client.ID)
 }
 
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {

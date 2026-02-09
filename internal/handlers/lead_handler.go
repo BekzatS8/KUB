@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"errors"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -270,9 +272,15 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 }
 
 // --- Convert ---
-type ConvertLeadRequest struct {
-	Amount            float64 `json:"amount" example:"50000"`
-	Currency          string  `json:"currency" example:"USD"`
+type ConvertLeadByIDRequest struct {
+	Amount   float64 `json:"amount" binding:"required" example:"50000"`
+	Currency string  `json:"currency" binding:"required" example:"USD"`
+	ClientID int     `json:"client_id" binding:"required" example:"1"`
+}
+
+type ConvertLeadWithClientRequest struct {
+	Amount            float64 `json:"amount" binding:"required" example:"50000"`
+	Currency          string  `json:"currency" binding:"required" example:"USD"`
 	ClientName        string  `json:"client_name" binding:"required"`
 	ClientBinIin      string  `json:"client_bin_iin"`
 	ClientAddress     string  `json:"client_address"`
@@ -305,8 +313,64 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 		return
 	}
 
-	var req ConvertLeadRequest
+	var req ConvertLeadByIDRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || req.ClientID <= 0 {
+		badRequest(c, "Invalid payload")
+		return
+	}
+
+	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, req.ClientID)
+	if convErr != nil {
+		if errors.Is(convErr, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		if errors.Is(convErr, services.ErrDealAlreadyExists) && deal != nil {
+			c.JSON(http.StatusConflict, deal)
+			return
+		}
+		conflict(c, ValidationFailed, "Lead conversion conflict")
+		return
+	}
+	c.JSON(201, deal)
+}
+
+func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+	lead, err := h.Service.GetByID(id, userID, roleID)
+	if err != nil || lead == nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		notFound(c, LeadNotFoundCode, "Lead not found")
+		return
+	}
+
+	var req ConvertLeadWithClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || strings.TrimSpace(req.ClientName) == "" {
 		badRequest(c, "Invalid payload")
 		return
 	}
@@ -317,7 +381,7 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 		Address:     req.ClientAddress,
 		ContactInfo: req.ClientContactInfo,
 	}
-	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
+	deal, convErr := h.Service.ConvertLeadToDealWithClientData(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
 	if convErr != nil {
 		if errors.Is(convErr, services.ErrDealAlreadyExists) && deal != nil {
 			c.JSON(http.StatusConflict, deal)

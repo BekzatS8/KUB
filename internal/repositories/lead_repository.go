@@ -335,120 +335,14 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	if client == nil {
 		return nil, errors.New("client data is required")
 	}
-
-	if client.OwnerID == 0 {
-		client.OwnerID = deal.OwnerID
+	if client.ID == 0 {
+		return nil, errors.New("client data is required")
 	}
-	if client.CreatedAt.IsZero() {
-		client.CreatedAt = time.Now()
-	}
-
-	var clientID int
-	if err = tx.QueryRow(`
-		SELECT id FROM clients
-		WHERE ($1 <> '' AND bin_iin = $1)
-		   OR ($2 <> '' AND iin = $2)
-		   OR ($3 <> '' AND phone = $3)
-		LIMIT 1
-	`, client.BinIin, client.IIN, client.Phone).Scan(&clientID); err == nil {
-		deal.ClientID = clientID
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("lookup client: %w", err)
-	}
-
-	if deal.ClientID == 0 {
-		if client.BinIin != "" {
-			insertClientQuery := `
-				INSERT INTO clients (
-					name, bin_iin, address, contact_info,
-					last_name, first_name, middle_name,
-					iin, id_number, passport_series, passport_number,
-					phone, email, registration_address, actual_address,
-					owner_id, created_at
-				)
-				VALUES (
-					$1, $2, $3, $4,
-					$5, $6, $7,
-					$8, $9, $10, $11,
-					$12, $13, $14, $15,
-					$16, $17
-				)
-				ON CONFLICT (bin_iin) WHERE bin_iin IS NOT NULL AND bin_iin <> ''
-				DO NOTHING
-				RETURNING id
-			`
-
-			err = tx.QueryRow(
-				insertClientQuery,
-				client.Name,
-				nullStringFromEmpty(client.BinIin),
-				client.Address,
-				client.ContactInfo,
-				client.LastName,
-				client.FirstName,
-				client.MiddleName,
-				nullStringFromEmpty(client.IIN),
-				client.IDNumber,
-				client.PassportSeries,
-				client.PassportNumber,
-				client.Phone,
-				client.Email,
-				client.RegistrationAddress,
-				client.ActualAddress,
-				client.OwnerID,
-				client.CreatedAt,
-			).Scan(&clientID)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					if err = tx.QueryRow(`SELECT id FROM clients WHERE bin_iin = $1`, client.BinIin).Scan(&clientID); err != nil {
-						return nil, fmt.Errorf("get client by bin/iin: %w", err)
-					}
-				} else {
-					return nil, fmt.Errorf("insert client: %w", err)
-				}
-			}
-		} else {
-			insertClientQuery := `
-				INSERT INTO clients (
-					name, bin_iin, address, contact_info,
-					last_name, first_name, middle_name,
-					iin, id_number, passport_series, passport_number,
-					phone, email, registration_address, actual_address,
-					owner_id, created_at
-				)
-				VALUES (
-					$1, $2, $3, $4,
-					$5, $6, $7,
-					$8, $9, $10, $11,
-					$12, $13, $14, $15,
-					$16, $17
-				)
-				RETURNING id
-			`
-			if err = tx.QueryRow(
-				insertClientQuery,
-				client.Name,
-				nullStringFromEmpty(client.BinIin),
-				client.Address,
-				client.ContactInfo,
-				client.LastName,
-				client.FirstName,
-				client.MiddleName,
-				nullStringFromEmpty(client.IIN),
-				client.IDNumber,
-				client.PassportSeries,
-				client.PassportNumber,
-				client.Phone,
-				client.Email,
-				client.RegistrationAddress,
-				client.ActualAddress,
-				client.OwnerID,
-				client.CreatedAt,
-			).Scan(&clientID); err != nil {
-				return nil, fmt.Errorf("insert client without bin: %w", err)
-			}
+	if err = tx.QueryRow(`SELECT id FROM clients WHERE id = $1 FOR UPDATE`, client.ID).Scan(&deal.ClientID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrClientNotFound
 		}
-		deal.ClientID = clientID
+		return nil, fmt.Errorf("lookup client: %w", err)
 	}
 
 	err = tx.QueryRow(`

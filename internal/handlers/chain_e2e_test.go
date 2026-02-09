@@ -297,13 +297,14 @@ func TestLeadToDealChainAndAccess(t *testing.T) {
 		t.Fatalf("lead status update: %d body: %s", statusRes.Code, statusRes.Body.String())
 	}
 
+	convertClientID, err := createClient(env.db, "Client A", env.salesID)
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
 	convertPayload := map[string]any{
-		"amount":              1250.50,
-		"currency":            "USD",
-		"client_name":         "Client A",
-		"client_bin_iin":      "990011223344",
-		"client_address":      "Main st",
-		"client_contact_info": "contact",
+		"amount":    1250.50,
+		"currency":  "USD",
+		"client_id": convertClientID,
 	}
 	convertRes := requestJSON(t, env.router, http.MethodPut, fmt.Sprintf("/leads/%d/convert", lead.ID), convertPayload, env.salesID, authz.RoleSales)
 	if convertRes.Code != http.StatusCreated {
@@ -476,5 +477,79 @@ func TestLeadToDealChainAndAccess(t *testing.T) {
 	}
 	if len(revenue.Items) == 0 || revenue.Items[0].TotalAmount == 0 {
 		t.Fatalf("expected revenue for sales user, got %+v", revenue.Items)
+	}
+}
+
+func TestLeadConvertValidationAndErrors(t *testing.T) {
+	env := setupTestEnv(t)
+	defer env.cleanup()
+
+	leadPayload := map[string]any{
+		"title":       "Lead Convert Validate",
+		"description": "test",
+	}
+	leadRes := requestJSON(t, env.router, http.MethodPost, "/leads", leadPayload, env.salesID, authz.RoleSales)
+	if leadRes.Code != http.StatusCreated {
+		t.Fatalf("lead create status: %d body: %s", leadRes.Code, leadRes.Body.String())
+	}
+	var lead struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(leadRes.Body.Bytes(), &lead); err != nil {
+		t.Fatalf("parse lead: %v", err)
+	}
+
+	clientID, err := createClient(env.db, "Client Validate", env.salesID)
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+
+	invalidPayload := map[string]any{
+		"amount":   100,
+		"currency": "USD",
+	}
+	invalidRes := requestJSON(t, env.router, http.MethodPut, fmt.Sprintf("/leads/%d/convert", lead.ID), invalidPayload, env.salesID, authz.RoleSales)
+	if invalidRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid payload status 400, got %d body: %s", invalidRes.Code, invalidRes.Body.String())
+	}
+
+	statusRes := requestJSON(t, env.router, http.MethodPost, fmt.Sprintf("/leads/%d/status", lead.ID), map[string]any{"to": "confirmed"}, env.salesID, authz.RoleSales)
+	if statusRes.Code != http.StatusOK {
+		t.Fatalf("lead status update: %d body: %s", statusRes.Code, statusRes.Body.String())
+	}
+
+	missingClient := map[string]any{
+		"amount":    100,
+		"currency":  "USD",
+		"client_id": 999999,
+	}
+	missingClientRes := requestJSON(t, env.router, http.MethodPut, fmt.Sprintf("/leads/%d/convert", lead.ID), missingClient, env.salesID, authz.RoleSales)
+	if missingClientRes.Code != http.StatusNotFound {
+		t.Fatalf("expected client not found status 404, got %d body: %s", missingClientRes.Code, missingClientRes.Body.String())
+	}
+
+	newLeadPayload := map[string]any{
+		"title":       "Lead Not Confirmed",
+		"description": "test",
+	}
+	leadRes2 := requestJSON(t, env.router, http.MethodPost, "/leads", newLeadPayload, env.salesID, authz.RoleSales)
+	if leadRes2.Code != http.StatusCreated {
+		t.Fatalf("lead create status: %d body: %s", leadRes2.Code, leadRes2.Body.String())
+	}
+	var lead2 struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(leadRes2.Body.Bytes(), &lead2); err != nil {
+		t.Fatalf("parse lead2: %v", err)
+	}
+
+	notConfirmedPayload := map[string]any{
+		"amount":    200,
+		"currency":  "USD",
+		"client_id": clientID,
+	}
+	notConfirmedRes := requestJSON(t, env.router, http.MethodPut, fmt.Sprintf("/leads/%d/convert", lead2.ID), notConfirmedPayload, env.salesID, authz.RoleSales)
+	if notConfirmedRes.Code != http.StatusConflict {
+		t.Fatalf("expected lead not confirmed conflict, got %d body: %s", notConfirmedRes.Code, notConfirmedRes.Body.String())
 	}
 }
