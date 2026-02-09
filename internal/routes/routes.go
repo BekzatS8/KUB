@@ -57,8 +57,8 @@ func SetupRoutes(
 		{
 			signPublic.GET("/:id/page", signHandler.ServeSessionPage)
 			signPublic.POST("/:id/sign", signHandler.SignByID)
-			signPublic.POST("/:token/verify", signHandler.Verify)
-			signPublic.POST("/:token/sign", signHandler.Sign)
+			signPublic.POST("/token/:token/verify", signHandler.Verify)
+			signPublic.POST("/token/:token/sign", signHandler.Sign)
 		}
 	}
 	if signConfirmHandler != nil {
