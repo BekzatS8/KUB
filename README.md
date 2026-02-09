@@ -354,14 +354,14 @@ curl -X POST http://localhost:4000/api/v1/sign/sessions \
 
 **Подтвердить код (публичный):**
 ```bash
-curl -X POST http://localhost:4000/api/v1/sign/sessions/{token}/verify \
+curl -X POST http://localhost:4000/api/v1/sign/sessions/token/{token}/verify \
   -H "Content-Type: application/json" \
   -d '{"code": "123456"}'
 ```
 
 **Подписать документ (публичный):**
 ```bash
-curl -X POST http://localhost:4000/api/v1/sign/sessions/{token}/sign \
+curl -X POST http://localhost:4000/api/v1/sign/sessions/token/{token}/sign \
   -H "Content-Type: application/json" \
   -d '{"agree": true}'
 ```
