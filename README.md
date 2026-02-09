@@ -368,14 +368,14 @@ curl -X POST http://localhost:4000/api/v1/sign/sessions/token/{token}/sign \
 
 **Публичная HTML-страница:**
 ```
-GET /sign/{token}
+GET /api/v1/sign/sessions/id/{id}/page?token={token}
 ```
 
 ---
 
 ## Что проверить после деплоя
 
-- ✅ SIGN_BASE_URL указывает на публичный домен с доступным `/sign/{token}`.
+- ✅ SIGN_BASE_URL указывает на публичный домен с доступным `/api/v1/sign/sessions/id/{id}/page?token={token}`.
 - ✅ Миграция `002_sign_sessions.up.sql` применена.
 - ✅ Проверить rate limit: >3 сессий за 10 минут на документ/телефон возвращает 429.
 - ✅ Проверить TTL: по истечении 10 минут verify/sign возвращает 410.

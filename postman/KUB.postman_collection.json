@@ -1604,7 +1604,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionId}}/page?token={{token}}",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{signSessionId}}/page?token={{token}}",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1613,6 +1613,7 @@
                 "v1",
                 "sign",
                 "sessions",
+                "id",
                 "{{signSessionId}}",
                 "page"
               ],
@@ -1639,7 +1640,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionId}}/sign",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{signSessionId}}/sign",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1648,6 +1649,7 @@
                 "v1",
                 "sign",
                 "sessions",
+                "id",
                 "{{signSessionId}}",
                 "sign"
               ]

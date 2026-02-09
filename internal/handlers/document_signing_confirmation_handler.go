@@ -175,7 +175,7 @@ func buildSignSessionURL(c *gin.Context, sessionID int64, token string) string {
 		return ""
 	}
 	queryToken := url.QueryEscape(token)
-	return fmt.Sprintf("%s://%s/api/v1/sign/sessions/%d/page?token=%s", scheme, host, sessionID, queryToken)
+	return fmt.Sprintf("%s://%s/api/v1/sign/sessions/id/%d/page?token=%s", scheme, host, sessionID, queryToken)
 }
 
 func handleSignSessionCreateError(c *gin.Context, err error) {

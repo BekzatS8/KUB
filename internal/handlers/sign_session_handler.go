@@ -279,7 +279,7 @@ func signPageHTML(sessionID int64, token string) string {
       button.disabled = true;
       setMessage("Подписываем...", false);
       try {
-        const signResp = await fetch("/api/v1/sign/sessions/" + sessionId + "/sign", {
+        const signResp = await fetch("/api/v1/sign/sessions/id/" + sessionId + "/sign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token, agree: true })

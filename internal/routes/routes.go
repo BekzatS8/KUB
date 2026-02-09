@@ -55,8 +55,8 @@ func SetupRoutes(
 
 		signPublic := r.Group("/api/v1/sign/sessions")
 		{
-			signPublic.GET("/:id/page", signHandler.ServeSessionPage)
-			signPublic.POST("/:id/sign", signHandler.SignByID)
+			signPublic.GET("/id/:id/page", signHandler.ServeSessionPage)
+			signPublic.POST("/id/:id/sign", signHandler.SignByID)
 			signPublic.POST("/token/:token/verify", signHandler.Verify)
 			signPublic.POST("/token/:token/sign", signHandler.Sign)
 		}
