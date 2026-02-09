@@ -27,6 +27,14 @@ var (
 	ErrSignSessionNotVerified   = errors.New("sign session not verified")
 	ErrSignSessionAlreadySigned = errors.New("sign session already signed")
 	ErrSignSessionRateLimited   = errors.New("sign session rate limited")
+	ErrSignSessionInvalidPhone  = errors.New("invalid sign session phone")
+	ErrSignSessionDocNotFound   = errors.New("sign session document not found")
+	ErrSignSessionForbidden     = errors.New("sign session forbidden")
+	ErrSignSessionInvalidStatus = errors.New("sign session invalid status")
+	ErrSignSessionBaseURL       = errors.New("sign session base url required")
+	ErrSignSessionDelivery      = errors.New("sign session delivery unavailable")
+	ErrSignSessionInvalidToken  = errors.New("sign session invalid token")
+	ErrSignSessionInvalidEmail  = errors.New("sign session invalid email")
 )
 
 const (
@@ -37,11 +45,14 @@ const (
 )
 
 type SignSessionRepo interface {
-	Create(session *models.SignSession) error
-	GetByTokenHash(tokenHash string) (*models.SignSession, error)
-	CountRecentByDocumentID(documentID int64, since time.Time) (int, error)
-	CountRecentByPhone(phoneE164 string, since time.Time) (int, error)
-	Update(session *models.SignSession) error
+	Create(ctx context.Context, session *models.SignSession) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*models.SignSession, error)
+	GetByID(ctx context.Context, id int64) (*models.SignSession, error)
+	FindSignedByDocumentEmail(ctx context.Context, documentID int64, signerEmail string) (*models.SignSession, error)
+	CountRecentByDocumentID(ctx context.Context, documentID int64, since time.Time) (int, error)
+	CountRecentByPhone(ctx context.Context, phoneE164 string, since time.Time) (int, error)
+	Update(ctx context.Context, session *models.SignSession) error
+	IncrementAttempts(ctx context.Context, id int64) (int, error)
 }
 
 type SignSessionConfig struct {
@@ -86,15 +97,33 @@ func NewSignSessionService(
 	}
 }
 
+func withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, 5*time.Second)
+}
+
 func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone string, userID, roleID int) (string, string, *models.SignSession, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
 	if s.docService == nil {
 		return "", "", nil, errors.New("document service unavailable")
 	}
 	if err := s.docService.EnsureSigningAllowed(documentID, userID, roleID); err != nil {
-		return "", "", nil, err
+		switch err.Error() {
+		case "not found":
+			return "", "", nil, ErrSignSessionDocNotFound
+		case "forbidden":
+			return "", "", nil, ErrSignSessionForbidden
+		case "invalid status":
+			return "", "", nil, ErrSignSessionInvalidStatus
+		default:
+			return "", "", nil, err
+		}
 	}
 
-	recent, err := s.repo.CountRecentByDocumentID(documentID, s.now().Add(-signSessionRateLimitSpan))
+	recent, err := s.repo.CountRecentByDocumentID(ctx, documentID, s.now().Add(-signSessionRateLimitSpan))
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -114,10 +143,10 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 
 	phoneE164, err := utils.SanitizeE164Digits(phone)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, ErrSignSessionInvalidPhone
 	}
 
-	recentByPhone, err := s.repo.CountRecentByPhone(phoneE164, s.now().Add(-signSessionRateLimitSpan))
+	recentByPhone, err := s.repo.CountRecentByPhone(ctx, phoneE164, s.now().Add(-signSessionRateLimitSpan))
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -134,25 +163,28 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 		Attempts:   0,
 		Status:     "pending",
 	}
-	if err := s.repo.Create(session); err != nil {
+	if err := s.repo.Create(ctx, session); err != nil {
 		return "", "", nil, err
 	}
 
 	signURL, err := s.buildSignURL(token)
 	if err != nil {
+		if errors.Is(err, ErrSignSessionBaseURL) {
+			return "", "", nil, err
+		}
 		return "", "", nil, err
 	}
 
 	if s.delivery == nil {
-		return "", "", nil, errors.New("sign delivery unavailable")
+		return "", "", nil, ErrSignSessionDelivery
 	}
 	if err := s.delivery.SendSignCode(ctx, phoneE164, code); err != nil {
 		log.Printf("[sign][send][code] doc=%d err=%v", documentID, err)
-		return "", "", nil, err
+		return "", "", nil, fmt.Errorf("send sign code: %w", err)
 	}
 	if err := s.delivery.SendSignLink(ctx, phoneE164, signURL); err != nil {
 		log.Printf("[sign][send][link] doc=%d err=%v", documentID, err)
-		return "", "", nil, err
+		return "", "", nil, fmt.Errorf("send sign link: %w", err)
 	}
 
 	log.Printf("[sign][session][created] doc=%d session=%d expires=%s",
@@ -165,22 +197,63 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 	return token, signURL, session, nil
 }
 
+func (s *SignSessionService) CreateEmailSession(ctx context.Context, documentID int64, signerEmail, docHash string) (string, *models.SignSession, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	signerEmail = strings.TrimSpace(signerEmail)
+	if signerEmail == "" {
+		return "", nil, ErrSignSessionInvalidEmail
+	}
+	if signed, err := s.repo.FindSignedByDocumentEmail(ctx, documentID, signerEmail); err != nil {
+		return "", nil, err
+	} else if signed != nil {
+		return "", nil, ErrSignSessionAlreadySigned
+	}
+	token, tokenHash, err := generateToken()
+	if err != nil {
+		return "", nil, err
+	}
+	session := &models.SignSession{
+		DocumentID:  documentID,
+		SignerEmail: signerEmail,
+		DocHash:     strings.TrimSpace(docHash),
+		TokenHash:   tokenHash,
+		ExpiresAt:   s.now().Add(signSessionTTL),
+		Attempts:    0,
+		Status:      "pending",
+	}
+	if err := s.repo.Create(ctx, session); err != nil {
+		return "", nil, err
+	}
+	log.Printf("[sign][session][created] doc=%d session=%d expires=%s",
+		documentID, session.ID, session.ExpiresAt.Format(time.RFC3339))
+	return token, session, nil
+}
+
 func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAgent string) (*models.SignSession, error) {
-	session, err := s.getByToken(token)
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	session, err := s.getByToken(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 	if session.Status == "signed" {
 		return session, ErrSignSessionAlreadySigned
 	}
+	if session.Status == "expired" {
+		if session.Attempts >= signSessionMaxAttempts {
+			return nil, ErrSignSessionTooManyTries
+		}
+		return nil, ErrSignSessionExpired
+	}
 	if s.isExpired(session) {
 		session.Status = "expired"
-		_ = s.repo.Update(session)
+		_ = s.repo.Update(ctx, session)
 		return nil, ErrSignSessionExpired
 	}
 	if session.Attempts >= signSessionMaxAttempts {
 		session.Status = "expired"
-		_ = s.repo.Update(session)
+		_ = s.repo.Update(ctx, session)
 		return nil, ErrSignSessionTooManyTries
 	}
 
@@ -189,14 +262,14 @@ func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAg
 		if session.Attempts >= signSessionMaxAttempts {
 			session.Status = "expired"
 		}
-		_ = s.repo.Update(session)
+		_ = s.repo.Update(ctx, session)
 		return nil, ErrSignSessionInvalidCode
 	}
 
 	now := s.now()
 	session.Status = "verified"
 	session.VerifiedAt = &now
-	if err := s.repo.Update(session); err != nil {
+	if err := s.repo.Update(ctx, session); err != nil {
 		return nil, err
 	}
 
@@ -205,13 +278,15 @@ func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAg
 }
 
 func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent string) (*models.SignSession, error) {
-	session, err := s.getByToken(token)
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	session, err := s.getByToken(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 	if s.isExpired(session) {
 		session.Status = "expired"
-		_ = s.repo.Update(session)
+		_ = s.repo.Update(ctx, session)
 		return nil, ErrSignSessionExpired
 	}
 	if session.Status == "signed" {
@@ -227,7 +302,7 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 	session.SignedIP = ip
 	session.SignedUserAgent = userAgent
 
-	if err := s.repo.Update(session); err != nil {
+	if err := s.repo.Update(ctx, session); err != nil {
 		return nil, err
 	}
 
@@ -239,10 +314,55 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 	return session, nil
 }
 
+func (s *SignSessionService) ValidateSessionForPage(ctx context.Context, sessionID int64, token string) (*models.SignSession, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	return s.validateByIDToken(ctx, sessionID, token)
+}
+
+func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, token, ip, userAgent string) (*models.SignSession, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	session, err := s.validateByIDToken(ctx, sessionID, token)
+	if err != nil {
+		return nil, err
+	}
+	if session.Status == "signed" {
+		return session, ErrSignSessionAlreadySigned
+	}
+
+	now := s.now()
+	session.Status = "signed"
+	session.SignedAt = &now
+	session.SignedIP = ip
+	session.SignedUserAgent = userAgent
+
+	if err := s.repo.Update(ctx, session); err != nil {
+		return nil, err
+	}
+
+	if s.docService == nil {
+		return nil, errors.New("document service unavailable")
+	}
+	if err := s.docService.FinalizeSigning(session.DocumentID); err != nil {
+		switch err.Error() {
+		case "not found":
+			return nil, ErrSignSessionDocNotFound
+		case "invalid status":
+			return nil, ErrSignSessionInvalidStatus
+		default:
+			return nil, err
+		}
+	}
+
+	log.Printf("[sign][session][signed] session=%d doc=%d ip=%s", session.ID, session.DocumentID, ip)
+	return session, nil
+}
+
 func (s *SignSessionService) buildSignURL(token string) (string, error) {
 	base := strings.TrimSpace(s.signBaseURL)
 	if base == "" {
-		return "", errors.New("SIGN_BASE_URL is required")
+		return "", ErrSignSessionBaseURL
 	}
 	base = strings.TrimRight(base, "/")
 	return fmt.Sprintf("%s/%s", base, token), nil
@@ -255,9 +375,46 @@ func (s *SignSessionService) isExpired(session *models.SignSession) bool {
 	return s.now().After(session.ExpiresAt)
 }
 
-func (s *SignSessionService) getByToken(token string) (*models.SignSession, error) {
+func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID int64, token string) (*models.SignSession, error) {
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, ErrSignSessionNotFound
+	}
+	if session.Status == "signed" {
+		return session, ErrSignSessionAlreadySigned
+	}
+	if s.isExpired(session) {
+		session.Status = "expired"
+		_ = s.repo.Update(ctx, session)
+		return nil, ErrSignSessionExpired
+	}
+	if session.Attempts >= signSessionMaxAttempts {
+		session.Status = "expired"
+		_ = s.repo.Update(ctx, session)
+		return nil, ErrSignSessionTooManyTries
+	}
 	hash := hashToken(token)
-	session, err := s.repo.GetByTokenHash(hash)
+	if subtle.ConstantTimeCompare([]byte(session.TokenHash), []byte(hash)) != 1 {
+		attempts, err := s.repo.IncrementAttempts(ctx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		if attempts >= signSessionMaxAttempts {
+			session.Status = "expired"
+			_ = s.repo.Update(ctx, session)
+			return nil, ErrSignSessionTooManyTries
+		}
+		return nil, ErrSignSessionInvalidToken
+	}
+	return session, nil
+}
+
+func (s *SignSessionService) getByToken(ctx context.Context, token string) (*models.SignSession, error) {
+	hash := hashToken(token)
+	session, err := s.repo.GetByTokenHash(ctx, hash)
 	if err != nil {
 		return nil, err
 	}

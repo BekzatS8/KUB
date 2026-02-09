@@ -34,6 +34,7 @@ func Run() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("[BOOT] invalid config: %v", err)
 	}
+	log.Printf("[BOOT] build.commit=%s build.time=%s", BuildCommit, BuildTime)
 	log.Printf("[BOOT] starting backend...")
 	log.Printf("[BOOT] config: server.port=%d, telegram.enable=%v", cfg.Server.Port, cfg.Telegram.Enable)
 	if cfg.Telegram.WebhookURL != "" {
@@ -228,7 +229,7 @@ func Run() {
 	signConfirmHandler := handlers.NewDocumentSigningConfirmationHandler(
 		signConfirmService,
 		documentService,
-		cfg.Frontend.Host,
+		signSessionService,
 	)
 	telegramSignHandler := handlers.NewTelegramSignWebhookHandler(tgSvc, signConfirmService)
 

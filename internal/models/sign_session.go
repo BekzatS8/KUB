@@ -8,6 +8,8 @@ type SignSession struct {
 	PhoneE164       string     `json:"phone_e164"`
 	CodeHash        string     `json:"-"`
 	TokenHash       string     `json:"-"`
+	SignerEmail     string     `json:"signer_email"`
+	DocHash         string     `json:"doc_hash"`
 	ExpiresAt       time.Time  `json:"expires_at"`
 	Attempts        int        `json:"attempts"`
 	Status          string     `json:"status"`

@@ -29,6 +29,7 @@ type SigningEmailData struct {
 	Sender       string
 	MagicLink    string
 	ExpiresAt    time.Time
+	Code         string
 }
 
 func NewEmailService(smtpHost string, smtpPort int, smtpUser, smtpPassword, fromEmail, fromName string) EmailService {
@@ -127,17 +128,19 @@ func (s *emailService) SendSigningConfirm(email string, data SigningEmailData) e
 	}
 
 	text := fmt.Sprintf(
-		"Отправитель: %s.\nДокумент: %s.\nОткрыть и подписать: %s\nСрок действия: %d минут.",
+		"Отправитель: %s.\nДокумент: %s.\nОткрыть и подписать: %s\nКод подтверждения: %s\nСрок действия: %d минут.",
 		sender,
 		docTitle,
 		data.MagicLink,
+		data.Code,
 		ttlMinutes,
 	)
 	html := fmt.Sprintf(
-		`<h3>Подписание документа №%d</h3><p>Отправитель: %s</p><p>Документ: %s</p><p><a href="%s" style="display:inline-block;padding:12px 18px;background-color:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Открыть и подписать</a></p><p>Ссылка: <a href="%s">%s</a></p><p>Срок действия: %d минут.</p>`,
+		`<h3>Подписание документа №%d</h3><p>Отправитель: %s</p><p>Документ: %s</p><p><strong>Код подтверждения: %s</strong></p><p><a href="%s" style="display:inline-block;padding:12px 18px;background-color:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Открыть и подписать</a></p><p>Ссылка: <a href="%s">%s</a></p><p>Срок действия: %d минут.</p>`,
 		data.DocumentID,
 		sender,
 		docTitle,
+		data.Code,
 		data.MagicLink,
 		data.MagicLink,
 		data.MagicLink,

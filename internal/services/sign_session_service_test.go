@@ -13,15 +13,20 @@ import (
 
 type fakeSignRepo struct {
 	sessions map[string]*models.SignSession
+	nextID   int64
 }
 
 func newFakeSignRepo() *fakeSignRepo {
-	return &fakeSignRepo{sessions: make(map[string]*models.SignSession)}
+	return &fakeSignRepo{sessions: make(map[string]*models.SignSession), nextID: 1}
 }
 
-func (r *fakeSignRepo) Create(session *models.SignSession) error {
+func (r *fakeSignRepo) Create(_ context.Context, session *models.SignSession) error {
 	if session.TokenHash == "" {
 		return errors.New("token hash required")
+	}
+	if session.ID == 0 {
+		session.ID = r.nextID
+		r.nextID++
 	}
 	if session.CreatedAt.IsZero() {
 		now := time.Now()
@@ -32,14 +37,32 @@ func (r *fakeSignRepo) Create(session *models.SignSession) error {
 	return nil
 }
 
-func (r *fakeSignRepo) GetByTokenHash(tokenHash string) (*models.SignSession, error) {
+func (r *fakeSignRepo) GetByTokenHash(_ context.Context, tokenHash string) (*models.SignSession, error) {
 	if session, ok := r.sessions[tokenHash]; ok {
 		return session, nil
 	}
 	return nil, nil
 }
 
-func (r *fakeSignRepo) CountRecentByDocumentID(documentID int64, since time.Time) (int, error) {
+func (r *fakeSignRepo) GetByID(_ context.Context, id int64) (*models.SignSession, error) {
+	for _, session := range r.sessions {
+		if session.ID == id {
+			return session, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeSignRepo) FindSignedByDocumentEmail(_ context.Context, documentID int64, signerEmail string) (*models.SignSession, error) {
+	for _, session := range r.sessions {
+		if session.DocumentID == documentID && session.SignerEmail == signerEmail && session.Status == "signed" {
+			return session, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeSignRepo) CountRecentByDocumentID(_ context.Context, documentID int64, since time.Time) (int, error) {
 	count := 0
 	for _, session := range r.sessions {
 		if session.DocumentID == documentID && !session.CreatedAt.Before(since) {
@@ -49,7 +72,7 @@ func (r *fakeSignRepo) CountRecentByDocumentID(documentID int64, since time.Time
 	return count, nil
 }
 
-func (r *fakeSignRepo) CountRecentByPhone(phoneE164 string, since time.Time) (int, error) {
+func (r *fakeSignRepo) CountRecentByPhone(_ context.Context, phoneE164 string, since time.Time) (int, error) {
 	count := 0
 	for _, session := range r.sessions {
 		if session.PhoneE164 == phoneE164 && !session.CreatedAt.Before(since) {
@@ -59,13 +82,23 @@ func (r *fakeSignRepo) CountRecentByPhone(phoneE164 string, since time.Time) (in
 	return count, nil
 }
 
-func (r *fakeSignRepo) Update(session *models.SignSession) error {
+func (r *fakeSignRepo) Update(_ context.Context, session *models.SignSession) error {
 	if session.TokenHash == "" {
 		return errors.New("token hash required")
 	}
 	session.UpdatedAt = time.Now()
 	r.sessions[session.TokenHash] = session
 	return nil
+}
+
+func (r *fakeSignRepo) IncrementAttempts(ctx context.Context, id int64) (int, error) {
+	session, _ := r.GetByID(ctx, id)
+	if session == nil {
+		return 0, errors.New("not found")
+	}
+	session.Attempts++
+	session.UpdatedAt = time.Now()
+	return session.Attempts, nil
 }
 
 type fakeSignDelivery struct{}
@@ -112,7 +145,7 @@ func TestSignSessionVerifyAttempts(t *testing.T) {
 		ExpiresAt:  time.Now().Add(10 * time.Minute),
 		Status:     "pending",
 	}
-	repo.Create(session)
+	repo.Create(context.Background(), session)
 
 	svc := NewSignSessionService(repo, &fakeSignDocService{allowed: true}, &fakeSignDelivery{}, SignSessionConfig{}, time.Now)
 
@@ -142,7 +175,7 @@ func TestSignSessionVerifyExpired(t *testing.T) {
 		ExpiresAt:  time.Now().Add(-time.Minute),
 		Status:     "pending",
 	}
-	repo.Create(session)
+	repo.Create(context.Background(), session)
 
 	svc := NewSignSessionService(repo, &fakeSignDocService{allowed: true}, &fakeSignDelivery{}, SignSessionConfig{}, time.Now)
 
@@ -164,7 +197,7 @@ func TestSignSessionSignFlow(t *testing.T) {
 		ExpiresAt:  time.Now().Add(10 * time.Minute),
 		Status:     "verified",
 	}
-	repo.Create(session)
+	repo.Create(context.Background(), session)
 
 	docSvc := &fakeSignDocService{allowed: true}
 	svc := NewSignSessionService(repo, docSvc, &fakeSignDelivery{}, SignSessionConfig{}, time.Now)
@@ -181,7 +214,7 @@ func TestSignSessionCreateRateLimit(t *testing.T) {
 	repo := newFakeSignRepo()
 	now := time.Now()
 	for i := 0; i < signSessionRateLimitMax; i++ {
-		repo.Create(&models.SignSession{
+		repo.Create(context.Background(), &models.SignSession{
 			DocumentID: 5,
 			PhoneE164:  "77009990000",
 			TokenHash:  hashToken(time.Now().Add(time.Duration(i)).String()),

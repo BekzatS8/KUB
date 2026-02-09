@@ -140,7 +140,22 @@ func (r *fakeSignatureConfirmRepo) Expire(_ context.Context, id string) error {
 func (r *fakeSignatureConfirmRepo) UpdateMeta(_ context.Context, id string, metaUpdate []byte) (*models.SignatureConfirmation, error) {
 	for _, rec := range r.records {
 		if rec.ID == id {
-			rec.Meta = metaUpdate
+			merged := map[string]any{}
+			if len(rec.Meta) > 0 {
+				_ = json.Unmarshal(rec.Meta, &merged)
+			}
+			if len(metaUpdate) > 0 {
+				update := map[string]any{}
+				_ = json.Unmarshal(metaUpdate, &update)
+				for key, value := range update {
+					merged[key] = value
+				}
+			}
+			if len(merged) > 0 {
+				if bytes, err := json.Marshal(merged); err == nil {
+					rec.Meta = bytes
+				}
+			}
 			return rec, nil
 		}
 	}
@@ -243,22 +258,12 @@ func (s *fakeEmailSender) SendSigningConfirm(string, SigningEmailData) error {
 	return nil
 }
 
-type fakeTelegramSender struct {
-	sent int
-}
-
-func (s *fakeTelegramSender) SendSigningConfirm(int64, string, string, string) error {
-	s.sent++
-	return nil
-}
-
 func TestStartSigningCreatesPendingAndCancelsPrevious(t *testing.T) {
 	now := func() time.Time { return time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC) }
 	repo := newFakeSignatureConfirmRepo(now)
 	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 10, DocType: "contract", Status: "approved"}}
 	userRepo := &fakeUserRepo{user: &models.User{ID: 7, Email: "user@example.com", TelegramChatID: 123}}
 	emailSender := &fakeEmailSender{}
-	tgSender := &fakeTelegramSender{}
 	docSigner := &fakeDocumentSigner{docRepo: docRepo}
 
 	old := &models.SignatureConfirmation{
@@ -277,10 +282,9 @@ func TestStartSigningCreatesPendingAndCancelsPrevious(t *testing.T) {
 		docRepo,
 		docSigner,
 		emailSender,
-		tgSender,
+		nil,
 		DocumentSigningConfirmationConfig{
 			ConfirmPolicy:      SignConfirmPolicyAny,
-			EmailTokenPepper:   "pepper",
 			EmailTTL:           30 * time.Minute,
 			EmailVerifyBaseURL: "http://example.com",
 		},
@@ -292,14 +296,11 @@ func TestStartSigningCreatesPendingAndCancelsPrevious(t *testing.T) {
 	if old.Status != "cancelled" {
 		t.Fatalf("expected previous pending cancelled")
 	}
-	if len(repo.records) != 3 {
-		t.Fatalf("expected 3 records, got %d", len(repo.records))
+	if len(repo.records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(repo.records))
 	}
 	if emailSender.sent != 1 {
 		t.Fatalf("expected email sent once, got %d", emailSender.sent)
-	}
-	if tgSender.sent != 1 {
-		t.Fatalf("expected telegram sent once, got %d", tgSender.sent)
 	}
 }
 
@@ -316,30 +317,40 @@ func TestConfirmByEmailTokenHappyPath(t *testing.T) {
 	docSigner := &fakeDocumentSigner{docRepo: docRepo}
 
 	token := "token123"
-	tokenHash := hashTokenForTest(token, "pepper")
+	tokenHash := hashTokenForTest(token)
+	code := "123456"
+	codeHash, err := HashVerificationCode(code)
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
 	meta := []byte(`{"signer_email":"client@example.com"}`)
-	_, _ = repo.CreatePending(context.Background(), 22, 9, "email", nil, &tokenHash, now().Add(10*time.Minute), meta)
+	_, _ = repo.CreatePending(context.Background(), 22, 9, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), meta)
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		userRepo:    userRepo,
-		docRepo:     docRepo,
-		docSigner:   docSigner,
-		policy:      SignConfirmPolicyAny,
-		now:         now,
-		tokenPepper: "pepper",
-		filesRoot:   tempDir,
+		repo:      repo,
+		userRepo:  userRepo,
+		docRepo:   docRepo,
+		docSigner: docSigner,
+		policy:    SignConfirmPolicyAny,
+		now:       now,
+		filesRoot: tempDir,
 	}
 
-	status, err := service.ConfirmByEmailToken(context.Background(), 22, token, "127.0.0.1", "UA")
+	status, signerEmail, docHash, err := service.ConfirmByEmailToken(context.Background(), 22, token, code, "127.0.0.1", "UA")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	if status != "signed" {
-		t.Fatalf("expected signed, got %s", status)
+	if status != "approved" {
+		t.Fatalf("expected approved, got %s", status)
 	}
-	if docRepo.doc.Status != "signed" {
-		t.Fatalf("expected document signed, got %s", docRepo.doc.Status)
+	if signerEmail != "client@example.com" {
+		t.Fatalf("expected signer email, got %s", signerEmail)
+	}
+	if docHash == "" {
+		t.Fatalf("expected doc hash")
+	}
+	if docRepo.doc.Status != "approved" {
+		t.Fatalf("expected document still approved, got %s", docRepo.doc.Status)
 	}
 }
 
@@ -354,22 +365,26 @@ func TestConfirmByEmailTokenRepeatReturnsConflict(t *testing.T) {
 	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 23, DocType: "contract", Status: "approved", FilePathPdf: fileName}}
 	docSigner := &fakeDocumentSigner{docRepo: docRepo}
 	token := "repeat-token"
-	tokenHash := hashTokenForTest(token, "pepper")
-	_, _ = repo.CreatePending(context.Background(), 23, 9, "email", nil, &tokenHash, now().Add(10*time.Minute), nil)
+	tokenHash := hashTokenForTest(token)
+	code := "654321"
+	codeHash, err := HashVerificationCode(code)
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	_, _ = repo.CreatePending(context.Background(), 23, 9, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		docRepo:     docRepo,
-		docSigner:   docSigner,
-		policy:      SignConfirmPolicyAny,
-		now:         now,
-		tokenPepper: "pepper",
-		filesRoot:   tempDir,
+		repo:      repo,
+		docRepo:   docRepo,
+		docSigner: docSigner,
+		policy:    SignConfirmPolicyAny,
+		now:       now,
+		filesRoot: tempDir,
 	}
-	if _, err := service.ConfirmByEmailToken(context.Background(), 23, token, "ip", "ua"); err != nil {
+	if _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); err != nil {
 		t.Fatalf("confirm first: %v", err)
 	}
-	if _, err := service.ConfirmByEmailToken(context.Background(), 23, token, "ip", "ua"); !errors.Is(err, ErrSignConfirmAlreadyUsed) {
+	if _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); !errors.Is(err, ErrSignConfirmAlreadyUsed) {
 		t.Fatalf("expected already used error, got %v", err)
 	}
 }
@@ -377,18 +392,21 @@ func TestConfirmByEmailTokenRepeatReturnsConflict(t *testing.T) {
 func TestConfirmByEmailTokenExpired(t *testing.T) {
 	now := func() time.Time { return time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC) }
 	repo := newFakeSignatureConfirmRepo(now)
-	tokenHash := hashTokenForTest("token-expired", "pepper")
-	_, _ = repo.CreatePending(context.Background(), 1, 2, "email", nil, &tokenHash, now().Add(-time.Minute), nil)
+	tokenHash := hashTokenForTest("token-expired")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	_, _ = repo.CreatePending(context.Background(), 1, 2, "email", &codeHash, &tokenHash, now().Add(-time.Minute), nil)
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		policy:      SignConfirmPolicyAny,
-		now:         now,
-		tokenPepper: "pepper",
-		filesRoot:   t.TempDir(),
-		docRepo:     &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
+		repo:      repo,
+		policy:    SignConfirmPolicyAny,
+		now:       now,
+		filesRoot: t.TempDir(),
+		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	_, err := service.ConfirmByEmailToken(context.Background(), 1, "token-expired", "ip", "ua")
+	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-expired", "123456", "ip", "ua")
 	if !errors.Is(err, ErrSignConfirmExpired) {
 		t.Fatalf("expected expired error, got %v", err)
 	}
@@ -397,19 +415,22 @@ func TestConfirmByEmailTokenExpired(t *testing.T) {
 func TestConfirmByEmailTokenAttemptsLimit(t *testing.T) {
 	now := func() time.Time { return time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC) }
 	repo := newFakeSignatureConfirmRepo(now)
-	tokenHash := hashTokenForTest("token", "pepper")
-	rec, _ := repo.CreatePending(context.Background(), 1, 2, "email", nil, &tokenHash, now().Add(10*time.Minute), nil)
+	tokenHash := hashTokenForTest("token")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	rec, _ := repo.CreatePending(context.Background(), 1, 2, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
 	rec.Attempts = 5
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		policy:      SignConfirmPolicyAny,
-		now:         now,
-		tokenPepper: "pepper",
-		filesRoot:   t.TempDir(),
-		docRepo:     &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
+		repo:      repo,
+		policy:    SignConfirmPolicyAny,
+		now:       now,
+		filesRoot: t.TempDir(),
+		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	_, err := service.ConfirmByEmailToken(context.Background(), 1, "token", "ip", "ua")
+	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token", "123456", "ip", "ua")
 	if !errors.Is(err, ErrSignConfirmTooManyTries) {
 		t.Fatalf("expected too many attempts error, got %v", err)
 	}
@@ -418,82 +439,29 @@ func TestConfirmByEmailTokenAttemptsLimit(t *testing.T) {
 	}
 }
 
-func TestConfirmByTelegramCallbackApproveReject(t *testing.T) {
-	now := func() time.Time { return time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC) }
+func TestConfirmByEmailTokenInvalidCodeIncrementsAttempts(t *testing.T) {
+	now := func() time.Time { return time.Date(2025, 1, 4, 13, 0, 0, 0, time.UTC) }
 	repo := newFakeSignatureConfirmRepo(now)
-	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 7, DocType: "contract", Status: "approved"}}
-	docSigner := &fakeDocumentSigner{docRepo: docRepo}
-
-	token := "token123"
-	tokenHash := hashTokenForTest(token, "pepper")
-	_, _ = repo.CreatePending(context.Background(), 7, 11, "telegram", nil, &tokenHash, now().Add(10*time.Minute), nil)
+	tokenHash := hashTokenForTest("token-invalid")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	rec, _ := repo.CreatePending(context.Background(), 1, 2, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		docSigner:   docSigner,
-		policy:      SignConfirmPolicyAny,
-		now:         now,
-		tokenPepper: "pepper",
+		repo:      repo,
+		policy:    SignConfirmPolicyAny,
+		now:       now,
+		filesRoot: t.TempDir(),
+		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	confirmation, err := service.ConfirmByTelegramCallback(context.Background(), token, "approve", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("approve: %v", err)
+	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-invalid", "654321", "ip", "ua")
+	if !errors.Is(err, ErrSignConfirmInvalidCode) {
+		t.Fatalf("expected invalid code error, got %v", err)
 	}
-	if confirmation.Status != "approved" {
-		t.Fatalf("expected approved, got %s", confirmation.Status)
-	}
-
-	tokenReject := "token456"
-	tokenRejectHash := hashTokenForTest(tokenReject, "pepper")
-	_, _ = repo.CreatePending(context.Background(), 7, 11, "telegram", nil, &tokenRejectHash, now().Add(10*time.Minute), nil)
-	confirmation, err = service.ConfirmByTelegramCallback(context.Background(), tokenReject, "reject", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("reject: %v", err)
-	}
-	if confirmation.Status != "rejected" {
-		t.Fatalf("expected rejected, got %s", confirmation.Status)
-	}
-}
-
-func TestPolicyBothRequiresBothChannels(t *testing.T) {
-	now := func() time.Time { return time.Date(2025, 1, 6, 12, 0, 0, 0, time.UTC) }
-	repo := newFakeSignatureConfirmRepo(now)
-	tempDir := t.TempDir()
-	fileName := "policy-both.pdf"
-	if err := os.WriteFile(filepath.Join(tempDir, fileName), []byte("content"), 0o644); err != nil {
-		t.Fatalf("write temp file: %v", err)
-	}
-	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 33, DocType: "contract", Status: "approved", FilePathPdf: fileName}}
-	docSigner := &fakeDocumentSigner{docRepo: docRepo}
-
-	emailTokenHash := hashTokenForTest("email-token", "pepper")
-	_, _ = repo.CreatePending(context.Background(), 33, 44, "email", nil, &emailTokenHash, now().Add(10*time.Minute), nil)
-	token := "token789"
-	tokenHash := hashTokenForTest(token, "pepper")
-	_, _ = repo.CreatePending(context.Background(), 33, 44, "telegram", nil, &tokenHash, now().Add(10*time.Minute), nil)
-
-	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		docSigner:   docSigner,
-		policy:      SignConfirmPolicyBoth,
-		now:         now,
-		tokenPepper: "pepper",
-		docRepo:     docRepo,
-		filesRoot:   tempDir,
-	}
-
-	if _, err := service.ConfirmByEmailToken(context.Background(), 33, "email-token", "ip", "ua"); err != nil {
-		t.Fatalf("email confirm: %v", err)
-	}
-	if docRepo.doc.Status == "signed" {
-		t.Fatalf("expected not signed after email only")
-	}
-
-	if _, err := service.ConfirmByTelegramCallback(context.Background(), token, "approve", json.RawMessage(`{}`)); err != nil {
-		t.Fatalf("telegram confirm: %v", err)
-	}
-	if docRepo.doc.Status != "signed" {
-		t.Fatalf("expected signed after both approvals")
+	if rec.Attempts != 1 {
+		t.Fatalf("expected attempts to be 1, got %d", rec.Attempts)
 	}
 }
 
@@ -502,14 +470,17 @@ func TestValidateEmailTokenDoesNotSign(t *testing.T) {
 	repo := newFakeSignatureConfirmRepo(now)
 	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 55, DocType: "contract", Status: "approved"}}
 	token := "token-verify"
-	tokenHash := hashTokenForTest(token, "pepper")
-	_, _ = repo.CreatePending(context.Background(), 55, 9, "email", nil, &tokenHash, now().Add(10*time.Minute), nil)
+	tokenHash := hashTokenForTest(token)
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	_, _ = repo.CreatePending(context.Background(), 55, 9, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
 
 	service := &DocumentSigningConfirmationService{
-		repo:        repo,
-		docRepo:     docRepo,
-		now:         now,
-		tokenPepper: "pepper",
+		repo:    repo,
+		docRepo: docRepo,
+		now:     now,
 	}
 
 	payload, err := service.ValidateEmailToken(context.Background(), token, "127.0.0.1", "UA")
@@ -546,7 +517,6 @@ func TestEmailSignFlowStartVerifyConfirmStatus(t *testing.T) {
 		nil,
 		DocumentSigningConfirmationConfig{
 			ConfirmPolicy:      SignConfirmPolicyAny,
-			EmailTokenPepper:   "pepper",
 			EmailTTL:           30 * time.Minute,
 			EmailVerifyBaseURL: "http://example.com",
 			FilesRoot:          tempDir,
@@ -565,37 +535,30 @@ func TestEmailSignFlowStartVerifyConfirmStatus(t *testing.T) {
 	if _, err := service.ValidateEmailToken(context.Background(), debug.EmailToken, "127.0.0.1", "UA"); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	status, err := service.ConfirmByEmailToken(context.Background(), 77, debug.EmailToken, "127.0.0.1", "UA")
+	status, _, _, err := service.ConfirmByEmailToken(context.Background(), 77, debug.EmailToken, debug.EmailCode, "127.0.0.1", "UA")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	if status != "signed" {
-		t.Fatalf("expected signed status, got %s", status)
-	}
-	channels, err := service.GetStatus(context.Background(), 77, 5)
-	if err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	if len(channels) == 0 || channels[0].Status != "signed" {
-		t.Fatalf("expected signed channel status")
+	if status != "approved" {
+		t.Fatalf("expected approved status, got %s", status)
 	}
 }
 
-func TestGenerateConfirmTokenUsesPepper(t *testing.T) {
-	token, tokenHash, err := generateConfirmToken("pepper")
+func TestGenerateConfirmTokenUsesSha256(t *testing.T) {
+	token, tokenHash, err := generateConfirmToken()
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
 	if len(token) < 43 {
 		t.Fatalf("expected base64url token length >= 43, got %d", len(token))
 	}
-	expected := hashConfirmToken(token, "pepper")
+	expected := hashConfirmToken(token)
 	if tokenHash != expected {
 		t.Fatalf("expected hash %s, got %s", expected, tokenHash)
 	}
 }
 
-func hashTokenForTest(token, pepper string) string {
-	sum := sha256.Sum256([]byte(token + pepper))
+func hashTokenForTest(token string) string {
+	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }

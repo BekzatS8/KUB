@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -20,20 +23,20 @@ const (
 )
 
 type DocumentSigningConfirmationHandler struct {
-	Service      *services.DocumentSigningConfirmationService
-	DocumentSvc  *services.DocumentService
-	FrontendHost string
+	Service            *services.DocumentSigningConfirmationService
+	DocumentSvc        *services.DocumentService
+	SignSessionService *services.SignSessionService
 }
 
 func NewDocumentSigningConfirmationHandler(
 	service *services.DocumentSigningConfirmationService,
 	documentSvc *services.DocumentService,
-	frontendHost string,
+	signSessionService *services.SignSessionService,
 ) *DocumentSigningConfirmationHandler {
 	return &DocumentSigningConfirmationHandler{
-		Service:      service,
-		DocumentSvc:  documentSvc,
-		FrontendHost: strings.TrimRight(strings.TrimSpace(frontendHost), "/"),
+		Service:            service,
+		DocumentSvc:        documentSvc,
+		SignSessionService: signSessionService,
 	}
 }
 
@@ -84,6 +87,10 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 	}
 	result, err := h.Service.StartSigning(c.Request.Context(), documentID, int64(userID), signerEmail)
 	if err != nil {
+		requestID := requestIDFromContext(c)
+		wrapped := fmt.Errorf("start signing: %w", err)
+		log.Printf("[sign][confirm][start][error] doc=%d email=%s user=%d role=%d request_id=%s err=%v",
+			documentID, signerEmail, userID, roleID, requestID, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -96,6 +103,7 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 
 type emailConfirmRequest struct {
 	Token string `json:"token" binding:"required"`
+	Code  string `json:"code" binding:"required"`
 }
 
 func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) {
@@ -115,20 +123,74 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	}
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
-	status, err := h.Service.ConfirmByEmailToken(
+	status, signerEmail, docHash, err := h.Service.ConfirmByEmailToken(
 		c.Request.Context(),
 		documentID,
 		body.Token,
+		body.Code,
 		ip,
 		userAgent,
 	)
 	if err != nil {
+		requestID := requestIDFromContext(c)
+		tokenPrefix := redactPrefix(body.Token, 8)
+		userID, roleID := getUserAndRole(c)
+		wrapped := fmt.Errorf("confirm signing by email token: %w", err)
+		log.Printf("[sign][confirm][email][error] doc=%d token_prefix=%s user=%d role=%d request_id=%s err=%v",
+			documentID, tokenPrefix, userID, roleID, requestID, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
+	if h.SignSessionService == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	token, session, err := h.SignSessionService.CreateEmailSession(c.Request.Context(), documentID, signerEmail, docHash)
+	if err != nil {
+		handleSignSessionCreateError(c, err)
+		return
+	}
+	signURL := buildSignSessionURL(c, session.ID, token)
 	c.JSON(http.StatusOK, gin.H{
-		"status": status,
+		"status":     status,
+		"session_id": session.ID,
+		"sign_url":   signURL,
+		"expires_at": session.ExpiresAt,
 	})
+}
+
+func buildSignSessionURL(c *gin.Context, sessionID int64, token string) string {
+	if c == nil {
+		return ""
+	}
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); forwarded != "" {
+		scheme = forwarded
+	}
+	host := strings.TrimSpace(c.Request.Host)
+	if host == "" {
+		return ""
+	}
+	queryToken := url.QueryEscape(token)
+	return fmt.Sprintf("%s://%s/api/v1/sign/sessions/%d/page?token=%s", scheme, host, sessionID, queryToken)
+}
+
+func handleSignSessionCreateError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrSignSessionInvalidEmail):
+		badRequest(c, "Invalid email")
+	case errors.Is(err, services.ErrSignSessionAlreadySigned):
+		conflict(c, ValidationFailed, "Document already signed by this email")
+	case errors.Is(err, services.ErrSignSessionInvalidStatus):
+		conflict(c, InvalidStatusCode, "Invalid status")
+	case errors.Is(err, services.ErrSignSessionDocNotFound):
+		notFound(c, DocumentNotFound, "Document not found")
+	default:
+		internalError(c, "Failed to create sign session")
+	}
 }
 
 func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
@@ -145,6 +207,12 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 	userAgent := c.GetHeader("User-Agent")
 	payload, err := h.Service.ValidateEmailToken(c.Request.Context(), token, ip, userAgent)
 	if err != nil {
+		requestID := requestIDFromContext(c)
+		tokenPrefix := redactPrefix(token, 8)
+		userID, roleID := getUserAndRole(c)
+		wrapped := fmt.Errorf("validate signing email token: %w", err)
+		log.Printf("[sign][confirm][email][validate][error] token_prefix=%s user=%d role=%d request_id=%s err=%v",
+			tokenPrefix, userID, roleID, requestID, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -233,7 +301,7 @@ func (h *DocumentSigningConfirmationHandler) DebugLatest(c *gin.Context) {
 func handleSignConfirmError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrSignConfirmExpired):
-		writeError(c, http.StatusBadRequest, SignConfirmExpiredCode, "Expired")
+		writeError(c, http.StatusGone, SignConfirmExpiredCode, "Expired")
 	case errors.Is(err, services.ErrSignConfirmTooManyTries):
 		writeError(c, http.StatusTooManyRequests, SignConfirmTooManyAttempts, "Too many attempts")
 	case errors.Is(err, services.ErrSignConfirmAlreadyUsed):
