@@ -147,6 +147,7 @@ func SetupRoutes(
 		leads.PUT("/:id", leadHandler.Update)
 		leads.DELETE("/:id", leadHandler.Delete)
 		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
+		leads.PUT("/:id/convert-with-client", leadHandler.ConvertToDealWithClient)
 		leads.GET("", leadHandler.List)
 		leads.GET("/my", leadHandler.ListMy)
 		leads.POST("/:id/assign", leadHandler.Assign)
