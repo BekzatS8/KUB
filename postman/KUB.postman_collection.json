@@ -81,7 +81,8 @@
               "script": {
                 "exec": [
                   "const data = pm.response.json();",
-                  "if (data?.tokens?.access_token) pm.environment.set('accessToken', data.tokens.access_token);",
+                  "if (data?.tokens?.access_token) pm.environment.set('access_token', data.tokens.access_token);",
+                  "if (data?.tokens?.accessToken) pm.environment.set('accessToken', data.tokens.accessToken);",
                   "if (data?.tokens?.refresh_token) pm.environment.set('refreshToken', data.tokens.refresh_token);",
                   "if (data?.user?.id) pm.environment.set('userId', data.user.id);"
                 ]
@@ -123,7 +124,8 @@
               "script": {
                 "exec": [
                   "const data = pm.response.json();",
-                  "if (data?.access_token) pm.environment.set('accessToken', data.access_token);",
+                  "if (data?.access_token) pm.environment.set('access_token', data.access_token);",
+                  "if (data?.accessToken) pm.environment.set('accessToken', data.accessToken);",
                   "if (data?.refresh_token) pm.environment.set('refreshToken', data.refresh_token);"
                 ]
               }
@@ -1491,10 +1493,10 @@
       ]
     },
     {
-      "name": "Signing (Email Confirm)",
+      "name": "Signing (Email)",
       "item": [
         {
-          "name": "Start Signing",
+          "name": "Start Signing (Email)",
           "request": {
             "method": "POST",
             "header": [
@@ -1558,7 +1560,7 @@
               "query": [
                 {
                   "key": "token",
-                  "value": "{{emailToken}}"
+                  "value": "{{token}}"
                 }
               ]
             }
@@ -1592,67 +1594,17 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"token\": \"{{emailToken}}\"\n}"
+              "raw": "{\n  \"token\": \"{{token}}\",\n  \"code\": \"{{otp_code}}\"\n}"
             }
           }
-        }
-      ]
-    },
-    {
-      "name": "Signing (Sessions)",
-      "item": [
-        {
-          "name": "Create Sign Session",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "sign",
-                "sessions"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"document_id\": {{documentId}},\n  \"phone\": \"{{phone}}\"\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const data = pm.response.json();",
-                  "if (data?.token) pm.environment.set('signSessionToken', data.token);",
-                  "if (data?.sign_url) pm.environment.set('signUrl', data.sign_url);"
-                ]
-              }
-            }
-          ]
         },
         {
-          "name": "Verify Sign Session",
+          "name": "Serve Sign Page",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionToken}}/verify",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionId}}/page?token={{token}}",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1661,13 +1613,15 @@
                 "v1",
                 "sign",
                 "sessions",
-                "{{signSessionToken}}",
-                "verify"
+                "{{signSessionId}}",
+                "page"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{token}}"
+                }
               ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"{{signCode}}\"\n}"
             }
           },
           "auth": {
@@ -1685,7 +1639,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionToken}}/sign",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/{{signSessionId}}/sign",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1694,70 +1648,13 @@
                 "v1",
                 "sign",
                 "sessions",
-                "{{signSessionToken}}",
+                "{{signSessionId}}",
                 "sign"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"agree\": true\n}"
-            }
-          },
-          "auth": {
-            "type": "noauth"
-          }
-        },
-        {
-          "name": "Serve Sign Page",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/sign/{{signSessionToken}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "sign",
-                "{{signSessionToken}}"
-              ]
-            }
-          },
-          "auth": {
-            "type": "noauth"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Telegram",
-      "auth": {
-        "type": "noauth"
-      },
-      "item": [
-        {
-          "name": "Telegram Sign Webhook",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/telegram/webhook",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "telegram",
-                "webhook"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"callback_query\": {\n    \"id\": \"{{tgCallbackId}}\",\n    \"data\": \"sign:approve:{{tgCallbackToken}}\",\n    \"message\": {\n      \"message_id\": 1,\n      \"chat\": {\n        \"id\": {{tgChatId}}\n      }\n    },\n    \"from\": {\n      \"id\": {{tgUserId}},\n      \"username\": \"{{tgUsername}}\"\n    }\n  }\n}"
+              "raw": "{\n  \"token\": \"{{token}}\",\n  \"agree\": true\n}"
             }
           },
           "auth": {
@@ -2599,8 +2496,8 @@
                 "exec": [
                   "if (pm.response.code === 200) {",
                   "  const data = pm.response.json();",
-                  "  if (data?.email_token) pm.environment.set('emailToken', data.email_token);",
-                  "  if (data?.telegram_token) pm.environment.set('tgCallbackToken', data.telegram_token);",
+                  "  if (data?.email_token) pm.environment.set('token', data.email_token);",
+                  "  if (data?.email_code) pm.environment.set('otp_code', data.email_code);",
                   "}"
                 ]
               }

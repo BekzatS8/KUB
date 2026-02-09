@@ -294,6 +294,13 @@ func applyDefaults(cfg *Config) {
 		cfg.SignConfirmPolicy = "ANY"
 	}
 	cfg.SignConfirmPolicy = strings.ToUpper(strings.TrimSpace(cfg.SignConfirmPolicy))
+	if strings.TrimSpace(cfg.SignEmailTokenPepper) == "" && configMode() != "release" {
+		if strings.TrimSpace(cfg.Security.JWTSecret) != "" {
+			cfg.SignEmailTokenPepper = cfg.Security.JWTSecret
+		} else {
+			cfg.SignEmailTokenPepper = "dev-insecure-sign-email-pepper"
+		}
+	}
 	if strings.TrimSpace(cfg.SignBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
 	}

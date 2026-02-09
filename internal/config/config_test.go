@@ -15,13 +15,20 @@ func TestLoadConfigMissingFile(t *testing.T) {
 }
 
 func TestLoadConfigExample(t *testing.T) {
-	examplePath := filepath.Join("..", "..", "config", "config.yaml")
-	absPath, err := filepath.Abs(examplePath)
-	if err != nil {
-		t.Fatalf("failed to resolve example path: %v", err)
+	configContent := []byte(`server:
+  port: 4000
+telegram:
+  enable: true
+database:
+  dsn: "postgres://user:pass@localhost:5432/dbname?sslmode=disable"
+sign_confirm_policy: "ANY"
+`)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, configContent, 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
 	}
 
-	t.Setenv("CONFIG_PATH", absPath)
+	t.Setenv("CONFIG_PATH", configPath)
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("failed to load example config: %v", err)
@@ -43,6 +50,7 @@ func TestValidateConfigAddsSSLModesInDev(t *testing.T) {
 	cfg := &Config{}
 	cfg.Server.Port = 4000
 	cfg.Database.DSN = "postgres://user:pass@localhost:5432/dbname"
+	cfg.SignConfirmPolicy = "ANY"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
@@ -57,6 +65,7 @@ func TestValidateConfigKeepsSSLModes(t *testing.T) {
 	cfg := &Config{}
 	cfg.Server.Port = 4000
 	cfg.Database.DSN = "postgres://user:pass@localhost:5432/dbname?sslmode=require"
+	cfg.SignConfirmPolicy = "ANY"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
