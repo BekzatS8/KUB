@@ -1560,7 +1560,7 @@
               "query": [
                 {
                   "key": "token",
-                  "value": "{{token}}"
+                  "value": "{{email_token}}"
                 }
               ]
             }
@@ -1594,9 +1594,23 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"token\": \"{{token}}\",\n  \"code\": \"{{otp_code}}\"\n}"
+              "raw": "{\n  \"token\": \"{{email_token}}\",\n  \"code\": \"{{otp_code}}\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data?.session_id) pm.environment.set('sign_session_id', String(data.session_id));",
+                  "  if (data?.session_token) pm.environment.set('session_token', data.session_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Serve Sign Page",
@@ -1604,7 +1618,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{signSessionId}}/page?token={{token}}",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{sign_session_id}}/page?token={{session_token}}",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1614,13 +1628,13 @@
                 "sign",
                 "sessions",
                 "id",
-                "{{signSessionId}}",
+                "{{sign_session_id}}",
                 "page"
               ],
               "query": [
                 {
                   "key": "token",
-                  "value": "{{token}}"
+                  "value": "{{session_token}}"
                 }
               ]
             }
@@ -1640,7 +1654,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{signSessionId}}/sign",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/id/{{sign_session_id}}/sign",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1650,13 +1664,13 @@
                 "sign",
                 "sessions",
                 "id",
-                "{{signSessionId}}",
+                "{{sign_session_id}}",
                 "sign"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"token\": \"{{token}}\",\n  \"agree\": true\n}"
+              "raw": "{\n  \"token\": \"{{session_token}}\",\n  \"agree\": true\n}"
             }
           },
           "auth": {
@@ -1674,7 +1688,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/token/{{token}}/verify",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/token/{{session_token}}/verify",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1684,7 +1698,7 @@
                 "sign",
                 "sessions",
                 "token",
-                "{{token}}",
+                "{{session_token}}",
                 "verify"
               ]
             },
@@ -1708,7 +1722,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/sign/sessions/token/{{token}}/sign",
+              "raw": "{{baseUrl}}/api/v1/sign/sessions/token/{{session_token}}/sign",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1718,7 +1732,7 @@
                 "sign",
                 "sessions",
                 "token",
-                "{{token}}",
+                "{{session_token}}",
                 "sign"
               ]
             },
@@ -2566,7 +2580,7 @@
                 "exec": [
                   "if (pm.response.code === 200) {",
                   "  const data = pm.response.json();",
-                  "  if (data?.email_token) pm.environment.set('token', data.email_token);",
+                  "  if (data?.email_token) pm.environment.set('email_token', data.email_token);",
                   "  if (data?.email_code) pm.environment.set('otp_code', data.email_code);",
                   "}"
                 ]

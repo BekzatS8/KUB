@@ -123,7 +123,7 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	}
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
-	status, signerEmail, docHash, err := h.Service.ConfirmByEmailToken(
+	status, signerEmail, docHash, confirmation, err := h.Service.ConfirmByEmailToken(
 		c.Request.Context(),
 		documentID,
 		body.Token,
@@ -133,11 +133,19 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	)
 	if err != nil {
 		requestID := requestIDFromContext(c)
-		tokenPrefix := redactPrefix(body.Token, 8)
+		token := services.NormalizeEmailConfirmTokenForLog(body.Token)
+		tokenPrefix := redactPrefix(token, 8)
+		tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(token, h.Service.TokenPepperForLog()), 8)
 		userID, roleID := getUserAndRole(c)
+		attempts := -1
+		expiresAt := time.Time{}
+		if confirmation != nil {
+			attempts = confirmation.Attempts
+			expiresAt = confirmation.ExpiresAt
+		}
 		wrapped := fmt.Errorf("confirm signing by email token: %w", err)
-		log.Printf("[sign][confirm][email][error] doc=%d token_prefix=%s user=%d role=%d request_id=%s err=%v",
-			documentID, tokenPrefix, userID, roleID, requestID, wrapped)
+		log.Printf("[sign][confirm][email][error] doc=%d token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
+			documentID, tokenPrefix, tokenHashPrefix, len(strings.TrimSpace(body.Code)), attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -152,10 +160,12 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	}
 	signURL := buildSignSessionURL(c, session.ID, token)
 	c.JSON(http.StatusOK, gin.H{
-		"status":     status,
-		"session_id": session.ID,
-		"sign_url":   signURL,
-		"expires_at": session.ExpiresAt,
+		"status":          status,
+		"email_token":     strings.TrimSpace(body.Token),
+		"session_id":      session.ID,
+		"session_token":   token,
+		"sign_url":        signURL,
+		"session_expires": session.ExpiresAt,
 	})
 }
 
@@ -208,11 +218,13 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 	payload, err := h.Service.ValidateEmailToken(c.Request.Context(), token, ip, userAgent)
 	if err != nil {
 		requestID := requestIDFromContext(c)
-		tokenPrefix := redactPrefix(token, 8)
+		normalized := services.NormalizeEmailConfirmTokenForLog(token)
+		tokenPrefix := redactPrefix(normalized, 8)
+		tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(normalized, h.Service.TokenPepperForLog()), 8)
 		userID, roleID := getUserAndRole(c)
 		wrapped := fmt.Errorf("validate signing email token: %w", err)
-		log.Printf("[sign][confirm][email][validate][error] token_prefix=%s user=%d role=%d request_id=%s err=%v",
-			tokenPrefix, userID, roleID, requestID, wrapped)
+		log.Printf("[sign][confirm][email][validate][error] token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
+			tokenPrefix, tokenHashPrefix, 0, -1, "", userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -306,8 +318,10 @@ func handleSignConfirmError(c *gin.Context, err error) {
 		writeError(c, http.StatusTooManyRequests, SignConfirmTooManyAttempts, "Too many attempts")
 	case errors.Is(err, services.ErrSignConfirmAlreadyUsed):
 		writeError(c, http.StatusConflict, SignConfirmInvalidCode, "Already used")
-	case errors.Is(err, services.ErrSignConfirmInvalidCode), errors.Is(err, services.ErrSignConfirmInvalidToken):
+	case errors.Is(err, services.ErrSignConfirmInvalidCode):
 		writeError(c, http.StatusBadRequest, SignConfirmInvalidCode, "Invalid code")
+	case errors.Is(err, services.ErrSignConfirmInvalidToken):
+		writeError(c, http.StatusNotFound, SignConfirmNotFoundCode, "Not found")
 	case errors.Is(err, services.ErrSignConfirmNotFound):
 		writeError(c, http.StatusNotFound, SignConfirmNotFoundCode, "Not found")
 	default:

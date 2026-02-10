@@ -197,6 +197,13 @@ func (s *DocumentSigningConfirmationService) DebugKey() string {
 	return s.debug.key
 }
 
+func (s *DocumentSigningConfirmationService) TokenPepperForLog() string {
+	if s == nil {
+		return ""
+	}
+	return s.tokenPepper
+}
+
 func (s *DocumentSigningConfirmationService) DebugLatest(documentID, userID int64) (*DebugSigningInfo, bool) {
 	if s == nil || s.debug == nil {
 		return nil, false
@@ -272,7 +279,7 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 	now := s.now()
 	expiresAt := now.Add(s.emailTTL)
 
-	emailToken, emailTokenHash, err := generateConfirmToken()
+	emailToken, emailTokenHash, err := generateConfirmToken(s.tokenPepper)
 	if err != nil {
 		return nil, err
 	}
@@ -339,62 +346,66 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	ctx context.Context,
 	documentID int64,
 	token, code, ip, userAgent string,
-) (string, string, string, error) {
+) (string, string, string, *models.SignatureConfirmation, error) {
 	ctx, cancel := withSignConfirmTimeout(ctx)
 	defer cancel()
 	if s.repo == nil {
-		return "", "", "", errors.New("signature confirmation repo is nil")
+		return "", "", "", nil, errors.New("signature confirmation repo is nil")
 	}
-	tokenHash := hashConfirmToken(token)
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return "", "", "", nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
 	pending, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", nil, err
 	}
 	if pending == nil {
-		return "", "", "", ErrSignConfirmNotFound
+		return "", "", "", nil, ErrSignConfirmNotFound
 	}
 	if pending.TokenHash == nil || subtle.ConstantTimeCompare([]byte(*pending.TokenHash), []byte(tokenHash)) != 1 {
-		return "", "", "", ErrSignConfirmInvalidToken
+		return "", "", "", nil, ErrSignConfirmInvalidToken
 	}
 	if pending.DocumentID != documentID {
-		return "", "", "", ErrSignConfirmInvalidToken
+		return "", "", "", nil, ErrSignConfirmInvalidToken
 	}
-	code = NormalizeVerificationCode(code)
+	code = normalizeEmailOTP(code)
 	if code == "" {
-		return "", "", "", ErrSignConfirmInvalidCode
+		return "", "", "", nil, ErrSignConfirmInvalidCode
 	}
 	if pending.Status != "pending" {
 		if pending.Status == "approved" {
-			return "", "", "", ErrSignConfirmAlreadyUsed
+			return "", "", "", pending, ErrSignConfirmAlreadyUsed
 		}
-		return "", "", "", ErrSignConfirmExpired
+		return "", "", "", pending, ErrSignConfirmExpired
 	}
 	if s.now().After(pending.ExpiresAt) {
 		_ = s.repo.Expire(ctx, pending.ID)
-		return "", "", "", ErrSignConfirmExpired
+		return "", "", "", pending, ErrSignConfirmExpired
 	}
 	if pending.Attempts >= signConfirmMaxAttempts {
 		_ = s.repo.Expire(ctx, pending.ID)
-		return "", "", "", ErrSignConfirmTooManyTries
+		return "", "", "", pending, ErrSignConfirmTooManyTries
 	}
 	if pending.OTPHash == nil || *pending.OTPHash == "" {
-		return "", "", "", ErrSignConfirmInvalidCode
+		return "", "", "", nil, ErrSignConfirmInvalidCode
 	}
 	if err := CompareVerificationCode(*pending.OTPHash, code); err != nil {
 		attempts, incErr := s.repo.IncrementAttempts(ctx, pending.ID)
 		if incErr != nil {
-			return "", "", "", incErr
+			return "", "", "", nil, incErr
 		}
 		if attempts >= signConfirmMaxAttempts {
 			_ = s.repo.Expire(ctx, pending.ID)
-			return "", "", "", ErrSignConfirmTooManyTries
+			return "", "", "", pending, ErrSignConfirmTooManyTries
 		}
-		return "", "", "", ErrSignConfirmInvalidCode
+		return "", "", "", nil, ErrSignConfirmInvalidCode
 	}
 
 	documentHash, err := s.hashDocumentContent(pending.DocumentID)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", nil, err
 	}
 	signerEmail := extractSignerEmail(pending.Meta)
 	metaUpdate := map[string]any{
@@ -407,10 +418,11 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 		metaUpdate["signer_email"] = signerEmail
 	}
 	metaBytes, _ := json.Marshal(metaUpdate)
-	if _, err := s.repo.Approve(ctx, pending.ID, metaBytes); err != nil {
-		return "", "", "", err
+	approved, err := s.repo.Approve(ctx, pending.ID, metaBytes)
+	if err != nil {
+		return "", "", "", nil, err
 	}
-	return "approved", signerEmail, documentHash, nil
+	return "approved", signerEmail, documentHash, approved, nil
 }
 
 type EmailTokenVerification struct {
@@ -434,7 +446,11 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	if s.repo == nil {
 		return nil, errors.New("signature confirmation repo is nil")
 	}
-	tokenHash := hashConfirmToken(token)
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
 	pending, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
 	if err != nil {
 		return nil, err
@@ -501,7 +517,8 @@ func (s *DocumentSigningConfirmationService) ConfirmByTelegramCallback(
 		return nil, errors.New("invalid action")
 	}
 
-	tokenHash := hashConfirmToken(token)
+	token = normalizeEmailConfirmToken(token)
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
 	pending, err := s.repo.FindPendingByTokenHash(ctx, "telegram", tokenHash)
 	if err != nil {
 		return nil, err
@@ -610,19 +627,54 @@ func (s *DocumentSigningConfirmationService) buildEmailVerifyURL(token string) (
 	return target.String(), nil
 }
 
-func generateConfirmToken() (string, string, error) {
+func generateConfirmToken(pepper string) (string, string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", fmt.Errorf("token rand: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	hash := hashConfirmToken(token)
+	hash := hashConfirmTokenWithPepper(token, pepper)
 	return token, hash, nil
 }
 
 func hashConfirmToken(token string) string {
+	return hashConfirmTokenWithPepper(token, "")
+}
+
+func hashConfirmTokenWithPepper(token, pepper string) string {
+	token = strings.TrimSpace(token)
+	if pepper = strings.TrimSpace(pepper); pepper != "" {
+		token = token + ":" + pepper
+	}
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func NormalizeEmailConfirmTokenForLog(raw string) string {
+	return normalizeEmailConfirmToken(raw)
+}
+
+func HashEmailConfirmTokenForLog(token, pepper string) string {
+	return hashConfirmTokenWithPepper(token, pepper)
+}
+
+func normalizeEmailConfirmToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return ""
+	}
+	if decoded, err := url.QueryUnescape(token); err == nil {
+		token = strings.TrimSpace(decoded)
+	}
+	return token
+}
+
+func normalizeEmailOTP(code string) string {
+	code = NormalizeVerificationCode(code)
+	if len(code) != 6 {
+		return ""
+	}
+	return code
 }
 
 func buildOpenMetaUpdate(meta json.RawMessage, ip, userAgent string, now time.Time) map[string]any {

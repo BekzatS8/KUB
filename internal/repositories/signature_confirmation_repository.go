@@ -45,7 +45,7 @@ func (r *SignatureConfirmationRepository) CreatePending(
 
 	var metaVal any
 	if len(meta) > 0 {
-		metaVal = meta
+		metaVal = string(meta)
 	} else {
 		metaVal = nil
 	}
@@ -234,7 +234,7 @@ func (r *SignatureConfirmationRepository) Approve(
 		          attempts, expires_at, approved_at, rejected_at, meta`
 	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = metaUpdate
+		metaVal = string(metaUpdate)
 	} else {
 		metaVal = nil
 	}
@@ -267,7 +267,7 @@ func (r *SignatureConfirmationRepository) Reject(
 		          attempts, expires_at, approved_at, rejected_at, meta`
 	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = metaUpdate
+		metaVal = string(metaUpdate)
 	} else {
 		metaVal = nil
 	}
@@ -330,7 +330,7 @@ func (r *SignatureConfirmationRepository) UpdateMeta(
 		          attempts, expires_at, approved_at, rejected_at, meta`
 	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = metaUpdate
+		metaVal = string(metaUpdate)
 	}
 	row := r.DB.QueryRowContext(ctx, q, id, metaVal)
 	confirmation, err := scanSignatureConfirmation(row)

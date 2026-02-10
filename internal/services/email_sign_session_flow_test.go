@@ -73,7 +73,7 @@ func TestEmailSignSessionFlowEndToEnd(t *testing.T) {
 	if _, err := signConfirmService.ValidateEmailToken(context.Background(), debug.EmailToken, "127.0.0.1", "UA"); err != nil {
 		t.Fatalf("verify token: %v", err)
 	}
-	status, signerEmail, docHash, err := signConfirmService.ConfirmByEmailToken(
+	status, signerEmail, docHash, _, err := signConfirmService.ConfirmByEmailToken(
 		context.Background(),
 		101,
 		debug.EmailToken,
