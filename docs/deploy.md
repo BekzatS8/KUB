@@ -70,7 +70,7 @@ If you want HTTPS with the optional nginx container, place certs in:
 ## 4) Start the stack
 ### With local Postgres (profile `db`)
 ```bash
-docker compose -f docker-compose.prod.yml --profile db up -d --build
+docker compose -f docker-compose.prod.yml --profile db --profile migrate up -d --build
 ```
 
 ### With external Postgres

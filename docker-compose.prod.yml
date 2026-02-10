@@ -13,13 +13,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable}
       DB_WAIT_RETRIES: ${DB_WAIT_RETRIES:-30}
       DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
-      bot_token: "8330092819:AAFWk-8GRKJwKsWDNv4Eo6oc1JU3ekgKX3E"     # токен бота BotFather
-      webhook_url: "https://hook.kubcrm.kz/integrations/telegram/webhook"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
+      TELEGRAM_APITOKEN: ${TELEGRAM_APITOKEN:-}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
     volumes:
       - ./config/config.yaml:/opt/turcompany/config/config.yaml:ro
       - ./files:/opt/turcompany/files
@@ -64,6 +59,7 @@ services:
 
   migrate:
     image: postgres:15
+    profiles: ["migrate"]
     env_file:
       - .env.prod
     environment:
