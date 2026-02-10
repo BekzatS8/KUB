@@ -285,9 +285,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Security.JWTSecret = envSecret
 	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		if cfg.Database.DSN == "" {
-			cfg.Database.DSN = dbURL
-		}
+		cfg.Database.DSN = dbURL
 	}
 
 	if strings.TrimSpace(cfg.SignConfirmPolicy) == "" {

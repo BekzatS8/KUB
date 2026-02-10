@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 )
 
@@ -34,12 +36,59 @@ type TelegramLinkRepository interface {
 
 type telegramLinkRepository struct{ db *sql.DB }
 
+type dbIdentity struct {
+	Database   string
+	User       string
+	ServerAddr sql.NullString
+	ServerPort sql.NullInt64
+}
+
 func NewTelegramLinkRepository(db *sql.DB) TelegramLinkRepository {
 	return &telegramLinkRepository{db: db}
 }
 
+func codePrefix(code string) string {
+	if len(code) <= 8 {
+		return code
+	}
+	return code[:8]
+}
+
+func (r *telegramLinkRepository) logDBIdentity(ctx context.Context, op string) {
+	var ident dbIdentity
+	err := r.db.QueryRowContext(ctx, `
+		SELECT current_database(), current_user, inet_server_addr(), inet_server_port()
+	`).Scan(&ident.Database, &ident.User, &ident.ServerAddr, &ident.ServerPort)
+	if err != nil {
+		log.Printf("[TG:LINK-REPO][diag] op=%s db_identity_err=%v", op, err)
+		return
+	}
+
+	addr := "unknown"
+	if ident.ServerAddr.Valid {
+		addr = ident.ServerAddr.String
+	}
+	port := int64(0)
+	if ident.ServerPort.Valid {
+		port = ident.ServerPort.Int64
+	}
+	log.Printf("[TG:LINK-REPO][diag] op=%s database=%s user=%s server_addr=%s server_port=%d",
+		op,
+		ident.Database,
+		ident.User,
+		addr,
+		port,
+	)
+}
+
 // 1) INSERT: 0 -> NULL
 func (r *telegramLinkRepository) CreateLink(ctx context.Context, userID int, chatID int64, code string, expiresAt time.Time) (*TelegramLink, error) {
+	r.logDBIdentity(ctx, "CreateLink")
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return nil, fmt.Errorf("code is required")
+	}
+
 	var userIDVal any
 	if userID > 0 {
 		userIDVal = userID
@@ -66,10 +115,17 @@ func (r *telegramLinkRepository) CreateLink(ctx context.Context, userID int, cha
 	); err != nil {
 		return nil, err
 	}
+	log.Printf("[TG:LINK-REPO][diag] op=CreateLink code_prefix=%s user_id=%d chat_id=%d expires_at=%s", codePrefix(l.Code), userID, chatID, l.ExpiresAt.UTC().Format(time.RFC3339))
 	return &l, nil
 }
 
 func (r *telegramLinkRepository) GetByCode(ctx context.Context, code string) (*TelegramLink, error) {
+	r.logDBIdentity(ctx, "GetByCode")
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return nil, nil
+	}
+
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, user_id, telegram_chat_id, code, expires_at, used, created_at
 		FROM telegram_links
@@ -81,16 +137,19 @@ func (r *telegramLinkRepository) GetByCode(ctx context.Context, code string) (*T
 		&l.ID, &l.UserID, &l.ChatID, &l.Code, &l.ExpiresAt, &l.Used, &l.CreatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("[TG:LINK-REPO][diag] op=GetByCode code_prefix=%s found=false", codePrefix(code))
 			return nil, nil
 		}
 		return nil, err
 	}
+	log.Printf("[TG:LINK-REPO][diag] op=GetByCode code_prefix=%s found=true used=%v chat_attached=%v expires_at=%s", codePrefix(code), l.Used, l.ChatID.Valid, l.ExpiresAt.UTC().Format(time.RFC3339))
 	return &l, nil
 }
 
 // ✅ NEW: user got code in CRM, then opens bot and sends "/start CODE".
 // This stores chat_id on that code row.
 func (r *telegramLinkRepository) AttachChatID(ctx context.Context, code string, chatID int64) error {
+	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" || chatID == 0 {
 		return fmt.Errorf("code/chatID required")
 	}
@@ -106,6 +165,7 @@ func (r *telegramLinkRepository) AttachChatID(ctx context.Context, code string, 
 		return err
 	}
 	aff, _ := res.RowsAffected()
+	log.Printf("[TG:LINK-REPO][diag] op=AttachChatID code_prefix=%s chat_id=%d rows_affected=%d", codePrefix(code), chatID, aff)
 	if aff == 0 {
 		return sql.ErrNoRows
 	}

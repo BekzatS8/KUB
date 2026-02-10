@@ -188,12 +188,21 @@ func (t *TelegramService) handleStart(chatID int64, payload string) error {
 		return t.SendMessage(chatID, "⚠️ Интеграция временно недоступна. Попробуйте позже.")
 	}
 
+	payload = strings.ToUpper(strings.TrimSpace(payload))
+	codeForLog := payload
+	if len(codeForLog) > 8 {
+		codeForLog = codeForLog[:8]
+	}
+
 	// ✅ CRM-flow: "/start CODE" -> attach chatID to that code
 	if payload != "" {
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_attempt=true", codeForLog, chatID)
 		err := t.linkRepo.AttachChatID(context.Background(), payload, chatID)
 		if err == nil {
+			log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=attached", codeForLog, chatID)
 			return t.SendMessage(chatID, t.FormatStartAttachedMessage(payload))
 		}
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=not_found_or_expired err=%v", codeForLog, chatID, err)
 		// if code not found/expired -> fallback to normal start
 	}
 
