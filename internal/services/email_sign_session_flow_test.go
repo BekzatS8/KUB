@@ -73,6 +73,13 @@ func TestEmailSignSessionFlowEndToEnd(t *testing.T) {
 	if _, err := signConfirmService.ValidateEmailToken(context.Background(), debug.EmailToken, "127.0.0.1", "UA"); err != nil {
 		t.Fatalf("verify token: %v", err)
 	}
+	confirmation, err := repo.FindByTokenHash(context.Background(), "email", hashConfirmToken(debug.EmailToken))
+	if err != nil {
+		t.Fatalf("lookup confirmation: %v", err)
+	}
+	if confirmation == nil || confirmation.Status != "pending" {
+		t.Fatalf("expected confirmation to remain pending after verify")
+	}
 	status, signerEmail, docHash, _, err := signConfirmService.ConfirmByEmailToken(
 		context.Background(),
 		101,
