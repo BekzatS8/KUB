@@ -336,7 +336,7 @@ func TestConfirmByEmailTokenHappyPath(t *testing.T) {
 		filesRoot: tempDir,
 	}
 
-	status, signerEmail, docHash, err := service.ConfirmByEmailToken(context.Background(), 22, token, code, "127.0.0.1", "UA")
+	status, signerEmail, docHash, _, err := service.ConfirmByEmailToken(context.Background(), 22, token, code, "127.0.0.1", "UA")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
@@ -381,10 +381,10 @@ func TestConfirmByEmailTokenRepeatReturnsConflict(t *testing.T) {
 		now:       now,
 		filesRoot: tempDir,
 	}
-	if _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); err != nil {
+	if _, _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); err != nil {
 		t.Fatalf("confirm first: %v", err)
 	}
-	if _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); !errors.Is(err, ErrSignConfirmAlreadyUsed) {
+	if _, _, _, _, err := service.ConfirmByEmailToken(context.Background(), 23, token, code, "ip", "ua"); !errors.Is(err, ErrSignConfirmAlreadyUsed) {
 		t.Fatalf("expected already used error, got %v", err)
 	}
 }
@@ -406,7 +406,7 @@ func TestConfirmByEmailTokenExpired(t *testing.T) {
 		filesRoot: t.TempDir(),
 		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-expired", "123456", "ip", "ua")
+	_, _, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-expired", "123456", "ip", "ua")
 	if !errors.Is(err, ErrSignConfirmExpired) {
 		t.Fatalf("expected expired error, got %v", err)
 	}
@@ -430,7 +430,7 @@ func TestConfirmByEmailTokenAttemptsLimit(t *testing.T) {
 		filesRoot: t.TempDir(),
 		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token", "123456", "ip", "ua")
+	_, _, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token", "123456", "ip", "ua")
 	if !errors.Is(err, ErrSignConfirmTooManyTries) {
 		t.Fatalf("expected too many attempts error, got %v", err)
 	}
@@ -456,7 +456,7 @@ func TestConfirmByEmailTokenInvalidCodeIncrementsAttempts(t *testing.T) {
 		filesRoot: t.TempDir(),
 		docRepo:   &fakeSignDocumentRepo{doc: &models.Document{ID: 1, Status: "approved", FilePath: "missing.pdf"}},
 	}
-	_, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-invalid", "654321", "ip", "ua")
+	_, _, _, _, err = service.ConfirmByEmailToken(context.Background(), 1, "token-invalid", "654321", "ip", "ua")
 	if !errors.Is(err, ErrSignConfirmInvalidCode) {
 		t.Fatalf("expected invalid code error, got %v", err)
 	}
@@ -535,7 +535,7 @@ func TestEmailSignFlowStartVerifyConfirmStatus(t *testing.T) {
 	if _, err := service.ValidateEmailToken(context.Background(), debug.EmailToken, "127.0.0.1", "UA"); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	status, _, _, err := service.ConfirmByEmailToken(context.Background(), 77, debug.EmailToken, debug.EmailCode, "127.0.0.1", "UA")
+	status, _, _, _, err := service.ConfirmByEmailToken(context.Background(), 77, debug.EmailToken, debug.EmailCode, "127.0.0.1", "UA")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestEmailSignFlowStartVerifyConfirmStatus(t *testing.T) {
 }
 
 func TestGenerateConfirmTokenUsesSha256(t *testing.T) {
-	token, tokenHash, err := generateConfirmToken()
+	token, tokenHash, err := generateConfirmToken("")
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -555,6 +555,41 @@ func TestGenerateConfirmTokenUsesSha256(t *testing.T) {
 	expected := hashConfirmToken(token)
 	if tokenHash != expected {
 		t.Fatalf("expected hash %s, got %s", expected, tokenHash)
+	}
+}
+
+func TestGenerateConfirmTokenUsesPepper(t *testing.T) {
+	token, tokenHash, err := generateConfirmToken("pepper-1")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	if tokenHash != hashConfirmTokenWithPepper(token, "pepper-1") {
+		t.Fatalf("unexpected token hash for peppered token")
+	}
+}
+
+func TestValidateEmailTokenAcceptsEscapedAndTrimmedToken(t *testing.T) {
+	now := func() time.Time { return time.Date(2025, 1, 9, 12, 0, 0, 0, time.UTC) }
+	repo := newFakeSignatureConfirmRepo(now)
+	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 90, DocType: "contract", Status: "approved"}}
+
+	token := "abc+def"
+	tokenHash := hashConfirmTokenWithPepper(token, "pep")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	_, _ = repo.CreatePending(context.Background(), 90, 9, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
+
+	service := &DocumentSigningConfirmationService{
+		repo:        repo,
+		docRepo:     docRepo,
+		tokenPepper: "pep",
+		now:         now,
+	}
+
+	if _, err := service.ValidateEmailToken(context.Background(), "  abc%2Bdef  ", "127.0.0.1", "UA"); err != nil {
+		t.Fatalf("validate token: %v", err)
 	}
 }
 
