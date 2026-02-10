@@ -593,6 +593,30 @@ func TestValidateEmailTokenAcceptsEscapedAndTrimmedToken(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmailOTPStrictSixDigits(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain", in: "123456", want: "123456"},
+		{name: "leading zero", in: "092072", want: "092072"},
+		{name: "trim spaces", in: " 092072 ", want: "092072"},
+		{name: "reject short", in: "92072", want: ""},
+		{name: "reject long", in: "0092072", want: ""},
+		{name: "reject with separators", in: "092-072", want: ""},
+		{name: "reject unicode digits", in: "１２３４５６", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeEmailOTP(tt.in); got != tt.want {
+				t.Fatalf("normalizeEmailOTP(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func hashTokenForTest(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

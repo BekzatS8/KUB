@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ var (
 	ErrSignConfirmTooManyTries = errors.New("too many sign confirmation attempts")
 	ErrSignConfirmInvalidToken = errors.New("invalid sign confirmation token")
 	ErrSignConfirmAlreadyUsed  = errors.New("sign confirmation already used")
+	emailOTPPattern            = regexp.MustCompile(`^\d{6}$`)
 )
 
 type SigningEmailSender interface {
@@ -359,7 +361,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
 	pending, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", nil, fmt.Errorf("find confirmation by token hash: %w", err)
 	}
 	if pending == nil {
 		return "", "", "", nil, ErrSignConfirmNotFound
@@ -394,7 +396,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	if err := CompareVerificationCode(*pending.OTPHash, code); err != nil {
 		attempts, incErr := s.repo.IncrementAttempts(ctx, pending.ID)
 		if incErr != nil {
-			return "", "", "", nil, incErr
+			return "", "", "", pending, fmt.Errorf("increment confirmation attempts: %w", incErr)
 		}
 		if attempts >= signConfirmMaxAttempts {
 			_ = s.repo.Expire(ctx, pending.ID)
@@ -405,7 +407,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 
 	documentHash, err := s.hashDocumentContent(pending.DocumentID)
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", pending, fmt.Errorf("hash document content: %w", err)
 	}
 	signerEmail := extractSignerEmail(pending.Meta)
 	metaUpdate := map[string]any{
@@ -420,7 +422,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	metaBytes, _ := json.Marshal(metaUpdate)
 	approved, err := s.repo.Approve(ctx, pending.ID, metaBytes)
 	if err != nil {
-		return "", "", "", nil, err
+		return "", "", "", pending, fmt.Errorf("approve confirmation: %w", err)
 	}
 	return "approved", signerEmail, documentHash, approved, nil
 }
@@ -453,7 +455,7 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
 	pending, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find confirmation by token hash: %w", err)
 	}
 	if pending == nil {
 		return nil, ErrSignConfirmNotFound
@@ -480,13 +482,13 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	if len(metaUpdate) > 0 {
 		metaBytes, _ := json.Marshal(metaUpdate)
 		if _, err := s.repo.UpdateMeta(ctx, pending.ID, metaBytes); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("update confirmation meta: %w", err)
 		}
 	}
 
 	doc, err := s.docRepo.GetByID(pending.DocumentID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get document by id: %w", err)
 	}
 	if doc == nil {
 		return nil, ErrSignConfirmNotFound
@@ -499,6 +501,27 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	response.Document.Status = doc.Status
 	response.Confirmation.ExpiresAt = pending.ExpiresAt
 	return response, nil
+}
+
+func (s *DocumentSigningConfirmationService) LookupEmailConfirmationByToken(
+	ctx context.Context,
+	token string,
+) (*models.SignatureConfirmation, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil {
+		return nil, errors.New("signature confirmation repo is nil")
+	}
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, nil
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	confirmation, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("lookup confirmation by token hash: %w", err)
+	}
+	return confirmation, nil
 }
 
 func (s *DocumentSigningConfirmationService) ConfirmByTelegramCallback(
@@ -670,8 +693,8 @@ func normalizeEmailConfirmToken(raw string) string {
 }
 
 func normalizeEmailOTP(code string) string {
-	code = NormalizeVerificationCode(code)
-	if len(code) != 6 {
+	code = strings.TrimSpace(code)
+	if !emailOTPPattern.MatchString(code) {
 		return ""
 	}
 	return code

@@ -20,6 +20,7 @@ const (
 	SignConfirmTooManyAttempts = "TOO_MANY_ATTEMPTS"
 	SignConfirmInvalidCode     = "INVALID_CODE"
 	SignConfirmNotFoundCode    = "NOT_FOUND"
+	SignConfirmAlreadyUsedCode = "ALREADY_USED"
 )
 
 type DocumentSigningConfirmationHandler struct {
@@ -139,13 +140,15 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		userID, roleID := getUserAndRole(c)
 		attempts := -1
 		expiresAt := time.Time{}
+		loggedDocID := documentID
 		if confirmation != nil {
+			loggedDocID = confirmation.DocumentID
 			attempts = confirmation.Attempts
 			expiresAt = confirmation.ExpiresAt
 		}
 		wrapped := fmt.Errorf("confirm signing by email token: %w", err)
 		log.Printf("[sign][confirm][email][error] doc=%d token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
-			documentID, tokenPrefix, tokenHashPrefix, len(strings.TrimSpace(body.Code)), attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
+			loggedDocID, tokenPrefix, tokenHashPrefix, len(strings.TrimSpace(body.Code)), attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -222,9 +225,22 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 		tokenPrefix := redactPrefix(normalized, 8)
 		tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(normalized, h.Service.TokenPepperForLog()), 8)
 		userID, roleID := getUserAndRole(c)
+		confirmation, lookupErr := h.Service.LookupEmailConfirmationByToken(c.Request.Context(), token)
+		if lookupErr != nil {
+			log.Printf("[sign][confirm][email][validate][lookup][error] token_prefix=%s request_id=%s err=%v",
+				tokenPrefix, requestID, fmt.Errorf("lookup email confirmation by token: %w", lookupErr))
+		}
+		attempts := -1
+		expiresAt := time.Time{}
+		docID := int64(0)
+		if confirmation != nil {
+			docID = confirmation.DocumentID
+			attempts = confirmation.Attempts
+			expiresAt = confirmation.ExpiresAt
+		}
 		wrapped := fmt.Errorf("validate signing email token: %w", err)
-		log.Printf("[sign][confirm][email][validate][error] token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
-			tokenPrefix, tokenHashPrefix, 0, -1, "", userID, roleID, requestID, ip, userAgent, wrapped)
+		log.Printf("[sign][confirm][email][validate][error] doc=%d token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
+			docID, tokenPrefix, tokenHashPrefix, 0, attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -317,7 +333,7 @@ func handleSignConfirmError(c *gin.Context, err error) {
 	case errors.Is(err, services.ErrSignConfirmTooManyTries):
 		writeError(c, http.StatusTooManyRequests, SignConfirmTooManyAttempts, "Too many attempts")
 	case errors.Is(err, services.ErrSignConfirmAlreadyUsed):
-		writeError(c, http.StatusConflict, SignConfirmInvalidCode, "Already used")
+		writeError(c, http.StatusConflict, SignConfirmAlreadyUsedCode, "Already used")
 	case errors.Is(err, services.ErrSignConfirmInvalidCode):
 		writeError(c, http.StatusBadRequest, SignConfirmInvalidCode, "Invalid code")
 	case errors.Is(err, services.ErrSignConfirmInvalidToken):
