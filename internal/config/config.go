@@ -335,6 +335,8 @@ func applyEnvOverrides(cfg *Config) {
 	setInt(os.Getenv("SMTP_PORT"), &cfg.Email.SMTPPort)
 	setString(os.Getenv("SIGN_EMAIL_TOKEN_PEPPER"), &cfg.SignEmailTokenPepper)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
+	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
+	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)
 	if ttl := strings.TrimSpace(os.Getenv("SIGN_EMAIL_TTL")); ttl != "" {
 		if duration, err := time.ParseDuration(ttl); err == nil {
 			minutes := int(duration.Minutes())
