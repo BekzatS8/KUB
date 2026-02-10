@@ -163,12 +163,12 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	}
 	signURL := buildSignSessionURL(c, session.ID, token)
 	c.JSON(http.StatusOK, gin.H{
-		"status":          status,
-		"email_token":     strings.TrimSpace(body.Token),
-		"session_id":      session.ID,
-		"session_token":   token,
-		"sign_url":        signURL,
-		"session_expires": session.ExpiresAt,
+		"status":        status,
+		"email_token":   services.NormalizeEmailConfirmTokenForLog(body.Token),
+		"session_id":    session.ID,
+		"session_token": token,
+		"sign_url":      signURL,
+		"expires_at":    session.ExpiresAt,
 	})
 }
 
@@ -192,6 +192,10 @@ func buildSignSessionURL(c *gin.Context, sessionID int64, token string) string {
 }
 
 func handleSignSessionCreateError(c *gin.Context, err error) {
+	if err == nil {
+		internalError(c, "Failed to create sign session")
+		return
+	}
 	switch {
 	case errors.Is(err, services.ErrSignSessionInvalidEmail):
 		badRequest(c, "Invalid email")
@@ -202,6 +206,8 @@ func handleSignSessionCreateError(c *gin.Context, err error) {
 	case errors.Is(err, services.ErrSignSessionDocNotFound):
 		notFound(c, DocumentNotFound, "Document not found")
 	default:
+		wrapped := fmt.Errorf("create sign session: %w", err)
+		log.Printf("[sign][session][create][error] err=%v", wrapped)
 		internalError(c, "Failed to create sign session")
 	}
 }
@@ -341,6 +347,8 @@ func handleSignConfirmError(c *gin.Context, err error) {
 	case errors.Is(err, services.ErrSignConfirmNotFound):
 		writeError(c, http.StatusNotFound, SignConfirmNotFoundCode, "Not found")
 	default:
+		wrapped := fmt.Errorf("confirm signing: %w", err)
+		log.Printf("[sign][confirm][error] err=%v", wrapped)
 		internalError(c, "Failed to confirm signing")
 	}
 }

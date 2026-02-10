@@ -230,3 +230,9 @@ func TestSignSessionCreateRateLimit(t *testing.T) {
 		t.Fatalf("expected rate limited error, got %v", err)
 	}
 }
+
+func TestNormalizeSessionTokenTrimAndUnescape(t *testing.T) {
+	if got := normalizeSessionToken("  abc%2Bdef  "); got != "abc+def" {
+		t.Fatalf("normalizeSessionToken mismatch: %q", got)
+	}
+}

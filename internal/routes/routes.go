@@ -51,8 +51,6 @@ func SetupRoutes(
 	r.POST("/register/resend", verifyHandler.ResendUser)
 
 	if signHandler != nil {
-		r.GET("/sign/:token", signHandler.ServeSignPage)
-
 		signPublic := r.Group("/api/v1/sign/sessions")
 		{
 			signPublic.GET("/id/:id/page", signHandler.ServeSessionPage)
@@ -63,6 +61,7 @@ func SetupRoutes(
 	}
 	if signConfirmHandler != nil {
 		r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+		r.POST("/documents/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
 	}
 	if telegramSignHandler != nil {
 		r.POST("/telegram/webhook", telegramSignHandler.Handle)
@@ -186,7 +185,6 @@ func SetupRoutes(
 		docs.POST("/:id/sign", documentHandler.Sign)
 		if signConfirmHandler != nil {
 			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
-			docs.POST("/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
 			docs.GET("/:id/sign/status", signConfirmHandler.Status)
 		}
 	}
