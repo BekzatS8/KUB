@@ -112,18 +112,31 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		internalError(c, "Service unavailable")
 		return
 	}
+	requestID := requestIDFromContext(c)
+	ip := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	userID, roleID := getUserAndRole(c)
 	documentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		log.Printf("[sign][confirm][email][request][invalid_doc_id] raw_id=%q request_id=%s user=%d role=%d ip=%s ua=%q",
+			c.Param("id"), requestID, userID, roleID, ip, userAgent)
 		badRequest(c, "Invalid id")
 		return
 	}
 	var body emailConfirmRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
+		log.Printf("[sign][confirm][email][request][invalid_body] doc=%d request_id=%s user=%d role=%d ip=%s ua=%q err=%v",
+			documentID, requestID, userID, roleID, ip, userAgent, fmt.Errorf("bind json: %w", err))
 		badRequest(c, "Invalid request body")
 		return
 	}
-	ip := c.ClientIP()
-	userAgent := c.GetHeader("User-Agent")
+	token := services.NormalizeEmailConfirmTokenForLog(body.Token)
+	tokenPrefix := redactPrefix(token, 8)
+	tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(token, h.Service.TokenPepperForLog()), 8)
+	codeLen := len(strings.TrimSpace(body.Code))
+	log.Printf("[sign][confirm][email][request] doc=%d token_prefix=%s token_hash_prefix=%s code_len=%d request_id=%s user=%d role=%d ip=%s ua=%q",
+		documentID, tokenPrefix, tokenHashPrefix, codeLen, requestID, userID, roleID, ip, userAgent)
+
 	status, signerEmail, docHash, confirmation, err := h.Service.ConfirmByEmailToken(
 		c.Request.Context(),
 		documentID,
@@ -133,11 +146,6 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		userAgent,
 	)
 	if err != nil {
-		requestID := requestIDFromContext(c)
-		token := services.NormalizeEmailConfirmTokenForLog(body.Token)
-		tokenPrefix := redactPrefix(token, 8)
-		tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(token, h.Service.TokenPepperForLog()), 8)
-		userID, roleID := getUserAndRole(c)
 		attempts := -1
 		expiresAt := time.Time{}
 		loggedDocID := documentID
@@ -148,7 +156,7 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		}
 		wrapped := fmt.Errorf("confirm signing by email token: %w", err)
 		log.Printf("[sign][confirm][email][error] doc=%d token_prefix=%s token_hash_prefix=%s code_len=%d attempts=%d expires_at=%s user=%d role=%d request_id=%s ip=%s ua=%q err=%v",
-			loggedDocID, tokenPrefix, tokenHashPrefix, len(strings.TrimSpace(body.Code)), attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
+			loggedDocID, tokenPrefix, tokenHashPrefix, codeLen, attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}
@@ -158,10 +166,14 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 	}
 	token, session, err := h.SignSessionService.CreateEmailSession(c.Request.Context(), documentID, signerEmail, docHash)
 	if err != nil {
+		log.Printf("[sign][confirm][email][session_create][error] doc=%d token_prefix=%s token_hash_prefix=%s request_id=%s user=%d role=%d ip=%s ua=%q err=%v",
+			documentID, tokenPrefix, tokenHashPrefix, requestID, userID, roleID, ip, userAgent, fmt.Errorf("create email session: %w", err))
 		handleSignSessionCreateError(c, err)
 		return
 	}
 	signURL := buildSignSessionURL(c, session.ID, token)
+	log.Printf("[sign][confirm][email][success] doc=%d token_prefix=%s token_hash_prefix=%s status=%s session_id=%d request_id=%s user=%d role=%d ip=%s ua=%q",
+		documentID, tokenPrefix, tokenHashPrefix, status, session.ID, requestID, userID, roleID, ip, userAgent)
 	c.JSON(http.StatusOK, gin.H{
 		"status":        status,
 		"email_token":   services.NormalizeEmailConfirmTokenForLog(body.Token),
@@ -217,20 +229,25 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 		internalError(c, "Service unavailable")
 		return
 	}
+	requestID := requestIDFromContext(c)
+	ip := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	userID, roleID := getUserAndRole(c)
 	token := strings.TrimSpace(c.Query("token"))
 	if token == "" {
+		log.Printf("[sign][confirm][email][validate][request][missing_token] request_id=%s user=%d role=%d ip=%s ua=%q",
+			requestID, userID, roleID, ip, userAgent)
 		badRequest(c, "Token required")
 		return
 	}
-	ip := c.ClientIP()
-	userAgent := c.GetHeader("User-Agent")
+	normalized := services.NormalizeEmailConfirmTokenForLog(token)
+	tokenPrefix := redactPrefix(normalized, 8)
+	tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(normalized, h.Service.TokenPepperForLog()), 8)
+	log.Printf("[sign][confirm][email][validate][request] token_prefix=%s token_hash_prefix=%s request_id=%s user=%d role=%d ip=%s ua=%q",
+		tokenPrefix, tokenHashPrefix, requestID, userID, roleID, ip, userAgent)
+
 	payload, err := h.Service.ValidateEmailToken(c.Request.Context(), token, ip, userAgent)
 	if err != nil {
-		requestID := requestIDFromContext(c)
-		normalized := services.NormalizeEmailConfirmTokenForLog(token)
-		tokenPrefix := redactPrefix(normalized, 8)
-		tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(normalized, h.Service.TokenPepperForLog()), 8)
-		userID, roleID := getUserAndRole(c)
 		confirmation, lookupErr := h.Service.LookupEmailConfirmationByToken(c.Request.Context(), token)
 		if lookupErr != nil {
 			log.Printf("[sign][confirm][email][validate][lookup][error] token_prefix=%s request_id=%s err=%v",
@@ -250,6 +267,8 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 		handleSignConfirmError(c, err)
 		return
 	}
+	log.Printf("[sign][confirm][email][validate][success] doc=%d token_prefix=%s token_hash_prefix=%s status=%s request_id=%s user=%d role=%d ip=%s ua=%q",
+		payload.Document.ID, tokenPrefix, tokenHashPrefix, payload.Document.Status, requestID, userID, roleID, ip, userAgent)
 	c.JSON(http.StatusOK, payload)
 }
 
