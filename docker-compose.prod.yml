@@ -10,6 +10,7 @@ services:
     environment:
       GIN_MODE: ${GIN_MODE:-release}
       CONFIG_PATH: ${CONFIG_PATH:-/opt/turcompany/config/config.yaml}
+      DATABASE_URL: ${DATABASE_URL:-postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable}
       DB_WAIT_RETRIES: ${DB_WAIT_RETRIES:-30}
       DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
     depends_on:

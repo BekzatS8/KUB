@@ -145,3 +145,27 @@ db:
 		t.Fatalf("expected dsn from db.dsn, got %q", cfg.Database.DSN)
 	}
 }
+
+func TestLoadConfigDatabaseURLEnvOverridesFile(t *testing.T) {
+	configContent := []byte(`server:
+  port: 4000
+database:
+  dsn: "postgres://file:user@localhost:5432/filedb?sslmode=disable"
+sign_confirm_policy: "ANY"
+`)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, configContent, 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	t.Setenv("CONFIG_PATH", configPath)
+	t.Setenv("DATABASE_URL", "postgres://env:pass@localhost:5432/envdb?sslmode=disable")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.Database.DSN != "postgres://env:pass@localhost:5432/envdb?sslmode=disable" {
+		t.Fatalf("expected dsn from DATABASE_URL env, got %q", cfg.Database.DSN)
+	}
+}
