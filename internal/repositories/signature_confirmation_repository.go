@@ -225,13 +225,16 @@ func (r *SignatureConfirmationRepository) Approve(
 		UPDATE signature_confirmations
 		SET status = 'approved',
 		    approved_at = NOW(),
-		    meta = COALESCE(meta, '{}'::jsonb) || COALESCE($2::jsonb, '{}'::jsonb)
+		    meta = CASE
+		        WHEN $2::jsonb IS NULL THEN meta
+		        ELSE COALESCE(meta, '{}'::jsonb) || $2::jsonb
+		    END
 		WHERE id = $1
 		RETURNING id, document_id, user_id, channel, status, otp_hash, token_hash,
 		          attempts, expires_at, approved_at, rejected_at, meta`
-	metaVal := "{}"
+	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = string(metaUpdate)
+		metaVal = metaUpdate
 	}
 	row := r.DB.QueryRowContext(ctx, q, id, metaVal)
 	confirmation, err := scanSignatureConfirmation(row)
@@ -254,7 +257,7 @@ func (r *SignatureConfirmationRepository) Reject(
 		SET status = 'rejected',
 		    rejected_at = NOW(),
 		    meta = CASE
-		        WHEN $2 IS NULL THEN meta
+		        WHEN $2::jsonb IS NULL THEN meta
 		        ELSE COALESCE(meta, '{}'::jsonb) || $2::jsonb
 		    END
 		WHERE id = $1
@@ -262,7 +265,7 @@ func (r *SignatureConfirmationRepository) Reject(
 		          attempts, expires_at, approved_at, rejected_at, meta`
 	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = string(metaUpdate)
+		metaVal = metaUpdate
 	} else {
 		metaVal = nil
 	}
@@ -317,7 +320,7 @@ func (r *SignatureConfirmationRepository) UpdateMeta(
 	const q = `
 		UPDATE signature_confirmations
 		SET meta = CASE
-		    WHEN $2 IS NULL THEN meta
+		    WHEN $2::jsonb IS NULL THEN meta
 		    ELSE COALESCE(meta, '{}'::jsonb) || $2::jsonb
 		END
 		WHERE id = $1
@@ -325,7 +328,7 @@ func (r *SignatureConfirmationRepository) UpdateMeta(
 		          attempts, expires_at, approved_at, rejected_at, meta`
 	var metaVal any
 	if len(metaUpdate) > 0 {
-		metaVal = string(metaUpdate)
+		metaVal = metaUpdate
 	}
 	row := r.DB.QueryRowContext(ctx, q, id, metaVal)
 	confirmation, err := scanSignatureConfirmation(row)

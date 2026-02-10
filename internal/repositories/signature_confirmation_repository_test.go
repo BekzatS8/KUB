@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -13,12 +12,27 @@ import (
 	"time"
 )
 
-func TestSignatureConfirmationRepository_Approve_EmptyMetaUsesJSONAndSucceeds(t *testing.T) {
+func TestSignatureConfirmationRepository_Approve_NilMetaCastsJSONBAndSucceeds(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	expiresAt := now.Add(time.Hour)
 
-	stub := &approveQueryStub{
+	stub := &signatureConfirmationQueryStub{
 		t: t,
+		assertQuery: func(query string, args []driver.NamedValue) error {
+			if !strings.Contains(query, "WHEN $2::jsonb IS NULL THEN meta") {
+				return fmt.Errorf("approve query must cast nil-check to jsonb: %s", query)
+			}
+			if len(args) != 2 {
+				return fmt.Errorf("unexpected args count: %d", len(args))
+			}
+			if args[0].Value != "confirmation-id" {
+				return fmt.Errorf("unexpected id arg: %v", args[0].Value)
+			}
+			if args[1].Value != nil {
+				return fmt.Errorf("meta arg must be nil for nil update, got %T", args[1].Value)
+			}
+			return nil
+		},
 		rows: [][]driver.Value{{
 			"confirmation-id",
 			int64(42),
@@ -35,16 +49,7 @@ func TestSignatureConfirmationRepository_Approve_EmptyMetaUsesJSONAndSucceeds(t 
 		}},
 	}
 
-	driverName := fmt.Sprintf("approve_stub_%d", time.Now().UnixNano())
-	sql.Register(driverName, &approveStubDriver{stub: stub})
-
-	db, err := sql.Open(driverName, "")
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	defer db.Close()
-
-	repo := NewSignatureConfirmationRepository(db)
+	repo := newSignatureConfirmationStubRepo(t, stub)
 	confirmation, err := repo.Approve(context.Background(), "confirmation-id", nil)
 	if err != nil {
 		t.Fatalf("Approve returned error: %v", err)
@@ -60,62 +65,108 @@ func TestSignatureConfirmationRepository_Approve_EmptyMetaUsesJSONAndSucceeds(t 
 	}
 }
 
-type approveStubDriver struct {
-	stub *approveQueryStub
+func TestSignatureConfirmationRepository_UpdateMeta_NilMetaCastsJSONBAndSucceeds(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiresAt := now.Add(time.Hour)
+
+	stub := &signatureConfirmationQueryStub{
+		t: t,
+		assertQuery: func(query string, args []driver.NamedValue) error {
+			if !strings.Contains(query, "WHEN $2::jsonb IS NULL THEN meta") {
+				return fmt.Errorf("update meta query must cast nil-check to jsonb: %s", query)
+			}
+			if len(args) != 2 {
+				return fmt.Errorf("unexpected args count: %d", len(args))
+			}
+			if args[1].Value != nil {
+				return fmt.Errorf("meta arg must be nil for nil update, got %T", args[1].Value)
+			}
+			return nil
+		},
+		rows: [][]driver.Value{{
+			"confirmation-id",
+			int64(42),
+			int64(7),
+			"email",
+			"pending",
+			nil,
+			nil,
+			int64(0),
+			expiresAt,
+			nil,
+			nil,
+			[]byte(`{"opened_at":"2025-01-01T00:00:00Z"}`),
+		}},
+	}
+
+	repo := newSignatureConfirmationStubRepo(t, stub)
+	confirmation, err := repo.UpdateMeta(context.Background(), "confirmation-id", nil)
+	if err != nil {
+		t.Fatalf("UpdateMeta returned error: %v", err)
+	}
+	if confirmation == nil {
+		t.Fatal("UpdateMeta returned nil confirmation")
+	}
+	if atomic.LoadInt32(&stub.queryCalled) != 1 {
+		t.Fatalf("expected query to be called once, got %d", stub.queryCalled)
+	}
 }
 
-func (d *approveStubDriver) Open(string) (driver.Conn, error) {
-	return &approveStubConn{stub: d.stub}, nil
+func newSignatureConfirmationStubRepo(t *testing.T, stub *signatureConfirmationQueryStub) *SignatureConfirmationRepository {
+	t.Helper()
+	driverName := fmt.Sprintf("sign_confirmation_stub_%d", time.Now().UnixNano())
+	sql.Register(driverName, &signatureConfirmationStubDriver{stub: stub})
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	return NewSignatureConfirmationRepository(db)
 }
 
-type approveStubConn struct {
-	stub *approveQueryStub
+type signatureConfirmationStubDriver struct {
+	stub *signatureConfirmationQueryStub
 }
 
-func (c *approveStubConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
-func (c *approveStubConn) Close() error                        { return nil }
-func (c *approveStubConn) Begin() (driver.Tx, error)          { return nil, driver.ErrSkip }
+func (d *signatureConfirmationStubDriver) Open(string) (driver.Conn, error) {
+	return &signatureConfirmationStubConn{stub: d.stub}, nil
+}
 
-func (c *approveStubConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+type signatureConfirmationStubConn struct {
+	stub *signatureConfirmationQueryStub
+}
+
+func (c *signatureConfirmationStubConn) Prepare(string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+func (c *signatureConfirmationStubConn) Close() error              { return nil }
+func (c *signatureConfirmationStubConn) Begin() (driver.Tx, error) { return nil, driver.ErrSkip }
+
+func (c *signatureConfirmationStubConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	return c.stub.query(query, args)
 }
 
-func (c *approveStubConn) CheckNamedValue(*driver.NamedValue) error { return nil }
+func (c *signatureConfirmationStubConn) CheckNamedValue(*driver.NamedValue) error { return nil }
 
-type approveQueryStub struct {
-	t          *testing.T
-	rows       [][]driver.Value
+type signatureConfirmationQueryStub struct {
+	t           *testing.T
+	assertQuery func(query string, args []driver.NamedValue) error
+	rows        [][]driver.Value
 	queryCalled int32
 }
 
-func (s *approveQueryStub) query(query string, args []driver.NamedValue) (driver.Rows, error) {
+func (s *signatureConfirmationQueryStub) query(query string, args []driver.NamedValue) (driver.Rows, error) {
 	s.t.Helper()
 	atomic.AddInt32(&s.queryCalled, 1)
-
-	if !strings.Contains(query, "meta = COALESCE(meta, '{}'::jsonb) || COALESCE($2::jsonb, '{}'::jsonb)") {
-		return nil, fmt.Errorf("approve query does not cast/merge jsonb meta safely: %s", query)
-	}
-	if len(args) != 2 {
-		return nil, fmt.Errorf("unexpected args count: %d", len(args))
-	}
-	if args[0].Value != "confirmation-id" {
-		return nil, fmt.Errorf("unexpected id arg: %v", args[0].Value)
-	}
-	metaArg, ok := args[1].Value.(string)
-	if !ok {
-		return nil, fmt.Errorf("meta arg must be string, got %T", args[1].Value)
-	}
-	if metaArg == "" {
-		return nil, fmt.Errorf("meta arg must not be empty")
-	}
-	if !json.Valid([]byte(metaArg)) {
-		return nil, fmt.Errorf("meta arg must be valid JSON, got %q", metaArg)
-	}
-	if metaArg != "{}" {
-		return nil, fmt.Errorf("expected fallback meta arg {}, got %q", metaArg)
+	if s.assertQuery != nil {
+		if err := s.assertQuery(query, args); err != nil {
+			return nil, err
+		}
 	}
 
-	return &approveStubRows{
+	return &signatureConfirmationStubRows{
 		columns: []string{
 			"id", "document_id", "user_id", "channel", "status", "otp_hash", "token_hash",
 			"attempts", "expires_at", "approved_at", "rejected_at", "meta",
@@ -124,15 +175,15 @@ func (s *approveQueryStub) query(query string, args []driver.NamedValue) (driver
 	}, nil
 }
 
-type approveStubRows struct {
+type signatureConfirmationStubRows struct {
 	columns []string
 	rows    [][]driver.Value
 	idx     int
 }
 
-func (r *approveStubRows) Columns() []string { return r.columns }
-func (r *approveStubRows) Close() error      { return nil }
-func (r *approveStubRows) Next(dest []driver.Value) error {
+func (r *signatureConfirmationStubRows) Columns() []string { return r.columns }
+func (r *signatureConfirmationStubRows) Close() error      { return nil }
+func (r *signatureConfirmationStubRows) Next(dest []driver.Value) error {
 	if r.idx >= len(r.rows) {
 		return io.EOF
 	}
