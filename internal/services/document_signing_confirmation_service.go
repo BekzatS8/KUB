@@ -713,7 +713,11 @@ func buildOpenMetaUpdate(meta json.RawMessage, ip, userAgent string, now time.Ti
 		_ = json.Unmarshal(meta, &existing)
 	}
 	if existing["opened_at"] == nil {
-		update["opened_at"] = now.UTC().Format(time.RFC3339Nano)
+		openedAt := now.UTC().Format(time.RFC3339Nano)
+		update["opened_at"] = openedAt
+		if existing["link_opened_at"] == nil {
+			update["link_opened_at"] = openedAt
+		}
 	}
 	if len(update) == 0 {
 		return nil

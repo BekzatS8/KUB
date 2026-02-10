@@ -107,6 +107,9 @@ func TestSignatureConfirmationRepository_UpdateMeta_NilMetaCastsJSONBAndSucceeds
 	if confirmation == nil {
 		t.Fatal("UpdateMeta returned nil confirmation")
 	}
+	if confirmation.Status != "pending" {
+		t.Fatalf("UpdateMeta must not change status, got %s", confirmation.Status)
+	}
 	if atomic.LoadInt32(&stub.queryCalled) != 1 {
 		t.Fatalf("expected query to be called once, got %d", stub.queryCalled)
 	}
