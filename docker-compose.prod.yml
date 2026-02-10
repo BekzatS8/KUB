@@ -74,6 +74,11 @@ services:
         psql "$${DATABASE_URL}" -f /migrations/001_init.up.sql
         psql "$${DATABASE_URL}" -f /migrations/002_sign_sessions.up.sql
         psql "$${DATABASE_URL}" -f /migrations/003_signature_confirmations.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/004_sign_sessions_email.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/005_signing_indexes.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/006_signature_confirmations_created_at.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/007_sign_sessions_email_schema_fix.up.sql
+        psql "$${DATABASE_URL}" -f /migrations/008_sign_sessions_email_fields.up.sql
         psql "$${DATABASE_URL}" -f /migrations/999_audit_logs.sql
     depends_on:
       postgres:
