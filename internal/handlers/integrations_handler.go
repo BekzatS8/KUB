@@ -3,7 +3,9 @@ package handlers
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -85,6 +87,19 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 
 	chatID, err := h.LinksRepo.ConfirmLink(c.Request.Context(), code, userID)
 	if err != nil {
+		if errors.Is(err, repositories.ErrTelegramChatNotAttached) {
+			log.Printf("[TG:LINK] confirm blocked: code=%s chat is not attached yet", code)
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "telegram chat not attached",
+				"hint":  "Open Telegram bot and send /start <code> first",
+			})
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[TG:LINK] invalid code=%s err=%v", code, err)
+			badRequest(c, "invalid or expired code")
+			return
+		}
 		log.Printf("[TG:LINK] confirm failed: %v", err)
 		internalError(c, "cannot confirm link")
 		return
