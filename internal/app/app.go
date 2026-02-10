@@ -255,6 +255,17 @@ func Run() {
 
 	if tgSvc != nil {
 		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)
+		integrationsHandler.DBDSNMasked = utils.MaskDSN(cfg.Database.DSN)
+		integrationsHandler.FrontendHost = cfg.Frontend.Host
+		integrationsHandler.Env = os.Getenv("GIN_MODE")
+		if integrationsHandler.Env == "" {
+			integrationsHandler.Env = "dev"
+		}
+		if os.Getenv("CONFIG_PATH") != "" {
+			integrationsHandler.ConfigSource = "env"
+		} else {
+			integrationsHandler.ConfigSource = "file"
+		}
 	}
 
 	// === Gin ===
