@@ -4,9 +4,12 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
+
+var ErrTelegramChatNotAttached = errors.New("telegram chat is not attached to link code")
 
 type TelegramLink struct {
 	ID        int
@@ -136,7 +139,7 @@ func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, u
 
 	// ✅ MUST be before update/commit
 	if !l.ChatID.Valid {
-		return 0, fmt.Errorf("telegram_chat_id is NULL for code=%s", code)
+		return 0, fmt.Errorf("%w for code=%s", ErrTelegramChatNotAttached, code)
 	}
 
 	if _, err := tx.ExecContext(ctx,
