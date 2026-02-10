@@ -194,29 +194,35 @@ func (t *TelegramService) handleStart(chatID int64, payload string) error {
 		codeForLog = codeForLog[:8]
 	}
 
-	// ✅ CRM-flow: "/start CODE" -> attach chatID to that code
-	if payload != "" {
-		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_attempt=true", codeForLog, chatID)
-		err := t.linkRepo.AttachChatID(context.Background(), payload, chatID)
-		if err == nil {
-			log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=attached", codeForLog, chatID)
-			return t.SendMessage(chatID, t.FormatStartAttachedMessage(payload))
-		}
-		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=not_found_or_expired err=%v", codeForLog, chatID, err)
-		// if code not found/expired -> fallback to normal start
+	if payload == "" {
+		log.Printf("[tg][start][diag] event=start_no_code chat_id=%d", chatID)
+		return t.SendMessage(chatID, "Отправьте /start <CODE> (код из CRM)")
 	}
 
-	// ✅ Bot-flow: generate code with chatID
-	code, err := t.generateLinkCode()
+	nowUTC := time.Now().UTC()
+	link, err := t.linkRepo.GetByCode(context.Background(), payload)
 	if err != nil {
-		log.Printf("[tg][start] code generation failed: %v", err)
-		return t.SendMessage(chatID, "⚠️ Не удалось сгенерировать код привязки, попробуйте позже.")
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d found=false get_by_code_err=%v now_utc=%s", codeForLog, chatID, err, nowUTC.Format(time.RFC3339))
+		return t.SendMessage(chatID, "Код неверный или истёк")
 	}
-	expiresAt := time.Now().Add(t.linkTTL)
-	if _, err := t.linkRepo.CreateLink(context.Background(), 0, chatID, code, expiresAt); err != nil {
-		log.Printf("[tg][start] CreateLink failed: %v", err)
+	if link == nil {
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d found=false now_utc=%s", codeForLog, chatID, nowUTC.Format(time.RFC3339))
+		return t.SendMessage(chatID, "Код неверный или истёк")
 	}
-	return t.SendMessage(chatID, t.FormatStartMessage(code))
+
+	expiresAtUTC := link.ExpiresAt.UTC()
+	if link.Used || nowUTC.After(expiresAtUTC) {
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d found=true used=%v expires_at_utc=%s now_utc=%s", codeForLog, chatID, link.Used, expiresAtUTC.Format(time.RFC3339), nowUTC.Format(time.RFC3339))
+		return t.SendMessage(chatID, "Код неверный или истёк")
+	}
+
+	log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d found=true expires_at_utc=%s now_utc=%s attach_attempt=true", codeForLog, chatID, expiresAtUTC.Format(time.RFC3339), nowUTC.Format(time.RFC3339))
+	if err := t.linkRepo.AttachChatID(context.Background(), payload, chatID); err != nil {
+		log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=failed err=%v", codeForLog, chatID, err)
+		return t.SendMessage(chatID, "Код неверный или истёк")
+	}
+	log.Printf("[tg][start][diag] code_prefix=%s chat_id=%d attach_result=attached", codeForLog, chatID)
+	return t.SendMessage(chatID, t.FormatStartAttachedMessage(payload))
 }
 
 func (t *TelegramService) handleTasks(chatID int64) error {

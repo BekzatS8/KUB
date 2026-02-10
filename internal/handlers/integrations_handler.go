@@ -119,12 +119,14 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 		badRequest(c, "invalid or expired code")
 		return
 	}
-	log.Printf("[TG:LINK][diag] lookup result: found=true used=%v expires_at_utc=%s now_utc=%s diff=%s chat_attached=%v",
+	log.Printf("[TG:LINK][diag] lookup result: found=true code_prefix=%s used=%v expires_at_utc=%s now_utc=%s diff=%s chat_attached=%v chat_id=%d",
+		codeForLog,
 		link.Used,
 		link.ExpiresAt.UTC().Format(time.RFC3339),
 		nowUTC.Format(time.RFC3339),
 		time.Until(link.ExpiresAt.UTC()).String(),
 		link.ChatID.Valid,
+		link.ChatID.Int64,
 	)
 
 	userIDVal, ok := c.Get("user_id")
@@ -137,10 +139,10 @@ func (h *IntegrationsHandler) ConfirmLink(c *gin.Context) {
 	chatID, err := h.LinksRepo.ConfirmLink(c.Request.Context(), code, userID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrTelegramChatNotAttached) {
-			log.Printf("[TG:LINK][diag] confirm blocked: code_prefix=%s chat is not attached yet", codeForLog)
+			log.Printf("[TG:LINK][diag] confirm blocked: code_prefix=%s chat_id=%d chat is not attached yet", codeForLog, link.ChatID.Int64)
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "telegram chat not attached",
-				"hint":  "Open Telegram bot and send /start <code> first",
+				"hint":  "send /start <CODE>",
 			})
 			return
 		}

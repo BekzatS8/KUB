@@ -149,6 +149,7 @@ func (r *telegramLinkRepository) GetByCode(ctx context.Context, code string) (*T
 // ✅ NEW: user got code in CRM, then opens bot and sends "/start CODE".
 // This stores chat_id on that code row.
 func (r *telegramLinkRepository) AttachChatID(ctx context.Context, code string, chatID int64) error {
+	r.logDBIdentity(ctx, "AttachChatID")
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" || chatID == 0 {
 		return fmt.Errorf("code/chatID required")
@@ -174,6 +175,8 @@ func (r *telegramLinkRepository) AttachChatID(ctx context.Context, code string, 
 
 // ✅ FIXED: no "burn" if chat_id NULL
 func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, userID int) (int64, error) {
+	r.logDBIdentity(ctx, "ConfirmLink")
+	code = strings.ToUpper(strings.TrimSpace(code))
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -202,12 +205,15 @@ func (r *telegramLinkRepository) ConfirmLink(ctx context.Context, code string, u
 		return 0, fmt.Errorf("%w for code=%s", ErrTelegramChatNotAttached, code)
 	}
 
-	if _, err := tx.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`UPDATE telegram_links SET used=true, user_id=$1 WHERE id=$2`,
 		userID, l.ID,
-	); err != nil {
+	)
+	if err != nil {
 		return 0, err
 	}
+	rowsAffected, _ := res.RowsAffected()
+	log.Printf("[TG:LINK-REPO][diag] op=ConfirmLink code_prefix=%s chat_id=%d rows_affected=%d", codePrefix(code), l.ChatID.Int64, rowsAffected)
 
 	if err := tx.Commit(); err != nil {
 		return 0, err
