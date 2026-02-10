@@ -99,8 +99,8 @@ func LoadConfig() (*Config, error) {
 		configPath = absPath
 	}
 	appMode := configMode()
-	log.Printf("[BOOT] config source=%s path=%s", source, configPath)
-	log.Printf("[BOOT] loaded config from %s, mode=%s", configPath, appMode)
+	log.Printf("[BOOT] config source=%s path=%s", source, maskConfigPath(configPath))
+	log.Printf("[BOOT] loaded config from %s, mode=%s", maskConfigPath(configPath), appMode)
 
 	f, err := os.Open(configPath)
 	if err != nil {
@@ -193,6 +193,9 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("invalid sign_confirm_policy: %s", cfg.SignConfirmPolicy)
 	}
 	if mode == "release" {
+		if strings.TrimSpace(cfg.Security.JWTSecret) == "" {
+			return fmt.Errorf("security.jwt_secret is required in release mode")
+		}
 		missing := []string{}
 		if strings.TrimSpace(cfg.Email.SMTPHost) == "" {
 			missing = append(missing, "email.smtp_host")
@@ -215,6 +218,13 @@ func (cfg *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func maskConfigPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return "<empty>"
+	}
+	return filepath.Base(path)
 }
 
 func normalizeDSN(dsn string, mode string) (string, error) {
@@ -331,6 +341,7 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SMTP_FROM_NAME"), &cfg.Email.FromName)
 	setString(os.Getenv("SMTP_HOST"), &cfg.Email.SMTPHost)
 	setString(os.Getenv("SMTP_USER"), &cfg.Email.SMTPUser)
+	setString(os.Getenv("SMTP_PASSWORD"), &cfg.Email.SMTPPassword)
 	setString(os.Getenv("SMTP_PASS"), &cfg.Email.SMTPPassword)
 	setInt(os.Getenv("SMTP_PORT"), &cfg.Email.SMTPPort)
 	setString(os.Getenv("SIGN_EMAIL_TOKEN_PEPPER"), &cfg.SignEmailTokenPepper)
