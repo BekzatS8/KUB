@@ -12,15 +12,20 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 
 FROM alpine:3.19
 WORKDIR /opt/turcompany
+
 RUN apk add --no-cache ca-certificates tzdata postgresql-client && update-ca-certificates
 RUN addgroup -S app && adduser -S -G app -h /opt/turcompany app
 RUN mkdir -p /opt/turcompany/files /opt/turcompany/config && chown -R app:app /opt/turcompany
+
 COPY --from=builder /out/turcompany /usr/local/bin/turcompany
 COPY assets ./assets
+
 COPY bin/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+
 USER app
 ENV GIN_MODE=release
 EXPOSE 4000
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]
 CMD ["/usr/local/bin/turcompany"]
