@@ -8,7 +8,7 @@
     "bearer": [
       {
         "key": "token",
-        "value": "{{accessToken}}",
+        "value": "{{access_token}}",
         "type": "string"
       }
     ]
@@ -1493,7 +1493,7 @@
       ]
     },
     {
-      "name": "Signing (Email)",
+      "name": "Manager (auth required)",
       "item": [
         {
           "name": "Start Signing (Email)",
@@ -1541,7 +1541,15 @@
               ]
             }
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "Signer (noauth)",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
         {
           "name": "Verify Email Token",
           "request": {
@@ -1604,13 +1612,17 @@
                 "exec": [
                   "if (pm.response.code === 200) {",
                   "  const data = pm.response.json();",
+                  "  if (data?.email_token) pm.environment.set('email_token', data.email_token);",
                   "  if (data?.session_id) pm.environment.set('sign_session_id', String(data.session_id));",
                   "  if (data?.session_token) pm.environment.set('session_token', data.session_token);",
                   "}"
                 ]
               }
             }
-          ]
+          ],
+          "auth": {
+            "type": "noauth"
+          }
         },
         {
           "name": "Serve Sign Page",

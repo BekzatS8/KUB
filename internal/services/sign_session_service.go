@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -376,6 +377,10 @@ func (s *SignSessionService) isExpired(session *models.SignSession) bool {
 }
 
 func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID int64, token string) (*models.SignSession, error) {
+	token = normalizeSessionToken(token)
+	if token == "" {
+		return nil, ErrSignSessionInvalidToken
+	}
 	session, err := s.repo.GetByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -413,6 +418,10 @@ func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID in
 }
 
 func (s *SignSessionService) getByToken(ctx context.Context, token string) (*models.SignSession, error) {
+	token = normalizeSessionToken(token)
+	if token == "" {
+		return nil, ErrSignSessionNotFound
+	}
 	hash := hashToken(token)
 	session, err := s.repo.GetByTokenHash(ctx, hash)
 	if err != nil {
@@ -435,6 +444,17 @@ func generateToken() (string, string, error) {
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	hash := hashToken(token)
 	return token, hash, nil
+}
+
+func normalizeSessionToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return ""
+	}
+	if decoded, err := url.QueryUnescape(token); err == nil {
+		token = strings.TrimSpace(decoded)
+	}
+	return token
 }
 
 func hashToken(token string) string {

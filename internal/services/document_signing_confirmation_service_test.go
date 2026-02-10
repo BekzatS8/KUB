@@ -621,3 +621,45 @@ func hashTokenForTest(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+func TestValidateEmailTokenExpiredReturnsError(t *testing.T) {
+	now := func() time.Time { return time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC) }
+	repo := newFakeSignatureConfirmRepo(now)
+	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 91, DocType: "contract", Status: "approved"}}
+	token := "expired-token"
+	tokenHash := hashConfirmTokenWithPepper(token, "pep")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	_, _ = repo.CreatePending(context.Background(), 91, 9, "email", &codeHash, &tokenHash, now().Add(-time.Minute), nil)
+
+	service := &DocumentSigningConfirmationService{repo: repo, docRepo: docRepo, tokenPepper: "pep", now: now}
+	if _, err := service.ValidateEmailToken(context.Background(), token, "127.0.0.1", "UA"); !errors.Is(err, ErrSignConfirmExpired) {
+		t.Fatalf("expected ErrSignConfirmExpired, got %v", err)
+	}
+}
+
+func TestConfirmByEmailTokenTooManyAttempts(t *testing.T) {
+	now := func() time.Time { return time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC) }
+	repo := newFakeSignatureConfirmRepo(now)
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "doc.pdf"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	docRepo := &fakeSignDocumentRepo{doc: &models.Document{ID: 92, DocType: "contract", Status: "approved", FilePathPdf: "doc.pdf"}}
+	token := "attempt-token"
+	tokenHash := hashConfirmTokenWithPepper(token, "pep")
+	codeHash, err := HashVerificationCode("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	rec, _ := repo.CreatePending(context.Background(), 92, 9, "email", &codeHash, &tokenHash, now().Add(10*time.Minute), nil)
+	rec.Attempts = signConfirmMaxAttempts
+
+	service := &DocumentSigningConfirmationService{repo: repo, docRepo: docRepo, tokenPepper: "pep", filesRoot: tempDir, now: now}
+	_, _, _, _, err = service.ConfirmByEmailToken(context.Background(), 92, token, "123456", "127.0.0.1", "UA")
+	if !errors.Is(err, ErrSignConfirmTooManyTries) {
+		t.Fatalf("expected ErrSignConfirmTooManyTries, got %v", err)
+	}
+}
