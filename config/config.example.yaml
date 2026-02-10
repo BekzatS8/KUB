@@ -1,0 +1,46 @@
+server:
+  port: 4000
+  tz: Asia/Almaty
+
+database:
+  dsn: "postgres://kub_user:REPLACE_DB_PASSWORD@postgres:5432/kub?sslmode=require"
+
+email:
+  smtp_host: "smtp.example.com"
+  smtp_port: 587
+  smtp_user: "noreply@example.com"
+  smtp_password: "REPLACE_SMTP_PASSWORD"
+  from_email: "noreply@example.com"
+  from_name: "KUB"
+
+files:
+  root_dir: "./files"
+
+templates:
+  docx_dir: "assets/templates/docx"
+  xlsx_dir: "assets/templates/xlsx"
+  txt_dir: "assets/templates/txt"
+
+telegram:
+  enable: false
+  bot_token: "REPLACE_TELEGRAM_BOT_TOKEN"
+  webhook_url: "https://example.com/integrations/telegram/webhook"
+
+frontend:
+  host: "https://kubcrm.kz"
+
+cors:
+  allow_origins:
+    - "https://kubcrm.kz"
+  allow_methods: "GET, POST, PUT, DELETE, OPTIONS"
+  allow_headers: "Origin, Content-Type, Authorization"
+  expose_headers: "Content-Disposition, Content-Type, Content-Length"
+
+security:
+  jwt_secret: "REPLACE_WITH_STRONG_32B_PLUS_SECRET"
+
+sign_base_url: "https://kubcrm.kz/sign"
+sign_confirm_policy: "ANY"
+sign_email_verify_base_url: "https://kubcrm.kz"
+sign_email_token_pepper: "REPLACE_SIGN_EMAIL_TOKEN_PEPPER"
+sign_email_ttl_minutes: 30

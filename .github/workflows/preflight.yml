@@ -1,0 +1,63 @@
+name: preflight
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Prepare .env.prod for CI
+        run: |
+          cp .env.example .env.prod
+          {
+            echo "SMOKE_LOGIN_EMAIL="
+            echo "SMOKE_LOGIN_PASSWORD="
+            echo "SKIP_EMAIL_SMOKE=1"
+            echo "TELEGRAM_ENABLE=false"
+          } >> .env.prod
+
+      - name: Preflight dry-run
+        run: DRY_RUN=1 ./scripts/preflight.sh
+
+      - name: Start prod stack
+        run: docker compose -f docker-compose.prod.yml --profile db up -d --build
+
+      - name: Health smoke
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:4000/healthz >/dev/null; then
+              echo "healthz OK"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "healthz failed"
+          exit 1
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --no-color > preflight-compose.log
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-compose-logs
+          path: preflight-compose.log
+
+      - name: Shutdown stack
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v

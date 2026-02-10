@@ -1,4 +1,4 @@
-.PHONY: build run test docker-build docker-up prepare-dirs up-prod down-prod logs migrate up-dev down-dev logs-dev psql
+.PHONY: build run test docker-build docker-up prepare-dirs preflight smoke prod-up prod-down logs db-psql migrate up-dev down-dev logs-dev up-prod down-prod psql
 
 BIN_DIR ?= bin
 BINARY ?= $(BIN_DIR)/turcompany
@@ -25,14 +25,23 @@ docker-build:
 docker-up:
 	docker-compose up -d
 
-up-prod:
+preflight:
+	./scripts/preflight.sh
+
+smoke:
+	SMOKE_ONLY=1 ./scripts/preflight.sh
+
+prod-up:
 	$(COMPOSE_PROD) --profile db up -d --build
 
-down-prod:
+prod-down:
 	$(COMPOSE_PROD) down
 
 logs:
 	$(COMPOSE_PROD) logs -f --tail=200
+
+db-psql:
+	$(COMPOSE_PROD) exec postgres psql -U $${POSTGRES_USER:-turcompany} -d $${POSTGRES_DB:-turcompany}
 
 migrate:
 	$(COMPOSE_PROD) run --rm migrate
@@ -46,5 +55,9 @@ down-dev:
 logs-dev:
 	$(COMPOSE_DEV) logs -f --tail=200
 
-psql:
-	$(COMPOSE_DEV) exec postgres psql -U $${POSTGRES_USER:-turcompany} -d $${POSTGRES_DB:-turcompany}
+# backward-compatible aliases
+up-prod: prod-up
+
+down-prod: prod-down
+
+psql: db-psql
