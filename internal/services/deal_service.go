@@ -121,8 +121,8 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		}
 	}
 
-	// 6) Тут дальше будет реальное обновление в БД
-	return errors.New("not implemented")
+	// 6) Сохраняем изменения в БД
+	return s.Repo.Update(deal)
 }
 
 func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error) {
