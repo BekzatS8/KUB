@@ -102,6 +102,7 @@ func Run() {
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
 	signSessionRepo := repositories.NewSignSessionRepository(db)
 	signatureConfirmRepo := repositories.NewSignatureConfirmationRepository(db)
+	publicDocLinkRepo := repositories.NewPublicDocumentLinkRepository(db)
 
 	// === Services (общие) ===
 	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
@@ -203,6 +204,17 @@ func Run() {
 	if gin.Mode() != gin.ReleaseMode {
 		signConfirmService.EnableDebug(os.Getenv("DEBUG_KEY"))
 	}
+	publicSignService := services.NewPublicDocumentSigningService(
+		publicDocLinkRepo,
+		documentService,
+		documentRepo,
+		services.PublicDocumentSigningConfig{
+			BaseURL:     cfg.PublicBaseURL,
+			TokenPepper: cfg.SignPublicTokenPepper,
+			TTLMinutes:  cfg.SignEmailTTLMinutes,
+		},
+		nil,
+	)
 	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
 		userService,
@@ -237,6 +249,8 @@ func Run() {
 
 	verifyHandler := handlers.NewVerifyHandler(userVerificationService)
 	signHandler := handlers.NewSignSessionHandler(signSessionService)
+	publicSignHandler := handlers.NewPublicDocumentSigningHandler(publicSignService)
+	docPublicLinkHandler := handlers.NewDocumentPublicLinkHandler(publicSignService)
 	reportHandler := handlers.NewReportHandler(reportService)
 
 	// timezone
@@ -295,6 +309,8 @@ func Run() {
 		verifyHandler,
 		integrationsHandler,
 		chatHandler,
+		publicSignHandler,
+		docPublicLinkHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

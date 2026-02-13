@@ -205,3 +205,18 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 	}
 	return res, rows.Err()
 }
+
+func (r *DocumentRepository) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {
+	_, err := r.db.Exec(`
+		UPDATE documents
+		SET sign_method = NULLIF($1, ''),
+		    sign_ip = NULLIF($2, ''),
+		    sign_user_agent = NULLIF($3, ''),
+		    sign_metadata = NULLIF($4, '')
+		WHERE id = $5
+	`, signMethod, signIP, signUserAgent, signMetadata, id)
+	if err != nil {
+		return fmt.Errorf("update signing meta: %w", err)
+	}
+	return nil
+}
