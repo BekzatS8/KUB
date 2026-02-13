@@ -33,3 +33,47 @@
 2) Auth -> Login (сохранит `accessToken`/`refreshToken`).
 3) Используйте разделы Users/Clients/Leads/Deals/Documents/Tasks/Chats/Reports для проверки всего API.
 4) Для файловых ручек (`documents/upload`, `chats/{id}/upload`) заполните `uploadFile`.
+
+## Signing (Public Link)
+
+1) Generate Public Sign Link  
+`POST {{baseUrl}}/documents/{{documentId}}/generate-sign-link`
+
+Пример Tests:
+```js
+const json = pm.response.json();
+pm.environment.set("public_sign_url", json.url || "");
+if (json.url) {
+  const token = json.url.split("/public/documents/")[1] || "";
+  pm.environment.set("public_token", token);
+}
+```
+
+2) Public Get Document  
+`GET {{baseUrl}}/public/documents/{{public_token}}`
+
+3) Public Sign Document  
+`POST {{baseUrl}}/public/documents/{{public_token}}/sign`
+
+Body:
+```json
+{
+  "signer_name": "Ivan Client",
+  "signer_email": "client@example.com",
+  "signer_phone": "+77010000000",
+  "signature": "base64-or-svg-signature"
+}
+```
+
+## Ручной чек-лист (Public Link)
+
+1) Auth -> Login (получить `accessToken`)  
+2) Documents -> Create from Client (получить `documentId`)  
+3) Documents -> Submit  
+4) Documents -> Review (approve)  
+5) Signing (Public Link) -> Generate Public Sign Link (сохранить `public_token`)  
+6) Signing (Public Link) -> Public Get Document  
+7) Signing (Public Link) -> Public Sign Document  
+8) Documents -> Get by ID: проверить `status=signed`, `sign_method=public_link`, `sign_metadata.signed_by=client`.
+
+Дополнительно: проверить в БД `audit_logs`, что mutating запрос `POST /public/documents/:token/sign` зафиксирован audit middleware.

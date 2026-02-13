@@ -82,10 +82,12 @@ type Config struct {
 	Security SecurityConfig `yaml:"security"`
 
 	SignBaseURL            string `yaml:"sign_base_url"`
+	PublicBaseURL          string `yaml:"public_base_url"`
 	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
 	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
 	SignEmailTTLMinutes    int    `yaml:"sign_email_ttl_minutes"`
 	SignEmailTokenPepper   string `yaml:"sign_email_token_pepper"`
+	SignPublicTokenPepper  string `yaml:"sign_public_token_pepper"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -312,8 +314,14 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.SignBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignBaseURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/sign"
 	}
+	if strings.TrimSpace(cfg.PublicBaseURL) == "" && cfg.Frontend.Host != "" {
+		cfg.PublicBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
+	}
 	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
+	}
+	if strings.TrimSpace(cfg.SignPublicTokenPepper) == "" {
+		cfg.SignPublicTokenPepper = cfg.SignEmailTokenPepper
 	}
 	if cfg.SignEmailTTLMinutes <= 0 {
 		cfg.SignEmailTTLMinutes = 30
@@ -335,6 +343,8 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 	setString(os.Getenv("SIGN_BASE_URL"), &cfg.SignBaseURL)
+	setString(os.Getenv("PUBLIC_BASE_URL"), &cfg.PublicBaseURL)
+	setString(os.Getenv("SIGN_PUBLIC_BASE_URL"), &cfg.PublicBaseURL)
 	setString(os.Getenv("SIGN_CONFIRM_POLICY"), &cfg.SignConfirmPolicy)
 	setString(os.Getenv("EMAIL_FROM"), &cfg.Email.FromEmail)
 	setString(os.Getenv("SMTP_FROM"), &cfg.Email.FromEmail)
@@ -345,6 +355,7 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SMTP_PASS"), &cfg.Email.SMTPPassword)
 	setInt(os.Getenv("SMTP_PORT"), &cfg.Email.SMTPPort)
 	setString(os.Getenv("SIGN_EMAIL_TOKEN_PEPPER"), &cfg.SignEmailTokenPepper)
+	setString(os.Getenv("SIGN_PUBLIC_TOKEN_PEPPER"), &cfg.SignPublicTokenPepper)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
 	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
 	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)

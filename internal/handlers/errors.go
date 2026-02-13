@@ -27,6 +27,7 @@ const (
 	UnsupportedDocType = "UNSUPPORTED_DOC_TYPE"
 	InvalidStatusCode  = "INVALID_STATUS"
 	ValidationFailed   = "VALIDATION_FAILED"
+	ExpiredCode        = "EXPIRED"
 )
 
 func writeError(c *gin.Context, status int, code string, msg string) {
@@ -58,4 +59,11 @@ func conflict(c *gin.Context, domainCode string, msg string) {
 
 func internalError(c *gin.Context, msg string) {
 	writeError(c, http.StatusInternalServerError, InternalErrorCode, msg)
+}
+
+func gone(c *gin.Context, code string, msg string) {
+	if code == "" {
+		code = ExpiredCode
+	}
+	writeError(c, http.StatusGone, code, msg)
 }

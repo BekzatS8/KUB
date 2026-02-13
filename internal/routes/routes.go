@@ -26,6 +26,8 @@ func SetupRoutes(
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
+	publicSignHandler *handlers.PublicDocumentSigningHandler,
+	docPublicLinkHandler *handlers.DocumentPublicLinkHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -65,6 +67,13 @@ func SetupRoutes(
 	}
 	if telegramSignHandler != nil {
 		r.POST("/telegram/webhook", telegramSignHandler.Handle)
+	}
+	if publicSignHandler != nil {
+		publicDocs := r.Group("/public/documents")
+		{
+			publicDocs.GET("/:token", publicSignHandler.GetDocument)
+			publicDocs.POST("/:token/sign", publicSignHandler.SignDocument)
+		}
 	}
 
 	// PUBLIC: Telegram webhook (без JWT!)
@@ -186,6 +195,9 @@ func SetupRoutes(
 		if signConfirmHandler != nil {
 			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
 			docs.GET("/:id/sign/status", signConfirmHandler.Status)
+			if docPublicLinkHandler != nil {
+				docs.POST("/:id/generate-sign-link", docPublicLinkHandler.GenerateSignLink)
+			}
 		}
 	}
 
