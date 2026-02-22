@@ -631,7 +631,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('clientId', data.id); }"
+                  "pm.test(\"create client ok\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "const j = pm.response.json();",
+                  "pm.environment.set(\"client_id\", j.id || j.data?.id || j.data?.client?.id);",
+                  "pm.environment.set(\"clientId\", j.id || j.data?.id || j.data?.client?.id);"
                 ],
                 "type": "text/javascript"
               }
@@ -647,12 +650,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"iin\": \"{{clientIin}}\",\n  \"phone\": \"{{clientPhone}}\",\n  \"email\": \"{{clientEmail}}\",\n  \"address\": \"{{clientAddress}}\"\n}"
+              "raw": "{\n  \"country\": \"Poland\",\n  \"trip_purpose\": \"visa\",\n  \"last_name\": \"Ivanova\",\n  \"first_name\": \"Alina\",\n  \"birth_date\": \"2000-01-01\",\n  \"phone\": \"+77001234567\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/clients",
+              "raw": "{{base_url}}/clients",
               "host": [
-                "{{baseUrl}}"
+                "{{base_url}}"
               ],
               "path": [
                 "clients"
@@ -750,6 +753,180 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Client Completeness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}/completeness",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "completeness"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"completeness ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.missing_yellow).to.be.an(\"array\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Client Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "profile"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"profile ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json();",
+                  "pm.expect(j).to.have.property(\"client\");",
+                  "pm.expect(j).to.have.property(\"completeness\");",
+                  "pm.expect(j).to.have.property(\"files\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload photo35x45",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "photo35x45",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "photo.png"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "View photo35x45",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}/files/primary?category=photo35x45",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files",
+                "primary"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"view ok\", ()=> pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Download photo35x45",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}/files/primary/download?category=photo35x45",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files",
+                "primary",
+                "download"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"download ok\", ()=> pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1430,6 +1607,126 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Create personal_data_consent (NEGATIVE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{client_id}},\n  \"doc_type\": \"personal_data_consent\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "create-from-client"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"negative consent returns 400\", ()=> pm.expect(pm.response.code).to.eql(400));",
+                  "const j = pm.response.json();",
+                  "pm.expect(j.missing_fields).to.be.an(\"array\");",
+                  "pm.expect(j.missing_fields).to.include(\"id_number\");",
+                  "pm.expect(j.missing_fields).to.include(\"passport_number\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update client minimal for consent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"iin\": \"001122334455\",\n  \"id_number\": \"123456789\",\n  \"passport_number\": \"N1234567\",\n  \"registration_address\": \"KZ, ...\",\n  \"actual_address\": \"KZ, ...\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/clients/{{client_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"update ok\", ()=> pm.expect(pm.response.code).to.be.oneOf([200,201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create personal_data_consent (POSITIVE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{client_id}},\n  \"doc_type\": \"personal_data_consent\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "create-from-client"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"positive consent ok\", ()=> pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+                  "const j = pm.response.json();",
+                  "pm.environment.set(\"doc_id\", j.id || j.data?.id || j.data?.document?.id);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2596,9 +2893,35 @@
     "bearer": [
       {
         "key": "token",
-        "value": "{{accessToken}}",
+        "value": "{{token}}",
         "type": "string"
       }
     ]
-  }
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "client_id",
+      "value": ""
+    },
+    {
+      "key": "baseUrl",
+      "value": "{{base_url}}"
+    },
+    {
+      "key": "clientId",
+      "value": "{{client_id}}"
+    },
+    {
+      "key": "accessToken",
+      "value": "{{token}}"
+    }
+  ]
 }
