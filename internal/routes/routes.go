@@ -13,6 +13,8 @@ func SetupRoutes(
 	r *gin.Engine,
 	userHandler *handlers.UserHandler,
 	clientHandler *handlers.ClientHandler,
+	clientFilesHandler *handlers.ClientFilesHandler,
+	clientProfileHandler *handlers.ClientProfileHandler,
 	roleHandler *handlers.RoleHandler,
 	leadHandler *handlers.LeadHandler,
 	dealHandler *handlers.DealHandler,
@@ -134,6 +136,15 @@ func SetupRoutes(
 		clients.GET("", clientHandler.List)
 		clients.GET("/my", clientHandler.ListMy)
 		clients.PUT("/:id", clientHandler.Update)
+		clients.GET("/:id/completeness", clientHandler.GetCompleteness)
+		if clientProfileHandler != nil {
+			clients.GET("/:id/profile", clientProfileHandler.GetProfile)
+		}
+		if clientFilesHandler != nil {
+			clients.POST("/:id/files", clientFilesHandler.Upload)
+			clients.GET("/:id/files/primary", clientFilesHandler.ServePrimaryInline)
+			clients.GET("/:id/files/primary/download", clientFilesHandler.ServePrimaryDownload)
+		}
 		clients.GET("/:id", clientHandler.GetByID)
 	}
 

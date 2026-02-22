@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -267,6 +268,14 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 		req.Extra,
 	)
 	if err != nil {
+		var missingErr *services.MissingFieldsError
+		if errors.As(err, &missingErr) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":          "missing required client fields for document",
+				"missing_fields": missingErr.Fields,
+			})
+			return
+		}
 		switch err.Error() {
 		case "client not found":
 			notFound(c, ClientNotFoundCode, "Client not found")

@@ -815,6 +815,11 @@ func (s *DocumentService) CreateDocumentFromClient(
 		return nil, errors.New("client not found")
 	}
 
+	missing := validateClientFieldsForDocType(docType, client)
+	if len(missing) > 0 {
+		return nil, &MissingFieldsError{Fields: missing}
+	}
+
 	// --- Нужна ли сделка? ---
 	needDeal := false
 	if hasTxt && txtCfg.NeedsDeal {
@@ -1015,6 +1020,57 @@ func (s *DocumentService) CreateDocumentFromClient(
 	}
 	doc.ID = id
 	return doc, nil
+}
+
+func validateClientFieldsForDocType(docType string, c *models.Client) (missing []string) {
+	if c == nil {
+		return []string{"last_name", "first_name", "iin", "bin_iin", "address", "phone"}
+	}
+
+	requireCommon := false
+	requireConsent := false
+	switch docType {
+	case "contract_full", "contract_50_50", "additional_agreement", "refund_receipt_full", "refund_receipt_partial", "refund_application", "pause_application", "personal_data_excel":
+		requireCommon = true
+	case "personal_data_consent":
+		requireConsent = true
+	default:
+		return nil
+	}
+
+	add := func(field string) {
+		for _, ex := range missing {
+			if ex == field {
+				return
+			}
+		}
+		missing = append(missing, field)
+	}
+
+	hasName := strings.TrimSpace(c.Name) != "" || (strings.TrimSpace(c.LastName) != "" && strings.TrimSpace(c.FirstName) != "")
+	if !hasName {
+		add("last_name")
+		add("first_name")
+	}
+	if strings.TrimSpace(c.IIN) == "" && strings.TrimSpace(c.BinIin) == "" {
+		add("iin")
+		add("bin_iin")
+	}
+	if strings.TrimSpace(c.Address) == "" && strings.TrimSpace(c.ActualAddress) == "" && strings.TrimSpace(c.RegistrationAddress) == "" {
+		add("address")
+	}
+	if requireCommon && strings.TrimSpace(c.Phone) == "" {
+		add("phone")
+	}
+	if requireConsent {
+		if strings.TrimSpace(c.IDNumber) == "" {
+			add("id_number")
+		}
+		if strings.TrimSpace(c.PassportNumber) == "" {
+			add("passport_number")
+		}
+	}
+	return missing
 }
 
 // ================== helpers ==================

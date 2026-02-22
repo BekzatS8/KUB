@@ -94,6 +94,7 @@ func Run() {
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
 	clientRepo := repositories.NewClientRepository(db)
+	clientFileRepo := repositories.NewClientFileRepository(db)
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
 	verifRepo := repositories.NewUserVerificationRepository(db)
@@ -141,7 +142,8 @@ func Run() {
 
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
-	clientService := services.NewClientService(clientRepo)
+	clientService := services.NewClientService(clientRepo, clientFileRepo)
+	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir)
@@ -234,6 +236,8 @@ func Run() {
 	roleHandler := handlers.NewRoleHandler(roleService)
 	userHandler := handlers.NewUserHandler(userService, userVerificationService)
 	clientHandler := handlers.NewClientHandler(clientService)
+	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService)
+	clientProfileHandler := handlers.NewClientProfileHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
 	documentHandler := handlers.NewDocumentHandler(documentService)
@@ -296,6 +300,8 @@ func Run() {
 		router,
 		userHandler,
 		clientHandler,
+		clientFilesHandler,
+		clientProfileHandler,
 		roleHandler,
 		leadHandler,
 		dealHandler,

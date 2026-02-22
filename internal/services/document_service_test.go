@@ -138,7 +138,7 @@ func (g *fakeXlsxGen) GenerateFromTemplate(templateName string, placeholders map
 func TestCreateDocumentFromClient(t *testing.T) {
 	t.Helper()
 
-	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth"}
+	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000", IDNumber: "ID-1", PassportNumber: "P-1"}
 	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99}
 
 	tests := []struct {
@@ -222,6 +222,7 @@ func TestCreateDocumentFromClient(t *testing.T) {
 						RegistrationAddress: "Main st",
 						ActualAddress:       "Home",
 						IIN:                 "123",
+						Phone:               "+77770000000",
 					},
 				}
 				deals.deals = map[int]*models.Deals{deal.ID: deal}
@@ -278,7 +279,7 @@ func TestCreateDocumentFromClient(t *testing.T) {
 func TestCreateDocumentFromClientErrors(t *testing.T) {
 	t.Helper()
 
-	baseClient := &models.Client{ID: 1}
+	baseClient := &models.Client{ID: 1, Name: "Test", IIN: "123", Phone: "+777", Address: "addr", IDNumber: "id", PassportNumber: "pp"}
 	baseDeal := &models.Deals{ID: 2, ClientID: baseClient.ID, OwnerID: 1}
 
 	newService := func(docRepo *fakeDocumentRepo, dealRepo *fakeDealRepo, clientRepo *fakeClientRepo) *DocumentService {

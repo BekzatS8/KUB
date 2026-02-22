@@ -125,7 +125,7 @@ func withUser(roleID, userID int) gin.HandlerFunc {
 func TestDocumentHandler_CreateDocumentFromClient_Success(t *testing.T) {
 	docRepo := &fakeDocumentRepo{}
 	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{2: {ID: 2, ClientID: 1, OwnerID: 10}}}
-	clientRepo := &fakeClientRepo{clients: map[int]*models.Client{1: {ID: 1, Name: "Acme"}}}
+	clientRepo := &fakeClientRepo{clients: map[int]*models.Client{1: {ID: 1, Name: "Acme", BinIin: "123456789012", Phone: "+77770000000", Address: "Main st"}}}
 	docxGen := &fakeDocxGen{}
 
 	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, "", "", &fakePDFGen{}, docxGen, &fakeXlsxGen{})
