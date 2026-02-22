@@ -15,4 +15,9 @@ var (
 	ErrAmountInvalid    = errors.New("amount must be greater than 0")
 	ErrDealNotFound     = errors.New("deal not found")
 	ErrClientNotFound   = errors.New("client not found")
+
+	ErrUnsupportedClientFileCategory  = errors.New("unsupported client file category")
+	ErrUnsupportedClientFileExtension = errors.New("unsupported client file extension")
+	ErrClientFilePathTraversal        = errors.New("invalid client file path")
+	ErrFileRequired                   = errors.New("file is required")
 )

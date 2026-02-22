@@ -93,6 +93,30 @@ func buildClientPlaceholders(
 		ph["CLIENT_BIN_IIN"] = strings.TrimSpace(client.BinIin) // если где-то нужен именно BIN_IIN
 	}
 
+	if client != nil {
+		ph["CLIENT_COUNTRY"] = strings.TrimSpace(client.Country)
+		ph["CLIENT_TRIP_PURPOSE"] = strings.TrimSpace(client.TripPurpose)
+		if client.BirthDate != nil {
+			ph["CLIENT_BIRTH_DATE"] = client.BirthDate.Format("2006-01-02")
+		} else {
+			ph["CLIENT_BIRTH_DATE"] = ""
+		}
+		ph["CLIENT_BIRTH_PLACE"] = strings.TrimSpace(client.BirthPlace)
+		ph["CLIENT_CITIZENSHIP"] = strings.TrimSpace(client.Citizenship)
+		ph["CLIENT_SEX"] = strings.TrimSpace(client.Sex)
+		ph["CLIENT_MARITAL_STATUS"] = strings.TrimSpace(client.MaritalStatus)
+		if client.PassportIssueDate != nil {
+			ph["CLIENT_PASSPORT_ISSUE_DATE"] = client.PassportIssueDate.Format("2006-01-02")
+		} else {
+			ph["CLIENT_PASSPORT_ISSUE_DATE"] = ""
+		}
+		if client.PassportExpireDate != nil {
+			ph["CLIENT_PASSPORT_EXPIRE_DATE"] = client.PassportExpireDate.Format("2006-01-02")
+		} else {
+			ph["CLIENT_PASSPORT_EXPIRE_DATE"] = ""
+		}
+	}
+
 	// --- ПАСПОРТ / УДОСТОВЕРЕНИЕ ---
 	if client != nil {
 		ph["CLIENT_ID_NUMBER"] = strings.TrimSpace(client.IDNumber) // номер удост-ния
