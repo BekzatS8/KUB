@@ -30,6 +30,7 @@ func SetupRoutes(
 	chatHandler *handlers.ChatHandler,
 	publicSignHandler *handlers.PublicDocumentSigningHandler,
 	docPublicLinkHandler *handlers.DocumentPublicLinkHandler,
+	wazzupHandler *handlers.WazzupHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -83,6 +84,10 @@ func SetupRoutes(
 		r.POST("/integrations/telegram/webhook", integrationsHandler.Webhook)
 	}
 
+	if wazzupHandler != nil {
+		r.POST("/integrations/wazzup/webhook/:token", wazzupHandler.Webhook)
+	}
+
 	// =====================
 	// PROTECTED (JWT)
 	// =====================
@@ -113,6 +118,14 @@ func SetupRoutes(
 		{
 			integr.GET("/telegram/link", integrationsHandler.ConfirmLink)
 			integr.POST("/telegram/request-link", integrationsHandler.RequestTelegramLink)
+		}
+	}
+
+	if wazzupHandler != nil {
+		wazzup := r.Group("/integrations/wazzup")
+		{
+			wazzup.POST("/setup", wazzupHandler.Setup)
+			wazzup.POST("/iframe", wazzupHandler.Iframe)
 		}
 	}
 

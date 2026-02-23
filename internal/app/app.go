@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 	"turcompany/internal/docx"
+	wazzupintegration "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/xlsx"
 
 	"github.com/gin-gonic/gin"
@@ -104,6 +105,7 @@ func Run() {
 	signSessionRepo := repositories.NewSignSessionRepository(db)
 	signatureConfirmRepo := repositories.NewSignatureConfirmationRepository(db)
 	publicDocLinkRepo := repositories.NewPublicDocumentLinkRepository(db)
+	wazzupRepo := repositories.NewWazzupRepository(db)
 
 	// === Services (общие) ===
 	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
@@ -119,6 +121,7 @@ func Run() {
 	var (
 		tgSvc               *services.TelegramService
 		integrationsHandler *handlers.IntegrationsHandler
+		wazzupHandler       *handlers.WazzupHandler
 	)
 
 	// Telegram
@@ -256,6 +259,9 @@ func Run() {
 	publicSignHandler := handlers.NewPublicDocumentSigningHandler(publicSignService)
 	docPublicLinkHandler := handlers.NewDocumentPublicLinkHandler(publicSignService)
 	reportHandler := handlers.NewReportHandler(reportService)
+	wazzupClient := wazzupintegration.NewHTTPClientFromEnv()
+	wazzupService := wazzupintegration.NewService(wazzupRepo, wazzupClient)
+	wazzupHandler = handlers.NewWazzupHandler(wazzupService)
 
 	// timezone
 	var loc *time.Location
@@ -317,6 +323,7 @@ func Run() {
 		chatHandler,
 		publicSignHandler,
 		docPublicLinkHandler,
+		wazzupHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
