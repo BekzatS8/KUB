@@ -9,11 +9,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	wz "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 )
 
 func TestWazzupWebhook_Unauthorized(t *testing.T) {
@@ -188,6 +190,83 @@ func TestWazzupIframe_InternalErrorReturns500(t *testing.T) {
 	}
 }
 
+func TestWazzupCRMUsers_OK(t *testing.T) {
+	repo := &wazzupRepoFake{
+		integrationByToken: map[string]*models.WazzupIntegration{"tok": {ID: 1, Enabled: true}},
+		crmUsers: []repoCRMUserDTO{{
+			ID: 2, Name: "admin@kubcrm.kz", Email: "admin@kubcrm.kz", Phone: "", Active: true,
+		}},
+	}
+	h := NewWazzupHandlerWithRepo(wazzupServiceStub{}, repo)
+	r := gin.New()
+	r.GET("/integrations/wazzup/crm/:token/users", h.CRMUsers)
+
+	req := httptest.NewRequest(http.MethodGet, "/integrations/wazzup/crm/tok/users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"id":"2"`) || !strings.Contains(body, `"users"`) {
+		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestWazzupCRMUsers_NotFoundByToken(t *testing.T) {
+	repo := &wazzupRepoFake{integrationByToken: map[string]*models.WazzupIntegration{}}
+	h := NewWazzupHandlerWithRepo(wazzupServiceStub{}, repo)
+	r := gin.New()
+	r.GET("/integrations/wazzup/crm/:token/users", h.CRMUsers)
+
+	req := httptest.NewRequest(http.MethodGet, "/integrations/wazzup/crm/bad/users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestWazzupCRMUserByID_OK(t *testing.T) {
+	repo := &wazzupRepoFake{
+		integrationByToken: map[string]*models.WazzupIntegration{"tok": {ID: 1, Enabled: true}},
+		crmUserByID: map[int]repoCRMUserDTO{
+			2: {ID: 2, Name: "admin@kubcrm.kz", Email: "admin@kubcrm.kz", Phone: "", Active: true},
+		},
+	}
+	h := NewWazzupHandlerWithRepo(wazzupServiceStub{}, repo)
+	r := gin.New()
+	r.GET("/integrations/wazzup/crm/:token/users/:id", h.CRMUserByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/integrations/wazzup/crm/tok/users/2", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"id":"2"`) {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestWazzupCRMUserByID_NotFoundByToken(t *testing.T) {
+	repo := &wazzupRepoFake{integrationByToken: map[string]*models.WazzupIntegration{}}
+	h := NewWazzupHandlerWithRepo(wazzupServiceStub{}, repo)
+	r := gin.New()
+	r.GET("/integrations/wazzup/crm/:token/users/:id", h.CRMUserByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/integrations/wazzup/crm/bad/users/2", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 type wazzupServiceStub struct {
 	handleWebhookFn func(ctx context.Context, token string, authHeader string, payload []byte) (int, bool, error)
 	setupFn         func(ctx context.Context, ownerUserID int, webhooksBaseURL string, apiKey string, enabled bool) (*wz.SetupResponse, error)
@@ -221,15 +300,47 @@ func (f *wazzupClientFake) CreateIframe(ctx context.Context, apiKey string, owne
 }
 
 type wazzupRepoFake struct {
-	integration     *models.WazzupIntegration
-	dedup           map[string]struct{}
-	leadByPhone     map[string]int
-	nextLeadID      int
-	createLeadCalls int
+	integration        *models.WazzupIntegration
+	integrationByToken map[string]*models.WazzupIntegration
+	crmUsers           []repoCRMUserDTO
+	crmUserByID        map[int]repoCRMUserDTO
+	dedup              map[string]struct{}
+	leadByPhone        map[string]int
+	nextLeadID         int
+	createLeadCalls    int
+}
+
+type repoCRMUserDTO struct {
+	ID     int
+	Name   string
+	Email  string
+	Phone  string
+	Active bool
 }
 
 func (f *wazzupRepoFake) GetIntegrationByToken(ctx context.Context, token string) (*models.WazzupIntegration, error) {
+	if f.integrationByToken != nil {
+		return f.integrationByToken[token], nil
+	}
 	return f.integration, nil
+}
+func (f *wazzupRepoFake) ListCRMUsers(ctx context.Context) ([]repositories.CRMUserDTO, error) {
+	out := make([]repositories.CRMUserDTO, 0, len(f.crmUsers))
+	for _, u := range f.crmUsers {
+		out = append(out, repositories.CRMUserDTO{ID: u.ID, Name: u.Name, Email: u.Email, Phone: u.Phone, Active: u.Active})
+	}
+	return out, nil
+}
+func (f *wazzupRepoFake) GetCRMUserByID(ctx context.Context, id int) (*repositories.CRMUserDTO, error) {
+	if f.crmUserByID == nil {
+		return nil, nil
+	}
+	u, ok := f.crmUserByID[id]
+	if !ok {
+		return nil, nil
+	}
+	out := &repositories.CRMUserDTO{ID: u.ID, Name: u.Name, Email: u.Email, Phone: u.Phone, Active: u.Active}
+	return out, nil
 }
 func (f *wazzupRepoFake) GetIntegrationByOwnerUserID(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error) {
 	return f.integration, nil

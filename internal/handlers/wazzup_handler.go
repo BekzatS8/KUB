@@ -7,12 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
 	wz "turcompany/internal/integrations/wazzup"
+	"turcompany/internal/repositories"
 )
 
 type WazzupService interface {
@@ -22,11 +24,16 @@ type WazzupService interface {
 }
 
 type WazzupHandler struct {
-	svc WazzupService
+	svc  WazzupService
+	repo repositories.WazzupRepository
 }
 
 func NewWazzupHandler(svc WazzupService) *WazzupHandler {
 	return &WazzupHandler{svc: svc}
+}
+
+func NewWazzupHandlerWithRepo(svc WazzupService, repo repositories.WazzupRepository) *WazzupHandler {
+	return &WazzupHandler{svc: svc, repo: repo}
 }
 
 type wazzupSetupRequest struct {
@@ -153,6 +160,88 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"iframe_url": url})
+}
+
+func (h *WazzupHandler) CRMUsers(c *gin.Context) {
+	if h.repo == nil {
+		internalError(c, "crm users repository is not configured")
+		return
+	}
+	token := strings.TrimSpace(c.Param("token"))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	integration, err := h.repo.GetIntegrationByToken(ctx, token)
+	if err != nil {
+		internalError(c, "failed to resolve integration")
+		return
+	}
+	if integration == nil {
+		notFound(c, "wazzup_integration_not_found", "Integration not found")
+		return
+	}
+
+	users, err := h.repo.ListCRMUsers(ctx)
+	if err != nil {
+		internalError(c, "failed to list users")
+		return
+	}
+	log.Printf("[WAZZUP][crm-users] token=%s count=%d", tokenPrefix(token), len(users))
+
+	out := make([]gin.H, 0, len(users))
+	for _, u := range users {
+		out = append(out, gin.H{
+			"id":     strconv.Itoa(u.ID),
+			"name":   u.Name,
+			"email":  u.Email,
+			"phone":  u.Phone,
+			"active": u.Active,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"users": out})
+}
+
+func (h *WazzupHandler) CRMUserByID(c *gin.Context) {
+	if h.repo == nil {
+		internalError(c, "crm users repository is not configured")
+		return
+	}
+	token := strings.TrimSpace(c.Param("token"))
+	userID, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
+	if err != nil || userID <= 0 {
+		notFound(c, "user_not_found", "User not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	integration, err := h.repo.GetIntegrationByToken(ctx, token)
+	if err != nil {
+		internalError(c, "failed to resolve integration")
+		return
+	}
+	if integration == nil {
+		notFound(c, "wazzup_integration_not_found", "Integration not found")
+		return
+	}
+
+	u, err := h.repo.GetCRMUserByID(ctx, userID)
+	if err != nil {
+		internalError(c, "failed to get user")
+		return
+	}
+	if u == nil {
+		notFound(c, "user_not_found", "User not found")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":     strconv.Itoa(u.ID),
+		"name":   u.Name,
+		"email":  u.Email,
+		"phone":  u.Phone,
+		"active": u.Active,
+	})
 }
 
 func tokenPrefix(token string) string {

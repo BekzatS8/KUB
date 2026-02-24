@@ -261,7 +261,7 @@ func Run() {
 	reportHandler := handlers.NewReportHandler(reportService)
 	wazzupClient := wazzupintegration.NewHTTPClientFromEnv()
 	wazzupService := wazzupintegration.NewService(wazzupRepo, wazzupClient)
-	wazzupHandler = handlers.NewWazzupHandler(wazzupService)
+	wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
 
 	// timezone
 	var loc *time.Location
