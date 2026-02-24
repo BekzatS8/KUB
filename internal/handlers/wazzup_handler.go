@@ -19,7 +19,7 @@ import (
 
 type WazzupService interface {
 	Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, apiKey string, enabled bool) (*wz.SetupResponse, error)
-	GetIframeURL(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error)
+	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error)
 	HandleWebhook(ctx context.Context, token string, authHeader string, payload []byte) (leadID int, created bool, err error)
 }
 
@@ -131,6 +131,10 @@ func (h *WazzupHandler) Setup(c *gin.Context) {
 
 func (h *WazzupHandler) Iframe(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
+	companyID, _ := getIntFromCtx(c, "company_id")
+	if companyID == 0 {
+		companyID, _ = getIntFromCtx(c, "tenant_id")
+	}
 	var req wazzupIframeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid payload")
@@ -144,12 +148,26 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		phone = ""
 	}
 
-	url, err := h.svc.GetIframeURL(ctx, userID, phone, req.LeadID, req.ClientID)
+	userName := ""
+	if h.repo != nil {
+		crmUser, repoErr := h.repo.GetCRMUserByID(ctx, userID)
+		if repoErr != nil {
+			internalError(c, "failed to resolve user")
+			return
+		}
+		if crmUser != nil {
+			userName = crmUser.Name
+		}
+	}
+
+	url, err := h.svc.GetIframeURL(ctx, userID, companyID, userName, phone, req.LeadID, req.ClientID)
 	if err != nil {
 		log.Printf("[WAZZUP][iframe] user_id=%d lead_id=%d client_id=%d phone=%q err=%v", userID, req.LeadID, req.ClientID, req.Phone, err)
 		switch {
 		case errors.Is(err, wz.ErrBadRequest):
 			badRequest(c, err.Error())
+		case errors.Is(err, wz.ErrUsersSync):
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Wazzup users sync failed"})
 		case errors.Is(err, wz.ErrNotFound), errors.Is(err, wz.ErrDisabled):
 			notFound(c, "wazzup_integration_not_found", "Integration not found")
 		case errors.Is(err, wz.ErrUpstream):

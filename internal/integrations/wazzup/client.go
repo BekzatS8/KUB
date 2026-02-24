@@ -16,7 +16,18 @@ const defaultBaseURL = "https://api.wazzup24.com"
 
 type Client interface {
 	PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crmKey string) error
-	CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error)
+	UpsertUsers(ctx context.Context, apiKey string, users []UserUpsert) error
+	CreateIframe(ctx context.Context, apiKey string, req CreateIframeRequest) (string, error)
+}
+
+type UserUpsert struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type CreateIframeRequest struct {
+	User  UserUpsert `json:"user"`
+	Scope string     `json:"scope"`
 }
 
 type HTTPClient struct {
@@ -46,20 +57,15 @@ func (c *HTTPClient) PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crm
 	return err
 }
 
-func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error) {
-	payload := map[string]any{
-		"scope": "card",
-		"user": map[string]string{
-			"id": fmt.Sprintf("%d", ownerUserID),
-		},
-		"filter": []map[string]string{{
-			"chatType": "whatsapp",
-			"chatId":   phoneDigits,
-		}},
-		"activeChat": map[string]string{
-			"chatType": "whatsapp",
-			"chatId":   phoneDigits,
-		},
+func (c *HTTPClient) UpsertUsers(ctx context.Context, apiKey string, users []UserUpsert) error {
+	_, err := c.doJSON(ctx, http.MethodPost, "/v3/users", apiKey, users)
+	return err
+}
+
+func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey string, req CreateIframeRequest) (string, error) {
+	payload := req
+	if strings.TrimSpace(payload.Scope) == "" {
+		payload.Scope = "global"
 	}
 	body, err := c.doJSON(ctx, http.MethodPost, "/v3/iframe", apiKey, payload)
 	if err != nil {

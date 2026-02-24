@@ -147,7 +147,7 @@ func TestWazzupSetup_EmptyWebhooksBaseURL(t *testing.T) {
 
 func TestWazzupIframe_UsesLeadOrClientPhoneOverRequestPhone(t *testing.T) {
 	var gotPhone string
-	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
+	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error) {
 		gotPhone = phone
 		return "https://iframe.local", nil
 	}})
@@ -171,7 +171,7 @@ func TestWazzupIframe_UsesLeadOrClientPhoneOverRequestPhone(t *testing.T) {
 }
 
 func TestWazzupIframe_InternalErrorReturns500(t *testing.T) {
-	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
+	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error) {
 		return "", errors.New("db down")
 	}})
 	r := gin.New()
@@ -270,7 +270,7 @@ func TestWazzupCRMUserByID_NotFoundByToken(t *testing.T) {
 type wazzupServiceStub struct {
 	handleWebhookFn func(ctx context.Context, token string, authHeader string, payload []byte) (int, bool, error)
 	setupFn         func(ctx context.Context, ownerUserID int, webhooksBaseURL string, apiKey string, enabled bool) (*wz.SetupResponse, error)
-	getIframeURLFn  func(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error)
+	getIframeURLFn  func(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error)
 }
 
 func (s wazzupServiceStub) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, apiKey string, enabled bool) (*wz.SetupResponse, error) {
@@ -279,9 +279,9 @@ func (s wazzupServiceStub) Setup(ctx context.Context, ownerUserID int, webhooksB
 	}
 	return nil, nil
 }
-func (s wazzupServiceStub) GetIframeURL(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
+func (s wazzupServiceStub) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error) {
 	if s.getIframeURLFn != nil {
-		return s.getIframeURLFn(ctx, ownerUserID, phone, leadID, clientID)
+		return s.getIframeURLFn(ctx, ownerUserID, companyID, userName, phone, leadID, clientID)
 	}
 	return "", nil
 }
@@ -295,7 +295,10 @@ func (f *wazzupClientFake) PatchWebhooks(ctx context.Context, apiKey, webhooksUR
 	f.patchCalls++
 	return nil
 }
-func (f *wazzupClientFake) CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error) {
+func (f *wazzupClientFake) UpsertUsers(ctx context.Context, apiKey string, users []wz.UserUpsert) error {
+	return nil
+}
+func (f *wazzupClientFake) CreateIframe(ctx context.Context, apiKey string, req wz.CreateIframeRequest) (string, error) {
 	return "https://iframe.local", nil
 }
 
