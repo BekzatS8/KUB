@@ -16,7 +16,7 @@ const defaultBaseURL = "https://api.wazzup24.com"
 
 type Client interface {
 	PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crmKey string) error
-	CreateIframe(ctx context.Context, apiKey, phoneDigits string) (string, error)
+	CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error)
 }
 
 type HTTPClient struct {
@@ -46,9 +46,12 @@ func (c *HTTPClient) PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crm
 	return err
 }
 
-func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey, phoneDigits string) (string, error) {
+func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error) {
 	payload := map[string]any{
 		"scope": "card",
+		"user": map[string]string{
+			"id": fmt.Sprintf("%d", ownerUserID),
+		},
 		"filter": []map[string]string{{
 			"chatType": "whatsapp",
 			"chatId":   phoneDigits,

@@ -132,7 +132,12 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
 	defer cancel()
 
-	url, err := h.svc.GetIframeURL(ctx, userID, req.Phone, req.LeadID, req.ClientID)
+	phone := req.Phone
+	if req.LeadID > 0 || req.ClientID > 0 {
+		phone = ""
+	}
+
+	url, err := h.svc.GetIframeURL(ctx, userID, phone, req.LeadID, req.ClientID)
 	if err != nil {
 		log.Printf("[WAZZUP][iframe] user_id=%d lead_id=%d client_id=%d phone=%q err=%v", userID, req.LeadID, req.ClientID, req.Phone, err)
 		switch {

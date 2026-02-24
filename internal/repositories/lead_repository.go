@@ -36,12 +36,16 @@ func normalizeLeadStatus(status sql.NullString) string {
 func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	lead := &models.Leads{}
 	var description sql.NullString
+	var phone sql.NullString
+	var source sql.NullString
 	var status sql.NullString
 
 	if err := scanner.Scan(
 		&lead.ID,
 		&lead.Title,
 		&description,
+		&phone,
+		&source,
 		&lead.CreatedAt,
 		&lead.OwnerID,
 		&status,
@@ -50,6 +54,8 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	}
 
 	lead.Description = stringFromNull(description)
+	lead.Phone = stringFromNull(phone)
+	lead.Source = stringFromNull(source)
 	lead.Status = normalizeLeadStatus(status)
 	return lead, nil
 }
@@ -103,7 +109,7 @@ func (r *LeadRepository) Update(lead *models.Leads) error {
 // GetByID: корректно обрабатывает отсутствие строки
 func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status
 		FROM leads
 		WHERE id = $1
 	`
@@ -142,7 +148,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT id, title, description, created_at, owner_id, status FROM leads WHERE 1=1"
+	query := "SELECT id, title, description, phone, source, created_at, owner_id, status FROM leads WHERE 1=1"
 	args := []interface{}{}
 	i := 1
 
@@ -179,7 +185,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 
 func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status
 		FROM leads
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -208,7 +214,7 @@ func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, erro
 // «Только мои» лиды
 func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status
 		FROM leads
 		WHERE owner_id = $1
 		ORDER BY created_at DESC
