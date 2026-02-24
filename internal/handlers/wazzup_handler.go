@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -52,6 +53,11 @@ func (h *WazzupHandler) Webhook(c *gin.Context) {
 
 	leadID, created, err := h.svc.HandleWebhook(ctx, token, c.GetHeader("Authorization"), body)
 	if err != nil {
+		payloadPreview := string(body)
+		if len(payloadPreview) > 300 {
+			payloadPreview = payloadPreview[:300]
+		}
+		log.Printf("[WAZZUP][webhook] token=%s err=%v payload_prefix=%q", tokenPrefix(token), err, payloadPreview)
 		switch {
 		case errors.Is(err, wz.ErrUnauthorized):
 			unauthorized(c, "invalid authorization")
@@ -99,6 +105,10 @@ func (h *WazzupHandler) Setup(c *gin.Context) {
 
 	resp, err := h.svc.Setup(ctx, userID, req.WebhooksBaseURL, apiKey, req.Enabled)
 	if err != nil {
+		log.Printf("[WAZZUP][setup] user_id=%d base_url=%q enabled=%v err=%v", userID, req.WebhooksBaseURL, req.Enabled, err)
+		if errors.Is(err, wz.ErrUpstream) {
+			log.Printf("[WAZZUP][setup] upstream_error=%v", err)
+		}
 		switch {
 		case errors.Is(err, wz.ErrBadRequest):
 			badRequest(c, err.Error())
@@ -124,6 +134,7 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 
 	url, err := h.svc.GetIframeURL(ctx, userID, req.Phone, req.LeadID, req.ClientID)
 	if err != nil {
+		log.Printf("[WAZZUP][iframe] user_id=%d lead_id=%d client_id=%d phone=%q err=%v", userID, req.LeadID, req.ClientID, req.Phone, err)
 		switch {
 		case errors.Is(err, wz.ErrBadRequest):
 			badRequest(c, err.Error())
@@ -137,4 +148,15 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"iframe_url": url})
+}
+
+func tokenPrefix(token string) string {
+	t := strings.TrimSpace(token)
+	if len(t) > 6 {
+		return t[:6] + "***"
+	}
+	if t == "" {
+		return ""
+	}
+	return t + "***"
 }
