@@ -131,12 +131,15 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 	if !integration.Enabled {
 		return 0, false, ErrDisabled
 	}
-	if !validateCRMKey(authHeader, integration.CRMKeyHash) {
-		return 0, false, ErrUnauthorized
-	}
 	var req webhookPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return 0, false, ErrBadPayload
+	}
+	if !validateCRMKey(authHeader, integration.CRMKeyHash) {
+		if req.Test || len(req.Messages) == 0 {
+			return 0, false, nil
+		}
+		return 0, false, ErrUnauthorized
 	}
 	processed := 0
 	created := false
@@ -189,6 +192,7 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 
 type webhookPayload struct {
 	Messages []webhookMessage `json:"messages"`
+	Test     bool             `json:"test"`
 }
 
 type webhookMessage struct {
