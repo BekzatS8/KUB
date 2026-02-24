@@ -21,12 +21,11 @@ services:
     ports:
       - "${API_PORT:-4000}:4000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz >/dev/null 2>&1 || exit 1"]
-      interval: 10s
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:4000/healthz >/dev/null 2>&1 || exit 1" ]
+      interval: 1200s
       timeout: 3s
       retries: 5
     restart: unless-stopped
-
   postgres:
     image: postgres:15
     profiles: ["db"]
@@ -40,7 +39,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-turcompany} -d ${POSTGRES_DB:-turcompany}"]
-      interval: 5s
+      interval: 50s
       timeout: 5s
       retries: 10
     restart: unless-stopped

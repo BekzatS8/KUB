@@ -48,10 +48,12 @@ func NewHTTPClientFromEnv() *HTTPClient {
 
 func (c *HTTPClient) PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crmKey string) error {
 	payload := map[string]any{
-		"webhooksUri":         webhooksURI,
-		"messagesAndStatuses": true,
-		"channelsUpdates":     true,
-		"crmKey":              crmKey,
+		"webhooksUri": webhooksURI,
+		"crmKey":      crmKey,
+		"subscriptions": map[string]any{
+			"messagesAndStatuses": true,
+			"channelsUpdates":     true,
+		},
 	}
 	_, err := c.doJSON(ctx, http.MethodPatch, "/v3/webhooks", apiKey, payload)
 	return err
