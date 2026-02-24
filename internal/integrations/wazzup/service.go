@@ -24,6 +24,7 @@ var (
 	ErrDisabled     = errors.New("wazzup integration disabled")
 	ErrBadRequest   = errors.New("wazzup bad request")
 	ErrUpstream     = errors.New("wazzup upstream error")
+	ErrUsersSync    = errors.New("wazzup users sync failed")
 )
 
 type Service struct {
@@ -83,25 +84,7 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 	return &SetupResponse{WebhookURL: webhooksURI, WebhookToken: webhookToken, CRMKey: crmKey}, nil
 }
 
-func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
-	resolved := strings.TrimSpace(phone)
-	var err error
-	if resolved == "" && leadID > 0 {
-		resolved, err = s.repo.GetLeadPhoneByID(ctx, leadID)
-		if err != nil {
-			return "", err
-		}
-	}
-	if resolved == "" && clientID > 0 {
-		resolved, err = s.repo.GetClientPhoneByID(ctx, clientID)
-		if err != nil {
-			return "", err
-		}
-	}
-	normalized := normalizePhone(resolved)
-	if normalized == "" {
-		return "", fmt.Errorf("%w: phone is required", ErrBadRequest)
-	}
+func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string, _ string, _ int, _ int) (string, error) {
 	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
 	if err != nil {
 		return "", err
@@ -112,8 +95,33 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, phone strin
 	if !integration.Enabled {
 		return "", ErrDisabled
 	}
-	url, err := s.client.CreateIframe(ctx, integration.APIKeyEnc, integration.OwnerUserID, normalized)
+	name := strings.TrimSpace(userName)
+	if name == "" {
+		crmUser, userErr := s.repo.GetCRMUserByID(ctx, ownerUserID)
+		if userErr != nil {
+			return "", userErr
+		}
+		if crmUser != nil {
+			name = strings.TrimSpace(crmUser.Name)
+		}
+	}
+	if name == "" {
+		name = fmt.Sprintf("User %d", ownerUserID)
+	}
+	if companyID <= 0 {
+		companyID = ownerUserID
+	}
+	wazzupUserID := fmt.Sprintf("kub-%d-%d", companyID, ownerUserID)
+	if err := s.client.UpsertUsers(ctx, integration.APIKeyEnc, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
+		log.Printf("[WAZZUP][iframe] users sync failed owner_user_id=%d status_body_err=%v", ownerUserID, err)
+		return "", fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
+	}
+	url, err := s.client.CreateIframe(ctx, integration.APIKeyEnc, CreateIframeRequest{
+		User:  UserUpsert{ID: wazzupUserID, Name: name},
+		Scope: "global",
+	})
 	if err != nil {
+		log.Printf("[WAZZUP][iframe] create iframe failed owner_user_id=%d status_body_err=%v", ownerUserID, err)
 		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	return url, nil
