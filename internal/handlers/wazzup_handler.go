@@ -177,7 +177,10 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"iframe_url": url})
+	c.JSON(http.StatusOK, gin.H{
+		"iframe_url": url,
+		"url":        url,
+	})
 }
 
 func (h *WazzupHandler) CRMUsers(c *gin.Context) {

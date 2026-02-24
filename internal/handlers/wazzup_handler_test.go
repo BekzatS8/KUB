@@ -165,6 +165,13 @@ func TestWazzupIframe_UsesLeadOrClientPhoneOverRequestPhone(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
 	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v body=%s", err, w.Body.String())
+	}
+	if resp["iframe_url"] != "https://iframe.local" || resp["url"] != "https://iframe.local" {
+		t.Fatalf("expected iframe_url and url aliases, got %#v", resp)
+	}
 	if gotPhone != "" {
 		t.Fatalf("expected empty phone when lead/client ids are provided, got %q", gotPhone)
 	}

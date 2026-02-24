@@ -2064,6 +2064,110 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "WhatsApp (Wazzup)",
+          "item": [
+            {
+              "name": "Wazzup Setup",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"webhooks_base_url\": \"{{baseUrl}}\",\n  \"api_key\": \"{{wazzupApiKey}}\",\n  \"enabled\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/integrations/wazzup/setup",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "integrations",
+                    "wazzup",
+                    "setup"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Wazzup Iframe URL",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const data = pm.response.json();",
+                      "  if (data?.iframe_url) pm.environment.set('wazzupIframeUrl', data.iframe_url);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"77001112233\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/integrations/wazzup/iframe",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "integrations",
+                    "wazzup",
+                    "iframe"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Wazzup Webhook (Public)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"messages\": [\n    {\n      \"messageId\": \"demo-message-id\",\n      \"chatType\": \"whatsapp\",\n      \"text\": \"Привет из Wazzup\",\n      \"timestamp\": \"2024-01-01T10:00:00Z\",\n      \"chatId\": \"77001112233\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/integrations/wazzup/webhook/{{wazzupWebhookToken}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "integrations",
+                    "wazzup",
+                    "webhook",
+                    "{{wazzupWebhookToken}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -2922,6 +3026,18 @@
     {
       "key": "accessToken",
       "value": "{{token}}"
+    },
+    {
+      "key": "wazzupApiKey",
+      "value": ""
+    },
+    {
+      "key": "wazzupWebhookToken",
+      "value": ""
+    },
+    {
+      "key": "wazzupIframeUrl",
+      "value": ""
     }
   ]
 }
