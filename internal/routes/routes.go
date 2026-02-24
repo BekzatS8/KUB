@@ -86,6 +86,8 @@ func SetupRoutes(
 
 	if wazzupHandler != nil {
 		r.POST("/integrations/wazzup/webhook/:token", wazzupHandler.Webhook)
+		r.GET("/integrations/wazzup/crm/:token/users", wazzupHandler.CRMUsers)
+		r.GET("/integrations/wazzup/crm/:token/users/:id", wazzupHandler.CRMUserByID)
 	}
 
 	// =====================
