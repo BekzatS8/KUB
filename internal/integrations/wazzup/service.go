@@ -74,7 +74,9 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 	}
 
 	if enabled {
+		log.Printf("[WAZZUP][setup] patching webhooks uri=%s token=%s crm_key=%s", webhooksURI, keyPrefix(apiKey), keyPrefix(crmKey))
 		if err := s.client.PatchWebhooks(ctx, apiKey, webhooksURI, crmKey); err != nil {
+			log.Printf("[WAZZUP][setup] patch webhooks failed err=%v", err)
 			return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 		}
 	}
@@ -262,4 +264,15 @@ func tokenPrefix(token string) string {
 		return t[:8]
 	}
 	return t
+}
+
+func keyPrefix(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	if len(v) > 6 {
+		return v[:6] + "***"
+	}
+	return v + "***"
 }

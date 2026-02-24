@@ -97,6 +97,10 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path, apiKey string, pa
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		traceID := strings.TrimSpace(resp.Header.Get("trace-id"))
+		if traceID != "" {
+			return nil, fmt.Errorf("wazzup %s %s failed: status=%d trace_id=%s body=%s", method, path, resp.StatusCode, traceID, string(body))
+		}
 		return nil, fmt.Errorf("wazzup %s %s failed: status=%d body=%s", method, path, resp.StatusCode, string(body))
 	}
 	return body, nil
