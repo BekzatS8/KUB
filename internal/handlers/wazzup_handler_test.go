@@ -143,6 +143,31 @@ func TestWazzupSetup_EmptyWebhooksBaseURL(t *testing.T) {
 	}
 }
 
+func TestWazzupIframe_UsesLeadOrClientPhoneOverRequestPhone(t *testing.T) {
+	var gotPhone string
+	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
+		gotPhone = phone
+		return "https://iframe.local", nil
+	}})
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", 5)
+		c.Set("role_id", 40)
+		c.Next()
+	})
+	r.POST("/integrations/wazzup/iframe", h.Iframe)
+
+	req := httptest.NewRequest(http.MethodPost, "/integrations/wazzup/iframe", bytes.NewBufferString(`{"phone":"77472013916","lead_id":42}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if gotPhone != "" {
+		t.Fatalf("expected empty phone when lead/client ids are provided, got %q", gotPhone)
+	}
+}
+
 func TestWazzupIframe_InternalErrorReturns500(t *testing.T) {
 	h := NewWazzupHandler(wazzupServiceStub{getIframeURLFn: func(ctx context.Context, ownerUserID int, phone string, leadID int, clientID int) (string, error) {
 		return "", errors.New("db down")
@@ -191,7 +216,7 @@ func (f *wazzupClientFake) PatchWebhooks(ctx context.Context, apiKey, webhooksUR
 	f.patchCalls++
 	return nil
 }
-func (f *wazzupClientFake) CreateIframe(ctx context.Context, apiKey, phoneDigits string) (string, error) {
+func (f *wazzupClientFake) CreateIframe(ctx context.Context, apiKey string, ownerUserID int, phoneDigits string) (string, error) {
 	return "https://iframe.local", nil
 }
 

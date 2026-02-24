@@ -112,7 +112,7 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, phone strin
 	if !integration.Enabled {
 		return "", ErrDisabled
 	}
-	url, err := s.client.CreateIframe(ctx, integration.APIKeyEnc, normalized)
+	url, err := s.client.CreateIframe(ctx, integration.APIKeyEnc, integration.OwnerUserID, normalized)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
