@@ -60,6 +60,38 @@ func TestWazzupWebhook_DedupCreatesOnlyOneLead(t *testing.T) {
 	}
 }
 
+func TestWazzupWebhook_TestHandshakeWithoutAuthorization(t *testing.T) {
+	repo := &wazzupRepoFake{integration: &models.WazzupIntegration{ID: 1, OwnerUserID: 7, Enabled: true, CRMKeyHash: "expected-hash"}}
+	svc := wz.NewService(repo, &wazzupClientFake{})
+	h := NewWazzupHandler(svc)
+	r := gin.New()
+	r.POST("/integrations/wazzup/webhook/:token", h.Webhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/integrations/wazzup/webhook/tkn", bytes.NewBufferString(`{"test":true}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestWazzupWebhook_MessagesWithoutAuthorizationReturnsUnauthorized(t *testing.T) {
+	repo := &wazzupRepoFake{integration: &models.WazzupIntegration{ID: 1, OwnerUserID: 7, Enabled: true, CRMKeyHash: "expected-hash"}}
+	svc := wz.NewService(repo, &wazzupClientFake{})
+	h := NewWazzupHandler(svc)
+	r := gin.New()
+	r.POST("/integrations/wazzup/webhook/:token", h.Webhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/integrations/wazzup/webhook/tkn", bytes.NewBufferString(`{"messages":[{"id":"m1"}]}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestWazzupSetup_ReturnsCRMAndWebhookURL(t *testing.T) {
 	repo := &wazzupRepoFake{integration: &models.WazzupIntegration{ID: 1, OwnerUserID: 5, Enabled: true, WebhookToken: "tok-old", APIKeyEnc: "key"}}
 	cli := &wazzupClientFake{}
