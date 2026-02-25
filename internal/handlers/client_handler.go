@@ -26,8 +26,8 @@ type createClientRequest struct {
 	Name string `json:"name"`
 
 	// Физлицо — анкета
-	LastName   string `json:"last_name" binding:"required"`
-	FirstName  string `json:"first_name" binding:"required"`
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
 	MiddleName string `json:"middle_name"`
 
 	BinIin string `json:"bin_iin"`
@@ -37,15 +37,15 @@ type createClientRequest struct {
 	PassportSeries string `json:"passport_series"`
 	PassportNumber string `json:"passport_number"`
 
-	Phone               string `json:"phone" binding:"required"`
+	Phone               string `json:"phone"`
 	Email               string `json:"email"`
 	Address             string `json:"address"`
 	RegistrationAddress string `json:"registration_address"`
 	ActualAddress       string `json:"actual_address"`
 
-	Country            string `json:"country" binding:"required"`
-	TripPurpose        string `json:"trip_purpose" binding:"required"`
-	BirthDate          string `json:"birth_date" binding:"required"`
+	Country            string `json:"country"`
+	TripPurpose        string `json:"trip_purpose"`
+	BirthDate          string `json:"birth_date"`
 	BirthPlace         string `json:"birth_place"`
 	Citizenship        string `json:"citizenship"`
 	Sex                string `json:"sex"`
@@ -72,6 +72,8 @@ type createClientRequest struct {
 	AdditionalInfo          string          `json:"additional_info"`
 
 	ContactInfo string `json:"contact_info"`
+
+	ClientType string `json:"client_type"`
 }
 
 type updateClientRequest struct {
@@ -122,6 +124,8 @@ type updateClientRequest struct {
 	AdditionalInfo          *string          `json:"additional_info"`
 
 	ContactInfo string `json:"contact_info"`
+
+	ClientType *string `json:"client_type"`
 }
 
 func NewClientHandler(service *services.ClientService) *ClientHandler {
@@ -154,6 +158,18 @@ func parseDateField(field, value string, required bool) (*time.Time, error) {
 func collectMissingRedFields(req createClientRequest) []string {
 	missing := make([]string, 0)
 	trim := strings.TrimSpace
+	if strings.ToLower(trim(req.ClientType)) == models.ClientTypeLegal {
+		if trim(req.Name) == "" {
+			missing = append(missing, "name")
+		}
+		if trim(req.BinIin) == "" {
+			missing = append(missing, "bin_iin")
+		}
+		if trim(req.Phone) == "" {
+			missing = append(missing, "phone")
+		}
+		return missing
+	}
 	if trim(req.Country) == "" {
 		missing = append(missing, "country")
 	}
@@ -182,6 +198,7 @@ func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate
 		BinIin:                  req.BinIin,
 		Address:                 req.Address,
 		ContactInfo:             req.ContactInfo,
+		ClientType:              req.ClientType,
 		LastName:                req.LastName,
 		FirstName:               req.FirstName,
 		MiddleName:              req.MiddleName,
@@ -250,7 +267,18 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		return
 	}
 
-	birthDate, err := parseDateField("birth_date", req.BirthDate, true)
+	missing := collectMissingRedFields(req)
+	if len(missing) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error_code":     BadRequestCode,
+			"message":        "Missing required fields",
+			"missing_fields": missing,
+		})
+		return
+	}
+
+	requiredBirthDate := strings.ToLower(strings.TrimSpace(req.ClientType)) != models.ClientTypeLegal
+	birthDate, err := parseDateField("birth_date", req.BirthDate, requiredBirthDate)
 	if err != nil {
 		badRequest(c, err.Error())
 		return
@@ -285,6 +313,10 @@ func (h *ClientHandler) Create(c *gin.Context) {
 				"message":        missingErr.Error(),
 				"missing_fields": missingErr.Fields,
 			})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
 			return
 		}
 		badRequest(c, "Failed to create client")
@@ -348,6 +380,9 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	current.BinIin = req.BinIin
 	current.Address = req.Address
 	current.ContactInfo = req.ContactInfo
+	if req.ClientType != nil {
+		current.ClientType = *req.ClientType
+	}
 	current.LastName = req.LastName
 	current.FirstName = req.FirstName
 	current.MiddleName = req.MiddleName
@@ -441,6 +476,10 @@ func (h *ClientHandler) Update(c *gin.Context) {
 			forbidden(c, err.Error())
 			return
 		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
+			return
+		}
 		badRequest(c, "Failed to update client")
 		return
 	}
@@ -494,10 +533,15 @@ func (h *ClientHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	clients, err := h.Service.ListForRole(userID, roleID, size, offset)
+	clientType := strings.TrimSpace(c.Query("client_type"))
+	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
 			return
 		}
 		internalError(c, "Failed to list clients")
@@ -524,10 +568,14 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	clients, err := h.Service.ListMine(userID, size, offset)
+	clients, err := h.Service.ListMine(userID, size, offset, "")
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
 			return
 		}
 		internalError(c, "Failed to list clients")
