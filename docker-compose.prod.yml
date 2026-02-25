@@ -10,11 +10,16 @@ services:
     environment:
       GIN_MODE: ${GIN_MODE:-release}
       CONFIG_PATH: ${CONFIG_PATH:-/opt/turcompany/config/config.yaml}
-      DATABASE_URL: ${DATABASE_URL:-postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable}
+      DATABASE_URL: postgres://${POSTGRES_USER:-turcompany}:${POSTGRES_PASSWORD:-turcompany}@postgres:5432/${POSTGRES_DB:-turcompany}?sslmode=disable
       DB_WAIT_RETRIES: ${DB_WAIT_RETRIES:-30}
       DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
       TELEGRAM_APITOKEN: ${TELEGRAM_APITOKEN:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./config/config.yaml:/opt/turcompany/config/config.yaml:ro
       - ./files:/opt/turcompany/files
@@ -28,7 +33,6 @@ services:
     restart: unless-stopped
   postgres:
     image: postgres:15
-    profiles: ["db"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-turcompany}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-turcompany}
@@ -58,26 +62,16 @@ services:
 
   migrate:
     image: postgres:15
-    profiles: ["migrate"]
     env_file:
       - .env.prod
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable}
+      POSTGRES_USER: ${POSTGRES_USER:-turcompany}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-turcompany}
+      POSTGRES_DB: ${POSTGRES_DB:-turcompany}
     volumes:
       - ./db/migrations:/migrations:ro
-    entrypoint:
-      - sh
-      - -c
-      - |
-        psql "$${DATABASE_URL}" -f /migrations/001_init.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/002_sign_sessions.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/003_signature_confirmations.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/004_sign_sessions_email.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/005_signing_indexes.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/006_signature_confirmations_created_at.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/007_sign_sessions_email_schema_fix.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/008_sign_sessions_email_fields.up.sql
-        psql "$${DATABASE_URL}" -f /migrations/999_audit_logs.sql
+      - ./scripts/run-migrations.sh:/run-migrations.sh:ro
+    command: ["sh","-lc","sed -i 's/\\r$//' /run-migrations.sh && sh /run-migrations.sh"]
     depends_on:
       postgres:
         condition: service_healthy
