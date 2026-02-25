@@ -23,6 +23,7 @@ func NewClientRepository(db *sql.DB) *ClientRepository {
 
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	var c models.Client
+	var clientType sql.NullString
 	var binIin sql.NullString
 	var address sql.NullString
 	var contactInfo sql.NullString
@@ -68,6 +69,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	err := scanner.Scan(
 		&c.ID,
 		&c.Name,
+		&clientType,
 		&binIin,
 		&address,
 		&contactInfo,
@@ -115,6 +117,10 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 		return nil, err
 	}
 
+	c.ClientType = stringFromNull(clientType)
+	if c.ClientType == "" {
+		c.ClientType = models.ClientTypeIndividual
+	}
 	c.BinIin = stringFromNull(binIin)
 	c.Address = stringFromNull(address)
 	c.ContactInfo = stringFromNull(contactInfo)
@@ -185,7 +191,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 func (r *ClientRepository) Create(c *models.Client) (int64, error) {
 	const q = `
         INSERT INTO clients (
-                name, bin_iin, address, contact_info,
+                name, client_type, bin_iin, address, contact_info,
                 last_name, first_name, middle_name,
                 iin, id_number, passport_series, passport_number,
                 phone, email, registration_address, actual_address,
@@ -194,21 +200,22 @@ func (r *ClientRepository) Create(c *models.Client) (int64, error) {
                 owner_id, created_at
         )
         VALUES (
-                $1, $2, $3, $4,
-                $5, $6, $7,
-                $8, $9, $10, $11,
-                $12, $13, $14, $15,
-                $16, $17, $18, $19, $20, $21, $22, $23, $24,
-                $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43,
-                $44, $45
+                $1, $2, $3, $4, $5,
+                $6, $7, $8,
+                $9, $10, $11, $12,
+                $13, $14, $15, $16,
+                $17, $18, $19, $20, $21, $22, $23, $24, $25,
+                $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42,
+                $43, $44
         )
         RETURNING id
-`
+	`
 
 	var id int64
 	err := r.db.QueryRow(
 		q,
 		c.Name,
+		c.ClientType,
 		nullStringFromEmpty(c.BinIin),
 		c.Address,
 		c.ContactInfo,
@@ -303,9 +310,10 @@ func (r *ClientRepository) Update(c *models.Client) error {
                 clinic_name = $39,
                 diseases_last3_years = $40,
                 additional_info = $41,
-                owner_id            = $42
-        WHERE id = $43
-`
+                client_type         = $42,
+                owner_id            = $43
+        WHERE id = $44
+	`
 
 	_, err := r.db.Exec(
 		q,
@@ -350,6 +358,7 @@ func (r *ClientRepository) Update(c *models.Client) error {
 		c.ClinicName,
 		c.DiseasesLast3Years,
 		c.AdditionalInfo,
+		c.ClientType,
 		c.OwnerID,
 		c.ID,
 	)
@@ -365,6 +374,7 @@ func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -427,6 +437,7 @@ func (r *ClientRepository) GetByBIN(bin string) (*models.Client, error) {
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -489,6 +500,7 @@ func (r *ClientRepository) GetByIIN(iin string) (*models.Client, error) {
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -551,6 +563,7 @@ func (r *ClientRepository) GetByPhone(phone string) (*models.Client, error) {
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -608,11 +621,12 @@ func (r *ClientRepository) GetByPhone(phone string) (*models.Client, error) {
 	return c, nil
 }
 
-func (r *ClientRepository) ListAll(limit, offset int) ([]*models.Client, error) {
+func (r *ClientRepository) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
 	const q = `
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -656,11 +670,12 @@ func (r *ClientRepository) ListAll(limit, offset int) ([]*models.Client, error) 
                 owner_id,
                 created_at
         FROM clients
+        WHERE ($3 = '' OR client_type = $3)
         ORDER BY created_at DESC
         LIMIT $1 OFFSET $2
-`
+	`
 
-	rows, err := r.db.Query(q, limit, offset)
+	rows, err := r.db.Query(q, limit, offset, strings.ToLower(strings.TrimSpace(clientType)))
 	if err != nil {
 		return nil, fmt.Errorf("list clients: %w", err)
 	}
@@ -678,14 +693,15 @@ func (r *ClientRepository) ListAll(limit, offset int) ([]*models.Client, error) 
 }
 
 func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
-	return r.ListAll(limit, offset)
+	return r.ListAll(limit, offset, "")
 }
 
-func (r *ClientRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Client, error) {
+func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
 	const q = `
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,
@@ -730,11 +746,12 @@ func (r *ClientRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Cl
                 created_at
         FROM clients
         WHERE owner_id = $1
+          AND ($4 = '' OR client_type = $4)
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
-`
+	`
 
-	rows, err := r.db.Query(q, ownerID, limit, offset)
+	rows, err := r.db.Query(q, ownerID, limit, offset, strings.ToLower(strings.TrimSpace(clientType)))
 	if err != nil {
 		return nil, fmt.Errorf("list clients by owner: %w", err)
 	}
@@ -756,6 +773,7 @@ func (r *ClientRepository) FindByName(name string) ([]*models.Client, error) {
         SELECT
                 id,
                 name,
+                client_type,
                 bin_iin,
                 address,
                 contact_info,

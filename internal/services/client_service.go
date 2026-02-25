@@ -52,6 +52,19 @@ func isUniqueViolation(err error) bool {
 	return false
 }
 
+func normalizeClientType(value string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if v == "" {
+		return models.ClientTypeIndividual, nil
+	}
+	switch v {
+	case models.ClientTypeIndividual, models.ClientTypeLegal:
+		return v, nil
+	default:
+		return "", errors.New("invalid client_type: allowed values are individual, legal")
+	}
+}
+
 func (s *ClientService) authorizeWrite(roleID int) error {
 	if roleID == authz.RoleAdminStaff {
 		return ErrForbidden
@@ -93,6 +106,12 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.DiseasesLast3Years = trim(c.DiseasesLast3Years)
 	c.AdditionalInfo = trim(c.AdditionalInfo)
 
+	clientType, err := normalizeClientType(c.ClientType)
+	if err != nil {
+		return err
+	}
+	c.ClientType = clientType
+
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
 	if c.Name == "" && (c.LastName != "" || c.FirstName != "") {
 		full := strings.TrimSpace(
@@ -122,23 +141,36 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 
 func validateCreateRedFields(c *models.Client) error {
 	missing := make([]string, 0)
-	if c.Country == "" {
-		missing = append(missing, "country")
-	}
-	if c.TripPurpose == "" {
-		missing = append(missing, "trip_purpose")
-	}
-	if c.BirthDate == nil {
-		missing = append(missing, "birth_date")
-	}
-	if c.Phone == "" {
-		missing = append(missing, "phone")
-	}
-	if c.LastName == "" {
-		missing = append(missing, "last_name")
-	}
-	if c.FirstName == "" {
-		missing = append(missing, "first_name")
+	switch c.ClientType {
+	case models.ClientTypeLegal:
+		if c.Name == "" {
+			missing = append(missing, "name")
+		}
+		if c.BinIin == "" {
+			missing = append(missing, "bin_iin")
+		}
+		if c.Phone == "" {
+			missing = append(missing, "phone")
+		}
+	default:
+		if c.Country == "" {
+			missing = append(missing, "country")
+		}
+		if c.TripPurpose == "" {
+			missing = append(missing, "trip_purpose")
+		}
+		if c.BirthDate == nil {
+			missing = append(missing, "birth_date")
+		}
+		if c.Phone == "" {
+			missing = append(missing, "phone")
+		}
+		if c.LastName == "" {
+			missing = append(missing, "last_name")
+		}
+		if c.FirstName == "" {
+			missing = append(missing, "first_name")
+		}
 	}
 	if len(missing) > 0 {
 		return &MissingFieldsError{Fields: missing}
@@ -291,22 +323,27 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 	return fallback, nil
 }
 
-func (s *ClientService) ListAll(limit, offset int) ([]*models.Client, error) {
-	return s.Repo.ListAll(limit, offset)
+func (s *ClientService) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
+	return s.Repo.ListAll(limit, offset, clientType)
 }
 
-func (s *ClientService) ListMine(userID, limit, offset int) ([]*models.Client, error) {
-	return s.Repo.ListByOwner(userID, limit, offset)
+func (s *ClientService) ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error) {
+	return s.Repo.ListByOwner(userID, limit, offset, clientType)
 }
 
-func (s *ClientService) ListForRole(userID, roleID, limit, offset int) ([]*models.Client, error) {
+func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error) {
 	if roleID == authz.RoleAdminStaff {
 		return nil, ErrForbidden
 	}
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListAll(limit, offset)
+	if strings.TrimSpace(clientType) != "" {
+		if _, err := normalizeClientType(clientType); err != nil {
+			return nil, err
+		}
+	}
+	return s.Repo.ListAll(limit, offset, clientType)
 }
 
 func (s *ClientService) GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error) {

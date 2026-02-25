@@ -625,18 +625,21 @@
       "name": "Clients",
       "item": [
         {
-          "name": "Create Client",
+          "name": "Create Client (default individual)",
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"create client ok\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "pm.test(\"create client default individual status\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
                   "const j = pm.response.json();",
-                  "pm.environment.set(\"client_id\", j.id || j.data?.id || j.data?.client?.id);",
-                  "pm.environment.set(\"clientId\", j.id || j.data?.id || j.data?.client?.id);"
-                ],
-                "type": "text/javascript"
+                  "const client = j.data?.client || j.data || j;",
+                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
+                  "pm.test(\"client_type defaults to individual\", function(){ pm.expect(client.client_type).to.eql(\"individual\"); });",
+                  "const cid = client.id;",
+                  "if (cid) { pm.environment.set(\"clientId\", cid); pm.environment.set(\"client_id\", cid); pm.collectionVariables.set(\"clientId\", String(cid)); }"
+                ]
               }
             }
           ],
@@ -653,9 +656,52 @@
               "raw": "{\n  \"country\": \"Poland\",\n  \"trip_purpose\": \"visa\",\n  \"last_name\": \"Ivanova\",\n  \"first_name\": \"Alina\",\n  \"birth_date\": \"2000-01-01\",\n  \"phone\": \"+77001234567\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/clients",
+              "raw": "{{baseUrl}}/clients",
               "host": [
-                "{{base_url}}"
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Client (legal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"create legal client status\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "const j = pm.response.json();",
+                  "const client = j.data?.client || j.data || j;",
+                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
+                  "pm.test(\"client_type is legal\", function(){ pm.expect(client.client_type).to.eql(\"legal\"); });",
+                  "const cid = client.id;",
+                  "if (cid) { pm.environment.set(\"clientId\", cid); pm.environment.set(\"client_id\", cid); pm.collectionVariables.set(\"clientId\", String(cid)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"TOO KUB\",\n  \"bin_iin\": \"123456789012\",\n  \"phone\": \"+77001234568\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/clients",
+              "host": [
+                "{{baseUrl}}"
               ],
               "path": [
                 "clients"
@@ -690,6 +736,56 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List Clients (legal)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?client_type=legal&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "legal"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"list legal clients status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
+                  "const j = pm.response.json();",
+                  "const list = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.data?.items) ? j.data.items : []));",
+                  "pm.test(\"list response is array\", function(){ pm.expect(Array.isArray(list)).to.eql(true); });",
+                  "if (list.length > 0) {",
+                  "  pm.test(\"all listed clients are legal\", function(){",
+                  "    list.forEach(c => { pm.expect(c).to.have.property(\"client_type\"); pm.expect(c.client_type).to.eql(\"legal\"); });",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List My Clients",
@@ -753,6 +849,48 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Update Client Type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"phone\": \"{{clientPhone}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{clientId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"update client type status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
+                  "const j = pm.response.json();",
+                  "const client = j.data?.client || j.data || j;",
+                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
+                  "pm.test(\"client_type updated to legal\", function(){ pm.expect(client.client_type).to.eql(\"legal\"); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Client Completeness",

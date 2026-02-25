@@ -553,3 +553,108 @@ func TestLeadConvertValidationAndErrors(t *testing.T) {
 		t.Fatalf("expected lead not confirmed conflict, got %d body: %s", notConfirmedRes.Code, notConfirmedRes.Body.String())
 	}
 }
+
+func TestClientsClientTypeFlow(t *testing.T) {
+	env := setupTestEnv(t)
+	defer env.cleanup()
+
+	// 1) Create /clients without client_type -> defaults to individual
+	individualPayload := map[string]any{
+		"last_name":    "Иванов",
+		"first_name":   "Иван",
+		"phone":        "+7 700 000 0001",
+		"country":      "KZ",
+		"trip_purpose": "tourism",
+		"birth_date":   "1990-01-01",
+	}
+	individualRes := requestJSON(t, env.router, http.MethodPost, "/clients", individualPayload, env.managementID, authz.RoleManagement)
+	if individualRes.Code != http.StatusCreated {
+		t.Fatalf("create individual status: %d body: %s", individualRes.Code, individualRes.Body.String())
+	}
+	var individual struct {
+		ID         int    `json:"id"`
+		ClientType string `json:"client_type"`
+	}
+	if err := json.Unmarshal(individualRes.Body.Bytes(), &individual); err != nil {
+		t.Fatalf("parse individual create response: %v", err)
+	}
+	if individual.ClientType != "individual" {
+		t.Fatalf("expected client_type individual, got %q", individual.ClientType)
+	}
+
+	// 2) Create /clients with legal type and legal required fields
+	legalPayload := map[string]any{
+		"client_type": "legal",
+		"name":        "TOO KUB",
+		"bin_iin":     "123456789012",
+		"phone":       "+7 700 000 0002",
+	}
+	legalRes := requestJSON(t, env.router, http.MethodPost, "/clients", legalPayload, env.managementID, authz.RoleManagement)
+	if legalRes.Code != http.StatusCreated {
+		t.Fatalf("create legal status: %d body: %s", legalRes.Code, legalRes.Body.String())
+	}
+	var legal struct {
+		ID         int    `json:"id"`
+		ClientType string `json:"client_type"`
+	}
+	if err := json.Unmarshal(legalRes.Body.Bytes(), &legal); err != nil {
+		t.Fatalf("parse legal create response: %v", err)
+	}
+	if legal.ClientType != "legal" {
+		t.Fatalf("expected client_type legal, got %q", legal.ClientType)
+	}
+
+	// 3) Create /clients with invalid client_type -> 400
+	invalidPayload := map[string]any{
+		"client_type": "bad",
+		"name":        "Bad Type",
+		"phone":       "+7 700 000 0003",
+	}
+	invalidRes := requestJSON(t, env.router, http.MethodPost, "/clients", invalidPayload, env.managementID, authz.RoleManagement)
+	if invalidRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid client_type, got %d body: %s", invalidRes.Code, invalidRes.Body.String())
+	}
+
+	// 4) PUT /clients/:id change client_type individual -> legal
+	updatePayload := map[string]any{
+		"client_type": "legal",
+		"name":        "Converted To Legal",
+		"bin_iin":     "111111111111",
+		"phone":       "+7 700 000 0001",
+	}
+	updateRes := requestJSON(t, env.router, http.MethodPut, fmt.Sprintf("/clients/%d", individual.ID), updatePayload, env.managementID, authz.RoleManagement)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("update client_type status: %d body: %s", updateRes.Code, updateRes.Body.String())
+	}
+	var updated struct {
+		ID         int    `json:"id"`
+		ClientType string `json:"client_type"`
+	}
+	if err := json.Unmarshal(updateRes.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("parse update response: %v", err)
+	}
+	if updated.ClientType != "legal" {
+		t.Fatalf("expected updated client_type legal, got %q", updated.ClientType)
+	}
+
+	// 5) GET /clients?client_type=legal returns only legal
+	listLegalRes := requestJSON(t, env.router, http.MethodGet, "/clients?client_type=legal", nil, env.managementID, authz.RoleManagement)
+	if listLegalRes.Code != http.StatusOK {
+		t.Fatalf("list legal status: %d body: %s", listLegalRes.Code, listLegalRes.Body.String())
+	}
+	var listed []struct {
+		ID         int    `json:"id"`
+		ClientType string `json:"client_type"`
+	}
+	if err := json.Unmarshal(listLegalRes.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("parse list legal response: %v", err)
+	}
+	if len(listed) == 0 {
+		t.Fatalf("expected non-empty legal list")
+	}
+	for _, item := range listed {
+		if item.ClientType != "legal" {
+			t.Fatalf("expected only legal clients in filtered list, got client id=%d type=%q", item.ID, item.ClientType)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 type Client struct {
 	ID          int    `json:"id"`
 	OwnerID     int    `json:"owner_id"`
+	ClientType  string `json:"client_type" db:"client_type"`
 	Name        string `json:"name"`         // Отображаемое имя (для юзера, компания/ФИО)
 	BinIin      string `json:"bin_iin"`      // БИН/ИИН (как было)
 	Address     string `json:"address"`      // Общий адрес (можно использовать как фактический)
@@ -58,3 +59,8 @@ type Client struct {
 
 	CreatedAt time.Time `json:"created_at"`
 }
+
+const (
+	ClientTypeIndividual = "individual"
+	ClientTypeLegal      = "legal"
+)
