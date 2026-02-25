@@ -60,7 +60,7 @@ make preflight
 ```
 Запуск:
 ```bash
-make prod-up
+make up
 make logs
 ```
 Проверка:
@@ -78,12 +78,12 @@ powershell -ExecutionPolicy Bypass -File scripts/preflight.ps1
 ## 7) Откат
 1. Остановите текущий релиз:
    ```bash
-   make prod-down
+   make down
    ```
 2. Верните предыдущий image tag / commit.
 3. Поднимите сервис заново:
    ```bash
-   make prod-up
+   make up
    ```
 
 ## 8) Диагностика

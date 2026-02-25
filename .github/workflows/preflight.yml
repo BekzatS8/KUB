@@ -33,7 +33,7 @@ jobs:
         run: DRY_RUN=1 ./scripts/preflight.sh
 
       - name: Start prod stack
-        run: docker compose -f docker-compose.prod.yml --profile db up -d --build
+        run: docker compose -f docker-compose.prod.yml up -d --build
 
       - name: Health smoke
         run: |

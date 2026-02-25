@@ -39,7 +39,7 @@ if($compose -match 'api:\s*[\s\S]*DATABASE_URL'){ Ok "api получает DATAB
 if($compose -match 'api:\s*[\s\S]*CONFIG_PATH'){ Ok "api получает CONFIG_PATH" } else { Fail "Добавьте CONFIG_PATH в api" }
 
 if(-not $DryRun -and -not $SmokeOnly){
-  docker compose -f $ComposeFile --profile db up -d --build
+  docker compose -f $ComposeFile up -d --build
   Ok "Стек поднят"
 }
 

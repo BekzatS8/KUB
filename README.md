@@ -237,16 +237,19 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 
 1. Скопировать пример конфига:
 ```bash
-cp config/config.yaml config/config.yaml
+cp config/config.example.yaml config/config.yaml
 ```
-2. Собрать и поднять сервисы:
+2. Поднять стек единым compose-файлом:
 ```bash
-make docker-build
-docker-compose up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
-   По умолчанию используется `config/config.yaml`, каталоги `assets/` и `files/` пробрасываются в контейнер. Корень хранилища — `/opt/turcompany/files` (смонтирован как `./files`).
-3. Проверить, что Postgres поднялся (порт `5432`), а приложение слушает порт `4000`.
-4. При необходимости включить LibreOffice внутри контейнера (добавить пакет) или установить на хосте и пробросить бинарь в образ.
+3. Полезные команды:
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml down --remove-orphans
+```
+4. По умолчанию стартуют `postgres`, `migrate`, `api`; опционально можно включать профили `redis` и `nginx`.
 
 ## Деплой через systemd (без Docker)
 
