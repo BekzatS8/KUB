@@ -66,7 +66,7 @@ check_compose_api_env(){
 
 start_stack(){
   if [[ "$DRY_RUN" == "1" || "$SMOKE_ONLY" == "1" ]]; then warn "DRY_RUN/SMOKE_ONLY: пропуск поднятия стека"; return; fi
-  (cd "$ROOT_DIR" && docker compose -f "$COMPOSE_FILE" --profile db up -d --build)
+  (cd "$ROOT_DIR" && docker compose -f "$COMPOSE_FILE" up -d --build)
   ok "Стек поднят"
   for _ in {1..40}; do
     status=$(cd "$ROOT_DIR" && docker compose -f "$COMPOSE_FILE" ps --format json api 2>/dev/null | python3 -c 'import json,sys; t=sys.stdin.read().strip();
@@ -79,7 +79,7 @@ print((json.loads(t)[0].get("Health") if t.startswith("[") else json.loads(t).ge
 
 run_migrations_and_db_checks(){
   if [[ "$DRY_RUN" == "1" ]]; then warn "DRY_RUN: пропуск миграций и БД-проверок"; return; fi
-  if (cd "$ROOT_DIR" && docker compose -f "$COMPOSE_FILE" --profile db --profile migrate up -d postgres >/dev/null && docker compose -f "$COMPOSE_FILE" run --rm migrate >/tmp/preflight_migrate.log 2>&1); then
+  if (cd "$ROOT_DIR" && docker compose -f "$COMPOSE_FILE" up -d postgres >/dev/null && docker compose -f "$COMPOSE_FILE" run --rm migrate >/tmp/preflight_migrate.log 2>&1); then
     ok "Миграции выполнены"
   else
     fail "Проверьте миграции: docker compose -f docker-compose.prod.yml run --rm migrate"

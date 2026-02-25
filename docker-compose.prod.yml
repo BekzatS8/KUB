@@ -71,7 +71,7 @@ services:
     volumes:
       - ./db/migrations:/migrations:ro
       - ./scripts/run-migrations.sh:/run-migrations.sh:ro
-    command: ["sh","-lc","sed -i 's/\\r$//' /run-migrations.sh && sh /run-migrations.sh"]
+    command: ["sh","-lc","tr -d '\\r' < /run-migrations.sh | sh -eu"]
     depends_on:
       postgres:
         condition: service_healthy
