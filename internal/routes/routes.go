@@ -151,6 +151,7 @@ func SetupRoutes(
 		clients.GET("", clientHandler.List)
 		clients.GET("/my", clientHandler.ListMy)
 		clients.PUT("/:id", clientHandler.Update)
+		clients.PATCH("/:id", clientHandler.Patch)
 		clients.GET("/:id/completeness", clientHandler.GetCompleteness)
 		if clientProfileHandler != nil {
 			clients.GET("/:id/profile", clientProfileHandler.GetProfile)

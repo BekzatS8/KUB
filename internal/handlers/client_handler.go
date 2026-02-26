@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,21 +17,27 @@ import (
 	"turcompany/internal/services"
 )
 
+type clientService interface {
+	Create(c *models.Client, userID, roleID int) (int64, error)
+	Update(c *models.Client, userID, roleID int) error
+	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
+	GetByID(id int, userID, roleID int) (*models.Client, error)
+	ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error)
+	ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error)
+	GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error)
+}
+
 type ClientHandler struct {
-	Service *services.ClientService
+	Service clientService
 }
 
 type createClientRequest struct {
-	// Для компаний
-	Name string `json:"name"`
-
-	// Физлицо — анкета
+	Name       string `json:"name"`
 	LastName   string `json:"last_name"`
 	FirstName  string `json:"first_name"`
 	MiddleName string `json:"middle_name"`
-
-	BinIin string `json:"bin_iin"`
-	IIN    string `json:"iin"`
+	BinIin     string `json:"bin_iin"`
+	IIN        string `json:"iin"`
 
 	IDNumber       string `json:"id_number"`
 	PassportSeries string `json:"passport_series"`
@@ -72,8 +78,7 @@ type createClientRequest struct {
 	AdditionalInfo          string          `json:"additional_info"`
 
 	ContactInfo string `json:"contact_info"`
-
-	ClientType string `json:"client_type"`
+	ClientType  string `json:"client_type"`
 }
 
 type updateClientRequest struct {
@@ -81,9 +86,8 @@ type updateClientRequest struct {
 	LastName   string `json:"last_name"`
 	FirstName  string `json:"first_name"`
 	MiddleName string `json:"middle_name"`
-
-	BinIin string `json:"bin_iin"`
-	IIN    string `json:"iin"`
+	BinIin     string `json:"bin_iin"`
+	IIN        string `json:"iin"`
 
 	IDNumber       string `json:"id_number"`
 	PassportSeries string `json:"passport_series"`
@@ -123,9 +127,39 @@ type updateClientRequest struct {
 	DiseasesLast3Years      *string          `json:"diseases_last3_years"`
 	AdditionalInfo          *string          `json:"additional_info"`
 
-	ContactInfo string `json:"contact_info"`
+	ContactInfo string  `json:"contact_info"`
+	ClientType  *string `json:"client_type"`
+}
 
-	ClientType *string `json:"client_type"`
+type patchClientRequest struct {
+	Name       *string `json:"name"`
+	LastName   *string `json:"last_name"`
+	FirstName  *string `json:"first_name"`
+	MiddleName *string `json:"middle_name"`
+	BinIin     *string `json:"bin_iin"`
+	IIN        *string `json:"iin"`
+
+	IDNumber       *string `json:"id_number"`
+	PassportSeries *string `json:"passport_series"`
+	PassportNumber *string `json:"passport_number"`
+
+	Phone               *string `json:"phone"`
+	Email               *string `json:"email"`
+	Address             *string `json:"address"`
+	RegistrationAddress *string `json:"registration_address"`
+	ActualAddress       *string `json:"actual_address"`
+
+	Country            *string `json:"country"`
+	TripPurpose        *string `json:"trip_purpose"`
+	BirthDate          *string `json:"birth_date"`
+	BirthPlace         *string `json:"birth_place"`
+	Citizenship        *string `json:"citizenship"`
+	Sex                *string `json:"sex"`
+	MaritalStatus      *string `json:"marital_status"`
+	PassportIssueDate  *string `json:"passport_issue_date"`
+	PassportExpireDate *string `json:"passport_expire_date"`
+	ContactInfo        *string `json:"contact_info"`
+	ClientType         *string `json:"client_type"`
 }
 
 func NewClientHandler(service *services.ClientService) *ClientHandler {
@@ -134,24 +168,18 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 
 func isUniqueViolation(err error) bool {
 	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		return string(pqErr.Code) == "23505"
-	}
-	return false
+	return errors.As(err, &pqErr) && string(pqErr.Code) == "23505"
 }
 
 func parseDateField(field, value string, required bool) (*time.Time, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		if required {
-			return nil, fmt.Errorf("field %s is required and must be in YYYY-MM-DD format", field)
-		}
+	v, err := parseFlexibleDate(field, value, required)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
 		return nil, nil
 	}
-	t, err := time.Parse("2006-01-02", value)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s: expected YYYY-MM-DD", field)
-	}
+	t := *v
 	return &t, nil
 }
 
@@ -191,53 +219,8 @@ func collectMissingRedFields(req createClientRequest) []string {
 	return missing
 }
 
-func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client {
-	return &models.Client{
-		OwnerID:                 userID,
-		Name:                    req.Name,
-		BinIin:                  req.BinIin,
-		Address:                 req.Address,
-		ContactInfo:             req.ContactInfo,
-		ClientType:              req.ClientType,
-		LastName:                req.LastName,
-		FirstName:               req.FirstName,
-		MiddleName:              req.MiddleName,
-		IIN:                     req.IIN,
-		IDNumber:                req.IDNumber,
-		PassportSeries:          req.PassportSeries,
-		PassportNumber:          req.PassportNumber,
-		Phone:                   req.Phone,
-		Email:                   req.Email,
-		RegistrationAddress:     req.RegistrationAddress,
-		ActualAddress:           req.ActualAddress,
-		Country:                 req.Country,
-		TripPurpose:             req.TripPurpose,
-		BirthDate:               birthDate,
-		BirthPlace:              req.BirthPlace,
-		Citizenship:             req.Citizenship,
-		Sex:                     req.Sex,
-		MaritalStatus:           req.MaritalStatus,
-		PassportIssueDate:       passportIssueDate,
-		PassportExpireDate:      passportExpireDate,
-		PreviousLastName:        req.PreviousLastName,
-		SpouseName:              req.SpouseName,
-		SpouseContacts:          req.SpouseContacts,
-		HasChildren:             req.HasChildren,
-		ChildrenList:            req.ChildrenList,
-		Education:               req.Education,
-		Job:                     req.Job,
-		TripsLast5Years:         req.TripsLast5Years,
-		RelativesInDestination:  req.RelativesInDestination,
-		TrustedPerson:           req.TrustedPerson,
-		Height:                  req.Height,
-		Weight:                  req.Weight,
-		DriverLicenseCategories: req.DriverLicenseCategories,
-		TherapistName:           req.TherapistName,
-		ClinicName:              req.ClinicName,
-		DiseasesLast3Years:      req.DiseasesLast3Years,
-		AdditionalInfo:          req.AdditionalInfo,
-		CreatedAt:               time.Now(),
-	}
+func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client { /* unchanged mapping */
+	return &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
 }
 
 // POST /clients
@@ -254,52 +237,46 @@ func (h *ClientHandler) Create(c *gin.Context) {
 
 	var req createClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		missing := collectMissingRedFields(req)
-		if len(missing) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":     BadRequestCode,
-				"message":        "Missing required fields",
-				"missing_fields": missing,
-			})
-			return
-		}
 		badRequest(c, "Invalid client payload")
 		return
 	}
 
 	missing := collectMissingRedFields(req)
 	if len(missing) > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error_code":     BadRequestCode,
-			"message":        "Missing required fields",
-			"missing_fields": missing,
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": "Missing required fields", "missing_fields": missing})
 		return
 	}
 
 	requiredBirthDate := strings.ToLower(strings.TrimSpace(req.ClientType)) != models.ClientTypeLegal
 	birthDate, err := parseDateField("birth_date", req.BirthDate, requiredBirthDate)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
 	passportIssueDate, err := parseDateField("passport_issue_date", req.PassportIssueDate, false)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
 	passportExpireDate, err := parseDateField("passport_expire_date", req.PassportExpireDate, false)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
 
 	client := buildClientFromCreateRequest(req, userID, birthDate, passportIssueDate, passportExpireDate)
-
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEmail) {
+			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			return
+		}
+		if errors.Is(err, services.ErrEmailAlreadyUsed) {
+			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
@@ -308,11 +285,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		}
 		var missingErr *services.MissingFieldsError
 		if errors.As(err, &missingErr) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":     BadRequestCode,
-				"message":        missingErr.Error(),
-				"missing_fields": missingErr.Fields,
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": missingErr.Error(), "missing_fields": missingErr.Fields})
 			return
 		}
 		if strings.Contains(err.Error(), "invalid client_type") {
@@ -337,13 +310,11 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		forbidden(c, "Read-only role")
 		return
 	}
-
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
 		badRequest(c, "Invalid client ID")
 		return
 	}
-
 	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -353,57 +324,37 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
-
 	var req updateClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid client payload")
 		return
 	}
-
 	birthDate, err := parseDateField("birth_date", req.BirthDate, false)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
 	passportIssueDate, err := parseDateField("passport_issue_date", req.PassportIssueDate, false)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
 	passportExpireDate, err := parseDateField("passport_expire_date", req.PassportExpireDate, false)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeDateError(c, err)
 		return
 	}
-
-	current.Name = req.Name
-	current.BinIin = req.BinIin
-	current.Address = req.Address
-	current.ContactInfo = req.ContactInfo
+	current.Name, current.BinIin, current.Address, current.ContactInfo = req.Name, req.BinIin, req.Address, req.ContactInfo
 	if req.ClientType != nil {
 		current.ClientType = *req.ClientType
 	}
-	current.LastName = req.LastName
-	current.FirstName = req.FirstName
-	current.MiddleName = req.MiddleName
-	current.IIN = req.IIN
-	current.IDNumber = req.IDNumber
-	current.PassportSeries = req.PassportSeries
-	current.PassportNumber = req.PassportNumber
-	current.Phone = req.Phone
-	current.Email = req.Email
-	current.RegistrationAddress = req.RegistrationAddress
-	current.ActualAddress = req.ActualAddress
-	current.Country = req.Country
-	current.TripPurpose = req.TripPurpose
-	current.BirthDate = birthDate
-	current.BirthPlace = req.BirthPlace
-	current.Citizenship = req.Citizenship
-	current.Sex = req.Sex
-	current.MaritalStatus = req.MaritalStatus
-	current.PassportIssueDate = passportIssueDate
-	current.PassportExpireDate = passportExpireDate
-
+	current.LastName, current.FirstName, current.MiddleName = req.LastName, req.FirstName, req.MiddleName
+	current.IIN, current.IDNumber, current.PassportSeries, current.PassportNumber = req.IIN, req.IDNumber, req.PassportSeries, req.PassportNumber
+	current.Phone, current.Email = req.Phone, req.Email
+	current.RegistrationAddress, current.ActualAddress = req.RegistrationAddress, req.ActualAddress
+	current.Country, current.TripPurpose, current.BirthDate = req.Country, req.TripPurpose, birthDate
+	current.BirthPlace, current.Citizenship, current.Sex, current.MaritalStatus = req.BirthPlace, req.Citizenship, req.Sex, req.MaritalStatus
+	current.PassportIssueDate, current.PassportExpireDate = passportIssueDate, passportExpireDate
 	if req.PreviousLastName != nil {
 		current.PreviousLastName = *req.PreviousLastName
 	}
@@ -466,10 +417,21 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	if req.AdditionalInfo != nil {
 		current.AdditionalInfo = *req.AdditionalInfo
 	}
-
 	if err := h.Service.Update(current, userID, roleID); err != nil {
 		if isUniqueViolation(err) {
 			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEmail) {
+			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			return
+		}
+		if errors.Is(err, services.ErrEmailAlreadyUsed) {
+			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
@@ -484,6 +446,105 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, current)
+}
+
+// PATCH /clients/:id
+func (h *ClientHandler) Patch(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		badRequest(c, "Invalid client ID")
+		return
+	}
+	var req patchClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid client payload")
+		return
+	}
+	updates := make(map[string]any)
+	addS := func(k string, v *string) {
+		if v != nil {
+			updates[k] = *v
+		}
+	}
+	addS("name", req.Name)
+	addS("last_name", req.LastName)
+	addS("first_name", req.FirstName)
+	addS("middle_name", req.MiddleName)
+	addS("bin_iin", req.BinIin)
+	addS("iin", req.IIN)
+	addS("id_number", req.IDNumber)
+	addS("passport_series", req.PassportSeries)
+	addS("passport_number", req.PassportNumber)
+	addS("phone", req.Phone)
+	addS("email", req.Email)
+	addS("address", req.Address)
+	addS("registration_address", req.RegistrationAddress)
+	addS("actual_address", req.ActualAddress)
+	addS("country", req.Country)
+	addS("trip_purpose", req.TripPurpose)
+	addS("birth_place", req.BirthPlace)
+	addS("citizenship", req.Citizenship)
+	addS("sex", req.Sex)
+	addS("marital_status", req.MaritalStatus)
+	addS("contact_info", req.ContactInfo)
+	addS("client_type", req.ClientType)
+
+	dateFields := map[string]*string{"birth_date": req.BirthDate, "passport_issue_date": req.PassportIssueDate, "passport_expire_date": req.PassportExpireDate}
+	for field, ptr := range dateFields {
+		if ptr == nil {
+			continue
+		}
+		t, err := parseFlexibleDate(field, *ptr, false)
+		if err != nil {
+			writeDateError(c, err)
+			return
+		}
+		updates[field] = t
+	}
+	updated, err := h.Service.Patch(id, updates, userID, roleID)
+	if err != nil {
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEmail) {
+			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			return
+		}
+		if errors.Is(err, services.ErrEmailAlreadyUsed) {
+			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
+			return
+		}
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
+			return
+		}
+		badRequest(c, "Failed to update client")
+		return
+	}
+	c.JSON(http.StatusOK, updated)
+}
+
+func writeDateError(c *gin.Context, err error) {
+	var dErr *dateFieldError
+	if errors.As(err, &dErr) {
+		badRequestWithCode(c, InvalidDateFormatCode, dErr.Error())
+		return
+	}
+	badRequest(c, err.Error())
 }
 
 // GET /clients/:id
@@ -510,7 +571,6 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, client)
 }
 
-// GET /clients?page=&size=
 func (h *ClientHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleAdminStaff {
@@ -521,10 +581,8 @@ func (h *ClientHandler) List(c *gin.Context) {
 		forbidden(c, "sales cannot access full list")
 		return
 	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-
 	if page < 1 {
 		page = 1
 	}
@@ -532,7 +590,6 @@ func (h *ClientHandler) List(c *gin.Context) {
 		size = 100
 	}
 	offset := (page - 1) * size
-
 	clientType := strings.TrimSpace(c.Query("client_type"))
 	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType)
 	if err != nil {
@@ -550,14 +607,12 @@ func (h *ClientHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, clients)
 }
 
-// GET /clients/my?page=&size=
 func (h *ClientHandler) ListMy(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleAdminStaff {
 		forbidden(c, "Forbidden")
 		return
 	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
 	if page < 1 {
@@ -567,7 +622,6 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 		size = 100
 	}
 	offset := (page - 1) * size
-
 	clients, err := h.Service.ListMine(userID, size, offset, "")
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -584,7 +638,6 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	c.JSON(http.StatusOK, clients)
 }
 
-// GET /clients/:id/completeness
 func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -596,7 +649,6 @@ func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 		forbidden(c, "Forbidden")
 		return
 	}
-
 	missing, err := h.Service.GetMissingYellow(c.Request.Context(), id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -606,10 +658,5 @@ func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"client_id":      id,
-		"missing_yellow": missing,
-		"yellow_ready":   len(missing) == 0,
-	})
+	c.JSON(http.StatusOK, gin.H{"client_id": id, "missing_yellow": missing, "yellow_ready": len(missing) == 0})
 }
