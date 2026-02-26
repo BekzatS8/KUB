@@ -25,6 +25,10 @@ func (s *fakeEmailSignDocService) FinalizeSigning(docID int64) error {
 	return s.docRepo.UpdateStatus(docID, "signed")
 }
 
+func (s *fakeEmailSignDocService) FinalizeSignedArtifact(session *models.SignSession) error {
+	return nil
+}
+
 func TestEmailSignSessionFlowEndToEnd(t *testing.T) {
 	now := func() time.Time { return time.Date(2025, 2, 1, 12, 0, 0, 0, time.UTC) }
 	repo := newFakeSignatureConfirmRepo(now)

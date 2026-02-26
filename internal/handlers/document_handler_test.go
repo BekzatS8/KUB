@@ -35,6 +35,9 @@ func (r *fakeDocumentRepo) ListDocumentsByDeal(dealID int64) ([]*models.Document
 func (r *fakeDocumentRepo) Delete(id int64) error                      { return nil }
 func (r *fakeDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
 func (r *fakeDocumentRepo) Update(doc *models.Document) error          { return nil }
+func (r *fakeDocumentRepo) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {
+	return nil
+}
 
 type fakeDealRepo struct {
 	deals map[int]*models.Deals

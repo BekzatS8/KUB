@@ -1,16 +1,22 @@
 package services
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jung-kurt/gofpdf"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/docx"
@@ -18,6 +24,11 @@ import (
 	"turcompany/internal/pdf"
 	"turcompany/internal/repositories"
 	"turcompany/internal/xlsx"
+)
+
+var (
+	ErrPDFCPUMissing           = errors.New("pdfcpu binary is not available")
+	ErrDocumentChangedAfterOTP = errors.New("DOCUMENT_CHANGED_AFTER_OTP")
 )
 
 type DocumentRepo interface {
@@ -28,6 +39,7 @@ type DocumentRepo interface {
 	Delete(id int64) error
 	UpdateStatus(id int64, status string) error
 	Update(doc *models.Document) error
+	UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error
 }
 
 type LeadRepo interface {
@@ -58,10 +70,11 @@ type DocumentService struct {
 }
 
 var (
-	_ DocumentRepo = (*repositories.DocumentRepository)(nil)
-	_ LeadRepo     = (*repositories.LeadRepository)(nil)
-	_ DealRepo     = (*repositories.DealRepository)(nil)
-	_ ClientRepo   = (*repositories.ClientRepository)(nil)
+	_             DocumentRepo = (*repositories.DocumentRepository)(nil)
+	_             LeadRepo     = (*repositories.LeadRepository)(nil)
+	_             DealRepo     = (*repositories.DealRepository)(nil)
+	_             ClientRepo   = (*repositories.ClientRepository)(nil)
+	mergePDFsFunc              = mergePDFs
 )
 
 func NewDocumentService(
@@ -546,6 +559,80 @@ func (s *DocumentService) FinalizeSigning(docID int64) error {
 	return s.DocRepo.UpdateStatus(docID, "signed")
 }
 
+func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) error {
+	if session == nil {
+		return errors.New("sign session is nil")
+	}
+	doc, err := s.DocRepo.GetByID(session.DocumentID)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	originalRel := strings.TrimSpace(doc.FilePathPdf)
+	if originalRel == "" {
+		originalRel = strings.TrimSpace(doc.FilePath)
+	}
+	originalAbs, err := s.resolveStoragePath(originalRel)
+	if err != nil || originalAbs == "" {
+		return errors.New("bad filepath")
+	}
+	if strings.ToLower(filepath.Ext(originalAbs)) != ".pdf" {
+		return errors.New("file not found")
+	}
+	if _, err := os.Stat(originalAbs); err != nil {
+		return errors.New("file not found")
+	}
+	if err := s.validateSessionDocumentHash(originalAbs, session.DocHash); err != nil {
+		return err
+	}
+
+	if doc.Status == "signed" {
+		if signedRel := extractSignedPDFPath(doc.SignMetadata); signedRel != "" {
+			if signedAbs, err := s.resolveStoragePath(signedRel); err == nil && signedAbs != "" {
+				if info, statErr := os.Stat(signedAbs); statErr == nil && !info.IsDir() {
+					return nil
+				}
+			}
+		}
+	}
+
+	base := strings.TrimSuffix(filepath.Base(originalAbs), filepath.Ext(originalAbs))
+	signedName := base + "_signed.pdf"
+	signedAbs := filepath.Join(s.FilesRoot, "pdf", signedName)
+	signedRel := "/pdf/" + signedName
+
+	signPageAbs := filepath.Join(s.FilesRoot, "pdf", fmt.Sprintf("%s_sign_page_%d.pdf", base, time.Now().UnixNano()))
+	if err := s.buildSigningPagePDF(doc, session, signPageAbs); err != nil {
+		return err
+	}
+	defer os.Remove(signPageAbs)
+
+	if err := mergePDFsFunc(originalAbs, signPageAbs, signedAbs); err != nil {
+		return err
+	}
+
+	meta := map[string]any{"signed_pdf_path": signedRel}
+	metaRaw, _ := json.Marshal(meta)
+	if err := s.DocRepo.UpdateSigningMeta(doc.ID, "email_otp", session.SignedIP, session.SignedUserAgent, string(metaRaw)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *DocumentService) validateSessionDocumentHash(path string, expected string) error {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return nil
+	}
+	current, err := sha256File(path)
+	if err != nil {
+		return fmt.Errorf("hash document file: %w", err)
+	}
+	if !strings.EqualFold(current, expected) {
+		return ErrDocumentChangedAfterOTP
+	}
+	return nil
+}
+
 // ================== Работа с файлами ==================
 
 func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID int) (absPath, fileName string, err error) {
@@ -632,10 +719,17 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	case "", "main":
 		rel = doc.FilePath
 	case "pdf":
-		if strings.TrimSpace(doc.FilePathPdf) != "" {
+		if doc.Status == "signed" {
+			if signedPath := extractSignedPDFPath(doc.SignMetadata); signedPath != "" {
+				rel = signedPath
+			}
+		}
+		if strings.TrimSpace(rel) == "" && strings.TrimSpace(doc.FilePathPdf) != "" {
 			rel = doc.FilePathPdf
 		} else {
-			rel = doc.FilePath
+			if strings.TrimSpace(rel) == "" {
+				rel = doc.FilePath
+			}
 		}
 	case "docx":
 		rel = doc.FilePathDocx
@@ -1099,4 +1193,101 @@ func getDealID64(deal *models.Deals) int64 {
 		return 0
 	}
 	return int64(deal.ID)
+}
+
+func extractSignedPDFPath(metaRaw string) string {
+	metaRaw = strings.TrimSpace(metaRaw)
+	if metaRaw == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(metaRaw), &payload); err != nil {
+		return ""
+	}
+	value, _ := payload["signed_pdf_path"].(string)
+	return strings.TrimSpace(value)
+}
+
+func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *models.SignSession, outPath string) error {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return fmt.Errorf("create sign page dir: %w", err)
+	}
+	pdfFile := gofpdf.New("P", "mm", "A4", "")
+	pdfFile.SetTitle("Лист подписания", false)
+	pdfFile.SetAuthor("KUB CRM", false)
+	pdfFile.SetMargins(15, 15, 15)
+	pdfFile.AddPage()
+	pdfFile.SetFont("Arial", "B", 16)
+	pdfFile.CellFormat(0, 10, "Лист подписания", "", 1, "L", false, 0, "")
+	pdfFile.Ln(3)
+	pdfFile.SetFont("Arial", "", 11)
+
+	signedAt := ""
+	if session.SignedAt != nil {
+		loc, _ := time.LoadLocation("Asia/Aqtobe")
+		if loc == nil {
+			loc = time.UTC
+		}
+		signedAt = session.SignedAt.In(loc).Format(time.RFC3339)
+	}
+	rows := []struct{ K, V string }{
+		{"DocumentID", strconv.FormatInt(doc.ID, 10)},
+		{"DocType", doc.DocType},
+		{"signed_at", signedAt},
+		{"signer_email", session.SignerEmail},
+		{"method", "email_otp"},
+		{"signed_ip", session.SignedIP},
+		{"signed_user_agent", session.SignedUserAgent},
+		{"doc_hash", session.DocHash},
+		{"verify_url", "N/A"},
+	}
+	for _, row := range rows {
+		pdfFile.SetFont("Arial", "B", 10)
+		pdfFile.CellFormat(45, 7, row.K+":", "", 0, "L", false, 0, "")
+		pdfFile.SetFont("Arial", "", 10)
+		pdfFile.MultiCell(0, 7, row.V, "", "L", false)
+	}
+
+	pdfFile.SetFont("Arial", "B", 10)
+	pdfFile.SetXY(140, 245)
+	pdfFile.MultiCell(55, 6, "QR: unavailable in current runtime", "", "R", false)
+
+	if err := pdfFile.OutputFileAndClose(outPath); err != nil {
+		return fmt.Errorf("create signing page: %w", err)
+	}
+	return nil
+}
+
+func mergePDFs(originalAbs, signPageAbs, signedAbs string) error {
+	if err := os.MkdirAll(filepath.Dir(signedAbs), 0o755); err != nil {
+		return fmt.Errorf("create signed pdf dir: %w", err)
+	}
+	if _, err := os.Stat(originalAbs); err != nil {
+		return errors.New("file not found")
+	}
+	if _, err := os.Stat(signPageAbs); err != nil {
+		return errors.New("file not found")
+	}
+	if path, err := exec.LookPath("pdfcpu"); err == nil {
+		cmd := exec.Command(path, "merge", "-mode", "create", signedAbs, originalAbs, signPageAbs)
+		if out, runErr := cmd.CombinedOutput(); runErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("merge signed pdf: %v (%s)", runErr, strings.TrimSpace(string(out)))
+		}
+	}
+	return ErrPDFCPUMissing
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

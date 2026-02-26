@@ -1,10 +1,13 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -45,6 +48,19 @@ func (r *fakeDocumentRepo) Delete(id int64) error { return nil }
 func (r *fakeDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
 
 func (r *fakeDocumentRepo) Update(doc *models.Document) error { return nil }
+
+func (r *fakeDocumentRepo) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {
+	for _, d := range r.docs {
+		if d.ID == id {
+			d.SignMethod = signMethod
+			d.SignIP = signIP
+			d.SignUserAgent = signUserAgent
+			d.SignMetadata = signMetadata
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 
 type fakeLeadRepo struct{}
 
@@ -353,5 +369,206 @@ func TestNewDocumentService(t *testing.T) {
 	}
 	if svc.SignSecret != "secret" || svc.FilesRoot != "/files" {
 		t.Fatalf("config fields not set")
+	}
+}
+
+func TestResolveFileForHTTPUsesSignedPDF(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := filepath.Join(dir, "pdf", "a.pdf")
+	signed := filepath.Join(dir, "pdf", "a_signed.pdf")
+	if err := os.WriteFile(original, []byte("orig"), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+	if err := os.WriteFile(signed, []byte("signed"), 0o644); err != nil {
+		t.Fatalf("write signed: %v", err)
+	}
+
+	metaRaw, _ := json.Marshal(map[string]any{"signed_pdf_path": "/pdf/a_signed.pdf"})
+	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
+		ID:           1,
+		DealID:       10,
+		Status:       "signed",
+		FilePath:     "/pdf/a.pdf",
+		FilePathPdf:  "/pdf/a.pdf",
+		SignMetadata: string(metaRaw),
+	}}}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
+	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+
+	abs, name, err := svc.ResolveFileForHTTP(1, 99, authz.RoleOperations, "pdf")
+	if err != nil {
+		t.Fatalf("ResolveFileForHTTP error: %v", err)
+	}
+	if abs != signed {
+		t.Fatalf("abs path = %s, want %s", abs, signed)
+	}
+	if name != "a_signed.pdf" {
+		t.Fatalf("name = %s", name)
+	}
+}
+
+func TestFinalizeSignedArtifactUpdatesSignMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := filepath.Join(dir, "pdf", "base.pdf")
+	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+
+	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
+		ID:          77,
+		DealID:      10,
+		DocType:     "contract_full",
+		Status:      "signed",
+		FilePathPdf: "/pdf/base.pdf",
+		FilePath:    "/pdf/base.pdf",
+	}}}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
+	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+
+	oldMerge := mergePDFsFunc
+	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
+		return os.WriteFile(signedAbs, []byte("merged"), 0o644)
+	}
+	defer func() { mergePDFsFunc = oldMerge }()
+
+	now := time.Now().UTC()
+	hash, err := sha256File(original)
+	if err != nil {
+		t.Fatalf("sha256 file: %v", err)
+	}
+	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", SignedIP: "1.1.1.1", SignedUserAgent: "UA", DocHash: hash, SignedAt: &now}
+	if err := svc.FinalizeSignedArtifact(session); err != nil {
+		t.Fatalf("FinalizeSignedArtifact: %v", err)
+	}
+	if docRepo.docs[0].SignMethod != "email_otp" {
+		t.Fatalf("sign method: %s", docRepo.docs[0].SignMethod)
+	}
+	if !strings.Contains(docRepo.docs[0].SignMetadata, "signed_pdf_path") {
+		t.Fatalf("sign metadata not updated: %s", docRepo.docs[0].SignMetadata)
+	}
+}
+
+func TestFinalizeSignedArtifactIdempotentWhenSignedPDFExists(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := filepath.Join(dir, "pdf", "base.pdf")
+	signed := filepath.Join(dir, "pdf", "base_signed.pdf")
+	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+	if err := os.WriteFile(signed, []byte("signed"), 0o644); err != nil {
+		t.Fatalf("write signed: %v", err)
+	}
+	metaRaw, _ := json.Marshal(map[string]any{"signed_pdf_path": "/pdf/base_signed.pdf"})
+
+	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
+		ID:           77,
+		DealID:       10,
+		DocType:      "contract_full",
+		Status:       "signed",
+		FilePathPdf:  "/pdf/base.pdf",
+		FilePath:     "/pdf/base.pdf",
+		SignMetadata: string(metaRaw),
+	}}}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
+	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+
+	oldMerge := mergePDFsFunc
+	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
+		t.Fatalf("merge should not be called for idempotent case")
+		return nil
+	}
+	defer func() { mergePDFsFunc = oldMerge }()
+
+	now := time.Now().UTC()
+	hash, err := sha256File(original)
+	if err != nil {
+		t.Fatalf("sha256 file: %v", err)
+	}
+	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: hash, SignedAt: &now}
+	if err := svc.FinalizeSignedArtifact(session); err != nil {
+		t.Fatalf("FinalizeSignedArtifact: %v", err)
+	}
+}
+
+func TestFinalizeSignedArtifactPDFCPUMissing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := filepath.Join(dir, "pdf", "base.pdf")
+	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+
+	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
+		ID:          77,
+		DealID:      10,
+		DocType:     "contract_full",
+		Status:      "approved",
+		FilePathPdf: "/pdf/base.pdf",
+		FilePath:    "/pdf/base.pdf",
+	}}}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
+	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+
+	oldMerge := mergePDFsFunc
+	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
+		return ErrPDFCPUMissing
+	}
+	defer func() { mergePDFsFunc = oldMerge }()
+
+	now := time.Now().UTC()
+	hash, err := sha256File(original)
+	if err != nil {
+		t.Fatalf("sha256 file: %v", err)
+	}
+	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: hash, SignedAt: &now}
+	err = svc.FinalizeSignedArtifact(session)
+	if !errors.Is(err, ErrPDFCPUMissing) {
+		t.Fatalf("expected ErrPDFCPUMissing, got %v", err)
+	}
+	if docRepo.docs[0].SignMetadata != "" {
+		t.Fatalf("sign metadata should stay empty")
+	}
+}
+
+func TestFinalizeSignedArtifactDocumentChangedAfterOTP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := filepath.Join(dir, "pdf", "base.pdf")
+	if err := os.WriteFile(original, []byte("v1"), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+
+	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
+		ID:          77,
+		DealID:      10,
+		DocType:     "contract_full",
+		Status:      "approved",
+		FilePathPdf: "/pdf/base.pdf",
+		FilePath:    "/pdf/base.pdf",
+	}}}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
+	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+
+	now := time.Now().UTC()
+	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: strings.Repeat("a", 64), SignedAt: &now}
+	err := svc.FinalizeSignedArtifact(session)
+	if !errors.Is(err, ErrDocumentChangedAfterOTP) {
+		t.Fatalf("expected ErrDocumentChangedAfterOTP, got %v", err)
+	}
+	if docRepo.docs[0].SignMetadata != "" {
+		t.Fatalf("sign metadata should stay empty")
 	}
 }
