@@ -19,15 +19,18 @@ const (
 	ConflictCode      = "CONFLICT"
 	InternalErrorCode = "INTERNAL_ERROR"
 
-	DealNotFoundCode   = "DEAL_NOT_FOUND"
-	LeadNotFoundCode   = "LEAD_NOT_FOUND"
-	DocumentNotFound   = "DOCUMENT_NOT_FOUND"
-	ClientNotFoundCode = "CLIENT_NOT_FOUND"
-	ReadOnlyRoleCode   = "READ_ONLY_ROLE"
-	UnsupportedDocType = "UNSUPPORTED_DOC_TYPE"
-	InvalidStatusCode  = "INVALID_STATUS"
-	ValidationFailed   = "VALIDATION_FAILED"
-	ExpiredCode        = "EXPIRED"
+	DealNotFoundCode      = "DEAL_NOT_FOUND"
+	LeadNotFoundCode      = "LEAD_NOT_FOUND"
+	DocumentNotFound      = "DOCUMENT_NOT_FOUND"
+	ClientNotFoundCode    = "CLIENT_NOT_FOUND"
+	ReadOnlyRoleCode      = "READ_ONLY_ROLE"
+	InvalidEmailCode      = "INVALID_EMAIL"
+	InvalidDateFormatCode = "INVALID_DATE_FORMAT"
+	EmailAlreadyUsedCode  = "EMAIL_ALREADY_USED"
+	UnsupportedDocType    = "UNSUPPORTED_DOC_TYPE"
+	InvalidStatusCode     = "INVALID_STATUS"
+	ValidationFailed      = "VALIDATION_FAILED"
+	ExpiredCode           = "EXPIRED"
 )
 
 func writeError(c *gin.Context, status int, code string, msg string) {
@@ -66,4 +69,8 @@ func gone(c *gin.Context, code string, msg string) {
 		code = ExpiredCode
 	}
 	writeError(c, http.StatusGone, code, msg)
+}
+
+func badRequestWithCode(c *gin.Context, code string, msg string) {
+	writeError(c, http.StatusBadRequest, code, msg)
 }

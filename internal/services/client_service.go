@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -128,8 +129,8 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 		return errors.New("iin must be 12 digits")
 	}
 
-	if c.Email != "" && !strings.Contains(c.Email, "@") {
-		return errors.New("invalid email")
+	if c.Email != "" && !isValidEmail(c.Email) {
+		return ErrInvalidEmail
 	}
 
 	if c.CreatedAt.IsZero() {
@@ -178,6 +179,33 @@ func validateCreateRedFields(c *models.Client) error {
 	return nil
 }
 
+func isValidEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" || strings.Contains(email, "{{") || strings.Contains(email, "}}") || strings.Contains(email, " ") {
+		return false
+	}
+	addr, err := mail.ParseAddress(email)
+	if err != nil {
+		return false
+	}
+	return addr.Address == email
+}
+
+func (s *ClientService) ensureEmailUnique(email string, excludeID int) error {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	existing, err := s.Repo.GetByEmail(email)
+	if err != nil {
+		return err
+	}
+	if existing != nil && existing.ID != excludeID {
+		return ErrEmailAlreadyUsed
+	}
+	return nil
+}
+
 func normalizePhone(value string) string {
 	if value == "" {
 		return ""
@@ -222,7 +250,7 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 		return err
 	}
 	if current == nil {
-		return errors.New("client not found")
+		return ErrClientNotFound
 	}
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
@@ -231,6 +259,9 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 		c.OwnerID = current.OwnerID
 	}
 	if err := s.normalizeAndValidate(c); err != nil {
+		return err
+	}
+	if err := s.ensureEmailUnique(c.Email, c.ID); err != nil {
 		return err
 	}
 	return s.Repo.Update(c)
@@ -352,7 +383,7 @@ func (s *ClientService) GetMissingYellow(ctx context.Context, clientID, userID, 
 		return nil, err
 	}
 	if client == nil {
-		return nil, errors.New("client not found")
+		return nil, ErrClientNotFound
 	}
 
 	hasPhoto := false
@@ -439,4 +470,53 @@ func (s *ClientService) GetProfile(ctx context.Context, clientID, userID, roleID
 	}
 
 	return &ClientProfilePayload{Client: client, MissingYellow: missing, PhotoExists: photoExists}, nil
+}
+
+func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error) {
+	if err := s.authorizeWrite(roleID); err != nil {
+		return nil, err
+	}
+	current, err := s.Repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrClientNotFound
+	}
+	if roleID == authz.RoleSales && current.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	if v, ok := updates["email"]; ok {
+		email, _ := v.(string)
+		email = strings.TrimSpace(email)
+		if email != "" && !isValidEmail(email) {
+			return nil, ErrInvalidEmail
+		}
+		if err := s.ensureEmailUnique(email, id); err != nil {
+			return nil, err
+		}
+		updates["email"] = email
+	}
+	if v, ok := updates["phone"]; ok {
+		phone, _ := v.(string)
+		updates["phone"] = normalizePhone(strings.TrimSpace(phone))
+	}
+	if v, ok := updates["client_type"]; ok {
+		ct, _ := v.(string)
+		ct, err = normalizeClientType(ct)
+		if err != nil {
+			return nil, err
+		}
+		updates["client_type"] = ct
+	}
+	if roleID != authz.RoleManagement {
+		delete(updates, "owner_id")
+	}
+	if len(updates) == 0 {
+		return current, nil
+	}
+	if err := s.Repo.UpdatePartial(id, updates); err != nil {
+		return nil, err
+	}
+	return s.Repo.GetByID(id)
 }

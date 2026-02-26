@@ -851,3 +851,65 @@ func nullInt16(value *int16) any {
 	}
 	return int64(*value)
 }
+
+func (r *ClientRepository) UpdatePartial(id int, updates map[string]any) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{
+		"name": true, "client_type": true, "bin_iin": true, "address": true, "contact_info": true,
+		"last_name": true, "first_name": true, "middle_name": true, "iin": true, "id_number": true, "passport_series": true, "passport_number": true,
+		"phone": true, "email": true, "registration_address": true, "actual_address": true, "country": true, "trip_purpose": true,
+		"birth_date": true, "birth_place": true, "citizenship": true, "sex": true, "marital_status": true, "passport_issue_date": true, "passport_expire_date": true,
+	}
+	setParts := make([]string, 0, len(updates))
+	args := make([]any, 0, len(updates)+1)
+	i := 1
+	for field, value := range updates {
+		if !allowed[field] {
+			continue
+		}
+		setParts = append(setParts, fmt.Sprintf("%s = $%d", field, i))
+		if field == "bin_iin" || field == "iin" || field == "email" {
+			if v, ok := value.(string); ok {
+				args = append(args, nullStringFromEmpty(v))
+			} else {
+				args = append(args, value)
+			}
+		} else {
+			args = append(args, value)
+		}
+		i++
+	}
+	if len(setParts) == 0 {
+		return nil
+	}
+	args = append(args, id)
+	q := fmt.Sprintf("UPDATE clients SET %s WHERE id = $%d", strings.Join(setParts, ", "), i)
+	if _, err := r.db.Exec(q, args...); err != nil {
+		return fmt.Errorf("partial update client: %w", err)
+	}
+	return nil
+}
+
+func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
+	const q = `
+		SELECT
+			id, name, client_type, bin_iin, address, contact_info, last_name, first_name, middle_name,
+			iin, id_number, passport_series, passport_number, phone, email, registration_address, actual_address,
+			country, trip_purpose, birth_date, birth_place, citizenship, sex, marital_status, passport_issue_date, passport_expire_date,
+			previous_last_name, spouse_name, spouse_contacts, has_children, children_list, education, job, trips_last5_years,
+			relatives_in_destination, trusted_person, height, weight, driver_license_categories, therapist_name, clinic_name, diseases_last3_years, additional_info,
+			owner_id, created_at
+		FROM clients WHERE email = $1
+	`
+	row := r.db.QueryRow(q, email)
+	c, err := scanClient(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get client by email: %w", err)
+	}
+	return c, nil
+}

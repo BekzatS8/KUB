@@ -15,6 +15,8 @@ var (
 	ErrAmountInvalid    = errors.New("amount must be greater than 0")
 	ErrDealNotFound     = errors.New("deal not found")
 	ErrClientNotFound   = errors.New("client not found")
+	ErrInvalidEmail     = errors.New("invalid email")
+	ErrEmailAlreadyUsed = errors.New("email already used")
 
 	ErrUnsupportedClientFileCategory  = errors.New("unsupported client file category")
 	ErrUnsupportedClientFileExtension = errors.New("unsupported client file extension")
