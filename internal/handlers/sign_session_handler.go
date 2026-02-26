@@ -231,6 +231,10 @@ func handleSignSessionTokenError(c *gin.Context, err error) {
 		conflict(c, InvalidStatusCode, "Invalid status")
 	case errors.Is(err, services.ErrSignSessionDocNotFound):
 		notFound(c, DocumentNotFound, "Document not found")
+	case errors.Is(err, services.ErrPDFCPUMissing):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PDFCPU_MISSING"})
+	case errors.Is(err, services.ErrDocumentChangedAfterOTP):
+		c.JSON(http.StatusConflict, gin.H{"error": "DOCUMENT_CHANGED_AFTER_OTP"})
 	default:
 		internalError(c, "Failed to sign")
 	}

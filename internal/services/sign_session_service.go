@@ -65,6 +65,7 @@ type SignSessionConfig struct {
 type SignDocumentService interface {
 	EnsureSigningAllowed(docID int64, userID, roleID int) error
 	FinalizeSigning(docID int64) error
+	FinalizeSignedArtifact(session *models.SignSession) error
 }
 
 type SignSessionService struct {
@@ -298,16 +299,23 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 	}
 
 	now := s.now()
-	session.Status = "signed"
 	session.SignedAt = &now
 	session.SignedIP = ip
 	session.SignedUserAgent = userAgent
 
-	if err := s.repo.Update(ctx, session); err != nil {
+	if err := s.docService.FinalizeSignedArtifact(session); err != nil {
+		if errors.Is(err, ErrDocumentChangedAfterOTP) {
+			session.Status = "expired"
+			_ = s.repo.Update(ctx, session)
+		}
 		return nil, err
 	}
 
 	if err := s.docService.FinalizeSigning(session.DocumentID); err != nil {
+		return nil, err
+	}
+	session.Status = "signed"
+	if err := s.repo.Update(ctx, session); err != nil {
 		return nil, err
 	}
 
@@ -333,17 +341,19 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 	}
 
 	now := s.now()
-	session.Status = "signed"
 	session.SignedAt = &now
 	session.SignedIP = ip
 	session.SignedUserAgent = userAgent
 
-	if err := s.repo.Update(ctx, session); err != nil {
-		return nil, err
-	}
-
 	if s.docService == nil {
 		return nil, errors.New("document service unavailable")
+	}
+	if err := s.docService.FinalizeSignedArtifact(session); err != nil {
+		if errors.Is(err, ErrDocumentChangedAfterOTP) {
+			session.Status = "expired"
+			_ = s.repo.Update(ctx, session)
+		}
+		return nil, err
 	}
 	if err := s.docService.FinalizeSigning(session.DocumentID); err != nil {
 		switch err.Error() {
@@ -354,6 +364,10 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 		default:
 			return nil, err
 		}
+	}
+	session.Status = "signed"
+	if err := s.repo.Update(ctx, session); err != nil {
+		return nil, err
 	}
 
 	log.Printf("[sign][session][signed] session=%d doc=%d ip=%s", session.ID, session.DocumentID, ip)

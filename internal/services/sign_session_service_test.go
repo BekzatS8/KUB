@@ -112,9 +112,10 @@ func (d *fakeSignDelivery) SendSignLink(ctx context.Context, phoneE164, url stri
 }
 
 type fakeSignDocService struct {
-	allowed    bool
-	signedDoc  int64
-	allowError error
+	allowed     bool
+	signedDoc   int64
+	allowError  error
+	finalizeErr error
 }
 
 func (s *fakeSignDocService) EnsureSigningAllowed(docID int64, userID, roleID int) error {
@@ -130,6 +131,10 @@ func (s *fakeSignDocService) EnsureSigningAllowed(docID int64, userID, roleID in
 func (s *fakeSignDocService) FinalizeSigning(docID int64) error {
 	s.signedDoc = docID
 	return nil
+}
+
+func (s *fakeSignDocService) FinalizeSignedArtifact(session *models.SignSession) error {
+	return s.finalizeErr
 }
 
 func TestSignSessionVerifyAttempts(t *testing.T) {
@@ -234,5 +239,31 @@ func TestSignSessionCreateRateLimit(t *testing.T) {
 func TestNormalizeSessionTokenTrimAndUnescape(t *testing.T) {
 	if got := normalizeSessionToken("  abc%2Bdef  "); got != "abc+def" {
 		t.Fatalf("normalizeSessionToken mismatch: %q", got)
+	}
+}
+
+func TestSignSessionSignByIDDocumentChangedAfterOTP(t *testing.T) {
+	repo := newFakeSignRepo()
+	token := "token-doc-changed"
+	session := &models.SignSession{
+		DocumentID: 9,
+		TokenHash:  hashToken(token),
+		ExpiresAt:  time.Now().Add(10 * time.Minute),
+		Status:     "pending",
+	}
+	if err := repo.Create(context.Background(), session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	docSvc := &fakeSignDocService{allowed: true, finalizeErr: ErrDocumentChangedAfterOTP}
+	svc := NewSignSessionService(repo, docSvc, &fakeSignDelivery{}, SignSessionConfig{}, time.Now)
+
+	_, err := svc.SignByID(context.Background(), session.ID, token, "ip", "ua")
+	if !errors.Is(err, ErrDocumentChangedAfterOTP) {
+		t.Fatalf("expected ErrDocumentChangedAfterOTP, got %v", err)
+	}
+	stored, _ := repo.GetByID(context.Background(), session.ID)
+	if stored == nil || stored.Status != "expired" {
+		t.Fatalf("expected expired status, got %+v", stored)
 	}
 }

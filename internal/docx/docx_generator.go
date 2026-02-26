@@ -4,15 +4,21 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+var libreOfficeConvertSem = make(chan struct{}, 2)
 
 // Generator — интерфейс (можно мокать в тестах)
 type Generator interface {
@@ -85,37 +91,48 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 	if err := os.MkdirAll(docxDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("create docx dir: %w", err)
 	}
-	if g.LibreOfficeEnabled {
-		if err := os.MkdirAll(pdfDir, 0o755); err != nil {
-			return "", "", fmt.Errorf("create pdf dir: %w", err)
-		}
+	if err := os.MkdirAll(pdfDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create pdf dir: %w", err)
 	}
 
 	// 3. Пути к итоговым файлам
 	docxFileName := baseFilename + ".docx"
 	pdfFileName := baseFilename + ".pdf"
+	tmpTag, err := randomHex(4)
+	if err != nil {
+		return "", "", fmt.Errorf("tmp tag: %w", err)
+	}
+	tmpPDFFileName := baseFilename + ".tmp." + tmpTag + ".pdf"
 
 	docxPath := filepath.Join(docxDir, docxFileName)
 	pdfPath := filepath.Join(pdfDir, pdfFileName)
+	tmpPDFPath := filepath.Join(pdfDir, tmpPDFFileName)
 
 	// 4. Сгенерируем DOCX с подставленными плейсхолдерами
 	if err := g.generateDocxFromTemplate(tmplPath, docxPath, placeholders); err != nil {
 		return "", "", err
 	}
 
-	var pdfRel string
-	// 5. Конвертация DOCX → PDF через LibreOffice (если включено)
-	if g.LibreOfficeEnabled {
-		if err := g.convertDocxToPDF(context.Background(), docxPath, pdfDir); err != nil {
-			return "", "", err
-		}
-
-		// 6. Проверим, что PDF появился
-		if _, err := os.Stat(pdfPath); err != nil {
-			return "", "", fmt.Errorf("pdf not found after convert: %s: %w", pdfPath, err)
-		}
-		pdfRel = "/" + filepath.ToSlash(filepath.Join("pdf", pdfFileName))
+	// 5. Конвертация DOCX → PDF через LibreOffice
+	if err := g.convertDocxToPDF(context.Background(), docxPath, pdfDir, tmpPDFFileName); err != nil {
+		_ = os.Remove(docxPath)
+		_ = os.Remove(pdfPath)
+		_ = os.Remove(tmpPDFPath)
+		return "", "", err
 	}
+	if err := os.Rename(tmpPDFPath, pdfPath); err != nil {
+		_ = os.Remove(docxPath)
+		_ = os.Remove(tmpPDFPath)
+		_ = os.Remove(pdfPath)
+		return "", "", fmt.Errorf("finalize pdf file: %w", err)
+	}
+
+	// 6. Проверим, что PDF появился
+	if _, err := os.Stat(pdfPath); err != nil {
+		_ = os.Remove(docxPath)
+		return "", "", fmt.Errorf("pdf not found after convert: %s: %w", pdfPath, err)
+	}
+	pdfRel := "/" + filepath.ToSlash(filepath.Join("pdf", pdfFileName))
 
 	// DOCX мы теперь НЕ удаляем — он нужен как Word-версия
 
@@ -190,23 +207,59 @@ func (g *DocxGenerator) generateDocxFromTemplate(templatePath, outPath string, p
 }
 
 // convertDocxToPDF — запускает LibreOffice в headless-режиме
-func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir string) error {
+func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir, outPDFName string) error {
 	binary := g.LibreOfficeBinary
 	if binary == "" {
 		binary = "libreoffice"
 	}
+	if !g.LibreOfficeEnabled {
+		return fmt.Errorf("libreoffice conversion is disabled")
+	}
+
+	if strings.TrimSpace(outPDFName) == "" {
+		return fmt.Errorf("output PDF name is required")
+	}
+
+	acquireConverter()
+	defer releaseConverter()
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create pdf out dir: %w", err)
 	}
+	convertCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	profileID, err := randomHex(16)
+	if err != nil {
+		return fmt.Errorf("libreoffice profile id: %w", err)
+	}
+	profileDir := filepath.Join(os.TempDir(), "lo_profile_"+profileID)
+	if err := os.MkdirAll(profileDir, 0o700); err != nil {
+		return fmt.Errorf("create libreoffice profile: %w", err)
+	}
+	defer os.RemoveAll(profileDir)
+
+	profileURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(profileDir)}).String()
+
+	tmpInput := strings.TrimSuffix(outPDFName, ".pdf") + ".docx"
+	tmpInputPath := filepath.Join(outDir, tmpInput)
+	if err := copyFile(docxPath, tmpInputPath); err != nil {
+		return fmt.Errorf("prepare temp docx for convert: %w", err)
+	}
+	defer os.Remove(tmpInputPath)
 
 	cmd := exec.CommandContext(
-		ctx,
+		convertCtx,
 		binary,
 		"--headless",
+		"--nologo",
+		"--nolockcheck",
+		"--norestore",
+		"--nodefault",
+		"-env:UserInstallation="+profileURI,
 		"--convert-to", "pdf",
 		"--outdir", outDir,
-		docxPath,
+		tmpInputPath,
 	)
 
 	var stdout, stderr bytes.Buffer
@@ -214,10 +267,55 @@ func (g *DocxGenerator) convertDocxToPDF(ctx context.Context, docxPath, outDir s
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if errors.Is(convertCtx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("libreoffice conversion timeout for %s", filepath.Base(docxPath))
+		}
 		log.Printf("[docx] libreoffice convert error (binary=%s, docx=%s): %v; stdout=%s; stderr=%s", binary, docxPath, err, stdout.String(), stderr.String())
-		return fmt.Errorf("libreoffice conversion failed")
+		return fmt.Errorf("libreoffice conversion failed for %s", filepath.Base(docxPath))
+	}
+	outPath := filepath.Join(outDir, outPDFName)
+	if _, err := os.Stat(outPath); err != nil {
+		return fmt.Errorf("converted pdf not found: %s", outPDFName)
 	}
 	return nil
+}
+
+func acquireConverter() {
+	libreOfficeConvertSem <- struct{}{}
+}
+
+func releaseConverter() {
+	select {
+	case <-libreOfficeConvertSem:
+	default:
+	}
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = out.Close()
+	}()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+func randomHex(size int) (string, error) {
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // xmlEscape — минимальное экранирование спецсимволов для XML

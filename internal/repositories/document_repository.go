@@ -39,7 +39,9 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 // GetByID — читаем базовые поля + пути; signed_at игнорируем (если не нужен в модели).
 func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,'')
 		FROM documents
 		WHERE id = $1`
 	var d models.Document
@@ -55,6 +57,10 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 		&d.Status,
 		&signedAt,
 		&createdAt,
+		&d.SignMethod,
+		&d.SignIP,
+		&d.SignUserAgent,
+		&d.SignMetadata,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -105,7 +111,9 @@ func (r *DocumentRepository) Delete(id int64) error {
 
 func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,'')
 		FROM documents
 		WHERE deal_id = $1
 		ORDER BY id DESC`
@@ -130,6 +138,10 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 			&d.Status,
 			&signedAt,
 			&createdAt,
+			&d.SignMethod,
+			&d.SignIP,
+			&d.SignUserAgent,
+			&d.SignMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -167,7 +179,9 @@ func (r *DocumentRepository) UpdateStatus(id int64, status string) error {
 
 func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status, signed_at, created_at
+		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,'')
 		FROM documents
 		ORDER BY id DESC
 		LIMIT $1 OFFSET $2`
@@ -192,6 +206,10 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 			&d.Status,
 			&signedAt,
 			&createdAt,
+			&d.SignMethod,
+			&d.SignIP,
+			&d.SignUserAgent,
+			&d.SignMetadata,
 		); err != nil {
 			return nil, err
 		}
