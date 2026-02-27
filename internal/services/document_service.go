@@ -7,13 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"mime/multipart"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
@@ -29,6 +32,7 @@ import (
 var (
 	ErrPDFCPUMissing           = errors.New("pdfcpu binary is not available")
 	ErrDocumentChangedAfterOTP = errors.New("DOCUMENT_CHANGED_AFTER_OTP")
+	logTTFFontsOnce            sync.Once
 )
 
 type DocumentRepo interface {
@@ -1212,15 +1216,38 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return fmt.Errorf("create sign page dir: %w", err)
 	}
-	pdfFile := gofpdf.New("P", "mm", "A4", "")
+	fontPath, err := resolveSigningFontPath()
+	if err != nil {
+		return err
+	}
+	fontPath, err = ensureSigningFontInTemp(fontPath)
+	if err != nil {
+		return err
+	}
+
+	pdfFile := gofpdf.New("P", "mm", "A4", "/tmp")
 	pdfFile.SetTitle("Лист подписания", false)
 	pdfFile.SetAuthor("KUB CRM", false)
+	pdfFile.AddUTF8Font("dejavu", "", filepath.Base(fontPath))
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("register UTF-8 font dejavu regular: %w", err)
+	}
+	pdfFile.AddUTF8Font("dejavu", "B", filepath.Base(fontPath))
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("register UTF-8 font dejavu bold: %w", err)
+	}
 	pdfFile.SetMargins(15, 15, 15)
 	pdfFile.AddPage()
-	pdfFile.SetFont("Arial", "B", 16)
+	pdfFile.SetFont("dejavu", "B", 16)
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("set signing page font (bold title): %w", err)
+	}
 	pdfFile.CellFormat(0, 10, "Лист подписания", "", 1, "L", false, 0, "")
 	pdfFile.Ln(3)
-	pdfFile.SetFont("Arial", "", 11)
+	pdfFile.SetFont("dejavu", "", 11)
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("set signing page font (body): %w", err)
+	}
 
 	signedAt := ""
 	if session.SignedAt != nil {
@@ -1242,20 +1269,103 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 		{"verify_url", "N/A"},
 	}
 	for _, row := range rows {
-		pdfFile.SetFont("Arial", "B", 10)
+		pdfFile.SetFont("dejavu", "B", 10)
+		if err := pdfFile.Error(); err != nil {
+			return fmt.Errorf("set signing page font (row key): %w", err)
+		}
 		pdfFile.CellFormat(45, 7, row.K+":", "", 0, "L", false, 0, "")
-		pdfFile.SetFont("Arial", "", 10)
+		pdfFile.SetFont("dejavu", "", 10)
+		if err := pdfFile.Error(); err != nil {
+			return fmt.Errorf("set signing page font (row value): %w", err)
+		}
 		pdfFile.MultiCell(0, 7, row.V, "", "L", false)
 	}
 
-	pdfFile.SetFont("Arial", "B", 10)
+	pdfFile.SetFont("dejavu", "B", 10)
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("set signing page font (footer): %w", err)
+	}
 	pdfFile.SetXY(140, 245)
 	pdfFile.MultiCell(55, 6, "QR: unavailable in current runtime", "", "R", false)
 
+	// Диагностика результата: `pdffonts signed.pdf` — должен показывать embedded DejaVu для страницы подписания.
 	if err := pdfFile.OutputFileAndClose(outPath); err != nil {
 		return fmt.Errorf("create signing page: %w", err)
 	}
 	return nil
+}
+
+func ensureSigningFontInTemp(srcPath string) (string, error) {
+	tempPath := filepath.Join(os.TempDir(), filepath.Base(srcPath))
+	if srcPath == tempPath {
+		return tempPath, nil
+	}
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("read sign page font %q: %w", srcPath, err)
+	}
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("copy sign page font to temp %q: %w", tempPath, err)
+	}
+	return tempPath, nil
+}
+
+func resolveSigningFontPath() (string, error) {
+	candidates := []string{
+		"/opt/turcompany/assets/fonts/DejaVuSans.ttf",
+		"assets/fonts/DejaVuSans.ttf",
+		"../../assets/fonts/DejaVuSans.ttf",
+		"/usr/share/fonts/TTF/DejaVuSans.ttf",
+		"/usr/share/fonts/dejavu/DejaVuSans.ttf",
+		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+		"/usr/share/fonts/noto/NotoSans-Regular.ttf",
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, "assets/fonts/DejaVuSans.ttf"),
+			filepath.Join(wd, "../../assets/fonts/DejaVuSans.ttf"),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+			abs, absErr := filepath.Abs(candidate)
+			if absErr == nil {
+				return abs, nil
+			}
+			return candidate, nil
+		}
+	}
+
+	logTTFFontsOnce.Do(func() {
+		fonts := discoverTTFFonts([]string{"/opt/turcompany/assets/fonts", "/usr/share/fonts"})
+		log.Printf("[documents] no signing font found in known paths, discovered TTF fonts: %v", fonts)
+	})
+
+	return "", fmt.Errorf("sign page font not found: expected one of %v", candidates)
+}
+
+func discoverTTFFonts(baseDirs []string) []string {
+	fonts := make([]string, 0, 16)
+	for _, dir := range baseDirs {
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if strings.EqualFold(filepath.Ext(path), ".ttf") {
+				fonts = append(fonts, path)
+			}
+			return nil
+		})
+	}
+	sort.Strings(fonts)
+	if len(fonts) > 20 {
+		return fonts[:20]
+	}
+	return fonts
 }
 
 func mergePDFs(originalAbs, signPageAbs, signedAbs string) error {

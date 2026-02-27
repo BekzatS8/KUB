@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"turcompany/internal/models"
 )
@@ -193,44 +192,29 @@ func buildClientPlaceholders(
 
 	// ================== СДЕЛКА ==================
 	if deal != nil {
-		amountStr := strconv.FormatFloat(deal.Amount, 'f', 2, 64)
 		ph["DEAL_ID"] = strconv.Itoa(deal.ID)
-		ph["DEAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
 		ph["DEAL_CURRENCY"] = strings.TrimSpace(deal.Currency)
 		ph["DEAL_STATUS"] = strings.TrimSpace(deal.Status)
 		ph["DEAL_DATE"] = deal.CreatedAt.Format("02.01.2006")
 
+		if tenge, tiyn, formatted, err := NormalizeMoney(strconv.FormatFloat(deal.Amount, 'f', 2, 64)); err == nil {
+			ph["DEAL_AMOUNT_NUM"] = formatted
+			ph["DEAL_AMOUNT_NUM_SPACED"] = formatAmountWithSpaces(tenge)
+			ph["DEAL_AMOUNT_TEXT"] = amountToRuWords(tenge, tiyn)
+			if _, ok := ph["TOTAL_AMOUNT_NUM"]; !ok {
+				ph["TOTAL_AMOUNT_NUM"] = formatted
+			}
+		} else {
+			amountStr := strconv.FormatFloat(deal.Amount, 'f', 2, 64)
+			ph["DEAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
+			if _, ok := ph["TOTAL_AMOUNT_NUM"]; !ok {
+				ph["TOTAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
+			}
+		}
+
 		// Номер договора по умолчанию
 		if _, ok := ph["CONTRACT_NUMBER"]; !ok {
 			ph["CONTRACT_NUMBER"] = fmt.Sprintf("KUB-%06d", deal.ID)
-		}
-
-		// Общая сумма договора по умолчанию = сумма сделки
-		if _, ok := ph["TOTAL_AMOUNT_NUM"]; !ok {
-			ph["TOTAL_AMOUNT_NUM"] = strings.TrimSpace(amountStr)
-		}
-	}
-
-	// ================== ОБЩИЕ СУММЫ ==================
-	if numStr, ok := ph["TOTAL_AMOUNT_NUM"]; ok && numStr != "" {
-		if n, err := parseAmountToInt(numStr); err == nil {
-			// красиво отформатированное число с пробелами
-			ph["TOTAL_AMOUNT_NUM_SPACED"] = formatAmountWithSpaces(n)
-
-			// если текст ещё не задан извне — генерируем
-			if _, ok2 := ph["TOTAL_AMOUNT_TEXT"]; !ok2 {
-				ph["TOTAL_AMOUNT_TEXT"] = numToRuWordsInt(n)
-			}
-		} else {
-			// если не смогли распарсить — хотя бы дубль числа
-			if _, ok2 := ph["TOTAL_AMOUNT_TEXT"]; !ok2 {
-				ph["TOTAL_AMOUNT_TEXT"] = numStr
-			}
-		}
-	} else {
-		// нет TOTAL_AMOUNT_NUM — ничего не трогаем
-		if _, ok := ph["TOTAL_AMOUNT_TEXT"]; !ok {
-			ph["TOTAL_AMOUNT_TEXT"] = ""
 		}
 	}
 
@@ -245,6 +229,22 @@ func buildClientPlaceholders(
 	// всё, что передал сервис/handler, имеет приоритет
 	for k, v := range extra {
 		ph[k] = v
+	}
+
+	// ================== ОБЩИЕ СУММЫ ==================
+	if rawAmount, ok := ph["TOTAL_AMOUNT_NUM"]; ok && strings.TrimSpace(rawAmount) != "" {
+		tenge, tiyn, formatted, err := NormalizeMoney(rawAmount)
+		if err == nil {
+			ph["TOTAL_AMOUNT_NUM"] = formatted
+			ph["TOTAL_AMOUNT_NUM_SPACED"] = formatAmountWithSpaces(tenge)
+			if _, ok2 := ph["TOTAL_AMOUNT_TEXT"]; !ok2 {
+				ph["TOTAL_AMOUNT_TEXT"] = amountToRuWords(tenge, tiyn)
+			}
+		} else if _, ok2 := ph["TOTAL_AMOUNT_TEXT"]; !ok2 {
+			ph["TOTAL_AMOUNT_TEXT"] = rawAmount
+		}
+	} else if _, ok := ph["TOTAL_AMOUNT_TEXT"]; !ok {
+		ph["TOTAL_AMOUNT_TEXT"] = ""
 	}
 
 	return ph
@@ -322,40 +322,224 @@ func ruMonthGenitive(m time.Month) string {
 	}
 }
 
-// parseAmountToInt убирает пробелы и нецифры и парсит в int64
-func parseAmountToInt(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, fmt.Errorf("empty amount")
+func NormalizeMoney(raw any) (tenge int64, tiyn int64, formatted string, err error) {
+	canonical, err := canonicalMoneyString(raw)
+	if err != nil {
+		return 0, 0, "", err
 	}
 
-	var digits strings.Builder
+	parts := strings.SplitN(canonical, ".", 2)
+	tenge, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, "", fmt.Errorf("parse tenge from %q: %w", canonical, err)
+	}
+	if len(parts) == 2 {
+		v, convErr := strconv.ParseInt(parts[1], 10, 64)
+		if convErr != nil {
+			return 0, 0, "", fmt.Errorf("parse tiyn from %q: %w", canonical, convErr)
+		}
+		tiyn = v
+	}
+
+	formatted = fmt.Sprintf("%s.%02d", formatAmountWithSpaces(tenge), tiyn)
+	return tenge, tiyn, formatted, nil
+}
+
+func canonicalMoneyString(raw any) (string, error) {
+	switch v := raw.(type) {
+	case nil:
+		return "", fmt.Errorf("empty amount")
+	case string:
+		return canonicalizeMoneyString(v)
+	case []byte:
+		return canonicalizeMoneyString(string(v))
+	case int:
+		return fmt.Sprintf("%d.00", v), nil
+	case int64:
+		return fmt.Sprintf("%d.00", v), nil
+	case int32:
+		return fmt.Sprintf("%d.00", v), nil
+	case uint:
+		return fmt.Sprintf("%d.00", v), nil
+	case uint64:
+		return fmt.Sprintf("%d.00", v), nil
+	case uint32:
+		return fmt.Sprintf("%d.00", v), nil
+	case fmt.Stringer:
+		return canonicalizeMoneyString(v.String())
+	default:
+		return canonicalizeMoneyString(fmt.Sprint(v))
+	}
+}
+
+func canonicalizeMoneyString(input string) (string, error) {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return "", fmt.Errorf("empty amount")
+	}
+	s = strings.ReplaceAll(s, " ", "")
+
 	for _, r := range s {
-		if unicode.IsDigit(r) {
-			digits.WriteRune(r)
+		if (r < '0' || r > '9') && r != '.' && r != ',' {
+			return "", fmt.Errorf("invalid amount %q", input)
 		}
 	}
 
-	if digits.Len() == 0 {
-		return 0, fmt.Errorf("no digits in amount: %q", s)
+	sepPos := -1
+	decimalSep := rune(0)
+	countDot := strings.Count(s, ".")
+	countComma := strings.Count(s, ",")
+
+	if countDot > 0 && countComma > 0 {
+		lastDot := strings.LastIndex(s, ".")
+		lastComma := strings.LastIndex(s, ",")
+		if lastDot > lastComma {
+			sepPos = lastDot
+			decimalSep = '.'
+		} else {
+			sepPos = lastComma
+			decimalSep = ','
+		}
+	} else if countDot > 0 || countComma > 0 {
+		sep := "."
+		if countComma > 0 {
+			sep = ","
+		}
+		idx := strings.LastIndex(s, sep)
+		if len(s)-idx-1 == 2 {
+			sepPos = idx
+			decimalSep = rune(sep[0])
+		}
 	}
 
-	return strconv.ParseInt(digits.String(), 10, 64)
+	wholeRaw := s
+	fractionRaw := ""
+	if sepPos >= 0 {
+		wholeRaw = s[:sepPos]
+		fractionRaw = s[sepPos+1:]
+		if fractionRaw == "" || strings.ContainsAny(fractionRaw, ".,") {
+			return "", fmt.Errorf("invalid amount %q", input)
+		}
+	}
+
+	if decimalSep != 0 {
+		if err := validateThousandGroups(wholeRaw, decimalSep); err != nil {
+			return "", fmt.Errorf("invalid amount %q: %w", input, err)
+		}
+		if strings.ContainsRune(wholeRaw, decimalSep) {
+			if err := validateGroupedWithSeparator(wholeRaw, decimalSep); err != nil {
+				return "", fmt.Errorf("invalid amount %q: %w", input, err)
+			}
+		}
+	}
+	if sepPos == -1 {
+		if err := validateAsThousandsOnly(wholeRaw); err != nil {
+			return "", fmt.Errorf("invalid amount %q: %w", input, err)
+		}
+	}
+
+	wholeDigits := strings.NewReplacer(",", "", ".", "").Replace(wholeRaw)
+	if wholeDigits == "" {
+		wholeDigits = "0"
+	}
+	if !isAllDigits(wholeDigits) {
+		return "", fmt.Errorf("invalid amount %q", input)
+	}
+
+	tiyin := "00"
+	if sepPos >= 0 {
+		tiyin = fractionRaw
+	}
+
+	return wholeDigits + "." + tiyin, nil
+}
+
+func validateAsThousandsOnly(s string) error {
+	if strings.Contains(s, "..") || strings.Contains(s, ",,") {
+		return fmt.Errorf("invalid thousands separators")
+	}
+	return nil
+}
+
+func validateGroupedWithSeparator(s string, sep rune) error {
+	chunks := strings.Split(s, string(sep))
+	if len(chunks) < 2 {
+		return nil
+	}
+	for i, part := range chunks {
+		if part == "" || !isAllDigits(part) {
+			return fmt.Errorf("invalid thousands separators")
+		}
+		if i == 0 {
+			if len(part) < 1 || len(part) > 3 {
+				return fmt.Errorf("invalid thousands separators")
+			}
+		} else if len(part) != 3 {
+			return fmt.Errorf("invalid thousands separators")
+		}
+	}
+	return nil
+}
+
+func validateThousandGroups(whole string, decimalSep rune) error {
+	var thousandSep rune
+	if decimalSep == '.' {
+		thousandSep = ','
+	} else {
+		thousandSep = '.'
+	}
+	if !strings.ContainsRune(whole, thousandSep) {
+		return nil
+	}
+	chunks := strings.Split(whole, string(thousandSep))
+	if len(chunks) < 2 {
+		return nil
+	}
+	for i, part := range chunks {
+		if part == "" || !isAllDigits(part) {
+			return fmt.Errorf("invalid thousands separators")
+		}
+		if i == 0 {
+			if len(part) < 1 || len(part) > 3 {
+				return fmt.Errorf("invalid thousands separators")
+			}
+		} else if len(part) != 3 {
+			return fmt.Errorf("invalid thousands separators")
+		}
+	}
+	return nil
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func amountToRuWords(tenge int64, tiyn int64) string {
+	return fmt.Sprintf("%s тенге %02d тиын", numToRuWordsInt(tenge), tiyn)
 }
 
 // formatAmountWithSpaces: "1600000" -> "1 600 000"
 func formatAmountWithSpaces(n int64) string {
 	s := strconv.FormatInt(n, 10)
-	l := len(s)
-	if l <= 3 {
+	if len(s) <= 3 {
 		return s
 	}
 	var parts []string
-	for l > 3 {
-		parts = append([]string{s[l-3:]}, parts...) // prepend
-		l -= 3
+	for i := len(s); i > 0; i -= 3 {
+		start := i - 3
+		if start < 0 {
+			start = 0
+		}
+		parts = append([]string{s[start:i]}, parts...)
 	}
-	parts = append([]string{s[:l]}, parts...)
 	return strings.Join(parts, " ")
 }
 
