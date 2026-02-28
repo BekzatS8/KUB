@@ -1,29 +1,31 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
-	"os"
-	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
+	"turcompany/internal/storage"
 )
 
 // ChatService handles read/send operations for chats without realtime transport.
 type ChatService struct {
 	repo      repositories.ChatRepository
 	filesRoot string
+	storage   storage.Storage
 }
 
 func NewChatService(repo repositories.ChatRepository, filesRoot string) *ChatService {
-	return &ChatService{repo: repo, filesRoot: filesRoot}
+	return &ChatService{repo: repo, filesRoot: filesRoot, storage: storage.NewLocalStorage(filesRoot)}
 }
 
 func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
@@ -69,7 +71,23 @@ func (s *ChatService) GetMessages(chatID, userID, limit, offset int) ([]*models.
 	return messages, nil
 }
 
-func (s *ChatService) SearchMessages(chatID, userID int, query string) ([]*models.ChatMessage, error) {
+func (s *ChatService) GetMessagesWithAttachments(chatID, userID, limit, offset int) ([]*models.ChatMessage, map[int][]models.AttachmentResponse, error) {
+	messages, err := s.GetMessages(chatID, userID, limit, offset)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]int, 0, len(messages))
+	for _, m := range messages {
+		ids = append(ids, m.ID)
+	}
+	attached, err := s.repo.GetAttachmentsByMessageIDs(ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	return messages, attached, nil
+}
+
+func (s *ChatService) SearchMessages(chatID, userID int, query, mode string, limit, offset int) ([]*models.ChatMessage, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []*models.ChatMessage{}, nil
@@ -77,15 +95,27 @@ func (s *ChatService) SearchMessages(chatID, userID int, query string) ([]*model
 	if err := s.ensureMember(chatID, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.SearchMessages(chatID, userID, query)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "ilike" {
+		return s.repo.SearchMessagesILIKE(chatID, userID, query, limit, offset)
+	}
+	return s.repo.SearchMessagesFTS(chatID, userID, query, limit, offset)
 }
 
-func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments []string) (*models.ChatMessage, map[int]int, error) {
+func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments []string, attachmentIDs []string) (*models.ChatMessage, map[int]int, error) {
 	text = strings.TrimSpace(text)
 	attachments = normalizeAttachments(attachments)
 
-	// ✅ теперь можно: text пустой, но attachments есть
-	if text == "" && len(attachments) == 0 {
+	if text == "" && len(attachments) == 0 && len(attachmentIDs) == 0 {
 		return nil, nil, fmt.Errorf("message text or attachments are required")
 	}
 
@@ -97,6 +127,11 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(attachmentIDs) > 0 {
+		if err := s.repo.AttachToMessage(uniqueStrings(attachmentIDs), msg.ID, chatID, senderID); err != nil {
+			return nil, nil, fmt.Errorf("attach to message: %w", err)
+		}
+	}
 
 	chat, err := s.repo.GetChatByID(chatID)
 	if err != nil {
@@ -107,11 +142,9 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	}
 
 	unreadByUser := make(map[int]int)
-
 	if err := s.repo.UpdateLastRead(chatID, senderID, msg.ID); err != nil {
 		return nil, nil, err
 	}
-
 	for _, member := range chat.Members {
 		if member == senderID {
 			continue
@@ -126,59 +159,60 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	return msg, unreadByUser, nil
 }
 
-func (s *ChatService) UploadAttachment(chatID, userID int, file *multipart.FileHeader) (string, error) {
+func (s *ChatService) UploadAttachment(chatID, userID int, file *multipart.FileHeader) (*models.AttachmentResponse, error) {
 	if err := s.ensureMember(chatID, userID); err != nil {
-		return "", err
+		return nil, err
 	}
 	if file == nil {
-		return "", fmt.Errorf("file is required")
+		return nil, fmt.Errorf("file is required")
 	}
 	if file.Size > 10*1024*1024 {
-		return "", fmt.Errorf("file is too large")
+		return nil, fmt.Errorf("file is too large")
 	}
 
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	allowed := map[string]struct{}{
-		".pdf":  {},
-		".png":  {},
-		".jpg":  {},
-		".docx": {},
-		".xlsx": {},
+	safeName, ext, err := sanitizeAttachmentName(file.Filename)
+	if err != nil {
+		return nil, err
 	}
-	if _, ok := allowed[ext]; !ok {
-		return "", fmt.Errorf("file type not allowed")
+	mimeType, ok := allowedAttachmentTypes()[ext]
+	if !ok {
+		return nil, fmt.Errorf("file type not allowed")
 	}
-
-	safeName := filepath.Base(file.Filename)
-	if safeName == "" || safeName == "." {
-		return "", fmt.Errorf("invalid filename")
-	}
-
-	destDir := filepath.Join(s.filesRoot, "messages")
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", err
-	}
-
-	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
-	destPath := filepath.Join(destDir, finalName)
 
 	src, err := file.Open()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer src.Close()
 
-	dst, err := os.Create(destPath)
+	key := fmt.Sprintf("chat/%d/%d_%s", chatID, time.Now().UnixNano(), safeName)
+	if err := s.storage.Save(context.Background(), src, key); err != nil {
+		return nil, err
+	}
+	att, err := s.repo.CreateAttachment(chatID, userID, safeName, mimeType, file.Size, key)
 	if err != nil {
-		return "", err
+		_ = s.storage.Delete(context.Background(), key)
+		return nil, err
 	}
-	defer dst.Close()
+	return &models.AttachmentResponse{ID: att.ID, URL: "/attachments/" + att.ID + "/download", FileName: att.FileName, MimeType: att.MimeType, SizeBytes: att.SizeBytes}, nil
+}
 
-	if _, err := io.Copy(dst, src); err != nil {
-		return "", err
+func (s *ChatService) DownloadAttachment(attachmentID string, userID int) (*models.Attachment, io.ReadSeekCloser, int64, error) {
+	att, err := s.repo.GetAttachmentForDownload(attachmentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, 0, ErrChatNotFound
+		}
+		return nil, nil, 0, err
 	}
-
-	return path.Join("/files/messages", finalName), nil
+	if err := s.ensureMember(att.ChatID, userID); err != nil {
+		return nil, nil, 0, err
+	}
+	r, size, err := s.storage.Open(context.Background(), att.StorageKey)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return att, r, size, nil
 }
 
 func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error) {
@@ -186,7 +220,7 @@ func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error)
 		return nil, fmt.Errorf("cannot create personal chat with the same user")
 	}
 	members := uniqueInts([]int{user1, user2})
-	return s.repo.CreateChat("", false, members)
+	return s.repo.CreateChat("", false, user1, members)
 }
 
 func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int) (*models.Chat, error) {
@@ -196,7 +230,7 @@ func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int)
 	}
 	members = append(members, creatorID)
 	members = uniqueInts(members)
-	return s.repo.CreateChat(name, true, members)
+	return s.repo.CreateChat(name, true, creatorID, members)
 }
 
 func (s *ChatService) LeaveChat(chatID, userID int) error {
@@ -244,7 +278,22 @@ func (s *ChatService) DeleteChat(chatID, userID int) error {
 		}
 		return err
 	}
-	if len(chat.Members) == 0 || chat.Members[0] != userID {
+
+	if !chat.IsGroup {
+		if err := s.ensureMember(chatID, userID); err != nil {
+			return err
+		}
+		return s.repo.DeleteChat(chatID)
+	}
+
+	role, err := s.repo.GetMemberRole(chatID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotChatMember
+		}
+		return err
+	}
+	if role != models.ChatMemberRoleOwner && role != models.ChatMemberRoleAdmin {
 		return ErrForbidden
 	}
 	return s.repo.DeleteChat(chatID)
@@ -267,6 +316,23 @@ func (s *ChatService) ensureMember(chatID, userID int) error {
 	return nil
 }
 
+func (s *ChatService) GetChatInfo(chatID, userID int) (*models.ChatInfoResponse, error) {
+	info, err := s.repo.GetChatInfo(chatID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, chatErr := s.repo.GetChatByID(chatID); chatErr != nil {
+				if errors.Is(chatErr, sql.ErrNoRows) {
+					return nil, ErrChatNotFound
+				}
+				return nil, chatErr
+			}
+			return nil, ErrNotChatMember
+		}
+		return nil, err
+	}
+	return info, nil
+}
+
 func (s *ChatService) GetUserStatus(userID int) (bool, time.Time, error) {
 	return s.repo.GetOnlineStatus(userID)
 }
@@ -275,28 +341,23 @@ func (s *ChatService) EnsureMember(chatID, userID int) error {
 	return s.ensureMember(chatID, userID)
 }
 
-func (s *ChatService) MarkChatRead(chatID, userID int) (int, error) {
+func (s *ChatService) MarkChatRead(chatID, userID int, messageID *int) (int, *models.ChatReadEvent, error) {
 	if err := s.ensureMember(chatID, userID); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	lastMsg, err := s.repo.LastMessage(chatID)
+	lastReadID, readAt, err := s.repo.MarkChatRead(chatID, userID, messageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			if err := s.repo.UpdateLastRead(chatID, userID, 0); err != nil {
-				return 0, err
-			}
-			return 0, nil
+			return 0, nil, ErrChatNotFound
 		}
-		return 0, err
-	}
-	if err := s.repo.UpdateLastRead(chatID, userID, lastMsg.ID); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	count, err := s.repo.CountUnread(chatID, userID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return count, nil
+	evt := &models.ChatReadEvent{Type: "chat:read", ChatID: chatID, UserID: userID, LastReadMessageID: lastReadID, ReadAt: readAt}
+	return count, evt, nil
 }
 
 func (s *ChatService) ListUnreadChats(userID int) ([]*models.Chat, error) {
@@ -377,4 +438,131 @@ func normalizeAttachments(values []string) []string {
 		return nil
 	}
 	return out
+}
+
+func (s *ChatService) EditMessage(chatID, messageID, userID int, text string) (*models.ChatMessage, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	msg, err := s.repo.EditMessage(chatID, messageID, userID, text)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrForbidden
+		}
+		return nil, err
+	}
+	return msg, nil
+}
+
+func (s *ChatService) DeleteMessage(chatID, messageID, userID int) (*models.ChatMessage, error) {
+	msg, err := s.repo.DeleteMessage(chatID, messageID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrForbidden
+		}
+		return nil, err
+	}
+	return msg, nil
+}
+
+func (s *ChatService) PinMessage(chatID, messageID, userID int) (*models.PinResponse, error) {
+	p, err := s.repo.PinMessage(chatID, messageID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrForbidden
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *ChatService) UnpinMessage(chatID, messageID, userID int) error {
+	if err := s.repo.UnpinMessage(chatID, messageID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *ChatService) FavoriteMessage(chatID, messageID, userID int) (*models.FavoriteResponse, error) {
+	return s.repo.FavoriteMessage(chatID, messageID, userID)
+}
+
+func (s *ChatService) UnfavoriteMessage(chatID, messageID, userID int) error {
+	return s.repo.UnfavoriteMessage(chatID, messageID, userID)
+}
+
+func (s *ChatService) ListPins(chatID, userID, limit, offset int) ([]*models.PinResponse, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.repo.ListPins(chatID, userID, limit, offset)
+}
+
+func (s *ChatService) ListFavorites(chatID, userID, limit, offset int) ([]*models.FavoriteResponse, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.repo.ListFavorites(chatID, userID, limit, offset)
+}
+
+func allowedAttachmentTypes() map[string]string {
+	return map[string]string{
+		".pdf":  "application/pdf",
+		".png":  "image/png",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	}
+}
+
+var badNameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func sanitizeAttachmentName(name string) (string, string, error) {
+	base := filepath.Base(strings.TrimSpace(name))
+	if base == "" || base == "." {
+		return "", "", fmt.Errorf("invalid filename")
+	}
+	if strings.Count(base, ".") > 1 {
+		return "", "", fmt.Errorf("invalid filename")
+	}
+	ext := strings.ToLower(filepath.Ext(base))
+	if ext == "" {
+		return "", "", fmt.Errorf("invalid filename")
+	}
+	clean := badNameChars.ReplaceAllString(base, "_")
+	return clean, ext, nil
+}
+
+func uniqueStrings(v []string) []string {
+	seen := make(map[string]struct{}, len(v))
+	res := make([]string, 0, len(v))
+	for _, s := range v {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		res = append(res, s)
+	}
+	return res
 }

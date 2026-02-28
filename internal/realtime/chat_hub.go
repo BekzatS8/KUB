@@ -26,6 +26,15 @@ type unreadNotification struct {
 	unread int
 }
 
+type readNotification struct {
+	event models.ChatReadEvent
+}
+
+type chatEventNotification struct {
+	chatID  int
+	payload interface{}
+}
+
 type ChatHub struct {
 	chats        map[int]map[int]map[*Conn]struct{}
 	repo         repositories.ChatRepository
@@ -33,6 +42,8 @@ type ChatHub struct {
 	unregister   chan subscription
 	broadcast    chan *models.ChatMessage
 	notifyUnread chan unreadNotification
+	notifyRead   chan readNotification
+	notifyEvent  chan chatEventNotification
 	stop         chan struct{}
 
 	presence   map[int]presence
@@ -47,6 +58,8 @@ func NewChatHub(repo repositories.ChatRepository) *ChatHub {
 		unregister:   make(chan subscription, 64),
 		broadcast:    make(chan *models.ChatMessage, 128),
 		notifyUnread: make(chan unreadNotification, 128),
+		notifyRead:   make(chan readNotification, 128),
+		notifyEvent:  make(chan chatEventNotification, 128),
 		stop:         make(chan struct{}),
 		presence:     make(map[int]presence),
 	}
@@ -64,6 +77,10 @@ func (h *ChatHub) Run() {
 			h.handleBroadcast(msg)
 		case unread := <-h.notifyUnread:
 			h.handleNotifyUnread(unread)
+		case read := <-h.notifyRead:
+			h.handleNotifyRead(read)
+		case evt := <-h.notifyEvent:
+			h.handleNotifyEvent(evt)
 		case <-h.stop:
 			h.shutdown()
 			return
@@ -92,6 +109,52 @@ func (h *ChatHub) Broadcast(msg *models.ChatMessage) {
 
 func (h *ChatHub) NotifyUnread(chatID int, userID int, unreadCount int) {
 	h.notifyUnread <- unreadNotification{chatID: chatID, userID: userID, unread: unreadCount}
+}
+
+func (h *ChatHub) NotifyRead(event models.ChatReadEvent) {
+	h.notifyRead <- readNotification{event: event}
+}
+
+func (h *ChatHub) NotifyMessageUpdated(chatID int, msg *models.ChatMessage) {
+	if msg == nil {
+		return
+	}
+	h.notifyEvent <- chatEventNotification{chatID: chatID, payload: struct {
+		Type    string              `json:"type"`
+		ChatID  int                 `json:"chat_id"`
+		Message *models.ChatMessage `json:"message"`
+	}{Type: "message:updated", ChatID: chatID, Message: msg}}
+}
+
+func (h *ChatHub) NotifyMessageDeleted(chatID, messageID, deletedBy int, deletedAt time.Time) {
+	h.notifyEvent <- chatEventNotification{chatID: chatID, payload: struct {
+		Type      string    `json:"type"`
+		ChatID    int       `json:"chat_id"`
+		MessageID int       `json:"message_id"`
+		DeletedAt time.Time `json:"deleted_at"`
+		DeletedBy int       `json:"deleted_by"`
+	}{Type: "message:deleted", ChatID: chatID, MessageID: messageID, DeletedAt: deletedAt, DeletedBy: deletedBy}}
+}
+
+func (h *ChatHub) NotifyMessagePinned(chatID int, p *models.PinResponse) {
+	if p == nil {
+		return
+	}
+	h.notifyEvent <- chatEventNotification{chatID: chatID, payload: struct {
+		Type      string    `json:"type"`
+		ChatID    int       `json:"chat_id"`
+		MessageID int       `json:"message_id"`
+		PinnedAt  time.Time `json:"pinned_at"`
+		PinnedBy  int       `json:"pinned_by"`
+	}{Type: "message:pinned", ChatID: chatID, MessageID: p.MessageID, PinnedAt: p.PinnedAt, PinnedBy: p.PinnedBy}}
+}
+
+func (h *ChatHub) NotifyMessageUnpinned(chatID, messageID int) {
+	h.notifyEvent <- chatEventNotification{chatID: chatID, payload: struct {
+		Type      string `json:"type"`
+		ChatID    int    `json:"chat_id"`
+		MessageID int    `json:"message_id"`
+	}{Type: "message:unpinned", ChatID: chatID, MessageID: messageID}}
 }
 
 func (h *ChatHub) handleRegister(sub subscription) {
@@ -164,6 +227,36 @@ func (h *ChatHub) handleNotifyUnread(unread unreadNotification) {
 		if err := conn.WriteJSON(payload); err != nil {
 			log.Printf("[chat_hub] failed to notify unread to user %d: %v", unread.userID, err)
 			h.unregister <- subscription{chatID: unread.chatID, userID: unread.userID, conn: conn}
+		}
+	}
+}
+
+func (h *ChatHub) handleNotifyRead(read readNotification) {
+	chatConns, ok := h.chats[read.event.ChatID]
+	if !ok {
+		return
+	}
+	for userID, conns := range chatConns {
+		for conn := range conns {
+			if err := conn.WriteJSON(read.event); err != nil {
+				log.Printf("[chat_hub] failed to notify read to user %d: %v", userID, err)
+				h.unregister <- subscription{chatID: read.event.ChatID, userID: userID, conn: conn}
+			}
+		}
+	}
+}
+
+func (h *ChatHub) handleNotifyEvent(evt chatEventNotification) {
+	chatConns, ok := h.chats[evt.chatID]
+	if !ok {
+		return
+	}
+	for userID, conns := range chatConns {
+		for conn := range conns {
+			if err := conn.WriteJSON(evt.payload); err != nil {
+				log.Printf("[chat_hub] failed to notify event to user %d: %v", userID, err)
+				h.unregister <- subscription{chatID: evt.chatID, userID: userID, conn: conn}
+			}
 		}
 	}
 }

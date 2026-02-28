@@ -2537,29 +2537,40 @@
           "request": {
             "method": "POST",
             "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/upload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "upload"
+              ]
+            },
             "body": {
               "mode": "formdata",
               "formdata": [
                 {
                   "key": "file",
                   "type": "file",
-                  "src": "{{uploadFile}}"
+                  "src": "{{upload_file}}"
                 }
-              ]
-            },
-            "url": {
-              "raw": "{{baseUrl}}/chats/{{chatId}}/upload",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "chats",
-                "{{chatId}}",
-                "upload"
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Delete Chat",
@@ -2585,24 +2596,47 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/chats/{{chatId}}/search?query={{messageQuery}}",
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/search?q={{message_query}}&limit=20&offset=0&mode=fts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "chats",
-                "{{chatId}}",
+                "{{chat_id}}",
                 "search"
               ],
               "query": [
                 {
-                  "key": "query",
-                  "value": "{{messageQuery}}"
+                  "key": "q",
+                  "value": "{{message_query}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "mode",
+                  "value": "fts"
                 }
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List Messages",
@@ -2610,42 +2644,42 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/chats/{{chatId}}/messages?page=1&limit=20",
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages?limit=20&offset=0",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "chats",
-                "{{chatId}}",
+                "{{chat_id}}",
                 "messages"
               ],
               "query": [
                 {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
                   "key": "limit",
                   "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
                 }
               ]
             }
           },
-          "response": []
-        },
-        {
-          "name": "Send Message",
+          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('messageId', data.id); }"
-                ],
-                "type": "text/javascript"
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Send Message",
           "request": {
             "method": "POST",
             "header": [
@@ -2654,23 +2688,34 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"{{messageText}}\",\n  \"attachments\": []\n}"
-            },
             "url": {
-              "raw": "{{baseUrl}}/chats/{{chatId}}/messages",
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "chats",
-                "{{chatId}}",
+                "{{chat_id}}",
                 "messages"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"{{message_text}}\",\n  \"attachment_ids\": [\"{{attachment_id}}\"],\n  \"attachments\": []\n}"
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "WebSocket Stream",
@@ -2690,6 +2735,498 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Get Chat Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "info"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Attachment (Alias)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "attachments"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{upload_file}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Download Attachment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attachments/{{attachment_id}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attachments",
+                "{{attachment_id}}",
+                "download"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Messages (include_attachments)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages?limit=20&offset=0&include_attachments=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "include_attachments",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark Read (legacy)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "read"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark Read (message_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "read"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": {{message_id}}\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Edit Message",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"edited from postman\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Message",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pin Message",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}/pin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}",
+                "pin"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unpin Message",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}/pin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}",
+                "pin"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Favorite Message",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}/favorite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}",
+                "favorite"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unfavorite Message",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/messages/{{message_id}}/favorite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "messages",
+                "{{message_id}}",
+                "favorite"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Pins",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/pins?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "pins"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Favorites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/{{chat_id}}/favorites?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "{{chat_id}}",
+                "favorites"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -3176,6 +3713,34 @@
     {
       "key": "wazzupIframeUrl",
       "value": ""
+    },
+    {
+      "key": "chat_id",
+      "value": ""
+    },
+    {
+      "key": "message_id",
+      "value": ""
+    },
+    {
+      "key": "attachment_id",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "upload_file",
+      "value": ""
+    },
+    {
+      "key": "message_text",
+      "value": "hello"
+    },
+    {
+      "key": "message_query",
+      "value": "hello"
     }
   ]
 }
