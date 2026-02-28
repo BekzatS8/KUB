@@ -533,7 +533,7 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 
 func (h *ChatHandler) EditMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
@@ -565,7 +565,7 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 
 func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
@@ -600,7 +600,7 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 
 func (h *ChatHandler) PinMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
@@ -625,7 +625,7 @@ func (h *ChatHandler) PinMessage(c *gin.Context) {
 
 func (h *ChatHandler) UnpinMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
@@ -649,7 +649,7 @@ func (h *ChatHandler) UnpinMessage(c *gin.Context) {
 
 func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
@@ -669,7 +669,7 @@ func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
 
 func (h *ChatHandler) UnfavoriteMessage(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
-	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
 		return
