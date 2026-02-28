@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -20,8 +23,9 @@ type ChatHandler struct {
 
 // ✅ text больше НЕ required — можно отправлять только attachments
 type sendMessageRequest struct {
-	Text        string   `json:"text"`
-	Attachments []string `json:"attachments"`
+	Text          string   `json:"text"`
+	Attachments   []string `json:"attachments"`
+	AttachmentIDs []string `json:"attachment_ids"`
 }
 
 type personalChatRequest struct {
@@ -37,6 +41,14 @@ type groupChatRequest struct {
 type addMembersRequest struct {
 	Members   []int `json:"members"`
 	MemberIDs []int `json:"member_ids"` // ✅ алиас
+}
+
+type markReadRequest struct {
+	MessageID *int `json:"message_id"`
+}
+
+type editMessageRequest struct {
+	Text string `json:"text"`
 }
 
 func NewChatHandler(service *services.ChatService, hub *realtime.ChatHub) *ChatHandler {
@@ -112,6 +124,32 @@ func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
 	c.JSON(http.StatusCreated, chat)
 }
 
+func (h *ChatHandler) GetChatInfo(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+
+	info, err := h.service.GetChatInfo(chatID, userID)
+	if err != nil {
+		switch err {
+		case services.ErrNotChatMember:
+			forbidden(c, "Not a chat member")
+			return
+		case services.ErrChatNotFound:
+			notFound(c, NotFoundCode, "Chat not found")
+			return
+		default:
+			internalError(c, "Failed to load chat info")
+			return
+		}
+	}
+	c.JSON(http.StatusOK, info)
+}
+
 func (h *ChatHandler) ListMessages(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
 
@@ -128,6 +166,42 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 	}
 	if offset < 0 {
 		offset = 0
+	}
+
+	includeAttachments := c.Query("include_attachments") == "1"
+	if includeAttachments {
+		messages, attached, err := h.service.GetMessagesWithAttachments(chatID, userID, limit, offset)
+		if err != nil {
+			switch err {
+			case services.ErrNotChatMember:
+				forbidden(c, "Not a chat member")
+				return
+			case services.ErrChatNotFound:
+				notFound(c, NotFoundCode, "Chat not found")
+				return
+			default:
+				internalError(c, "Failed to load chat messages")
+				return
+			}
+		}
+		resp := make([]gin.H, 0, len(messages))
+		for _, m := range messages {
+			resp = append(resp, gin.H{
+				"id":        m.ID,
+				"chat_id":   m.ChatID,
+				"sender_id": m.SenderID,
+				"text":      m.Text,
+				"attachments": func() interface{} {
+					if m.IsDeleted {
+						return []interface{}{}
+					}
+					return attached[m.ID]
+				}(),
+				"created_at": m.CreatedAt,
+			})
+		}
+		c.JSON(http.StatusOK, resp)
+		return
 	}
 
 	messages, err := h.service.GetMessages(chatID, userID, limit, offset)
@@ -165,7 +239,11 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 		return
 	}
 
-	messages, err := h.service.SearchMessages(chatID, userID, q)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	mode := strings.TrimSpace(c.DefaultQuery("mode", "fts"))
+
+	messages, err := h.service.SearchMessages(chatID, userID, q, mode, limit, offset)
 	if err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -203,7 +281,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	msg, unreadByUser, err := h.service.SendMessage(chatID, userID, req.Text, req.Attachments)
+	msg, unreadByUser, err := h.service.SendMessage(chatID, userID, req.Text, req.Attachments, req.AttachmentIDs)
 	if err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -241,7 +319,7 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 		return
 	}
 
-	url, err := h.service.UploadAttachment(chatID, userID, file)
+	uploaded, err := h.service.UploadAttachment(chatID, userID, file)
 	if err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -256,7 +334,38 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"url": url})
+	c.JSON(http.StatusOK, gin.H{"id": uploaded.ID, "url": uploaded.URL, "file_name": uploaded.FileName, "mime_type": uploaded.MimeType, "size_bytes": uploaded.SizeBytes})
+}
+
+func (h *ChatHandler) UploadAttachmentAlias(c *gin.Context) {
+	h.UploadAttachment(c)
+}
+
+func (h *ChatHandler) DownloadAttachment(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	attachmentID := strings.TrimSpace(c.Param("id"))
+	if attachmentID == "" {
+		badRequest(c, "Invalid attachment id")
+		return
+	}
+	att, reader, _, err := h.service.DownloadAttachment(attachmentID, userID)
+	if err != nil {
+		switch err {
+		case services.ErrNotChatMember:
+			forbidden(c, "Not a chat member")
+			return
+		case services.ErrChatNotFound:
+			notFound(c, NotFoundCode, "Attachment not found")
+			return
+		default:
+			internalError(c, "Failed to download attachment")
+			return
+		}
+	}
+	defer reader.Close()
+	c.Header("Content-Type", att.MimeType)
+	c.Header("Content-Disposition", "attachment; filename=\""+att.FileName+"\"")
+	http.ServeContent(c.Writer, c.Request, att.FileName, att.CreatedAt, reader)
 }
 
 func (h *ChatHandler) AddMembers(c *gin.Context) {
@@ -339,7 +448,7 @@ func (h *ChatHandler) DeleteChat(c *gin.Context) {
 			notFound(c, NotFoundCode, "Chat not found")
 			return
 		case services.ErrForbidden:
-			forbidden(c, "Only chat creator can delete chat")
+			forbidden(c, "Only owner/admin can delete group chat")
 			return
 		default:
 			internalError(c, "Failed to delete chat")
@@ -388,7 +497,19 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 		return
 	}
 
-	unread, err := h.service.MarkChatRead(chatID, userID)
+	var req markReadRequest
+	if len(c.Request.Header.Get("Content-Type")) > 0 && c.ContentType() == "application/json" {
+		if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			badRequest(c, "Invalid payload")
+			return
+		}
+	}
+	if req.MessageID != nil && *req.MessageID <= 0 {
+		badRequest(c, "message_id must be greater than 0")
+		return
+	}
+
+	unread, evt, err := h.service.MarkChatRead(chatID, userID, req.MessageID)
 	if err != nil {
 		switch err {
 		case services.ErrNotChatMember:
@@ -404,7 +525,199 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 	}
 
 	h.hub.NotifyUnread(chatID, userID, unread)
+	if evt != nil {
+		h.hub.NotifyRead(*evt)
+	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *ChatHandler) EditMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	var req editMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	msg, err := h.service.EditMessage(chatID, messageID, userID, req.Text)
+	if err != nil {
+		switch err {
+		case services.ErrForbidden:
+			forbidden(c, "Forbidden")
+			return
+		default:
+			internalError(c, "Failed to edit message")
+			return
+		}
+	}
+	h.hub.NotifyMessageUpdated(chatID, msg)
+	c.JSON(http.StatusOK, msg)
+}
+
+func (h *ChatHandler) DeleteMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	msg, err := h.service.DeleteMessage(chatID, messageID, userID)
+	if err != nil {
+		switch err {
+		case services.ErrForbidden:
+			forbidden(c, "Forbidden")
+			return
+		default:
+			internalError(c, "Failed to delete message")
+			return
+		}
+	}
+	deletedBy := 0
+	if msg.DeletedBy != nil {
+		deletedBy = *msg.DeletedBy
+	}
+	deletedAt := time.Now()
+	if msg.DeletedAt != nil {
+		deletedAt = *msg.DeletedAt
+	}
+	h.hub.NotifyMessageDeleted(chatID, messageID, deletedBy, deletedAt)
+	c.Status(http.StatusNoContent)
+}
+
+func (h *ChatHandler) PinMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	pin, err := h.service.PinMessage(chatID, messageID, userID)
+	if err != nil {
+		if err == services.ErrForbidden {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to pin message")
+		return
+	}
+	h.hub.NotifyMessagePinned(chatID, pin)
+	c.JSON(http.StatusOK, pin)
+}
+
+func (h *ChatHandler) UnpinMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	if err := h.service.UnpinMessage(chatID, messageID, userID); err != nil {
+		if err == services.ErrForbidden {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to unpin message")
+		return
+	}
+	h.hub.NotifyMessageUnpinned(chatID, messageID)
+	c.Status(http.StatusNoContent)
+}
+
+func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	fav, err := h.service.FavoriteMessage(chatID, messageID, userID)
+	if err != nil {
+		internalError(c, "Failed to favorite message")
+		return
+	}
+	c.JSON(http.StatusOK, fav)
+}
+
+func (h *ChatHandler) UnfavoriteMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("chat_id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	messageID, err := strconv.Atoi(c.Param("message_id"))
+	if err != nil {
+		badRequest(c, "Invalid message id")
+		return
+	}
+	if err := h.service.UnfavoriteMessage(chatID, messageID, userID); err != nil {
+		internalError(c, "Failed to unfavorite message")
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *ChatHandler) ListPins(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	pins, err := h.service.ListPins(chatID, userID, limit, offset)
+	if err != nil {
+		internalError(c, "Failed to list pins")
+		return
+	}
+	c.JSON(http.StatusOK, pins)
+}
+
+func (h *ChatHandler) ListFavorites(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	favs, err := h.service.ListFavorites(chatID, userID, limit, offset)
+	if err != nil {
+		internalError(c, "Failed to list favorites")
+		return
+	}
+	c.JSON(http.StatusOK, favs)
 }
 
 func (h *ChatHandler) Stream(c *gin.Context) {
@@ -459,7 +772,7 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 			continue
 		}
 
-		msg, unreadByUser, err := h.service.SendMessage(chatID, userID, incoming.Text, incoming.Attachments)
+		msg, unreadByUser, err := h.service.SendMessage(chatID, userID, incoming.Text, incoming.Attachments, incoming.AttachmentIDs)
 		if err != nil {
 			log.Printf("[chat_stream] failed to persist message for chat %d user %d: %v", chatID, userID, err)
 			_ = conn.WriteJSON(APIError{ErrorCode: InternalErrorCode, Message: "Failed to send message"})

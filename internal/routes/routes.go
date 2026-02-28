@@ -235,6 +235,8 @@ func SetupRoutes(
 		chats.GET("/search", chatHandler.SearchChats)
 		chats.GET("/unread", chatHandler.ListUnread)
 		chats.GET("/status/:id", chatHandler.GetUserStatus)
+		chats.GET("/:id/pins", chatHandler.ListPins)
+		chats.GET("/:id/favorites", chatHandler.ListFavorites)
 
 		chats.POST("/personal", chatHandler.CreatePersonalChat)
 		chats.POST("/group", chatHandler.CreateGroupChat)
@@ -243,14 +245,23 @@ func SetupRoutes(
 		chats.POST("/:id/leave", chatHandler.LeaveChat)
 		chats.POST("/:id/read", chatHandler.MarkRead)
 		chats.POST("/:id/upload", chatHandler.UploadAttachment)
+		chats.POST("/:id/attachments", chatHandler.UploadAttachmentAlias)
 
 		chats.DELETE("/:id", chatHandler.DeleteChat)
 
+		chats.GET("/:id/info", chatHandler.GetChatInfo)
 		chats.GET("/:id/search", chatHandler.SearchMessages)
 		chats.GET("/:id/messages", chatHandler.ListMessages)
 		chats.POST("/:id/messages", chatHandler.SendMessage)
+		chats.PATCH("/:chat_id/messages/:message_id", chatHandler.EditMessage)
+		chats.DELETE("/:chat_id/messages/:message_id", chatHandler.DeleteMessage)
+		chats.POST("/:chat_id/messages/:message_id/pin", chatHandler.PinMessage)
+		chats.DELETE("/:chat_id/messages/:message_id/pin", chatHandler.UnpinMessage)
+		chats.POST("/:chat_id/messages/:message_id/favorite", chatHandler.FavoriteMessage)
+		chats.DELETE("/:chat_id/messages/:message_id/favorite", chatHandler.UnfavoriteMessage)
 
 		chats.GET("/:id/ws", chatHandler.Stream)
+		r.GET("/attachments/:id/download", chatHandler.DownloadAttachment)
 	}
 
 	// TASKS
