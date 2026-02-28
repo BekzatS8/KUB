@@ -1226,6 +1226,7 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 	}
 
 	pdfFile := gofpdf.New("P", "mm", "A4", "/tmp")
+	pdfFile.SetCompression(false)
 	pdfFile.SetTitle("Лист подписания", false)
 	pdfFile.SetAuthor("KUB CRM", false)
 	pdfFile.AddUTF8Font("dejavu", "", filepath.Base(fontPath))
@@ -1238,16 +1239,24 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 	}
 	pdfFile.SetMargins(15, 15, 15)
 	pdfFile.AddPage()
+	pdfFile.SetAutoPageBreak(true, 15)
 	pdfFile.SetFont("dejavu", "B", 16)
 	if err := pdfFile.Error(); err != nil {
 		return fmt.Errorf("set signing page font (bold title): %w", err)
 	}
-	pdfFile.CellFormat(0, 10, "Лист подписания", "", 1, "L", false, 0, "")
-	pdfFile.Ln(3)
-	pdfFile.SetFont("dejavu", "", 11)
+	pdfFile.CellFormat(0, 8, "Лист подписания", "", 1, "C", false, 0, "")
+	pdfFile.SetTextColor(120, 120, 120)
+	pdfFile.SetFont("dejavu", "", 10)
 	if err := pdfFile.Error(); err != nil {
-		return fmt.Errorf("set signing page font (body): %w", err)
+		return fmt.Errorf("set signing page font (subtitle): %w", err)
 	}
+	pdfFile.CellFormat(0, 6, "KUB CRM • электронное подтверждение (ПЭП)", "", 1, "C", false, 0, "")
+	pdfFile.SetTextColor(0, 0, 0)
+	pdfFile.Ln(2)
+
+	lineY := pdfFile.GetY()
+	pdfFile.Line(15, lineY, 195, lineY)
+	pdfFile.Ln(4)
 
 	signedAt := ""
 	if session.SignedAt != nil {
@@ -1255,44 +1264,140 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 		if loc == nil {
 			loc = time.UTC
 		}
-		signedAt = session.SignedAt.In(loc).Format(time.RFC3339)
-	}
-	rows := []struct{ K, V string }{
-		{"DocumentID", strconv.FormatInt(doc.ID, 10)},
-		{"DocType", doc.DocType},
-		{"signed_at", signedAt},
-		{"signer_email", session.SignerEmail},
-		{"method", "email_otp"},
-		{"signed_ip", session.SignedIP},
-		{"signed_user_agent", session.SignedUserAgent},
-		{"doc_hash", session.DocHash},
-		{"verify_url", "N/A"},
-	}
-	for _, row := range rows {
-		pdfFile.SetFont("dejavu", "B", 10)
-		if err := pdfFile.Error(); err != nil {
-			return fmt.Errorf("set signing page font (row key): %w", err)
+		tzLabel := loc.String()
+		if tzLabel == "" || tzLabel == "UTC" {
+			tzLabel = session.SignedAt.In(loc).Format("-07:00")
 		}
-		pdfFile.CellFormat(45, 7, row.K+":", "", 0, "L", false, 0, "")
-		pdfFile.SetFont("dejavu", "", 10)
-		if err := pdfFile.Error(); err != nil {
-			return fmt.Errorf("set signing page font (row value): %w", err)
-		}
-		pdfFile.MultiCell(0, 7, row.V, "", "L", false)
+		signedAt = fmt.Sprintf("%s (%s)", session.SignedAt.In(loc).Format("02.01.2006 15:04"), tzLabel)
 	}
 
-	pdfFile.SetFont("dejavu", "B", 10)
-	if err := pdfFile.Error(); err != nil {
-		return fmt.Errorf("set signing page font (footer): %w", err)
+	docTypeTitle := doc.DocType
+	if pretty := map[string]string{
+		"contract":              "Договор оказания услуг",
+		"contract_full":         "Договор оказания услуг (полная оплата)",
+		"contract_50_50":        "Договор оказания услуг (50/50)",
+		"personal_data_consent": "Согласие на обработку персональных данных",
+		"refund_application":    "Заявление на возврат средств",
+		"pause_application":     "Заявление на приостановку услуг",
+		"additional_agreement":  "Дополнительное соглашение",
+	}[doc.DocType]; pretty != "" {
+		docTypeTitle = fmt.Sprintf("%s (%s)", pretty, doc.DocType)
 	}
-	pdfFile.SetXY(140, 245)
-	pdfFile.MultiCell(55, 6, "QR: unavailable in current runtime", "", "R", false)
+
+	drawSectionTitle(pdfFile, "Документ")
+	drawKeyValue(pdfFile, "Номер/ID", strconv.FormatInt(doc.ID, 10), 45, 5.5)
+	drawKeyValue(pdfFile, "Тип", docTypeTitle, 45, 5.5)
+	drawKeyValue(pdfFile, "Дата подписания", signedAt, 45, 5.5)
+
+	drawSectionTitle(pdfFile, "Подписант")
+	drawKeyValue(pdfFile, "Email", session.SignerEmail, 45, 5.5)
+	drawKeyValue(pdfFile, "Метод", "Подписание по коду из письма", 45, 5.5)
+
+	drawSectionTitle(pdfFile, "Технические данные")
+	pdfFile.SetFont("dejavu", "", 9)
+	drawKeyValue(pdfFile, "IP", session.SignedIP, 45, 5)
+	userAgent := strings.Join(wrapText(session.SignedUserAgent, 85), "\n")
+	drawKeyValue(pdfFile, "User-Agent", userAgent, 45, 5)
+
+	drawSectionTitle(pdfFile, "Контроль целостности")
+	pdfFile.SetFont("dejavu", "", 9)
+	drawKeyValue(pdfFile, "Хэш документа (SHA-256)", strings.Join(splitHash(session.DocHash), "\n"), 45, 5)
+
+	verifyURL := extractVerifyURL(doc.SignMetadata)
+	if verifyURL != "" && !strings.EqualFold(verifyURL, "N/A") {
+		drawKeyValue(pdfFile, "Проверка", verifyURL, 45, 5.5)
+	}
+
+	pdfFile.Ln(3)
+	lineY = pdfFile.GetY()
+	pdfFile.Line(15, lineY, 195, lineY)
+	pdfFile.Ln(3)
+	pdfFile.SetTextColor(90, 90, 90)
+	pdfFile.SetFont("dejavu", "", 9)
+	if err := pdfFile.Error(); err != nil {
+		return fmt.Errorf("set signing page font (note): %w", err)
+	}
+	pdfFile.MultiCell(0, 4.8, "Подписание выполнено с подтверждением одноразовым кодом, направленным на email подписанта.", "", "L", false)
+	pdfFile.SetTextColor(0, 0, 0)
 
 	// Диагностика результата: `pdffonts signed.pdf` — должен показывать embedded DejaVu для страницы подписания.
 	if err := pdfFile.OutputFileAndClose(outPath); err != nil {
 		return fmt.Errorf("create signing page: %w", err)
 	}
 	return nil
+}
+
+func drawSectionTitle(pdfFile *gofpdf.Fpdf, title string) {
+	pdfFile.Ln(1)
+	lineY := pdfFile.GetY()
+	pdfFile.Line(15, lineY, 195, lineY)
+	pdfFile.Ln(2)
+	pdfFile.SetFont("dejavu", "B", 11)
+	pdfFile.CellFormat(0, 6, title, "", 1, "L", false, 0, "")
+}
+
+func drawKeyValue(pdfFile *gofpdf.Fpdf, key, value string, keyWidth, lineHeight float64) {
+	pdfFile.SetFont("dejavu", "B", 10)
+	_, y := pdfFile.GetXY()
+	pdfFile.CellFormat(keyWidth, lineHeight, key+":", "", 0, "L", false, 0, "")
+	pdfFile.SetFont("dejavu", "", 10)
+	pdfFile.MultiCell(0, lineHeight, value, "", "L", false)
+	if pdfFile.GetY() == y {
+		pdfFile.Ln(lineHeight)
+	}
+}
+
+func wrapText(text string, maxChars int) []string {
+	if maxChars <= 0 || len(text) <= maxChars {
+		if strings.TrimSpace(text) == "" {
+			return []string{"-"}
+		}
+		return []string{text}
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{"-"}
+	}
+	lines := make([]string, 0, len(words))
+	current := words[0]
+	for _, word := range words[1:] {
+		if len([]rune(current))+1+len([]rune(word)) <= maxChars {
+			current += " " + word
+			continue
+		}
+		lines = append(lines, current)
+		current = word
+	}
+	lines = append(lines, current)
+	return lines
+}
+
+func splitHash(hash string) []string {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return []string{"-"}
+	}
+	const chunkSize = 36
+	parts := make([]string, 0, (len(hash)+chunkSize-1)/chunkSize)
+	for len(hash) > chunkSize {
+		parts = append(parts, hash[:chunkSize])
+		hash = hash[chunkSize:]
+	}
+	parts = append(parts, hash)
+	return parts
+}
+
+func extractVerifyURL(metaRaw string) string {
+	metaRaw = strings.TrimSpace(metaRaw)
+	if metaRaw == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(metaRaw), &payload); err != nil {
+		return ""
+	}
+	verifyURL, _ := payload["verify_url"].(string)
+	return strings.TrimSpace(verifyURL)
 }
 
 func ensureSigningFontInTemp(srcPath string) (string, error) {
