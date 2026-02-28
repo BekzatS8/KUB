@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/authz"
+	"turcompany/internal/models"
 	"turcompany/internal/realtime"
 	"turcompany/internal/services"
 )
@@ -82,7 +83,7 @@ func (h *ChatHandler) SearchChats(c *gin.Context) {
 		internalError(c, "Failed to search chats")
 		return
 	}
-	c.JSON(http.StatusOK, chats)
+	c.JSON(http.StatusOK, listWithCount(chats))
 }
 
 func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
@@ -184,22 +185,7 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 				return
 			}
 		}
-		resp := make([]gin.H, 0, len(messages))
-		for _, m := range messages {
-			resp = append(resp, gin.H{
-				"id":        m.ID,
-				"chat_id":   m.ChatID,
-				"sender_id": m.SenderID,
-				"text":      m.Text,
-				"attachments": func() interface{} {
-					if m.IsDeleted {
-						return []interface{}{}
-					}
-					return attached[m.ID]
-				}(),
-				"created_at": m.CreatedAt,
-			})
-		}
+		resp := buildMessagesWithAttachmentsResponse(messages, attached)
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -218,7 +204,7 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusOK, messages)
+	c.JSON(http.StatusOK, listWithCount(messages))
 }
 
 func (h *ChatHandler) SearchMessages(c *gin.Context) {
@@ -257,7 +243,7 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusOK, messages)
+	c.JSON(http.StatusOK, listWithCount(messages))
 }
 
 func (h *ChatHandler) SendMessage(c *gin.Context) {
@@ -700,7 +686,7 @@ func (h *ChatHandler) ListPins(c *gin.Context) {
 		internalError(c, "Failed to list pins")
 		return
 	}
-	c.JSON(http.StatusOK, pins)
+	c.JSON(http.StatusOK, listWithCount(pins))
 }
 
 func (h *ChatHandler) ListFavorites(c *gin.Context) {
@@ -717,7 +703,39 @@ func (h *ChatHandler) ListFavorites(c *gin.Context) {
 		internalError(c, "Failed to list favorites")
 		return
 	}
-	c.JSON(http.StatusOK, favs)
+	c.JSON(http.StatusOK, listWithCount(favs))
+}
+
+func ensureNonNilSlice[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
+}
+
+func listWithCount[T any](items []T) gin.H {
+	items = ensureNonNilSlice(items)
+	return gin.H{"value": items, "Count": len(items)}
+}
+
+func buildMessagesWithAttachmentsResponse(messages []*models.ChatMessage, attached map[int][]models.AttachmentResponse) []gin.H {
+	messages = ensureNonNilSlice(messages)
+	resp := make([]gin.H, 0, len(messages))
+	for _, m := range messages {
+		attachments := ensureNonNilSlice(attached[m.ID])
+		if m.IsDeleted {
+			attachments = []models.AttachmentResponse{}
+		}
+		resp = append(resp, gin.H{
+			"id":          m.ID,
+			"chat_id":     m.ChatID,
+			"sender_id":   m.SenderID,
+			"text":        m.Text,
+			"attachments": attachments,
+			"created_at":  m.CreatedAt,
+		})
+	}
+	return resp
 }
 
 func (h *ChatHandler) Stream(c *gin.Context) {
