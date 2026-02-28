@@ -1301,7 +1301,13 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 
 	drawSectionTitle(pdfFile, "Контроль целостности")
 	pdfFile.SetFont("dejavu", "", 9)
-	drawKeyValue(pdfFile, "Хэш документа (SHA-256)", strings.Join(splitHash(session.DocHash), "\n"), 45, 5)
+	hashLine1, hashLine2, hashOK := splitSHA256(session.DocHash)
+	if hashOK {
+		drawKeyValue(pdfFile, "Хэш документа (SHA-256)", hashLine1, 45, 5)
+		drawValueContinuation(pdfFile, hashLine2, 45, 5)
+	} else {
+		drawKeyValue(pdfFile, "Хэш документа (SHA-256)", "—", 45, 5)
+	}
 
 	verifyURL := extractVerifyURL(doc.SignMetadata)
 	if verifyURL != "" && !strings.EqualFold(verifyURL, "N/A") {
@@ -1347,6 +1353,17 @@ func drawKeyValue(pdfFile *gofpdf.Fpdf, key, value string, keyWidth, lineHeight 
 	}
 }
 
+func drawValueContinuation(pdfFile *gofpdf.Fpdf, value string, keyWidth, lineHeight float64) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	leftMargin, _, rightMargin, _ := pdfFile.GetMargins()
+	pageWidth, _ := pdfFile.GetPageSize()
+	valueWidth := pageWidth - rightMargin - (leftMargin + keyWidth)
+	pdfFile.SetX(leftMargin + keyWidth)
+	pdfFile.MultiCell(valueWidth, lineHeight, value, "", "L", false)
+}
+
 func wrapText(text string, maxChars int) []string {
 	if maxChars <= 0 || len(text) <= maxChars {
 		if strings.TrimSpace(text) == "" {
@@ -1372,19 +1389,18 @@ func wrapText(text string, maxChars int) []string {
 	return lines
 }
 
-func splitHash(hash string) []string {
+func splitSHA256(hash string) (line1, line2 string, ok bool) {
 	hash = strings.TrimSpace(hash)
-	if hash == "" {
-		return []string{"-"}
+	if len(hash) != 64 {
+		return "", "", false
 	}
-	const chunkSize = 36
-	parts := make([]string, 0, (len(hash)+chunkSize-1)/chunkSize)
-	for len(hash) > chunkSize {
-		parts = append(parts, hash[:chunkSize])
-		hash = hash[chunkSize:]
+	for _, r := range hash {
+		if ('0' <= r && r <= '9') || ('a' <= r && r <= 'f') || ('A' <= r && r <= 'F') {
+			continue
+		}
+		return "", "", false
 	}
-	parts = append(parts, hash)
-	return parts
+	return hash[:32], hash[32:64], true
 }
 
 func extractVerifyURL(metaRaw string) string {
