@@ -161,7 +161,7 @@ func Run() {
 		cfg.LibreOffice.Binary,
 	)
 
-	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, cfg.Templates.XlsxDir)
+	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, cfg.Templates.XlsxDir, cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)
 
 	documentService := services.NewDocumentService(
 		documentRepo,

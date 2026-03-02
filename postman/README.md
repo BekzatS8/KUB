@@ -1,79 +1,39 @@
-# KUB Postman коллекция
+# Postman: KUB API
 
-1) Импортируйте `KUB.postman_collection.json` и `KUB.postman_environment.json`.
-2) Заполните базовые переменные окружения:
-   - `baseUrl`
-   - `email`, `password` (для логина)
-   - `companyName`, `phone` (для регистрации)
-3) Остальные переменные (`userId`, `clientId`, `leadId`, `dealId`, `documentId`, `taskId`, `chatId`) заполняются автоматически тест-скриптами после `Create *` запросов. При необходимости можно указать вручную.
-4) (Dev) Debug-эндпоинты доступны только вне `GIN_MODE=release`.
+## Импорт
+1. Импортируйте коллекцию: `postman/KUB API.postman_collection.json`.
+2. Импортируйте окружение: `postman/KUB Local.postman_environment.json`.
+3. Выберите окружение **KUB Local**.
 
-Последовательность нажатий (без ручных шагов, кроме documentId если не делаете Create):
-1) Auth -> Login (в Tests сохранит `accessToken`/`refreshToken`).
-2) Documents -> Create Document (в Tests сохранит `documentId`). Если не создаёте документ — выполните Documents -> List Documents и вручную скопируйте `id` в `documentId`.
-3) Signing -> Start Signing.
-4) Signing -> Signing Status (первичная проверка).
-5) Debug -> Latest Sign Tokens (dev only) — заполнит `emailToken`, `tgCallbackToken`.
-6) Signing -> Verify Email Token (GET только проверяет токен, без подписи).
-7) Signing -> Confirm Email Token (POST подтверждает подпись).
-8) Telegram -> Telegram Approve Callback ИЛИ Telegram Reject Callback.
-9) Signing -> Signing Status (final) — итоговый статус.
+## Обязательные переменные окружения
+- `base_url` — базовый URL API (пример: `http://localhost:8080`)
+- `jwt` — access token без префикса `Bearer`
+- `client_id` — ID клиента
+- `deal_id` — ID сделки
+- `doc_id` — заполняется автоматически после генерации документа
+- `signed_by` — кто подписал
+- `signed_at` — RFC3339 (если оставить пустым, сервер использует текущее время)
 
-Ожидания по статусам при SIGN_CONFIRM_POLICY:
-- ANY: достаточно одного подтверждения (email ИЛИ telegram). После шага 6 или 8 статус должен перейти в подтверждённый.
-- BOTH: требуется два подтверждения (email И telegram). После одного канала статус ещё не финальный — нужен второй.
+> Для совместимости также выставлены алиасы: `baseUrl`, `accessToken`, `clientId`, `dealId`, `documentId`.
 
-Если Debug endpoint недоступен, заполните вручную переменные окружения:
-- `emailToken` — token из magic-link (параметр `token=...` в ссылке).
-- `tgCallbackToken` — токен из callback_data в Telegram, формат `sign:approve:<token>` или `sign:reject:<token>`.
+## Раздел Documents
+Добавлены запросы:
+- `GET /documents/types`
+- `POST /documents/create-from-client` — 15 запросов, по одному на каждый `doc_type`
+- `GET /documents/{{doc_id}}/download?format=pdf`
+- `POST /documents/{{doc_id}}/send-for-signature`
+- `POST /documents/{{doc_id}}/sign`
+- `GET /documents/{{doc_id}}`
 
-## Быстрый старт для фронтендера
+У всех create-запросов в тестах сохраняется `doc_id` из ответа (`id` или `data.id`).
 
-1) Register -> Register (сохранит `userId`), затем Register -> Register Confirm.
-2) Auth -> Login (сохранит `accessToken`/`refreshToken`).
-3) Используйте разделы Users/Clients/Leads/Deals/Documents/Tasks/Chats/Reports для проверки всего API.
-4) Для файловых ручек (`documents/upload`, `chats/{id}/upload`) заполните `uploadFile`.
+## Быстрый сценарий
+1. Выполнить `GET document types`.
+2. Выполнить любой `Create from client: <doc_type>`.
+3. Выполнить `Download PDF by doc_id`.
+4. Выполнить `Send for signature`.
+5. Выполнить `Sign document`.
+6. Проверить статус через `Get document by doc_id`.
 
-## Signing (Public Link)
-
-1) Generate Public Sign Link  
-`POST {{baseUrl}}/documents/{{documentId}}/generate-sign-link`
-
-Пример Tests:
-```js
-const json = pm.response.json();
-pm.environment.set("public_sign_url", json.url || "");
-if (json.url) {
-  const token = json.url.split("/public/documents/")[1] || "";
-  pm.environment.set("public_token", token);
-}
-```
-
-2) Public Get Document  
-`GET {{baseUrl}}/public/documents/{{public_token}}`
-
-3) Public Sign Document  
-`POST {{baseUrl}}/public/documents/{{public_token}}/sign`
-
-Body:
-```json
-{
-  "signer_name": "Ivan Client",
-  "signer_email": "client@example.com",
-  "signer_phone": "+77010000000",
-  "signature": "base64-or-svg-signature"
-}
-```
-
-## Ручной чек-лист (Public Link)
-
-1) Auth -> Login (получить `accessToken`)  
-2) Documents -> Create from Client (получить `documentId`)  
-3) Documents -> Submit  
-4) Documents -> Review (approve)  
-5) Signing (Public Link) -> Generate Public Sign Link (сохранить `public_token`)  
-6) Signing (Public Link) -> Public Get Document  
-7) Signing (Public Link) -> Public Sign Document  
-8) Documents -> Get by ID: проверить `status=signed`, `sign_method=public_link`, `sign_metadata.signed_by=client`.
-
-Дополнительно: проверить в БД `audit_logs`, что mutating запрос `POST /public/documents/:token/sign` зафиксирован audit middleware.
+## Важно
+Если реальные шаблоны еще не загружены в `assets/templates/docx` и `assets/templates/xlsx`, сервер может вернуть `template_not_found` — это ожидаемое поведение.

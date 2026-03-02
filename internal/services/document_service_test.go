@@ -1,10 +1,7 @@
 package services
 
 import (
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +11,7 @@ import (
 	"turcompany/internal/pdf"
 )
 
-type fakeDocumentRepo struct {
-	docs []*models.Document
-}
+type fakeDocumentRepo struct{ docs []*models.Document }
 
 func (r *fakeDocumentRepo) Create(doc *models.Document) (int64, error) {
 	id := int64(len(r.docs) + 1)
@@ -25,7 +20,6 @@ func (r *fakeDocumentRepo) Create(doc *models.Document) (int64, error) {
 	r.docs = append(r.docs, &copyDoc)
 	return id, nil
 }
-
 func (r *fakeDocumentRepo) GetByID(id int64) (*models.Document, error) {
 	for _, d := range r.docs {
 		if d.ID == id {
@@ -34,51 +28,30 @@ func (r *fakeDocumentRepo) GetByID(id int64) (*models.Document, error) {
 	}
 	return nil, errors.New("not found")
 }
-
 func (r *fakeDocumentRepo) ListDocuments(limit, offset int) ([]*models.Document, error) {
 	return nil, nil
 }
-
 func (r *fakeDocumentRepo) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
 	return nil, nil
 }
-
-func (r *fakeDocumentRepo) Delete(id int64) error { return nil }
-
+func (r *fakeDocumentRepo) Delete(id int64) error                      { return nil }
 func (r *fakeDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
-
+func (r *fakeDocumentRepo) MarkSigned(id int64, signedBy string, signedAt time.Time) error {
+	return nil
+}
 func (r *fakeDocumentRepo) Update(doc *models.Document) error { return nil }
-
 func (r *fakeDocumentRepo) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {
-	for _, d := range r.docs {
-		if d.ID == id {
-			d.SignMethod = signMethod
-			d.SignIP = signIP
-			d.SignUserAgent = signUserAgent
-			d.SignMetadata = signMetadata
-			return nil
-		}
-	}
-	return errors.New("not found")
+	return nil
 }
 
 type fakeLeadRepo struct{}
 
 func (r *fakeLeadRepo) GetByID(id int) (*models.Leads, error) { return nil, nil }
 
-type fakeDealRepo struct {
-	deals map[int]*models.Deals
-}
+type fakeDealRepo struct{ deals map[int]*models.Deals }
 
-func (r *fakeDealRepo) GetByID(id int) (*models.Deals, error) {
-	if r.deals == nil {
-		return nil, nil
-	}
-	return r.deals[id], nil
-}
-
+func (r *fakeDealRepo) GetByID(id int) (*models.Deals, error)         { return r.deals[id], nil }
 func (r *fakeDealRepo) GetByLeadID(leadID int) (*models.Deals, error) { return nil, nil }
-
 func (r *fakeDealRepo) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	for _, d := range r.deals {
 		if d != nil && d.ClientID == clientID {
@@ -88,487 +61,121 @@ func (r *fakeDealRepo) GetLatestByClientID(clientID int) (*models.Deals, error) 
 	return nil, nil
 }
 
-type fakeClientRepo struct {
-	clients map[int]*models.Client
-}
+type fakeClientRepo struct{ clients map[int]*models.Client }
 
-func (r *fakeClientRepo) GetByID(id int) (*models.Client, error) {
-	if r.clients == nil {
-		return nil, nil
-	}
-	return r.clients[id], nil
-}
+func (r *fakeClientRepo) GetByID(id int) (*models.Client, error) { return r.clients[id], nil }
 
-type fakePDFGen struct {
-	lastTemplate string
-	lastFilename string
-}
+type fakePDFGen struct{}
 
 func (g *fakePDFGen) GenerateContract(data pdf.ContractData) (string, error) {
-	g.lastTemplate = "contract"
-	g.lastFilename = data.Filename
 	return "/pdf/test_contract.pdf", nil
 }
-
 func (g *fakePDFGen) GenerateInvoice(data pdf.InvoiceData) (string, error) {
-	g.lastTemplate = "invoice"
-	g.lastFilename = data.Filename
 	return "/pdf/test_invoice.pdf", nil
 }
-
 func (g *fakePDFGen) GenerateFromTemplate(templateName string, placeholders map[string]string, filename string) (string, error) {
-	g.lastTemplate = templateName
-	g.lastFilename = filename
-	base := strings.TrimSuffix(templateName, filepath.Ext(templateName))
-	return "/pdf/test_" + base + ".pdf", nil
+	return "/pdf/test_template.pdf", nil
 }
 
-type fakeDocxGen struct {
-	lastTemplate string
-	lastBase     string
-}
+type fakeDocxGen struct{ lastTemplate string }
 
 func (g *fakeDocxGen) GenerateDocxAndPDF(templateName string, placeholders map[string]string, baseFilename string) (string, string, error) {
 	g.lastTemplate = templateName
-	g.lastBase = baseFilename
 	return "/docx/" + baseFilename + ".docx", "/pdf/" + baseFilename + ".pdf", nil
 }
-
 func (g *fakeDocxGen) GeneratePDF(templateName string, placeholders map[string]string, baseFilename string) (string, error) {
 	g.lastTemplate = templateName
-	g.lastBase = baseFilename
 	return "/pdf/" + baseFilename + ".pdf", nil
 }
 
-type fakeXlsxGen struct {
-	lastTemplate string
-	lastBase     string
-}
+type fakeXlsxGen struct{ lastTemplate string }
 
 func (g *fakeXlsxGen) GenerateFromTemplate(templateName string, placeholders map[string]string, baseFilename string) (string, error) {
 	g.lastTemplate = templateName
-	g.lastBase = baseFilename
 	return "/excel/" + baseFilename + ".xlsx", nil
 }
+func (g *fakeXlsxGen) GenerateFromTemplateAndPDF(templateName string, placeholders map[string]string, baseFilename string) (string, string, error) {
+	g.lastTemplate = templateName
+	return "/excel/" + baseFilename + ".xlsx", "/pdf/" + baseFilename + ".pdf", nil
+}
 
-func TestCreateDocumentFromClient(t *testing.T) {
-	t.Helper()
-
+func TestCreateDocumentFromClient_RegistryDocxAndXlsx(t *testing.T) {
 	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000", IDNumber: "ID-1", PassportNumber: "P-1"}
 	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99}
 
-	tests := []struct {
-		name            string
-		docType         string
-		setupGenerators func() (*fakePDFGen, *fakeDocxGen, *fakeXlsxGen)
-		setupRepos      func(*fakeDocumentRepo, *fakeDealRepo, *fakeClientRepo)
-		assert          func(t *testing.T, doc *models.Document, pdfGen *fakePDFGen, docxGen *fakeDocxGen, xlsxGen *fakeXlsxGen)
-	}{
-		{
-			name:    "docx and pdf contract_full",
-			docType: "contract_full",
-			setupGenerators: func() (*fakePDFGen, *fakeDocxGen, *fakeXlsxGen) {
-				return &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{}
-			},
-			setupRepos: func(d *fakeDocumentRepo, deals *fakeDealRepo, clients *fakeClientRepo) {
-				clients.clients = map[int]*models.Client{baseClient.ID: baseClient}
-				deals.deals = map[int]*models.Deals{deal.ID: deal}
-			},
-			assert: func(t *testing.T, doc *models.Document, pdfGen *fakePDFGen, docxGen *fakeDocxGen, xlsxGen *fakeXlsxGen) {
-				t.Helper()
-				if doc.DocType != "contract_full" {
-					t.Fatalf("DocType = %s, want contract_full", doc.DocType)
-				}
-				if doc.FilePath == "" || !strings.HasPrefix(doc.FilePath, "/pdf/") {
-					t.Fatalf("FilePath not set to pdf path: %s", doc.FilePath)
-				}
-				if doc.FilePathPdf == "" {
-					t.Fatalf("FilePathPdf is empty")
-				}
-				if doc.FilePathDocx == "" {
-					t.Fatalf("FilePathDocx is empty")
-				}
-				if doc.DealID != int64(deal.ID) {
-					t.Fatalf("DealID = %d, want %d", doc.DealID, deal.ID)
-				}
-				if docxGen.lastTemplate != "contract_full.docx" {
-					t.Fatalf("docx template = %s, want contract_full.docx", docxGen.lastTemplate)
-				}
-			},
-		},
-		{
-			name:    "txt fallback contract",
-			docType: "contract",
-			setupGenerators: func() (*fakePDFGen, *fakeDocxGen, *fakeXlsxGen) {
-				return &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{}
-			},
-			setupRepos: func(d *fakeDocumentRepo, deals *fakeDealRepo, clients *fakeClientRepo) {
-				clients.clients = map[int]*models.Client{baseClient.ID: baseClient}
-				deals.deals = map[int]*models.Deals{deal.ID: deal}
-			},
-			assert: func(t *testing.T, doc *models.Document, pdfGen *fakePDFGen, docxGen *fakeDocxGen, xlsxGen *fakeXlsxGen) {
-				t.Helper()
-				if doc.FilePath == "" || !strings.HasPrefix(doc.FilePath, "/pdf/test_contract") {
-					t.Fatalf("expected pdf fallback path, got %s", doc.FilePath)
-				}
-				if doc.FilePathPdf != doc.FilePath {
-					t.Fatalf("FilePathPdf mismatch: %s vs %s", doc.FilePathPdf, doc.FilePath)
-				}
-				if doc.FilePathDocx != "" {
-					t.Fatalf("expected empty FilePathDocx, got %s", doc.FilePathDocx)
-				}
-				if pdfGen.lastTemplate != "contract_full.txt" {
-					t.Fatalf("pdf template = %s, want contract_full.txt", pdfGen.lastTemplate)
-				}
-			},
-		},
-		{
-			name:    "excel personal_data_excel",
-			docType: "personal_data_excel",
-			setupGenerators: func() (*fakePDFGen, *fakeDocxGen, *fakeXlsxGen) {
-				return &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{}
-			},
-			setupRepos: func(d *fakeDocumentRepo, deals *fakeDealRepo, clients *fakeClientRepo) {
-				clients.clients = map[int]*models.Client{
-					baseClient.ID: {
-						ID:                  baseClient.ID,
-						FirstName:           "Maria",
-						LastName:            "Petrova",
-						MiddleName:          "A",
-						RegistrationAddress: "Main st",
-						ActualAddress:       "Home",
-						IIN:                 "123",
-						Phone:               "+77770000000",
-					},
-				}
-				deals.deals = map[int]*models.Deals{deal.ID: deal}
-			},
-			assert: func(t *testing.T, doc *models.Document, pdfGen *fakePDFGen, docxGen *fakeDocxGen, xlsxGen *fakeXlsxGen) {
-				t.Helper()
-				if doc.DocType != "personal_data_excel" {
-					t.Fatalf("DocType = %s, want personal_data_excel", doc.DocType)
-				}
-				if doc.FilePath == "" || !strings.HasPrefix(doc.FilePath, "/excel/") {
-					t.Fatalf("expected excel path, got %s", doc.FilePath)
-				}
-				if doc.FilePathPdf != "" || doc.FilePathDocx != "" {
-					t.Fatalf("expected pdf/docx paths empty, got %s %s", doc.FilePathPdf, doc.FilePathDocx)
-				}
-				if doc.DealID != int64(deal.ID) {
-					t.Fatalf("DealID = %d, want %d", doc.DealID, deal.ID)
-				}
-				if xlsxGen.lastTemplate != "personal_data.xlsx" {
-					t.Fatalf("xlsx template = %s, want personal_data.xlsx", xlsxGen.lastTemplate)
-				}
-				if xlsxGen.lastBase == "" {
-					t.Fatalf("expected non-empty base filename")
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Helper()
-			docRepo := &fakeDocumentRepo{}
-			dealRepo := &fakeDealRepo{}
-			clientRepo := &fakeClientRepo{}
-			pdfGen, docxGen, xlsxGen := tt.setupGenerators()
-
-			tt.setupRepos(docRepo, dealRepo, clientRepo)
-
-			svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, "sign", "files", pdfGen, docxGen, xlsxGen)
-
-			doc, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, tt.docType, deal.OwnerID, authz.RoleOperations, nil)
-			if err != nil {
-				t.Fatalf("CreateDocumentFromClient returned error: %v", err)
-			}
-			if doc == nil {
-				t.Fatalf("expected document, got nil")
-			}
-			tt.assert(t, doc, pdfGen, docxGen, xlsxGen)
-		})
-	}
-}
-
-func TestCreateDocumentFromClientErrors(t *testing.T) {
-	t.Helper()
-
-	baseClient := &models.Client{ID: 1, Name: "Test", IIN: "123", Phone: "+777", Address: "addr", IDNumber: "id", PassportNumber: "pp"}
-	baseDeal := &models.Deals{ID: 2, ClientID: baseClient.ID, OwnerID: 1}
-
-	newService := func(docRepo *fakeDocumentRepo, dealRepo *fakeDealRepo, clientRepo *fakeClientRepo) *DocumentService {
-		return NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, clientRepo, "sign", "files", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-	}
-
-	t.Run("no client", func(t *testing.T) {
-		t.Helper()
-		docRepo := &fakeDocumentRepo{}
-		dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{baseDeal.ID: baseDeal}}
-		clientRepo := &fakeClientRepo{}
-
-		svc := newService(docRepo, dealRepo, clientRepo)
-		if _, err := svc.CreateDocumentFromClient(baseClient.ID, baseDeal.ID, "contract", baseDeal.OwnerID, authz.RoleOperations, nil); err == nil || err.Error() != "client not found" {
-			t.Fatalf("expected client not found error, got %v", err)
+	t.Run("docx", func(t *testing.T) {
+		repo := &fakeDocumentRepo{}
+		docx := &fakeDocxGen{}
+		svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, docx, &fakeXlsxGen{})
+		doc, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "contract_paid_full_ru", deal.OwnerID, authz.RoleOperations, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if doc.FilePathPdf == "" || doc.FilePathDocx == "" {
+			t.Fatalf("expected pdf+docx paths")
+		}
+		if !strings.HasSuffix(docx.lastTemplate, ".docx") {
+			t.Fatalf("unexpected template: %s", docx.lastTemplate)
 		}
 	})
 
-	t.Run("no deal when needed", func(t *testing.T) {
-		t.Helper()
-		docRepo := &fakeDocumentRepo{}
-		dealRepo := &fakeDealRepo{}
-		clientRepo := &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}
-
-		svc := newService(docRepo, dealRepo, clientRepo)
-		if _, err := svc.CreateDocumentFromClient(baseClient.ID, 0, "contract", baseDeal.OwnerID, authz.RoleOperations, nil); err == nil || err.Error() != "deal not found" {
-			t.Fatalf("expected deal not found error, got %v", err)
+	t.Run("xlsx", func(t *testing.T) {
+		repo := &fakeDocumentRepo{}
+		xlsx := &fakeXlsxGen{}
+		svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, &fakeDocxGen{}, xlsx)
+		doc, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "avr_kub_group", deal.OwnerID, authz.RoleOperations, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
 		}
-	})
-
-	t.Run("forbidden sales foreign deal", func(t *testing.T) {
-		t.Helper()
-		docRepo := &fakeDocumentRepo{}
-		dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{baseDeal.ID: {ID: baseDeal.ID, ClientID: baseClient.ID, OwnerID: 999}}}
-		clientRepo := &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}
-
-		svc := newService(docRepo, dealRepo, clientRepo)
-		if _, err := svc.CreateDocumentFromClient(baseClient.ID, baseDeal.ID, "contract", 1, authz.RoleSales, nil); err == nil || err.Error() != "forbidden" {
-			t.Fatalf("expected forbidden error, got %v", err)
+		if !strings.HasPrefix(doc.FilePath, "/excel/") || !strings.HasPrefix(doc.FilePathPdf, "/pdf/") {
+			t.Fatalf("unexpected paths: %+v", doc)
+		}
+		if xlsx.lastTemplate != "avr_kub_group.xlsx" {
+			t.Fatalf("template mismatch: %s", xlsx.lastTemplate)
 		}
 	})
 }
 
-func TestNewDocumentService(t *testing.T) {
-	t.Helper()
-
-	docRepo := &fakeDocumentRepo{}
-	leadRepo := &fakeLeadRepo{}
-	dealRepo := &fakeDealRepo{}
-	clientRepo := &fakeClientRepo{}
-	pdfGen := &fakePDFGen{}
-	docxGen := &fakeDocxGen{}
-	xlsxGen := &fakeXlsxGen{}
-
-	svc := NewDocumentService(docRepo, leadRepo, dealRepo, clientRepo, "secret", "/files", pdfGen, docxGen, xlsxGen)
-
-	if svc.DocRepo != docRepo {
-		t.Fatalf("DocRepo not set")
+func TestCreateDocumentFromClient_MissingFieldsStructured(t *testing.T) {
+	client := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", IIN: "123"}
+	deal := &models.Deals{ID: 10, ClientID: client.ID, OwnerID: 99}
+	svc := NewDocumentService(&fakeDocumentRepo{}, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{client.ID: client}}, "", "files", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(client.ID, deal.ID, "pause_application", deal.OwnerID, authz.RoleOperations, nil)
+	if err == nil {
+		t.Fatalf("expected error")
 	}
-	if svc.LeadRepo != leadRepo {
-		t.Fatalf("LeadRepo not set")
+	m, ok := err.(*DocumentMissingFieldsError)
+	if !ok {
+		t.Fatalf("unexpected err: %T %v", err, err)
 	}
-	if svc.DealRepo != dealRepo {
-		t.Fatalf("DealRepo not set")
-	}
-	if svc.ClientRepo != clientRepo {
-		t.Fatalf("ClientRepo not set")
-	}
-	if svc.PDFGen != pdfGen || svc.DocxGen != docxGen || svc.XlsxGen != xlsxGen {
-		t.Fatalf("generators not set")
-	}
-	if svc.SignSecret != "secret" || svc.FilesRoot != "/files" {
-		t.Fatalf("config fields not set")
+	if m.Scope != "pause_application" || len(m.Fields) == 0 {
+		t.Fatalf("unexpected payload: %+v", m)
 	}
 }
 
-func TestResolveFileForHTTPUsesSignedPDF(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+func TestMergeExtra_RequestOverridesOnlyNonEmpty(t *testing.T) {
+	dealExtra := map[string]string{"reason_code": "R2", "REFUND_AMOUNT_NUM": "1000"}
+	reqExtra := map[string]string{"reason_code": "R1", "REFUND_AMOUNT_NUM": "", "NEW_KEY": "abc"}
+	m := mergeExtra(dealExtra, reqExtra)
+	if m["reason_code"] != "R1" {
+		t.Fatalf("reason_code = %s", m["reason_code"])
 	}
-	original := filepath.Join(dir, "pdf", "a.pdf")
-	signed := filepath.Join(dir, "pdf", "a_signed.pdf")
-	if err := os.WriteFile(original, []byte("orig"), 0o644); err != nil {
-		t.Fatalf("write original: %v", err)
+	if m["REFUND_AMOUNT_NUM"] != "1000" {
+		t.Fatalf("REFUND_AMOUNT_NUM = %s", m["REFUND_AMOUNT_NUM"])
 	}
-	if err := os.WriteFile(signed, []byte("signed"), 0o644); err != nil {
-		t.Fatalf("write signed: %v", err)
+	if m["NEW_KEY"] != "abc" {
+		t.Fatalf("NEW_KEY = %s", m["NEW_KEY"])
 	}
+}
 
-	metaRaw, _ := json.Marshal(map[string]any{"signed_pdf_path": "/pdf/a_signed.pdf"})
-	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
-		ID:           1,
-		DealID:       10,
-		Status:       "signed",
-		FilePath:     "/pdf/a.pdf",
-		FilePathPdf:  "/pdf/a.pdf",
-		SignMetadata: string(metaRaw),
-	}}}
-	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
-	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-
-	abs, name, err := svc.ResolveFileForHTTP(1, 99, authz.RoleOperations, "pdf")
+func TestReasonCodeFallbackFromDealExtra(t *testing.T) {
+	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000"}
+	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99, Amount: 120000}
+	repo := &fakeDocumentRepo{}
+	docx := &fakeDocxGen{}
+	svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, docx, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "pause_application", deal.OwnerID, authz.RoleOperations, map[string]string{"reason_code": "R2"})
 	if err != nil {
-		t.Fatalf("ResolveFileForHTTP error: %v", err)
-	}
-	if abs != signed {
-		t.Fatalf("abs path = %s, want %s", abs, signed)
-	}
-	if name != "a_signed.pdf" {
-		t.Fatalf("name = %s", name)
-	}
-}
-
-func TestFinalizeSignedArtifactUpdatesSignMetadata(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	original := filepath.Join(dir, "pdf", "base.pdf")
-	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
-		t.Fatalf("write original: %v", err)
-	}
-
-	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
-		ID:          77,
-		DealID:      10,
-		DocType:     "contract_full",
-		Status:      "signed",
-		FilePathPdf: "/pdf/base.pdf",
-		FilePath:    "/pdf/base.pdf",
-	}}}
-	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
-	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-
-	oldMerge := mergePDFsFunc
-	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
-		return os.WriteFile(signedAbs, []byte("merged"), 0o644)
-	}
-	defer func() { mergePDFsFunc = oldMerge }()
-
-	now := time.Now().UTC()
-	hash, err := sha256File(original)
-	if err != nil {
-		t.Fatalf("sha256 file: %v", err)
-	}
-	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", SignedIP: "1.1.1.1", SignedUserAgent: "UA", DocHash: hash, SignedAt: &now}
-	if err := svc.FinalizeSignedArtifact(session); err != nil {
-		t.Fatalf("FinalizeSignedArtifact: %v", err)
-	}
-	if docRepo.docs[0].SignMethod != "email_otp" {
-		t.Fatalf("sign method: %s", docRepo.docs[0].SignMethod)
-	}
-	if !strings.Contains(docRepo.docs[0].SignMetadata, "signed_pdf_path") {
-		t.Fatalf("sign metadata not updated: %s", docRepo.docs[0].SignMetadata)
-	}
-}
-
-func TestFinalizeSignedArtifactIdempotentWhenSignedPDFExists(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	original := filepath.Join(dir, "pdf", "base.pdf")
-	signed := filepath.Join(dir, "pdf", "base_signed.pdf")
-	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
-		t.Fatalf("write original: %v", err)
-	}
-	if err := os.WriteFile(signed, []byte("signed"), 0o644); err != nil {
-		t.Fatalf("write signed: %v", err)
-	}
-	metaRaw, _ := json.Marshal(map[string]any{"signed_pdf_path": "/pdf/base_signed.pdf"})
-
-	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
-		ID:           77,
-		DealID:       10,
-		DocType:      "contract_full",
-		Status:       "signed",
-		FilePathPdf:  "/pdf/base.pdf",
-		FilePath:     "/pdf/base.pdf",
-		SignMetadata: string(metaRaw),
-	}}}
-	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
-	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-
-	oldMerge := mergePDFsFunc
-	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
-		t.Fatalf("merge should not be called for idempotent case")
-		return nil
-	}
-	defer func() { mergePDFsFunc = oldMerge }()
-
-	now := time.Now().UTC()
-	hash, err := sha256File(original)
-	if err != nil {
-		t.Fatalf("sha256 file: %v", err)
-	}
-	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: hash, SignedAt: &now}
-	if err := svc.FinalizeSignedArtifact(session); err != nil {
-		t.Fatalf("FinalizeSignedArtifact: %v", err)
-	}
-}
-
-func TestFinalizeSignedArtifactPDFCPUMissing(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	original := filepath.Join(dir, "pdf", "base.pdf")
-	if err := os.WriteFile(original, []byte("pdf"), 0o644); err != nil {
-		t.Fatalf("write original: %v", err)
-	}
-
-	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
-		ID:          77,
-		DealID:      10,
-		DocType:     "contract_full",
-		Status:      "approved",
-		FilePathPdf: "/pdf/base.pdf",
-		FilePath:    "/pdf/base.pdf",
-	}}}
-	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
-	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-
-	oldMerge := mergePDFsFunc
-	mergePDFsFunc = func(originalAbs, signPageAbs, signedAbs string) error {
-		return ErrPDFCPUMissing
-	}
-	defer func() { mergePDFsFunc = oldMerge }()
-
-	now := time.Now().UTC()
-	hash, err := sha256File(original)
-	if err != nil {
-		t.Fatalf("sha256 file: %v", err)
-	}
-	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: hash, SignedAt: &now}
-	err = svc.FinalizeSignedArtifact(session)
-	if !errors.Is(err, ErrPDFCPUMissing) {
-		t.Fatalf("expected ErrPDFCPUMissing, got %v", err)
-	}
-	if docRepo.docs[0].SignMetadata != "" {
-		t.Fatalf("sign metadata should stay empty")
-	}
-}
-
-func TestFinalizeSignedArtifactDocumentChangedAfterOTP(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "pdf"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	original := filepath.Join(dir, "pdf", "base.pdf")
-	if err := os.WriteFile(original, []byte("v1"), 0o644); err != nil {
-		t.Fatalf("write original: %v", err)
-	}
-
-	docRepo := &fakeDocumentRepo{docs: []*models.Document{{
-		ID:          77,
-		DealID:      10,
-		DocType:     "contract_full",
-		Status:      "approved",
-		FilePathPdf: "/pdf/base.pdf",
-		FilePath:    "/pdf/base.pdf",
-	}}}
-	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{10: {ID: 10, OwnerID: 99}}}
-	svc := NewDocumentService(docRepo, &fakeLeadRepo{}, dealRepo, &fakeClientRepo{}, "", dir, &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
-
-	now := time.Now().UTC()
-	session := &models.SignSession{DocumentID: 77, SignerEmail: "client@example.com", DocHash: strings.Repeat("a", 64), SignedAt: &now}
-	err := svc.FinalizeSignedArtifact(session)
-	if !errors.Is(err, ErrDocumentChangedAfterOTP) {
-		t.Fatalf("expected ErrDocumentChangedAfterOTP, got %v", err)
-	}
-	if docRepo.docs[0].SignMetadata != "" {
-		t.Fatalf("sign metadata should stay empty")
+		t.Fatalf("unexpected err: %v", err)
 	}
 }

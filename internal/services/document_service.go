@@ -42,6 +42,7 @@ type DocumentRepo interface {
 	ListDocumentsByDeal(dealID int64) ([]*models.Document, error)
 	Delete(id int64) error
 	UpdateStatus(id int64, status string) error
+	MarkSigned(id int64, signedBy string, signedAt time.Time) error
 	Update(doc *models.Document) error
 	UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error
 }
@@ -72,6 +73,18 @@ type DocumentService struct {
 	DocxGen   docx.Generator
 	XlsxGen   xlsx.Generator
 }
+
+type DocumentMissingFieldsError struct {
+	Scope  string                 `json:"scope"`
+	Fields []DocumentMissingField `json:"fields"`
+}
+
+type DocumentMissingField struct {
+	Key    string     `json:"key"`
+	Source FieldScope `json:"source"`
+}
+
+func (e *DocumentMissingFieldsError) Error() string { return "missing_fields" }
 
 var (
 	_             DocumentRepo = (*repositories.DocumentRepository)(nil)
@@ -176,6 +189,9 @@ var supportedDocTypes = func() map[string]struct{} {
 		"contract": {},
 		"invoice":  {},
 	}
+	for key := range documentTypeRegistry {
+		types[key] = struct{}{}
+	}
 	for key := range clientDocTemplates {
 		types[key] = struct{}{}
 	}
@@ -190,6 +206,10 @@ var supportedDocTypes = func() map[string]struct{} {
 
 func normalizeDocType(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (s *DocumentService) ListDocumentTypes() []DocumentTypeSpec {
+	return ListDocumentTypeSpecs()
 }
 
 func isSupportedDocType(value string) bool {
@@ -541,8 +561,25 @@ func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 	if !(doc.Status == "approved" || doc.Status == "returned") {
 		return errors.New("invalid status")
 	}
-	// Просто меняем статус на signed
-	return s.DocRepo.UpdateStatus(id, "signed")
+	return s.DocRepo.MarkSigned(id, "", time.Now())
+}
+
+func (s *DocumentService) MarkDocumentSigned(id int64, signedBy string, signedAt *time.Time, userID, roleID int) error {
+	if roleID != authz.RoleManagement {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByID(id)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	if !(doc.Status == "approved" || doc.Status == "returned" || doc.Status == "sent_for_signature") {
+		return errors.New("invalid status")
+	}
+	ts := time.Now()
+	if signedAt != nil {
+		ts = *signedAt
+	}
+	return s.DocRepo.MarkSigned(id, strings.TrimSpace(signedBy), ts)
 }
 
 func (s *DocumentService) FinalizeSigning(docID int64) error {
@@ -898,12 +935,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 		return nil, errors.New("no document generator configured")
 	}
 
-	// какие типы шаблонов у нас есть для этого docType
-	txtCfg, hasTxt := clientDocTemplates[docType]
-	docxName, hasDocx := clientDocDocxMap[docType]
-	excelCfg, hasExcel := clientExcelTemplates[docType]
-
-	if !hasTxt && !hasDocx && !hasExcel {
+	spec, hasSpec := GetDocumentTypeSpec(docType)
+	if !hasSpec {
 		return nil, errors.New("unsupported doc_type")
 	}
 
@@ -913,22 +946,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 		return nil, errors.New("client not found")
 	}
 
-	missing := validateClientFieldsForDocType(docType, client)
-	if len(missing) > 0 {
-		return nil, &MissingFieldsError{Fields: missing}
-	}
-
 	// --- Нужна ли сделка? ---
-	needDeal := false
-	if hasTxt && txtCfg.NeedsDeal {
-		needDeal = true
-	}
-	if hasDocx {
-		needDeal = true
-	}
-	if hasExcel && excelCfg.NeedsDeal {
-		needDeal = true
-	}
+	needDeal := true
 
 	var deal *models.Deals
 	if needDeal {
@@ -953,61 +972,18 @@ func (s *DocumentService) CreateDocumentFromClient(
 	}
 
 	now := time.Now()
+	dealExtra := buildDealExtraFallback(deal)
+	mergedExtra := mergeExtra(dealExtra, extra)
 
 	// базовые плейсхолдеры
-	placeholders := buildClientPlaceholders(client, deal, extra, now)
+	placeholders := buildClientPlaceholders(client, deal, mergedExtra, now)
 
-	// спец-логика для чекбоксов
-	switch docType {
-	case "refund_application":
-		code := extra["REFUND_REASON_CODE"]
-		flags := map[string]string{
-			"RA_R1": " ",
-			"RA_R2": " ",
-			"RA_R3": " ",
-			"RA_R4": " ",
-			"RA_R5": " ",
-			"RA_R6": " ",
-		}
-		switch code {
-		case "visa_refusal":
-			flags["RA_R1"] = "X"
-		case "interview_fail":
-			flags["RA_R2"] = "X"
-		case "family":
-			flags["RA_R3"] = "X"
-		case "health":
-			flags["RA_R4"] = "X"
-		case "force_majeure":
-			flags["RA_R5"] = "X"
-		case "other":
-			flags["RA_R6"] = "X"
-		}
-		for k, v := range flags {
-			placeholders[k] = v
-		}
+	applyReasonCheckboxes(docType, mergedExtra, placeholders)
 
-	case "pause_application":
-		code := extra["PAUSE_REASON_CODE"]
-		flags := map[string]string{
-			"PA_R1": " ",
-			"PA_R2": " ",
-			"PA_R3": " ",
-			"PA_R4": " ",
-		}
-		switch code {
-		case "health":
-			flags["PA_R1"] = "X"
-		case "force_majeure":
-			flags["PA_R2"] = "X"
-		case "family":
-			flags["PA_R3"] = "X"
-		case "other":
-			flags["PA_R4"] = "X"
-		}
-		for k, v := range flags {
-			placeholders[k] = v
-		}
+	missingClient := mapClientMissing(docType, validateClientFieldsForDocType(docType, client))
+	missing := append(missingClient, validateRequiredByPlaceholders(spec, placeholders)...)
+	if len(missing) > 0 {
+		return nil, &DocumentMissingFieldsError{Scope: docType, Fields: missing}
 	}
 
 	// базовое имя файла без расширения
@@ -1019,16 +995,12 @@ func (s *DocumentService) CreateDocumentFromClient(
 	)
 
 	// ================== EXCEL ==================
-	if hasExcel {
+	if spec.Format == DocumentFormatXLSX {
 		if s.XlsxGen == nil {
 			return nil, errors.New("xlsx generator not configured")
 		}
 
-		excelRelPath, err := s.XlsxGen.GenerateFromTemplate(
-			excelCfg.Template,
-			placeholders,
-			baseFilename,
-		)
+		excelRelPath, excelPDFPath, err := s.XlsxGen.GenerateFromTemplateAndPDF(spec.TemplateFile, placeholders, baseFilename)
 		if err != nil {
 			return nil, wrapGenerationError(docType, err)
 		}
@@ -1036,10 +1008,12 @@ func (s *DocumentService) CreateDocumentFromClient(
 		excelRelPath = normalizeStoragePath(excelRelPath)
 
 		doc := &models.Document{
-			DealID:   getDealID64(deal),
-			DocType:  docType,
-			Status:   "draft",
-			FilePath: excelRelPath, // "/excel/..."
+			DealID:       getDealID64(deal),
+			DocType:      docType,
+			Status:       "draft",
+			FilePath:     excelRelPath,
+			FilePathPdf:  normalizeStoragePath(excelPDFPath),
+			FilePathDocx: "",
 		}
 
 		id, err := s.DocRepo.Create(doc)
@@ -1050,10 +1024,13 @@ func (s *DocumentService) CreateDocumentFromClient(
 		return doc, nil
 	}
 
+	if spec.Format == DocumentFormatDOCX && s.DocxGen == nil {
+		return nil, errors.New("pdf_conversion_disabled")
+	}
 	// ================== DOCX ==================
-	if hasDocx && s.DocxGen != nil {
+	if spec.Format == DocumentFormatDOCX {
 		docxRelPath, pdfRelPath, err := s.DocxGen.GenerateDocxAndPDF(
-			docxName,
+			spec.TemplateFile,
 			placeholders,
 			baseFilename,
 		)
@@ -1085,55 +1062,31 @@ func (s *DocumentService) CreateDocumentFromClient(
 		return doc, nil
 	}
 
-	// ================== TXT → PDF ==================
-	if !hasTxt {
-		return nil, errors.New("txt template not configured")
-	}
-	if s.PDFGen == nil {
-		return nil, errors.New("pdf generator not configured for txt templates")
-	}
-
-	pdfRelPath, err := s.PDFGen.GenerateFromTemplate(
-		txtCfg.FileName,
-		placeholders,
-		baseFilename+".pdf",
-	)
-	if err != nil {
-		return nil, wrapGenerationError(docType, err)
-	}
-
-	pdfRelPath = normalizeStoragePath(pdfRelPath)
-
-	doc := &models.Document{
-		DealID:      getDealID64(deal),
-		DocType:     docType,
-		Status:      "draft",
-		FilePath:    pdfRelPath,
-		FilePathPdf: pdfRelPath,
-	}
-
-	id, err := s.DocRepo.Create(doc)
-	if err != nil {
-		return nil, err
-	}
-	doc.ID = id
-	return doc, nil
+	return nil, errors.New("unsupported doc_type")
 }
 
 func validateClientFieldsForDocType(docType string, c *models.Client) (missing []string) {
-	if c == nil {
-		return []string{"last_name", "first_name", "iin", "bin_iin", "address", "phone"}
-	}
-
-	requireCommon := false
-	requireConsent := false
-	switch docType {
-	case "contract_full", "contract_50_50", "additional_agreement", "refund_receipt_full", "refund_receipt_partial", "refund_application", "pause_application", "personal_data_excel":
-		requireCommon = true
-	case "personal_data_consent":
-		requireConsent = true
-	default:
+	spec, ok := GetDocumentTypeSpec(docType)
+	if !ok {
 		return nil
+	}
+	if c == nil {
+		base := []string{"full_name", "iin_or_bin", "address", "phone"}
+		for _, req := range spec.RequiredFields {
+			if req.Scope == FieldScopeClient && req.Required {
+				found := false
+				for _, e := range base {
+					if e == req.Key {
+						found = true
+						break
+					}
+				}
+				if !found {
+					base = append(base, req.Key)
+				}
+			}
+		}
+		return base
 	}
 
 	add := func(field string) {
@@ -1157,18 +1110,165 @@ func validateClientFieldsForDocType(docType string, c *models.Client) (missing [
 	if strings.TrimSpace(c.Address) == "" && strings.TrimSpace(c.ActualAddress) == "" && strings.TrimSpace(c.RegistrationAddress) == "" {
 		add("address")
 	}
-	if requireCommon && strings.TrimSpace(c.Phone) == "" {
+	if strings.TrimSpace(c.Phone) == "" {
 		add("phone")
 	}
-	if requireConsent {
-		if strings.TrimSpace(c.IDNumber) == "" {
+	for _, req := range spec.RequiredFields {
+		if req.Scope != FieldScopeClient || !req.Required {
+			continue
+		}
+		if req.Key == "id_number" && strings.TrimSpace(c.IDNumber) == "" {
 			add("id_number")
 		}
-		if strings.TrimSpace(c.PassportNumber) == "" {
+		if req.Key == "passport_number" && strings.TrimSpace(c.PassportNumber) == "" {
 			add("passport_number")
 		}
 	}
 	return missing
+}
+
+func validateRequiredByPlaceholders(spec DocumentTypeSpec, placeholders map[string]string) []DocumentMissingField {
+	missing := make([]DocumentMissingField, 0)
+	for _, req := range spec.RequiredFields {
+		if !req.Required {
+			continue
+		}
+		if strings.TrimSpace(resolveRequiredValue(req, placeholders)) == "" {
+			missing = append(missing, DocumentMissingField{Key: req.Key, Source: req.Scope})
+		}
+	}
+	return missing
+}
+
+func resolveRequiredValue(req DocumentFieldRequirement, placeholders map[string]string) string {
+	key := strings.TrimSpace(req.Key)
+	if key == "" {
+		return ""
+	}
+	if v := strings.TrimSpace(placeholders[key]); v != "" {
+		return v
+	}
+	switch key {
+	case "full_name":
+		return placeholders["CLIENT_FULL_NAME"]
+	case "iin_or_bin":
+		if v := strings.TrimSpace(placeholders["CLIENT_IIN"]); v != "" {
+			return v
+		}
+		return placeholders["CLIENT_BIN_IIN"]
+	case "address":
+		if v := strings.TrimSpace(placeholders["CLIENT_ADDRESS"]); v != "" {
+			return v
+		}
+		if v := strings.TrimSpace(placeholders["CLIENT_FACT_ADDRESS"]); v != "" {
+			return v
+		}
+		return placeholders["CLIENT_REG_ADDRESS"]
+	case "phone":
+		return placeholders["CLIENT_PHONE"]
+	case "contract_number":
+		return placeholders["CONTRACT_NUMBER"]
+	case "id_number":
+		return placeholders["CLIENT_ID_NUMBER"]
+	case "passport_number":
+		return placeholders["CLIENT_PASSPORT_NUMBER"]
+	case "reason_code":
+		return placeholders["reason_code"]
+	default:
+		return placeholders[key]
+	}
+}
+
+func mergeExtra(dealExtra, reqExtra map[string]string) map[string]string {
+	merged := make(map[string]string, len(dealExtra)+len(reqExtra))
+	for k, v := range dealExtra {
+		merged[k] = v
+	}
+	for k, v := range reqExtra {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		merged[k] = v
+	}
+	return merged
+}
+
+func buildDealExtraFallback(deal *models.Deals) map[string]string {
+	if deal == nil {
+		return map[string]string{}
+	}
+	m := map[string]string{
+		"CONTRACT_NUMBER": fmt.Sprintf("KUB-%06d", deal.ID),
+		"contract_number": fmt.Sprintf("KUB-%06d", deal.ID),
+	}
+	if deal.CreatedAt.Unix() > 0 {
+		m["CONTRACT_DATE"] = deal.CreatedAt.Format("02.01.2006")
+		m["CONTRACT_DATE_RAW"] = deal.CreatedAt.Format("02.01.2006")
+		m["DOC_DATE"] = deal.CreatedAt.Format("02.01.2006")
+	}
+	if deal.Amount > 0 {
+		amount := strconv.FormatFloat(deal.Amount, 'f', 2, 64)
+		m["TOTAL_AMOUNT_NUM"] = amount
+		m["DEAL_AMOUNT_NUM"] = amount
+		m["REFUND_AMOUNT_NUM"] = amount
+		m["PREPAY_AMOUNT_NUM"] = amount
+	}
+	if strings.TrimSpace(deal.Currency) != "" {
+		m["DEAL_CURRENCY"] = strings.TrimSpace(deal.Currency)
+	}
+	return m
+}
+
+func mapClientMissing(docType string, fields []string) []DocumentMissingField {
+	spec, ok := GetDocumentTypeSpec(docType)
+	res := make([]DocumentMissingField, 0, len(fields))
+	for _, f := range fields {
+		src := FieldScopeClient
+		if ok {
+			for _, req := range spec.RequiredFields {
+				if req.Key == f {
+					src = req.Scope
+					break
+				}
+			}
+		}
+		res = append(res, DocumentMissingField{Key: f, Source: src})
+	}
+	return res
+}
+
+func applyReasonCheckboxes(docType string, extra map[string]string, placeholders map[string]string) {
+	code := strings.ToUpper(strings.TrimSpace(extra["reason_code"]))
+	set := func(keys ...string) {
+		for _, k := range keys {
+			placeholders[k] = ""
+		}
+	}
+	switch docType {
+	case "refund_application":
+		flags := []string{"RA_R1", "RA_R2", "RA_R3", "RA_R4", "RA_R5", "RA_R6"}
+		set(flags...)
+		if code == "" {
+			code = strings.ToUpper(strings.TrimSpace(extra["REFUND_REASON_CODE"]))
+		}
+		if strings.HasPrefix(code, "R") {
+			for _, k := range flags {
+				if k == "RA_"+code {
+					placeholders[k] = "X"
+				}
+			}
+		}
+	case "pause_application", "cancel_appointment":
+		flags := []string{"PA_R1", "PA_R2", "PA_R3", "PA_R4"}
+		set(flags...)
+		if strings.HasPrefix(code, "R") {
+			for _, k := range flags {
+				if k == "PA_"+code {
+					placeholders[k] = "X"
+				}
+			}
+		}
+	}
 }
 
 // ================== helpers ==================
@@ -1189,6 +1289,19 @@ func normalizeStoragePath(rel string) string {
 
 func wrapGenerationError(docType string, err error) error {
 	log.Printf("[documents] generation failed for %s: %v", docType, err)
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "template not found") {
+		return errors.New("template_not_found")
+	}
+	if strings.Contains(msg, "pdf_conversion_disabled") {
+		return errors.New("pdf_conversion_disabled")
+	}
+	if strings.Contains(msg, "conversion is disabled") {
+		return errors.New("pdf_conversion_disabled")
+	}
+	if strings.Contains(msg, "pdf_conversion_failed") || strings.Contains(msg, "libreoffice conversion") {
+		return errors.New("pdf_conversion_failed")
+	}
 	return errors.New("document generation failed")
 }
 

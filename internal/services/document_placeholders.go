@@ -183,6 +183,9 @@ func buildClientPlaceholders(
 	if _, ok := ph["CONTRACT_DATE"]; !ok {
 		ph["CONTRACT_DATE"] = ph["DOC_DATE_TEXT"] // "7 декабря 2025 г."
 	}
+	if _, ok := ph["CONTRACT_DATE_TEXT"]; !ok {
+		ph["CONTRACT_DATE_TEXT"] = ph["DOC_DATE_TEXT"]
+	}
 	if _, ok := ph["CONTRACT_DATE_RAW"]; !ok {
 		ph["CONTRACT_DATE_RAW"] = ph["DOC_DATE"] // "07.12.2025"
 	}
