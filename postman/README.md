@@ -6,7 +6,7 @@
 3. Выберите окружение **KUB Local**.
 
 ## Обязательные переменные окружения
-- `base_url` — базовый URL API (пример: `http://localhost:8080`)
+- `base_url` — базовый URL API (пример: `http://localhost:4000`)
 - `jwt` — access token без префикса `Bearer`
 - `client_id` — ID клиента
 - `deal_id` — ID сделки
