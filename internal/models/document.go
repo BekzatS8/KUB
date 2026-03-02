@@ -17,4 +17,5 @@ type Document struct {
 	SignIP        string `json:"sign_ip,omitempty"`         // IP адрес подписавшего
 	SignUserAgent string `json:"sign_user_agent,omitempty"` // User-Agent браузера
 	SignMetadata  string `json:"sign_metadata,omitempty"`   // JSON с метаданными подписи
+	SignedBy      string `json:"signed_by,omitempty"`
 }

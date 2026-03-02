@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,7 +35,10 @@ func (r *fakeDocumentRepo) ListDocumentsByDeal(dealID int64) ([]*models.Document
 }
 func (r *fakeDocumentRepo) Delete(id int64) error                      { return nil }
 func (r *fakeDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
-func (r *fakeDocumentRepo) Update(doc *models.Document) error          { return nil }
+func (r *fakeDocumentRepo) MarkSigned(id int64, signedBy string, signedAt time.Time) error {
+	return nil
+}
+func (r *fakeDocumentRepo) Update(doc *models.Document) error { return nil }
 func (r *fakeDocumentRepo) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {
 	return nil
 }
@@ -117,6 +121,11 @@ func (g *fakeXlsxGen) GenerateFromTemplate(templateName string, placeholders map
 	g.lastBase = baseFilename
 	return "/excel/" + baseFilename + ".xlsx", nil
 }
+func (g *fakeXlsxGen) GenerateFromTemplateAndPDF(templateName string, placeholders map[string]string, baseFilename string) (string, string, error) {
+	g.lastTemplate = templateName
+	g.lastBase = baseFilename
+	return "/excel/" + baseFilename + ".xlsx", "/pdf/" + baseFilename + ".pdf", nil
+}
 
 func withUser(roleID, userID int) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -141,7 +150,7 @@ func TestDocumentHandler_CreateDocumentFromClient_Success(t *testing.T) {
 	payload := map[string]interface{}{
 		"client_id": 1,
 		"deal_id":   2,
-		"doc_type":  "contract_full",
+		"doc_type":  "contract_paid_full_ru",
 		"extra": map[string]string{
 			"SOME_KEY": "VALUE",
 		},
@@ -163,8 +172,8 @@ func TestDocumentHandler_CreateDocumentFromClient_Success(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if doc.DocType != "contract_full" {
-		t.Errorf("doc_type = %s, want %s", doc.DocType, "contract_full")
+	if doc.DocType != "contract_paid_full_ru" {
+		t.Errorf("doc_type = %s, want %s", doc.DocType, "contract_paid_full_ru")
 	}
 	if doc.FilePath == "" || doc.FilePathDocx == "" || doc.FilePathPdf == "" {
 		t.Errorf("expected file paths to be populated, got %+v", doc)
@@ -192,7 +201,7 @@ func TestDocumentHandler_CreateDocumentFromClient_ClientNotFound(t *testing.T) {
 	payload := map[string]interface{}{
 		"client_id": 1,
 		"deal_id":   2,
-		"doc_type":  "contract_full",
+		"doc_type":  "contract_paid_full_ru",
 	}
 	body, _ := json.Marshal(payload)
 

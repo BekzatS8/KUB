@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -268,10 +269,11 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 		req.Extra,
 	)
 	if err != nil {
-		var missingErr *services.MissingFieldsError
+		var missingErr *services.DocumentMissingFieldsError
 		if errors.As(err, &missingErr) {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":          "missing required client fields for document",
+				"error":          "missing_fields",
+				"scope":          missingErr.Scope,
 				"missing_fields": missingErr.Fields,
 			})
 			return
@@ -288,6 +290,15 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 			return
 		case "forbidden", "read-only role":
 			forbidden(c, "Read-only role")
+			return
+		case "template_not_found":
+			writeError(c, http.StatusBadRequest, "template_not_found", "Template not found")
+			return
+		case "pdf_conversion_disabled":
+			writeError(c, http.StatusBadRequest, "pdf_conversion_disabled", "PDF conversion is disabled")
+			return
+		case "pdf_conversion_failed":
+			writeError(c, http.StatusInternalServerError, "pdf_conversion_failed", "PDF conversion failed")
 			return
 		case "pdf generator not configured":
 			internalError(c, "Failed to create document")
@@ -374,12 +385,29 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		badRequest(c, "Invalid id")
 		return
 	}
+	var body struct {
+		SignedBy string `json:"signed_by"`
+		SignedAt string `json:"signed_at"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil && err.Error() != "EOF" {
+		badRequest(c, "Invalid payload")
+		return
+	}
 	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleAdminStaff {
 		forbidden(c, "Forbidden")
 		return
 	}
-	if err := h.Service.Sign(id, userID, roleID); err != nil {
+	var signedAt *time.Time
+	if strings.TrimSpace(body.SignedAt) != "" {
+		t, perr := time.Parse(time.RFC3339, body.SignedAt)
+		if perr != nil {
+			badRequest(c, "Invalid signed_at")
+			return
+		}
+		signedAt = &t
+	}
+	if err := h.Service.MarkDocumentSigned(id, body.SignedBy, signedAt, userID, roleID); err != nil {
 		switch err.Error() {
 		case "forbidden":
 			forbidden(c, "Forbidden")
@@ -395,6 +423,36 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+// POST /documents/:id/send-for-signature
+func (h *DocumentHandler) SendForSignature(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.PrepareForSignature(id, userID, roleID); err != nil {
+		switch err.Error() {
+		case "forbidden", "read-only role":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		case "document must be approved before signature":
+			writeError(c, http.StatusBadRequest, InvalidStatusCode, "Invalid status")
+			return
+		}
+		internalError(c, "Failed to send document for signature")
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func (h *DocumentHandler) ListDocumentTypes(c *gin.Context) {
+	c.JSON(http.StatusOK, h.Service.ListDocumentTypes())
 }
 func (h *DocumentHandler) ServeFile(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

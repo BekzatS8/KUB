@@ -207,6 +207,7 @@ func SetupRoutes(
 	docs := r.Group("/documents")
 	{
 		docs.GET("", documentHandler.ListDocuments)
+		docs.GET("/types", documentHandler.ListDocumentTypes)
 		docs.POST("", documentHandler.CreateDocument)
 		docs.POST("/upload", documentHandler.Upload)
 		docs.GET("/:id", documentHandler.GetDocument)
@@ -218,6 +219,7 @@ func SetupRoutes(
 		docs.GET("/:id/download", documentHandler.Download)
 		docs.POST("/:id/submit", documentHandler.Submit)
 		docs.POST("/:id/review", documentHandler.Review)
+		docs.POST("/:id/send-for-signature", documentHandler.SendForSignature)
 		docs.POST("/:id/sign", documentHandler.Sign)
 		if signConfirmHandler != nil {
 			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
