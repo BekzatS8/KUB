@@ -149,6 +149,8 @@ func SetupRoutes(
 	{
 		clients.POST("", clientHandler.Create)
 		clients.GET("", clientHandler.List)
+		clients.GET("/individual", clientHandler.ListIndividuals)
+		clients.GET("/company", clientHandler.ListCompanies)
 		clients.GET("/my", clientHandler.ListMy)
 		clients.PUT("/:id", clientHandler.Update)
 		clients.PATCH("/:id", clientHandler.Patch)

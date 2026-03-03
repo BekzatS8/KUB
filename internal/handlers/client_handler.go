@@ -24,6 +24,8 @@ type clientService interface {
 	GetByID(id int, userID, roleID int) (*models.Client, error)
 	ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error)
 	ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error)
+	ListIndividualsForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
+	ListCompaniesForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
 	GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error)
 }
 
@@ -569,6 +571,58 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, client)
+}
+
+func (h *ClientHandler) ListIndividuals(c *gin.Context) {
+	h.listByPresetType(c, "individual")
+}
+
+func (h *ClientHandler) ListCompanies(c *gin.Context) {
+	h.listByPresetType(c, "company")
+}
+
+func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if roleID == authz.RoleSales {
+		forbidden(c, "sales cannot access full list")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit < 1 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	q := strings.TrimSpace(c.Query("q"))
+
+	var (
+		clients []*models.Client
+		err     error
+	)
+	switch kind {
+	case "individual":
+		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, q)
+	case "company":
+		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, q)
+	default:
+		badRequest(c, "invalid client list type")
+		return
+	}
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to list clients")
+		return
+	}
+	c.JSON(http.StatusOK, clients)
 }
 
 func (h *ClientHandler) List(c *gin.Context) {

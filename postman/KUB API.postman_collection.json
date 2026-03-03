@@ -738,6 +738,70 @@
           "response": []
         },
         {
+          "name": "List Individual Clients",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/individual?limit=20&offset=0&q=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "individual"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Company Clients",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/company?limit=20&offset=0&q=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "company"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "List Clients (legal)",
           "request": {
             "method": "GET",
@@ -1266,7 +1330,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"{{leadStatus}}\"\n}"
+              "raw": "{\n  \"to\": \"in_progress\",\n  \"comment\": \"Updated from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/leads/{{leadId}}/status",
@@ -1306,6 +1375,39 @@
                 "{{leadId}}",
                 "convert"
               ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Convert Lead To Deal With Client",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/leads/{{lead_id}}/convert-with-client",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "leads",
+                "{{lead_id}}",
+                "convert-with-client"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100000,\n  \"currency\": \"KZT\",\n  \"client_name\": \"ТОО Пример\",\n  \"client_bin_iin\": \"123456789012\",\n  \"client_address\": \"г. Алматы\",\n  \"client_contact_info\": \"+77010000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "response": []
@@ -1482,7 +1584,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"{{dealStatus}}\"\n}"
+              "raw": "{\n  \"to\": \"in_progress\",\n  \"comment\": \"Updated from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/deals/{{dealId}}/status",
@@ -1633,7 +1740,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"DESTINATION_PLACE\": \"Посольство Республики Корея\",\n    \"APPOINTMENT_DATE_TEXT\": \"«10» марта 2026 г.\",\n    \"CANCEL_OTHER_TEXT\": \"\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_codes\": [\"R1\", \"R4\"],\n    \"DESTINATION_PLACE\": \"Посольство Республики Корея\",\n    \"APPOINTMENT_DATE_TEXT\": \"«10» марта 2026 г.\",\n    \"CANCEL_OTHER_TEXT\": \"\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1771,7 +1878,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"ACT_NUMBER\": \"ACT-0001\",\n    \"DOCS_MARK_1\": \"✓\",\n    \"DOCS_MARK_2\": \"✓\",\n    \"DOCS_MARK_3\": \"\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"ACT_NUMBER\": \"ACT-0001\",\n    \"DOCS_PRESENT\": [1, 2, 5, 9]\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2093,7 +2200,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"120000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто двадцать тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_codes\": [\"R1\", \"R4\"],\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"120000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто двадцать тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2302,6 +2409,212 @@
             ],
             "url": {
               "raw": "{{base_url}}/documents/{{doc_id}}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents?page=1&size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Documents By Deal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/deal/{{deal_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "deal",
+                "{{deal_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Document (legacy)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"invoice\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create from lead",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-lead",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "create-from-lead"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": {{lead_id}},\n  \"doc_type\": \"invoice\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "upload"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get document file stream",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}/file",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}",
+                "file"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}",
+                "submit"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}",
+                "review"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"comment\": \"ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}"
+              ]
             }
           },
           "response": []
@@ -4201,6 +4514,18 @@
     {
       "key": "signed_at",
       "value": ""
+    },
+    {
+      "key": "dealId",
+      "value": "1"
+    },
+    {
+      "key": "lead_id",
+      "value": "1"
+    },
+    {
+      "key": "leadId",
+      "value": "1"
     }
   ]
 }

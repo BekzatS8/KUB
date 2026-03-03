@@ -362,6 +362,20 @@ func (s *ClientService) ListMine(userID, limit, offset int, clientType string) (
 	return s.Repo.ListByOwner(userID, limit, offset, clientType)
 }
 
+func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error) {
+	if roleID == authz.RoleAdminStaff || roleID == authz.RoleSales {
+		return nil, ErrForbidden
+	}
+	return s.Repo.ListIndividuals(userID, q, limit, offset)
+}
+
+func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error) {
+	if roleID == authz.RoleAdminStaff || roleID == authz.RoleSales {
+		return nil, ErrForbidden
+	}
+	return s.Repo.ListCompanies(userID, q, limit, offset)
+}
+
 func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error) {
 	if roleID == authz.RoleAdminStaff {
 		return nil, ErrForbidden

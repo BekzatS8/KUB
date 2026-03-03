@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1298,12 +1299,9 @@ func mapClientMissing(docType string, fields []string) []DocumentMissingField {
 }
 
 func applyReasonCheckboxes(docType string, extra map[string]string, placeholders map[string]string) {
-	code := strings.ToUpper(strings.TrimSpace(extra["reason_code"]))
-	if code == "" {
-		code = strings.ToUpper(strings.TrimSpace(extra["REFUND_REASON_CODE"]))
-	}
+	reasonCodes := collectReasonCodes(extra)
 
-	applyReasonSet := func(prefix string, max int) {
+	applyReasonSet := func(prefix string, max int, checked string, unchecked string) {
 		flags := make([]string, 0, max)
 		for i := 1; i <= max; i++ {
 			flags = append(flags, fmt.Sprintf("%s_R%d", prefix, i))
@@ -1311,7 +1309,7 @@ func applyReasonCheckboxes(docType string, extra map[string]string, placeholders
 
 		hasExplicit := false
 		for _, k := range flags {
-			if strings.TrimSpace(extra[k]) != "" {
+			if _, ok := extra[k]; ok {
 				hasExplicit = true
 				break
 			}
@@ -1319,22 +1317,23 @@ func applyReasonCheckboxes(docType string, extra map[string]string, placeholders
 
 		if hasExplicit {
 			for _, k := range flags {
-				if v := strings.TrimSpace(extra[k]); v != "" {
-					placeholders[k] = v
+				if v, ok := extra[k]; ok {
+					placeholders[k] = strings.TrimSpace(v)
 				} else {
-					placeholders[k] = ""
+					placeholders[k] = unchecked
 				}
 			}
 			return
 		}
 
 		for _, k := range flags {
-			placeholders[k] = ""
+			placeholders[k] = unchecked
 		}
-		if strings.HasPrefix(code, "R") {
-			for _, k := range flags {
-				if k == fmt.Sprintf("%s_%s", prefix, code) {
-					placeholders[k] = "X"
+		for code := range reasonCodes {
+			key := fmt.Sprintf("%s_%s", prefix, code)
+			for _, candidate := range flags {
+				if candidate == key {
+					placeholders[candidate] = checked
 				}
 			}
 		}
@@ -1342,21 +1341,97 @@ func applyReasonCheckboxes(docType string, extra map[string]string, placeholders
 
 	switch docType {
 	case "refund_application":
-		applyReasonSet("REFUND", 6)
-		for i := 1; i <= 6; i++ {
-			refundKey := fmt.Sprintf("REFUND_R%d", i)
-			docsMarkKey := fmt.Sprintf("DOCS_MARK_%d", i)
-			if strings.TrimSpace(placeholders[refundKey]) != "" {
-				placeholders[docsMarkKey] = "☑"
-			} else {
-				placeholders[docsMarkKey] = "☐"
-			}
-		}
+		applyReasonSet("REFUND", 6, "☑", "☐")
 	case "pause_application":
-		applyReasonSet("PAUSE", 8)
+		applyReasonSet("PAUSE", 8, "X", "")
 	case "cancel_appointment":
-		applyReasonSet("CANCEL", 8)
+		applyReasonSet("CANCEL", 8, "☑", "☐")
+	case "documents_handover_act":
+		applyDocsMarks(extra, placeholders, 15)
 	}
+}
+
+func applyDocsMarks(extra map[string]string, placeholders map[string]string, max int) {
+	selected := parseIntSelectionList(extra["DOCS_PRESENT"])
+	for i := 1; i <= max; i++ {
+		key := fmt.Sprintf("DOCS_MARK_%d", i)
+		if explicit, ok := extra[key]; ok {
+			placeholders[key] = strings.TrimSpace(explicit)
+			continue
+		}
+		if _, ok := selected[i]; ok {
+			placeholders[key] = "✓"
+		} else {
+			placeholders[key] = ""
+		}
+	}
+}
+
+func collectReasonCodes(extra map[string]string) map[string]struct{} {
+	codes := map[string]struct{}{}
+	multi := parseReasonCodeList(extra["reason_codes"])
+	if len(multi) > 0 {
+		for _, code := range multi {
+			codes[code] = struct{}{}
+		}
+		return codes
+	}
+	for _, code := range parseReasonCodeList(extra["reason_code"]) {
+		codes[code] = struct{}{}
+	}
+	for _, code := range parseReasonCodeList(extra["REFUND_REASON_CODE"]) {
+		codes[code] = struct{}{}
+	}
+	return codes
+}
+
+func parseReasonCodeList(raw string) []string {
+	items := parseStringList(raw)
+	res := make([]string, 0, len(items))
+	for _, item := range items {
+		code := strings.ToUpper(strings.TrimSpace(item))
+		if matched, _ := regexp.MatchString(`^R[0-9]+$`, code); matched {
+			res = append(res, code)
+		}
+	}
+	return res
+}
+
+func parseIntSelectionList(raw string) map[int]struct{} {
+	res := map[int]struct{}{}
+	for _, item := range parseStringList(raw) {
+		n, err := strconv.Atoi(strings.TrimSpace(item))
+		if err == nil {
+			res[n] = struct{}{}
+		}
+	}
+	return res
+}
+
+func parseStringList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		var arrAny []any
+		if err := json.Unmarshal([]byte(raw), &arrAny); err == nil {
+			out := make([]string, 0, len(arrAny))
+			for _, item := range arrAny {
+				out = append(out, strings.TrimSpace(fmt.Sprint(item)))
+			}
+			return out
+		}
+	}
+	if strings.Contains(raw, ",") {
+		parts := strings.Split(raw, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			out = append(out, strings.TrimSpace(p))
+		}
+		return out
+	}
+	return []string{raw}
 }
 
 // ================== helpers ==================
