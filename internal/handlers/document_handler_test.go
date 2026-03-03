@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/authz"
+	"turcompany/internal/docx"
 	"turcompany/internal/models"
 	"turcompany/internal/pdf"
 	"turcompany/internal/services"
@@ -98,11 +99,15 @@ func (g *fakePDFGen) GenerateFromTemplate(templateName string, placeholders map[
 type fakeDocxGen struct {
 	lastTemplate string
 	lastBase     string
+	err          error
 }
 
 func (g *fakeDocxGen) GenerateDocxAndPDF(templatePath string, placeholders map[string]string, baseFilename string) (string, string, error) {
 	g.lastTemplate = templatePath
 	g.lastBase = baseFilename
+	if g.err != nil {
+		return "", "", g.err
+	}
 	return "/docx/" + baseFilename + ".docx", "/pdf/" + baseFilename + ".pdf", nil
 }
 func (g *fakeDocxGen) GeneratePDF(templateName string, placeholders map[string]string, baseFilename string) (string, error) {
@@ -231,5 +236,54 @@ func TestDocumentHandler_CreateDocumentFromClient_ClientNotFound(t *testing.T) {
 func TestGinModeIsTest_Document(t *testing.T) {
 	if gin.Mode() != gin.TestMode {
 		t.Fatalf("gin mode = %s, want %s", gin.Mode(), gin.TestMode)
+	}
+}
+
+func TestDocumentHandler_CreateDocumentFromClient_UnresolvedPlaceholders(t *testing.T) {
+	docRepo := &fakeDocumentRepo{}
+	dealRepo := &fakeDealRepo{deals: map[int]*models.Deals{2: {ID: 2, ClientID: 1, OwnerID: 10}}}
+	clientRepo := &fakeClientRepo{clients: map[int]*models.Client{1: {ID: 1, Name: "Acme", BinIin: "123456789012", Phone: "+77770000000", Address: "Main st"}}}
+	docxGen := &fakeDocxGen{err: &docx.UnresolvedPlaceholdersError{TemplateFile: "contract_paid_full_ru.docx", MissingKeys: []string{"UNKNOWN_KEY"}}}
+
+	svc := services.NewDocumentService(docRepo, nil, dealRepo, clientRepo, "", "", &fakePDFGen{}, docxGen, &fakeXlsxGen{})
+	handler := NewDocumentHandler(svc)
+
+	r := gin.Default()
+	r.Use(withUser(authz.RoleManagement, 10))
+	r.POST("/documents/create-from-client", handler.CreateDocumentFromClient)
+
+	payload := map[string]interface{}{
+		"client_id": 1,
+		"deal_id":   2,
+		"doc_type":  "contract_paid_full_ru",
+	}
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/documents/create-from-client", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["error"] != "unresolved_placeholders" {
+		t.Fatalf("unexpected error code: %#v", resp["error"])
+	}
+	fields, ok := resp["fields"].(map[string]any)
+	if !ok {
+		t.Fatalf("fields missing: %#v", resp)
+	}
+	if fields["doc_type"] != "contract_paid_full_ru" {
+		t.Fatalf("doc_type mismatch: %#v", fields["doc_type"])
+	}
+	keys, ok := fields["missing_keys"].([]any)
+	if !ok || len(keys) != 1 || keys[0] != "UNKNOWN_KEY" {
+		t.Fatalf("missing_keys mismatch: %#v", fields["missing_keys"])
 	}
 }

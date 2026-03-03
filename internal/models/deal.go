@@ -13,4 +13,5 @@ type Deals struct {
 	Currency  string    `json:"currency"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
+	ExtraJSON string    `json:"extra_json" db:"extra_json"`
 }

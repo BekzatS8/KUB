@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -26,13 +28,18 @@ type ExcelGenerator struct {
 	LibreOfficeEnabled   bool
 	PDFProvider          string // libreoffice|external
 	ExternalPDFConverter string
+	StrictPlaceholders   bool
 }
 
 func NewExcelGenerator(rootDir, templatesDir string, enableLibreOffice bool, libreOfficeBinary string) *ExcelGenerator {
 	if libreOfficeBinary == "" {
 		libreOfficeBinary = "libreoffice"
 	}
-	return &ExcelGenerator{RootDir: filepath.Clean(rootDir), TemplatesDir: filepath.Clean(templatesDir), LibreOfficeEnabled: enableLibreOffice, LibreOfficeBinary: libreOfficeBinary, PDFProvider: "libreoffice"}
+	return &ExcelGenerator{RootDir: filepath.Clean(rootDir), TemplatesDir: filepath.Clean(templatesDir), LibreOfficeEnabled: enableLibreOffice, LibreOfficeBinary: libreOfficeBinary, PDFProvider: "libreoffice", StrictPlaceholders: true}
+}
+
+func (g *ExcelGenerator) SetStrictPlaceholders(strict bool) {
+	g.StrictPlaceholders = strict
 }
 
 func (g *ExcelGenerator) GenerateFromTemplate(templateName string, placeholders map[string]string, baseFilename string) (string, error) {
@@ -65,6 +72,16 @@ func (g *ExcelGenerator) GenerateFromTemplateAndPDF(templateName string, placeho
 	xlsxPath := filepath.Join(excelDir, xlsxName)
 	if err := g.generateXlsxFromTemplate(tmplPath, xlsxPath, placeholders); err != nil {
 		return "", "", err
+	}
+	if g.StrictPlaceholders {
+		missingKeys, err := findUnresolvedPlaceholdersInZip(xlsxPath, "xl/")
+		if err != nil {
+			return "", "", err
+		}
+		if len(missingKeys) > 0 {
+			_ = os.Remove(xlsxPath)
+			return "", "", &UnresolvedPlaceholdersError{TemplateFile: templateName, MissingKeys: missingKeys}
+		}
 	}
 	xlsxRel := "/" + filepath.ToSlash(filepath.Join("excel", xlsxName))
 
@@ -147,4 +164,47 @@ func (g *ExcelGenerator) generateXlsxFromTemplate(templatePath, outPath string, 
 func xmlEscape(s string) string {
 	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
 	return replacer.Replace(s)
+}
+
+type UnresolvedPlaceholdersError struct {
+	TemplateFile string
+	MissingKeys  []string
+}
+
+func (e *UnresolvedPlaceholdersError) Error() string { return "unresolved_placeholders" }
+
+var placeholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
+
+func findUnresolvedPlaceholdersInZip(zipPath, prefix string) ([]string, error) {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("open generated file: %w", err)
+	}
+	defer r.Close()
+	set := map[string]struct{}{}
+	for _, f := range r.File {
+		if !strings.HasPrefix(f.Name, prefix) || !strings.HasSuffix(f.Name, ".xml") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open generated xml: %w", err)
+		}
+		b, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read generated xml: %w", err)
+		}
+		for _, m := range placeholderPattern.FindAllStringSubmatch(string(b), -1) {
+			if len(m) > 1 {
+				set[m[1]] = struct{}{}
+			}
+		}
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }

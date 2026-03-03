@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,6 +84,14 @@ type DocumentMissingField struct {
 	Key    string     `json:"key"`
 	Source FieldScope `json:"source"`
 }
+
+type DocumentUnresolvedPlaceholdersError struct {
+	DocType      string   `json:"doc_type"`
+	TemplateFile string   `json:"template_file"`
+	MissingKeys  []string `json:"missing_keys"`
+}
+
+func (e *DocumentUnresolvedPlaceholdersError) Error() string { return "unresolved_placeholders" }
 
 func (e *DocumentMissingFieldsError) Error() string { return "missing_fields" }
 
@@ -1216,7 +1225,58 @@ func buildDealExtraFallback(deal *models.Deals) map[string]string {
 	if strings.TrimSpace(deal.Currency) != "" {
 		m["DEAL_CURRENCY"] = strings.TrimSpace(deal.Currency)
 	}
+	for k, v := range parseDealExtraJSON(deal) {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		m[k] = v
+	}
 	return m
+}
+
+func parseDealExtraJSON(deal *models.Deals) map[string]string {
+	result := map[string]string{}
+	if deal == nil {
+		return result
+	}
+	rv := reflect.ValueOf(deal)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() || rv.Kind() != reflect.Struct {
+		return result
+	}
+
+	raw := ""
+	for _, fieldName := range []string{"ExtraJSON", "ExtraJson", "DealExtraJSON", "DealExtraJson"} {
+		f := rv.FieldByName(fieldName)
+		if f.IsValid() && f.Kind() == reflect.String {
+			raw = strings.TrimSpace(f.String())
+			if raw != "" {
+				break
+			}
+		}
+	}
+	if raw == "" {
+		return result
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return result
+	}
+	for k, v := range payload {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		val := strings.TrimSpace(fmt.Sprint(v))
+		if val == "" || val == "<nil>" {
+			continue
+		}
+		result[key] = val
+	}
+	return result
 }
 
 func mapClientMissing(docType string, fields []string) []DocumentMissingField {
@@ -1239,35 +1299,63 @@ func mapClientMissing(docType string, fields []string) []DocumentMissingField {
 
 func applyReasonCheckboxes(docType string, extra map[string]string, placeholders map[string]string) {
 	code := strings.ToUpper(strings.TrimSpace(extra["reason_code"]))
-	set := func(keys ...string) {
-		for _, k := range keys {
+	if code == "" {
+		code = strings.ToUpper(strings.TrimSpace(extra["REFUND_REASON_CODE"]))
+	}
+
+	applyReasonSet := func(prefix string, max int) {
+		flags := make([]string, 0, max)
+		for i := 1; i <= max; i++ {
+			flags = append(flags, fmt.Sprintf("%s_R%d", prefix, i))
+		}
+
+		hasExplicit := false
+		for _, k := range flags {
+			if strings.TrimSpace(extra[k]) != "" {
+				hasExplicit = true
+				break
+			}
+		}
+
+		if hasExplicit {
+			for _, k := range flags {
+				if v := strings.TrimSpace(extra[k]); v != "" {
+					placeholders[k] = v
+				} else {
+					placeholders[k] = ""
+				}
+			}
+			return
+		}
+
+		for _, k := range flags {
 			placeholders[k] = ""
 		}
+		if strings.HasPrefix(code, "R") {
+			for _, k := range flags {
+				if k == fmt.Sprintf("%s_%s", prefix, code) {
+					placeholders[k] = "X"
+				}
+			}
+		}
 	}
+
 	switch docType {
 	case "refund_application":
-		flags := []string{"RA_R1", "RA_R2", "RA_R3", "RA_R4", "RA_R5", "RA_R6"}
-		set(flags...)
-		if code == "" {
-			code = strings.ToUpper(strings.TrimSpace(extra["REFUND_REASON_CODE"]))
-		}
-		if strings.HasPrefix(code, "R") {
-			for _, k := range flags {
-				if k == "RA_"+code {
-					placeholders[k] = "X"
-				}
+		applyReasonSet("REFUND", 6)
+		for i := 1; i <= 6; i++ {
+			refundKey := fmt.Sprintf("REFUND_R%d", i)
+			docsMarkKey := fmt.Sprintf("DOCS_MARK_%d", i)
+			if strings.TrimSpace(placeholders[refundKey]) != "" {
+				placeholders[docsMarkKey] = "☑"
+			} else {
+				placeholders[docsMarkKey] = "☐"
 			}
 		}
-	case "pause_application", "cancel_appointment":
-		flags := []string{"PA_R1", "PA_R2", "PA_R3", "PA_R4"}
-		set(flags...)
-		if strings.HasPrefix(code, "R") {
-			for _, k := range flags {
-				if k == "PA_"+code {
-					placeholders[k] = "X"
-				}
-			}
-		}
+	case "pause_application":
+		applyReasonSet("PAUSE", 8)
+	case "cancel_appointment":
+		applyReasonSet("CANCEL", 8)
 	}
 }
 
@@ -1289,6 +1377,22 @@ func normalizeStoragePath(rel string) string {
 
 func wrapGenerationError(docType string, err error) error {
 	log.Printf("[documents] generation failed for %s: %v", docType, err)
+	var docxUnresolved *docx.UnresolvedPlaceholdersError
+	if errors.As(err, &docxUnresolved) {
+		return &DocumentUnresolvedPlaceholdersError{
+			DocType:      docType,
+			TemplateFile: docxUnresolved.TemplateFile,
+			MissingKeys:  docxUnresolved.MissingKeys,
+		}
+	}
+	var xlsxUnresolved *xlsx.UnresolvedPlaceholdersError
+	if errors.As(err, &xlsxUnresolved) {
+		return &DocumentUnresolvedPlaceholdersError{
+			DocType:      docType,
+			TemplateFile: xlsxUnresolved.TemplateFile,
+			MissingKeys:  xlsxUnresolved.MissingKeys,
+		}
+	}
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	if strings.Contains(msg, "template not found") {
 		return errors.New("template_not_found")

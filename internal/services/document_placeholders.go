@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"turcompany/internal/models"
 )
@@ -127,7 +128,7 @@ func buildClientPlaceholders(
 	if client != nil {
 		// приоритет: новые поля
 		if client.Phone != "" {
-			ph["CLIENT_PHONE"] = strings.TrimSpace(client.Phone)
+			ph["CLIENT_PHONE"] = normalizeKzPhone(client.Phone)
 		}
 		if client.Email != "" {
 			ph["CLIENT_EMAIL"] = strings.TrimSpace(client.Email)
@@ -138,7 +139,7 @@ func buildClientPlaceholders(
 		if ph["CLIENT_PHONE"] == "" || ph["CLIENT_EMAIL"] == "" {
 			phone, email := splitContactInfo(client.ContactInfo)
 			if ph["CLIENT_PHONE"] == "" && phone != "" {
-				ph["CLIENT_PHONE"] = phone
+				ph["CLIENT_PHONE"] = normalizeKzPhone(phone)
 			}
 			if ph["CLIENT_EMAIL"] == "" && email != "" {
 				ph["CLIENT_EMAIL"] = email
@@ -231,8 +232,14 @@ func buildClientPlaceholders(
 	// ================== EXTRA ПЕРЕКРЫВАЕТ ВСЁ ==================
 	// всё, что передал сервис/handler, имеет приоритет
 	for k, v := range extra {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
 		ph[k] = v
 	}
+
+	ensureBasePlaceholderKeys(ph)
+	applyPlaceholderAliases(ph)
 
 	// ================== ОБЩИЕ СУММЫ ==================
 	if rawAmount, ok := ph["TOTAL_AMOUNT_NUM"]; ok && strings.TrimSpace(rawAmount) != "" {
@@ -251,6 +258,353 @@ func buildClientPlaceholders(
 	}
 
 	return ph
+}
+
+func ensureBasePlaceholderKeys(ph map[string]string) {
+	if ph == nil {
+		return
+	}
+
+	ph["CLIENT_FULL_NAME"] = strings.TrimSpace(ph["CLIENT_FULL_NAME"])
+	if ph["CLIENT_FULL_NAME_SHORT"] == "" {
+		if v := strings.TrimSpace(ph["CLIENT_LAST_NAME_INITIALS"]); v != "" {
+			ph["CLIENT_FULL_NAME_SHORT"] = v
+		} else {
+			ln, fn, mn := splitFIO(ph["CLIENT_FULL_NAME"])
+			ph["CLIENT_FULL_NAME_SHORT"] = buildShortName(ln, fn, mn)
+		}
+	}
+
+	if v := strings.TrimSpace(ph["CLIENT_PHONE"]); v != "" {
+		ph["CLIENT_PHONE"] = normalizeKzPhone(v)
+	}
+
+	if strings.TrimSpace(ph["CLIENT_LAST_NAME_INITIALS"]) == "" {
+		ph["CLIENT_LAST_NAME_INITIALS"] = strings.TrimSpace(ph["CLIENT_FULL_NAME_SHORT"])
+	}
+
+	ensureContractDatePlaceholders(ph)
+	ensureDocumentDatePlaceholders(ph)
+
+	mustHaveKeys := []string{
+		"CLIENT_FULL_NAME",
+		"CLIENT_FULL_NAME_SHORT",
+		"CLIENT_IIN",
+		"CLIENT_ADDRESS",
+		"CLIENT_PHONE",
+		"CLIENT_EMAIL",
+		"DOC_DATE_TEXT",
+		"CONTRACT_NUMBER",
+		"CONTRACT_DATE_TEXT",
+		"DEAL_TOTAL_KZT",
+		"DEAL_TOTAL_KZT_TEXT",
+		"DEAL_PREPAY_KZT",
+		"DEAL_PREPAY_KZT_TEXT",
+		"DEAL_REMAIN_KZT",
+		"DEAL_REMAIN_KZT_TEXT",
+		"REFUND_KZT",
+		"REFUND_KZT_TEXT",
+		"AMOUNT_KZT",
+		"AMOUNT_KZT_TEXT",
+	}
+	for _, k := range mustHaveKeys {
+		if _, ok := ph[k]; !ok {
+			ph[k] = ""
+		}
+	}
+
+	setMoneyAndText := func(amountKey, textKey string) {
+		raw := strings.TrimSpace(ph[amountKey])
+		if raw == "" {
+			if _, ok := ph[textKey]; !ok {
+				ph[textKey] = ""
+			}
+			return
+		}
+		tenge, tiyn, formatted, err := NormalizeMoney(raw)
+		if err != nil {
+			if strings.TrimSpace(ph[textKey]) == "" {
+				ph[textKey] = raw
+			}
+			return
+		}
+		ph[amountKey] = formatted
+		if strings.TrimSpace(ph[textKey]) == "" {
+			ph[textKey] = amountToRuWords(tenge, tiyn)
+		}
+	}
+
+	if strings.TrimSpace(ph["DEAL_TOTAL_KZT"]) == "" {
+		if v := strings.TrimSpace(ph["DEAL_AMOUNT_NUM"]); v != "" {
+			ph["DEAL_TOTAL_KZT"] = v
+		} else if v := strings.TrimSpace(ph["TOTAL_AMOUNT_NUM"]); v != "" {
+			ph["DEAL_TOTAL_KZT"] = v
+		}
+	}
+
+	if strings.TrimSpace(ph["DEAL_PREPAY_KZT"]) == "" {
+		if v := strings.TrimSpace(ph["PREPAY_AMOUNT_NUM"]); v != "" {
+			ph["DEAL_PREPAY_KZT"] = v
+		}
+	}
+
+	setMoneyAndText("DEAL_TOTAL_KZT", "DEAL_TOTAL_KZT_TEXT")
+	setMoneyAndText("DEAL_PREPAY_KZT", "DEAL_PREPAY_KZT_TEXT")
+
+	if strings.TrimSpace(ph["DEAL_REMAIN_KZT"]) == "" {
+		total, errTotal := canonicalMoneyString(ph["DEAL_TOTAL_KZT"])
+		prepay, errPrepay := canonicalMoneyString(ph["DEAL_PREPAY_KZT"])
+		if errTotal == nil && errPrepay == nil {
+			totalF, _ := strconv.ParseFloat(total, 64)
+			prepayF, _ := strconv.ParseFloat(prepay, 64)
+			remain := totalF - prepayF
+			if remain < 0 {
+				remain = 0
+			}
+			ph["DEAL_REMAIN_KZT"] = strconv.FormatFloat(remain, 'f', 2, 64)
+		}
+	}
+	setMoneyAndText("DEAL_REMAIN_KZT", "DEAL_REMAIN_KZT_TEXT")
+
+	if strings.TrimSpace(ph["REFUND_KZT"]) == "" {
+		if v := strings.TrimSpace(ph["REFUND_AMOUNT_NUM"]); v != "" {
+			ph["REFUND_KZT"] = v
+		}
+	}
+	if strings.TrimSpace(ph["REFUND_KZT_TEXT"]) == "" {
+		if v := strings.TrimSpace(ph["REFUND_AMOUNT_TEXT"]); v != "" {
+			ph["REFUND_KZT_TEXT"] = v
+		}
+	}
+	setMoneyAndText("REFUND_KZT", "REFUND_KZT_TEXT")
+
+	if strings.TrimSpace(ph["AMOUNT_KZT"]) == "" {
+		if v := strings.TrimSpace(ph["DEAL_TOTAL_KZT"]); v != "" {
+			ph["AMOUNT_KZT"] = v
+		} else if v := strings.TrimSpace(ph["REFUND_KZT"]); v != "" {
+			ph["AMOUNT_KZT"] = v
+		}
+	}
+	if strings.TrimSpace(ph["AMOUNT_KZT_TEXT"]) == "" {
+		if v := strings.TrimSpace(ph["DEAL_TOTAL_KZT_TEXT"]); v != "" {
+			ph["AMOUNT_KZT_TEXT"] = v
+		} else if v := strings.TrimSpace(ph["REFUND_KZT_TEXT"]); v != "" {
+			ph["AMOUNT_KZT_TEXT"] = v
+		}
+	}
+	setMoneyAndText("AMOUNT_KZT", "AMOUNT_KZT_TEXT")
+
+	if strings.TrimSpace(ph["COURSE_TOTAL_KZT"]) == "" {
+		ph["COURSE_TOTAL_KZT"] = strings.TrimSpace(ph["DEAL_TOTAL_KZT"])
+	}
+	if strings.TrimSpace(ph["COURSE_TOTAL_KZT_TEXT"]) == "" {
+		ph["COURSE_TOTAL_KZT_TEXT"] = strings.TrimSpace(ph["DEAL_TOTAL_KZT_TEXT"])
+	}
+
+	if strings.TrimSpace(ph["KOREA_FEE_KZT"]) == "" {
+		ph["KOREA_FEE_KZT"] = strings.TrimSpace(ph["DEAL_TOTAL_KZT"])
+	}
+	if strings.TrimSpace(ph["KOREA_FEE_KZT_TEXT"]) == "" {
+		ph["KOREA_FEE_KZT_TEXT"] = strings.TrimSpace(ph["DEAL_TOTAL_KZT_TEXT"])
+	}
+}
+
+func applyPlaceholderAliases(ph map[string]string) {
+	if ph == nil {
+		return
+	}
+	copyAlias := func(alias, canon string) {
+		if strings.TrimSpace(ph[alias]) == "" {
+			ph[alias] = strings.TrimSpace(ph[canon])
+		}
+	}
+	copyCanon := func(canon, alias string) {
+		if strings.TrimSpace(ph[canon]) == "" {
+			ph[canon] = strings.TrimSpace(ph[alias])
+		}
+	}
+
+	copyCanon("CLIENT_FULL_NAME", "CLIENT_FIO")
+	copyAlias("CLIENT_FIO", "CLIENT_FULL_NAME")
+
+	copyCanon("CLIENT_FULL_NAME_SHORT", "CLIENT_FIO_SHORT")
+	copyCanon("CLIENT_FULL_NAME_SHORT", "CLIENT_LAST_NAME_INITIALS")
+	copyCanon("CLIENT_FULL_NAME_SHORT", "STUDENT_FULL_NAME")
+	copyAlias("CLIENT_FIO_SHORT", "CLIENT_FULL_NAME_SHORT")
+	copyAlias("CLIENT_LAST_NAME_INITIALS", "CLIENT_FULL_NAME_SHORT")
+
+	copyAlias("MAIN_CONTRACT_DATE_TEXT", "CONTRACT_DATE_TEXT")
+	copyAlias("MAIN_CONTRACT_NUMBER", "CONTRACT_NUMBER")
+	copyCanon("DOC_DATE_TEXT", "DOC_DATE")
+	copyAlias("DOC_DATE", "DOC_DATE_TEXT")
+
+	copyCanon("REFUND_KZT", "REFUND_AMOUNT_NUM")
+	copyCanon("REFUND_KZT_TEXT", "REFUND_AMOUNT_TEXT")
+	copyAlias("REFUND_AMOUNT_NUM", "REFUND_KZT")
+	copyAlias("REFUND_AMOUNT_TEXT", "REFUND_KZT_TEXT")
+
+	moneyAliases := [][2]string{
+		{"COURSE_TOTAL_KZT", "DEAL_TOTAL_KZT"},
+		{"KOREA_FEE_KZT", "DEAL_TOTAL_KZT"},
+		{"DEAL_AMOUNT_NUM", "DEAL_TOTAL_KZT"},
+		{"TOTAL_AMOUNT_NUM", "DEAL_TOTAL_KZT"},
+		{"COURSE_TOTAL_KZT_TEXT", "DEAL_TOTAL_KZT_TEXT"},
+		{"KOREA_FEE_KZT_TEXT", "DEAL_TOTAL_KZT_TEXT"},
+		{"DEAL_AMOUNT_TEXT", "DEAL_TOTAL_KZT_TEXT"},
+		{"DEAL_PREPAY_KZT", "DEAL_PREPAY_KZT"},
+		{"DEAL_PREPAY_KZT_TEXT", "DEAL_PREPAY_KZT_TEXT"},
+	}
+	for _, pair := range moneyAliases {
+		alias, canon := pair[0], pair[1]
+		copyAlias(alias, canon)
+	}
+}
+
+func ensureContractDatePlaceholders(ph map[string]string) {
+	tm, ok := parseFirstDate(
+		ph["CONTRACT_DATE_RAW"],
+		ph["CONTRACT_DATE_TEXT"],
+		ph["CONTRACT_DATE"],
+		ph["MAIN_CONTRACT_DATE_TEXT"],
+		ph["DOC_DATE"],
+	)
+	if !ok {
+		tm, ok = parseFirstDate(ph["DOC_DATE_TEXT"])
+	}
+	if !ok {
+		return
+	}
+
+	if strings.TrimSpace(ph["CONTRACT_DATE_RAW"]) == "" {
+		ph["CONTRACT_DATE_RAW"] = tm.Format("02.01.2006")
+	}
+	if strings.TrimSpace(ph["CONTRACT_DATE_TEXT"]) == "" {
+		ph["CONTRACT_DATE_TEXT"] = fmt.Sprintf("%d %s %d г.", tm.Day(), ruMonthGenitive(tm.Month()), tm.Year())
+	}
+	if strings.TrimSpace(ph["CONTRACT_DAY"]) == "" {
+		ph["CONTRACT_DAY"] = tm.Format("02")
+	}
+	if strings.TrimSpace(ph["CONTRACT_MONTH_TEXT"]) == "" {
+		ph["CONTRACT_MONTH_TEXT"] = ruMonthGenitive(tm.Month())
+	}
+	if strings.TrimSpace(ph["CONTRACT_YEAR"]) == "" {
+		ph["CONTRACT_YEAR"] = tm.Format("2006")
+	}
+}
+
+func ensureDocumentDatePlaceholders(ph map[string]string) {
+	if strings.TrimSpace(ph["DOC_DATE_TEXT"]) == "" {
+		if tm, ok := parseFirstDate(ph["DOC_DATE"], ph["CONTRACT_DATE_RAW"], ph["CONTRACT_DATE_TEXT"]); ok {
+			ph["DOC_DATE_TEXT"] = fmt.Sprintf("%d %s %d г.", tm.Day(), ruMonthGenitive(tm.Month()), tm.Year())
+		}
+	}
+	if strings.TrimSpace(ph["DOC_DATE"]) == "" {
+		ph["DOC_DATE"] = strings.TrimSpace(ph["DOC_DATE_TEXT"])
+	}
+}
+
+func parseFirstDate(values ...string) (time.Time, bool) {
+	for _, raw := range values {
+		if tm, ok := parseFlexibleDate(raw); ok {
+			return tm, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseFlexibleDate(raw string) (time.Time, bool) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return time.Time{}, false
+	}
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = strings.ReplaceAll(s, "г.", "")
+	s = strings.ReplaceAll(s, "г", "")
+	s = strings.Join(strings.Fields(s), " ")
+
+	layouts := []string{"02.01.2006", "2.1.2006", "2006-01-02", "02-01-2006", "02/01/2006"}
+	for _, layout := range layouts {
+		if tm, err := time.Parse(layout, s); err == nil {
+			return tm, true
+		}
+	}
+
+	months := map[string]time.Month{
+		"января": time.January, "февраля": time.February, "марта": time.March, "апреля": time.April,
+		"мая": time.May, "июня": time.June, "июля": time.July, "августа": time.August,
+		"сентября": time.September, "октября": time.October, "ноября": time.November, "декабря": time.December,
+	}
+	parts := strings.Fields(s)
+	if len(parts) >= 3 {
+		day, errDay := strconv.Atoi(parts[0])
+		year, errYear := strconv.Atoi(parts[2])
+		month, okMonth := months[parts[1]]
+		if errDay == nil && errYear == nil && okMonth {
+			return time.Date(year, month, day, 0, 0, 0, 0, time.UTC), true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+func buildShortName(lastName, firstName, middleName string) string {
+	lastName = strings.TrimSpace(lastName)
+	firstName = strings.TrimSpace(firstName)
+	middleName = strings.TrimSpace(middleName)
+	if lastName == "" {
+		return ""
+	}
+	short := lastName
+	if firstName != "" {
+		short += " " + firstInitial(firstName)
+	}
+	if middleName != "" {
+		short += firstInitial(middleName)
+	}
+	return short
+}
+
+func firstInitial(s string) string {
+	for _, r := range strings.TrimSpace(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return string(r) + "."
+		}
+	}
+	return ""
+}
+
+func normalizeKzPhone(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+
+	var digits []rune
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) == 0 {
+		return s
+	}
+	d := string(digits)
+	if len(d) == 11 && strings.HasPrefix(d, "8") {
+		d = "7" + d[1:]
+	}
+	if len(d) == 10 && strings.HasPrefix(d, "7") {
+		d = "7" + d
+	}
+	if len(d) == 10 && strings.HasPrefix(d, "9") {
+		d = "7" + d
+	}
+	if len(d) == 11 && strings.HasPrefix(d, "7") {
+		return "+" + d
+	}
+	if len(d) == 12 && strings.HasPrefix(d, "77") {
+		return "+" + d
+	}
+	return s
 }
 
 // splitFIO пытается разложить "Фамилия Имя Отчество" на части
