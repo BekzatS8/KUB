@@ -143,7 +143,11 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return 0, false, ErrBadPayload
 	}
-	if !validateCRMKey(authHeader, integration.CRMKeyHash) {
+	// Wazzup may not send Authorization header — rely on webhook token for auth.
+	// If header IS present, validate it as an extra security check.
+	if strings.TrimSpace(authHeader) != "" && !validateCRMKey(authHeader, integration.CRMKeyHash) {
+		log.Printf("[WAZZUP][webhook] auth failed token=%s auth_header_len=%d crm_hash_prefix=%s",
+			tokenPrefix(token), len(authHeader), keyPrefix(integration.CRMKeyHash))
 		if req.Test || len(req.Messages) == 0 {
 			return 0, false, nil
 		}
@@ -160,7 +164,7 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 		if isOutgoing(m) {
 			continue
 		}
-		extID := strings.TrimSpace(m.ID)
+		extID := strings.TrimSpace(firstNonEmpty(m.ID, m.MessageID))
 		if extID == "" {
 			continue
 		}
@@ -205,12 +209,14 @@ type webhookPayload struct {
 
 type webhookMessage struct {
 	ID          string `json:"id"`
+	MessageID   string `json:"messageId"`
 	ChatID      string `json:"chatId"`
 	ChatType    string `json:"chatType"`
 	ChannelType string `json:"channelType"`
 	Text        string `json:"text"`
 	IsIncoming  *bool  `json:"isIncoming"`
 	FromMe      *bool  `json:"fromMe"`
+	IsEcho      *bool  `json:"isEcho"`
 	Direction   string `json:"direction"`
 }
 
@@ -242,12 +248,21 @@ func generateCRMKey() (plain string, hash string, err error) {
 
 func validateCRMKey(authHeader, expectedHash string) bool {
 	authHeader = strings.TrimSpace(authHeader)
-	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+	if authHeader == "" {
 		return false
 	}
-	plain := strings.TrimSpace(authHeader[7:])
-	sum := sha256.Sum256([]byte(plain))
-	return hex.EncodeToString(sum[:]) == strings.TrimSpace(expectedHash)
+	expectedHash = strings.TrimSpace(expectedHash)
+	// Try "Bearer <key>" format first
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		plain := strings.TrimSpace(authHeader[7:])
+		sum := sha256.Sum256([]byte(plain))
+		if hex.EncodeToString(sum[:]) == expectedHash {
+			return true
+		}
+	}
+	// Fallback: try the raw header value as the key (some integrations omit Bearer)
+	sum := sha256.Sum256([]byte(authHeader))
+	return hex.EncodeToString(sum[:]) == expectedHash
 }
 
 func firstNonEmpty(values ...string) string {
@@ -262,6 +277,9 @@ func firstNonEmpty(values ...string) string {
 func isOutgoing(m webhookMessage) bool {
 	if m.FromMe != nil {
 		return *m.FromMe
+	}
+	if m.IsEcho != nil {
+		return *m.IsEcho
 	}
 	if m.IsIncoming != nil {
 		return !*m.IsIncoming

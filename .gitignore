@@ -5,3 +5,4 @@ config/config.yaml
 /turcompany
 /web
 /out/
+.env.prod
