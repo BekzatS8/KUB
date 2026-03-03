@@ -130,6 +130,12 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 			_ = os.Remove(docxPath)
 			return "", "", &UnresolvedPlaceholdersError{TemplateFile: templateName, MissingKeys: missingKeys}
 		}
+		if mojibake, err := findMojibakeInZip(docxPath, "word/"); err != nil {
+			return "", "", err
+		} else if len(mojibake) > 0 {
+			_ = os.Remove(docxPath)
+			return "", "", &MojibakeDetectedError{TemplateFile: templateName, Entries: mojibake}
+		}
 	}
 
 	// 5. Конвертация DOCX → PDF через LibreOffice
@@ -354,6 +360,13 @@ type UnresolvedPlaceholdersError struct {
 
 func (e *UnresolvedPlaceholdersError) Error() string { return "unresolved_placeholders" }
 
+type MojibakeDetectedError struct {
+	TemplateFile string
+	Entries      []string
+}
+
+func (e *MojibakeDetectedError) Error() string { return "mojibake_detected" }
+
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
 var strictPlaceholderPattern = regexp.MustCompile(`\{\{([A-Z0-9_]+)\}\}`)
 
@@ -377,7 +390,18 @@ func replacePlaceholdersRunAware(data []byte, placeholders map[string]string) ([
 		}
 	}
 
-	result := make([]string, len(nodes))
+	result := make([]strings.Builder, len(nodes))
+	appendRange := func(start, end int) {
+		for start < end {
+			nodeIx := owners[start]
+			nodeEnd := nodes[nodeIx].end
+			if nodeEnd > end {
+				nodeEnd = end
+			}
+			result[nodeIx].WriteString(stream[start:nodeEnd])
+			start = nodeEnd
+		}
+	}
 	matches := strictPlaceholderPattern.FindAllStringSubmatchIndex(stream, -1)
 	pos := 0
 	for _, m := range matches {
@@ -391,26 +415,18 @@ func replacePlaceholdersRunAware(data []byte, placeholders map[string]string) ([
 		if !ok {
 			continue
 		}
-		for pos < s {
-			nodeIx := owners[pos]
-			result[nodeIx] += string(stream[pos])
-			pos++
-		}
+		appendRange(pos, s)
 		firstNodeIx := owners[s]
-		result[firstNodeIx] += repl
+		result[firstNodeIx].WriteString(repl)
 		pos = e
 	}
-	for pos < len(stream) {
-		nodeIx := owners[pos]
-		result[nodeIx] += string(stream[pos])
-		pos++
-	}
+	appendRange(pos, len(stream))
 
 	var out bytes.Buffer
 	last := 0
 	for i, node := range nodes {
 		out.Write(data[last:node.innerStart])
-		out.WriteString(xmlEscape(result[i]))
+		out.WriteString(xmlEscape(result[i].String()))
 		last = node.innerEnd
 	}
 	out.Write(data[last:])
@@ -472,4 +488,33 @@ func findUnresolvedPlaceholdersInZip(zipPath, prefix string) ([]string, error) {
 	}
 	sort.Strings(keys)
 	return keys, nil
+}
+
+func findMojibakeInZip(zipPath, prefix string) ([]string, error) {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("open generated file: %w", err)
+	}
+	defer r.Close()
+
+	entries := make([]string, 0)
+	for _, f := range r.File {
+		if !strings.HasPrefix(f.Name, prefix) || !strings.HasSuffix(f.Name, ".xml") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open generated xml: %w", err)
+		}
+		b, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read generated xml: %w", err)
+		}
+		if strings.Contains(string(b), "Ð") {
+			entries = append(entries, f.Name)
+		}
+	}
+	sort.Strings(entries)
+	return entries, nil
 }
