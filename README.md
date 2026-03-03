@@ -190,6 +190,11 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 **Roles** (admin)
 - CRUD + счётчики
 
+**Clients**
+- `GET /clients` — общий список клиентов
+- `GET /clients/individual?limit=&offset=&q=` — только физ. лица (`client_type=individual`)
+- `GET /clients/company?limit=&offset=&q=` — только юр. лица (`client_type=legal`)
+
 **Leads / Deals**
 - CRUD, конвертация лида в сделку, фильтры/пагинация, ограничения по владельцу для sales
 

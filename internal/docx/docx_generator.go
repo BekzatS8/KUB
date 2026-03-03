@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/url"
@@ -204,12 +205,10 @@ func (g *DocxGenerator) generateDocxFromTemplate(templatePath, outPath string, p
 
 		// Заменяем только в XML внутри папки word/ (document.xml, header*.xml, footer*.xml и т.п.)
 		if strings.HasPrefix(f.Name, "word/") && strings.HasSuffix(f.Name, ".xml") {
-			text := string(data)
-			for k, v := range placeholders {
-				ph := "{{" + k + "}}"
-				text = strings.ReplaceAll(text, ph, xmlEscape(v))
+			data, err = replacePlaceholdersRunAware(data, placeholders)
+			if err != nil {
+				return fmt.Errorf("replace placeholders in %s: %w", f.Name, err)
 			}
-			data = []byte(text)
 		}
 
 		w, err := zw.Create(f.Name)
@@ -356,6 +355,89 @@ type UnresolvedPlaceholdersError struct {
 func (e *UnresolvedPlaceholdersError) Error() string { return "unresolved_placeholders" }
 
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
+var strictPlaceholderPattern = regexp.MustCompile(`\{\{([A-Z0-9_]+)\}\}`)
+
+type textNode struct {
+	start      int
+	end        int
+	innerStart int
+	innerEnd   int
+}
+
+func replacePlaceholdersRunAware(data []byte, placeholders map[string]string) ([]byte, error) {
+	nodes, stream := extractTextNodes(data)
+	if len(nodes) == 0 || len(placeholders) == 0 {
+		return data, nil
+	}
+
+	owners := make([]int, len(stream))
+	for i, n := range nodes {
+		for p := n.start; p < n.end; p++ {
+			owners[p] = i
+		}
+	}
+
+	result := make([]string, len(nodes))
+	matches := strictPlaceholderPattern.FindAllStringSubmatchIndex(stream, -1)
+	pos := 0
+	for _, m := range matches {
+		if len(m) < 4 {
+			continue
+		}
+		s, e := m[0], m[1]
+		keyStart, keyEnd := m[2], m[3]
+		key := stream[keyStart:keyEnd]
+		repl, ok := placeholders[key]
+		if !ok {
+			continue
+		}
+		for pos < s {
+			nodeIx := owners[pos]
+			result[nodeIx] += string(stream[pos])
+			pos++
+		}
+		firstNodeIx := owners[s]
+		result[firstNodeIx] += repl
+		pos = e
+	}
+	for pos < len(stream) {
+		nodeIx := owners[pos]
+		result[nodeIx] += string(stream[pos])
+		pos++
+	}
+
+	var out bytes.Buffer
+	last := 0
+	for i, node := range nodes {
+		out.Write(data[last:node.innerStart])
+		out.WriteString(xmlEscape(result[i]))
+		last = node.innerEnd
+	}
+	out.Write(data[last:])
+	return out.Bytes(), nil
+}
+
+var wTextNodePattern = regexp.MustCompile(`(?s)<w:t\b[^>]*>(.*?)</w:t>`)
+
+func extractTextNodes(data []byte) ([]textNode, string) {
+	var nodes []textNode
+	var stream strings.Builder
+	for _, m := range wTextNodePattern.FindAllSubmatchIndex(data, -1) {
+		if len(m) < 4 {
+			continue
+		}
+		innerStart, innerEnd := m[2], m[3]
+		text := html.UnescapeString(string(data[innerStart:innerEnd]))
+		nodes = append(nodes, textNode{
+			start:      stream.Len(),
+			end:        stream.Len() + len(text),
+			innerStart: innerStart,
+			innerEnd:   innerEnd,
+		})
+		stream.WriteString(text)
+	}
+	return nodes, stream.String()
+}
 
 func findUnresolvedPlaceholdersInZip(zipPath, prefix string) ([]string, error) {
 	r, err := zip.OpenReader(zipPath)
@@ -377,7 +459,8 @@ func findUnresolvedPlaceholdersInZip(zipPath, prefix string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read generated xml: %w", err)
 		}
-		for _, m := range placeholderPattern.FindAllStringSubmatch(string(b), -1) {
+		_, textStream := extractTextNodes(b)
+		for _, m := range placeholderPattern.FindAllStringSubmatch(textStream, -1) {
 			if len(m) > 1 {
 				set[m[1]] = struct{}{}
 			}

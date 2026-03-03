@@ -696,6 +696,101 @@ func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
 	return r.ListAll(limit, offset, "")
 }
 
+func (r *ClientRepository) ListIndividuals(ownerID int, q string, limit, offset int) ([]*models.Client, error) {
+	_ = ownerID
+	return r.listByTypeAndQuery(models.ClientTypeIndividual, q, limit, offset)
+}
+
+func (r *ClientRepository) ListCompanies(ownerID int, q string, limit, offset int) ([]*models.Client, error) {
+	_ = ownerID
+	return r.listByTypeAndQuery(models.ClientTypeLegal, q, limit, offset)
+}
+
+func (r *ClientRepository) listByTypeAndQuery(clientType, q string, limit, offset int) ([]*models.Client, error) {
+	const query = `
+        SELECT
+                id,
+                name,
+                client_type,
+                bin_iin,
+                address,
+                contact_info,
+                last_name,
+                first_name,
+                middle_name,
+                iin,
+                id_number,
+                passport_series,
+                passport_number,
+                phone,
+                email,
+                registration_address,
+                actual_address,
+                country,
+                trip_purpose,
+                birth_date,
+                birth_place,
+                citizenship,
+                sex,
+                marital_status,
+                passport_issue_date,
+                passport_expire_date,
+                previous_last_name,
+                spouse_name,
+                spouse_contacts,
+                has_children,
+                children_list,
+                education,
+                job,
+                trips_last5_years,
+                relatives_in_destination,
+                trusted_person,
+                height,
+                weight,
+                driver_license_categories,
+                therapist_name,
+                clinic_name,
+                diseases_last3_years,
+                additional_info,
+                owner_id,
+                created_at
+        FROM clients
+        WHERE client_type = $1
+          AND (
+                $2 = ''
+                OR name ILIKE $2
+                OR CONCAT_WS(' ', last_name, first_name, middle_name) ILIKE $2
+                OR iin ILIKE $2
+                OR bin_iin ILIKE $2
+                OR phone ILIKE $2
+                OR email ILIKE $2
+          )
+        ORDER BY created_at DESC
+        LIMIT $3 OFFSET $4
+    `
+
+	needle := "%" + strings.TrimSpace(q) + "%"
+	if strings.TrimSpace(q) == "" {
+		needle = ""
+	}
+
+	rows, err := r.db.Query(query, strings.ToLower(strings.TrimSpace(clientType)), needle, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list clients by type: %w", err)
+	}
+	defer rows.Close()
+
+	var res []*models.Client
+	for rows.Next() {
+		c, err := scanClient(rows)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, c)
+	}
+	return res, nil
+}
+
 func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
 	const q = `
         SELECT
