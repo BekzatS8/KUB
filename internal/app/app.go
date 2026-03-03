@@ -162,6 +162,8 @@ func Run() {
 	)
 
 	excelGen := xlsx.NewExcelGenerator(cfg.Files.RootDir, cfg.Templates.XlsxDir, cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)
+	docxGen.SetStrictPlaceholders(cfg.Documents.StrictPlaceholders)
+	excelGen.SetStrictPlaceholders(cfg.Documents.StrictPlaceholders)
 
 	documentService := services.NewDocumentService(
 		documentRepo,

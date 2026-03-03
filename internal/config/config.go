@@ -48,6 +48,10 @@ type CORSConfig struct {
 type FrontendConfig struct {
 	Host string `yaml:"host"`
 }
+
+type DocumentsConfig struct {
+	StrictPlaceholders bool `yaml:"strict_placeholders"`
+}
 type Config struct {
 	Server struct {
 		Port int    `yaml:"port"`
@@ -76,10 +80,11 @@ type Config struct {
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
 
-	Telegram TelegramConfig `yaml:"telegram"`
-	Frontend FrontendConfig `yaml:"frontend"`
-	CORS     CORSConfig     `yaml:"cors"`
-	Security SecurityConfig `yaml:"security"`
+	Telegram  TelegramConfig  `yaml:"telegram"`
+	Frontend  FrontendConfig  `yaml:"frontend"`
+	Documents DocumentsConfig `yaml:"documents"`
+	CORS      CORSConfig      `yaml:"cors"`
+	Security  SecurityConfig  `yaml:"security"`
 
 	SignBaseURL            string `yaml:"sign_base_url"`
 	PublicBaseURL          string `yaml:"public_base_url"`
@@ -326,6 +331,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.SignEmailTTLMinutes <= 0 {
 		cfg.SignEmailTTLMinutes = 30
 	}
+	if !cfg.Documents.StrictPlaceholders && configMode() != "release" {
+		cfg.Documents.StrictPlaceholders = true
+	}
 }
 
 func applyEnvOverrides(cfg *Config) {
@@ -359,6 +367,9 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
 	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
 	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)
+	if val := strings.TrimSpace(os.Getenv("DOCUMENTS_STRICT_PLACEHOLDERS")); val != "" {
+		cfg.Documents.StrictPlaceholders = parseBoolEnvValue(val)
+	}
 	if ttl := strings.TrimSpace(os.Getenv("SIGN_EMAIL_TTL")); ttl != "" {
 		if duration, err := time.ParseDuration(ttl); err == nil {
 			minutes := int(duration.Minutes())

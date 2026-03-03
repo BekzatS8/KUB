@@ -77,14 +77,25 @@ func (g *fakePDFGen) GenerateFromTemplate(templateName string, placeholders map[
 	return "/pdf/test_template.pdf", nil
 }
 
-type fakeDocxGen struct{ lastTemplate string }
+type fakeDocxGen struct {
+	lastTemplate     string
+	lastPlaceholders map[string]string
+}
 
 func (g *fakeDocxGen) GenerateDocxAndPDF(templateName string, placeholders map[string]string, baseFilename string) (string, string, error) {
 	g.lastTemplate = templateName
+	g.lastPlaceholders = map[string]string{}
+	for k, v := range placeholders {
+		g.lastPlaceholders[k] = v
+	}
 	return "/docx/" + baseFilename + ".docx", "/pdf/" + baseFilename + ".pdf", nil
 }
 func (g *fakeDocxGen) GeneratePDF(templateName string, placeholders map[string]string, baseFilename string) (string, error) {
 	g.lastTemplate = templateName
+	g.lastPlaceholders = map[string]string{}
+	for k, v := range placeholders {
+		g.lastPlaceholders[k] = v
+	}
 	return "/pdf/" + baseFilename + ".pdf", nil
 }
 
@@ -177,5 +188,80 @@ func TestReasonCodeFallbackFromDealExtra(t *testing.T) {
 	_, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "pause_application", deal.OwnerID, authz.RoleOperations, map[string]string{"reason_code": "R2"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestMergeExtra_EmptyRequestUsesDealExtra(t *testing.T) {
+	dealExtra := map[string]string{"reason_code": "R2", "REFUND_AMOUNT_NUM": "1000"}
+	m := mergeExtra(dealExtra, map[string]string{"reason_code": "   ", "REFUND_AMOUNT_NUM": ""})
+	if m["reason_code"] != "R2" {
+		t.Fatalf("reason_code = %s", m["reason_code"])
+	}
+	if m["REFUND_AMOUNT_NUM"] != "1000" {
+		t.Fatalf("REFUND_AMOUNT_NUM = %s", m["REFUND_AMOUNT_NUM"])
+	}
+}
+
+func TestCreateDocumentFromClient_RequiredFieldResolvedFromDealExtra(t *testing.T) {
+	client := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000"}
+	deal := &models.Deals{ID: 10, ClientID: client.ID, OwnerID: 99, ExtraJSON: `{"reason_code":"R3"}`}
+	svc := NewDocumentService(&fakeDocumentRepo{}, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{client.ID: client}}, "", "files", &fakePDFGen{}, &fakeDocxGen{}, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(client.ID, deal.ID, "pause_application", deal.OwnerID, authz.RoleOperations, nil)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestReasonCodeFallbackFromDealExtra_AutoCheckboxes(t *testing.T) {
+	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000"}
+	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99, Amount: 120000, ExtraJSON: `{"reason_code":"R3"}`}
+	repo := &fakeDocumentRepo{}
+	docx := &fakeDocxGen{}
+	svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, docx, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "cancel_appointment", deal.OwnerID, authz.RoleOperations, nil)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if docx.lastPlaceholders["CANCEL_R3"] != "X" {
+		t.Fatalf("expected CANCEL_R3 to be X, got %q", docx.lastPlaceholders["CANCEL_R3"])
+	}
+}
+
+func TestReasonCodeExplicitCheckboxesAreUsedAsIs(t *testing.T) {
+	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000"}
+	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99, Amount: 120000, ExtraJSON: `{"reason_code":"R3"}`}
+	repo := &fakeDocumentRepo{}
+	docx := &fakeDocxGen{}
+	svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, docx, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "cancel_appointment", deal.OwnerID, authz.RoleOperations, map[string]string{"CANCEL_R5": "X"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if docx.lastPlaceholders["CANCEL_R5"] != "X" {
+		t.Fatalf("expected CANCEL_R5 to be X, got %q", docx.lastPlaceholders["CANCEL_R5"])
+	}
+	if docx.lastPlaceholders["CANCEL_R3"] != "" {
+		t.Fatalf("expected CANCEL_R3 to stay empty with explicit flags, got %q", docx.lastPlaceholders["CANCEL_R3"])
+	}
+}
+
+func TestReasonCodeRefundSetsRefundAndDocsMarkCheckboxes(t *testing.T) {
+	baseClient := &models.Client{ID: 1, FirstName: "Ivan", LastName: "Ivanov", Address: "Earth", IIN: "123456789012", Phone: "+77770000000"}
+	deal := &models.Deals{ID: 10, ClientID: baseClient.ID, OwnerID: 99, Amount: 120000, ExtraJSON: `{"reason_code":"R2"}`}
+	repo := &fakeDocumentRepo{}
+	docx := &fakeDocxGen{}
+	svc := NewDocumentService(repo, &fakeLeadRepo{}, &fakeDealRepo{deals: map[int]*models.Deals{deal.ID: deal}}, &fakeClientRepo{clients: map[int]*models.Client{baseClient.ID: baseClient}}, "", "files", &fakePDFGen{}, docx, &fakeXlsxGen{})
+	_, err := svc.CreateDocumentFromClient(baseClient.ID, deal.ID, "refund_application", deal.OwnerID, authz.RoleOperations, nil)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if docx.lastPlaceholders["REFUND_R2"] != "X" {
+		t.Fatalf("expected REFUND_R2 to be X, got %q", docx.lastPlaceholders["REFUND_R2"])
+	}
+	if docx.lastPlaceholders["DOCS_MARK_2"] != "☑" {
+		t.Fatalf("expected DOCS_MARK_2 to be ☑, got %q", docx.lastPlaceholders["DOCS_MARK_2"])
+	}
+	if docx.lastPlaceholders["DOCS_MARK_1"] != "☐" {
+		t.Fatalf("expected DOCS_MARK_1 to be ☐, got %q", docx.lastPlaceholders["DOCS_MARK_1"])
 	}
 }

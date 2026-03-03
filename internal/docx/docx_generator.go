@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -42,6 +44,7 @@ type DocxGenerator struct {
 	TemplatesDir       string // где лежат шаблоны .docx, напр. "assets/templates/docx"
 	LibreOfficeBinary  string // путь к soffice, напр. "libreoffice" или "soffice"
 	LibreOfficeEnabled bool
+	StrictPlaceholders bool
 }
 
 // NewDocxGenerator — конструктор
@@ -59,7 +62,12 @@ func NewDocxGenerator(rootDir, templatesDir string, enableLibreOffice bool, libr
 		TemplatesDir:       filepath.Clean(templatesDir),
 		LibreOfficeBinary:  libreOfficeBinary,
 		LibreOfficeEnabled: enableLibreOffice,
+		StrictPlaceholders: true,
 	}
+}
+
+func (g *DocxGenerator) SetStrictPlaceholders(strict bool) {
+	g.StrictPlaceholders = strict
 }
 
 // GenerateDocxAndPDF — DOCX-шаблон + плейсхолдеры → DOCX в /docx → PDF в /pdf (если включен LibreOffice)
@@ -111,6 +119,16 @@ func (g *DocxGenerator) GenerateDocxAndPDF(
 	// 4. Сгенерируем DOCX с подставленными плейсхолдерами
 	if err := g.generateDocxFromTemplate(tmplPath, docxPath, placeholders); err != nil {
 		return "", "", err
+	}
+	if g.StrictPlaceholders {
+		missingKeys, err := findUnresolvedPlaceholdersInZip(docxPath, "word/")
+		if err != nil {
+			return "", "", err
+		}
+		if len(missingKeys) > 0 {
+			_ = os.Remove(docxPath)
+			return "", "", &UnresolvedPlaceholdersError{TemplateFile: templateName, MissingKeys: missingKeys}
+		}
 	}
 
 	// 5. Конвертация DOCX → PDF через LibreOffice
@@ -328,4 +346,47 @@ func xmlEscape(s string) string {
 		"'", "&apos;",
 	)
 	return replacer.Replace(s)
+}
+
+type UnresolvedPlaceholdersError struct {
+	TemplateFile string
+	MissingKeys  []string
+}
+
+func (e *UnresolvedPlaceholdersError) Error() string { return "unresolved_placeholders" }
+
+var placeholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
+
+func findUnresolvedPlaceholdersInZip(zipPath, prefix string) ([]string, error) {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("open generated file: %w", err)
+	}
+	defer r.Close()
+	set := map[string]struct{}{}
+	for _, f := range r.File {
+		if !strings.HasPrefix(f.Name, prefix) || !strings.HasSuffix(f.Name, ".xml") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open generated xml: %w", err)
+		}
+		b, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read generated xml: %w", err)
+		}
+		for _, m := range placeholderPattern.FindAllStringSubmatch(string(b), -1) {
+			if len(m) > 1 {
+				set[m[1]] = struct{}{}
+			}
+		}
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }

@@ -278,6 +278,14 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 			})
 			return
 		}
+		var unresolvedErr *services.DocumentUnresolvedPlaceholdersError
+		if errors.As(err, &unresolvedErr) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":  "unresolved_placeholders",
+				"fields": gin.H{"doc_type": unresolvedErr.DocType, "template_file": unresolvedErr.TemplateFile, "missing_keys": unresolvedErr.MissingKeys},
+			})
+			return
+		}
 		switch err.Error() {
 		case "client not found":
 			notFound(c, ClientNotFoundCode, "Client not found")
