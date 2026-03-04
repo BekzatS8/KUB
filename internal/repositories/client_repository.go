@@ -369,6 +369,22 @@ func (r *ClientRepository) Update(c *models.Client) error {
 	return nil
 }
 
+func (r *ClientRepository) Delete(id int) error {
+	const q = `DELETE FROM clients WHERE id = $1`
+	res, err := r.db.Exec(q, id)
+	if err != nil {
+		return fmt.Errorf("delete client: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete client rows affected: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
 	const q = `
         SELECT
