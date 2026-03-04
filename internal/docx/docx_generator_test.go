@@ -119,3 +119,51 @@ func readDocxEntry(t *testing.T, path, name string) string {
 	t.Fatalf("entry %s not found", name)
 	return ""
 }
+
+func TestGenerateDocxFromTemplate_CancelOtherTextEmptyRemovesParagraph(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	templatePath := filepath.Join(tmpDir, "cancel_appointment.docx")
+	outPath := filepath.Join(tmpDir, "out.docx")
+
+	const documentXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Основание: {{CANCEL_REASON_TEXT}}</w:t></w:r></w:p>
+    <w:p>
+      <w:r><w:t>иные причины: {{CANCEL_</w:t></w:r>
+      <w:r><w:t>OTHER_TEXT}}</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`
+
+	writeDocxTemplate(t, templatePath, map[string]string{
+		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`,
+		"_rels/.rels":                  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
+		"word/document.xml":            documentXML,
+		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
+		"word/styles.xml":              `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:styles>`,
+		"docProps/core.xml":            `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"></cp:coreProperties>`,
+		"docProps/app.xml":             `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"></Properties>`,
+	})
+
+	g := NewDocxGenerator(tmpDir, tmpDir, false, "")
+	err := g.generateDocxFromTemplate(templatePath, outPath, map[string]string{
+		"CANCEL_REASON_TEXT": "Личные обстоятельства",
+	})
+	if err != nil {
+		t.Fatalf("generate docx from template: %v", err)
+	}
+
+	gotXML := readDocxEntry(t, outPath, "word/document.xml")
+	if strings.Contains(gotXML, "{{CANCEL_OTHER_TEXT}}") {
+		t.Fatalf("CANCEL_OTHER_TEXT placeholder was not removed: %s", gotXML)
+	}
+	if strings.Contains(gotXML, "иные причины") {
+		t.Fatalf("paragraph with empty optional value was not removed: %s", gotXML)
+	}
+	if !strings.Contains(gotXML, "Личные обстоятельства") {
+		t.Fatalf("other placeholders should still be replaced: %s", gotXML)
+	}
+}
