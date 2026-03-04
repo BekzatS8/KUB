@@ -20,6 +20,7 @@ import (
 type clientService interface {
 	Create(c *models.Client, userID, roleID int) (int64, error)
 	Update(c *models.Client, userID, roleID int) error
+	Delete(id int, userID, roleID int) error
 	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
 	GetByID(id int, userID, roleID int) (*models.Client, error)
 	ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error)
@@ -448,6 +449,46 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, current)
+}
+
+// DELETE /clients/:id
+func (h *ClientHandler) Delete(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleAdminStaff {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+
+	err = h.Service.Delete(id, userID, roleID)
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && string(pqErr.Code) == "23503" {
+			conflict(c, ConflictCode, "Client has linked deals/documents and cannot be deleted")
+			return
+		}
+		internalError(c, "Failed to delete client")
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // PATCH /clients/:id

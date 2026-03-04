@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/mail"
 	"strings"
@@ -279,6 +280,27 @@ func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, err
 		return nil, ErrForbidden
 	}
 	return client, nil
+}
+
+func (s *ClientService) Delete(id int, userID, roleID int) error {
+	if err := s.authorizeWrite(roleID); err != nil {
+		return err
+	}
+	current, err := s.Repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrClientNotFound
+	}
+	if roleID == authz.RoleSales && current.OwnerID != userID {
+		return ErrForbidden
+	}
+	err = s.Repo.Delete(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrClientNotFound
+	}
+	return err
 }
 
 func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*models.Client, error) {
