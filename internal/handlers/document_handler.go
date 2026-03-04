@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,11 +24,53 @@ import (
 type DocumentHandler struct {
 	Service *services.DocumentService
 }
+
+// createFromClientRequest — схема payload для POST /documents/create-from-client.
+//
+// Top-level JSON:
+//
+//	{
+//	  "client_id": number,                // required, int, binding:"required"
+//	  "deal_id": number,                  // optional, int, 0 => взять последнюю сделку клиента
+//	  "doc_type": string,                 // required, binding:"required"
+//	  "extra": {"KEY":"VALUE", ...}    // optional, object<string,string>
+//	}
+//
+// Валидация в сервисе:
+// - Для всех doc_type обязательны client-поля full_name, iin_or_bin, address, phone и deal-поле contract_number.
+// - Дополнительно обязательные поля extra по doc_type:
+//   - cancel_appointment: reason_code
+//   - refund_application: reason_code
+//   - pause_application: reason_code
+//
+// - Остальные extra-поля зависят от doc_type и перечислены в internal/services/document_registry.go (ExtraKeys).
 type createFromClientRequest struct {
 	ClientID int               `json:"client_id" binding:"required"`
 	DealID   int               `json:"deal_id"` // можно 0, тогда возьмём последнюю сделку клиента
 	DocType  string            `json:"doc_type" binding:"required"`
 	Extra    map[string]string `json:"extra"` // сумма, причина и т.п.
+}
+
+const docsCreateFromClientDebugMaxBody = 8192
+
+func docsDebugSchemaEnabled() bool {
+	return strings.TrimSpace(os.Getenv("DOCS_DEBUG_SCHEMA")) == "1"
+}
+
+func readBodyForDebug(c *gin.Context) []byte {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+	return body
+}
+
+func truncateForDebugLog(body []byte, limit int) string {
+	if limit <= 0 || len(body) <= limit {
+		return string(body)
+	}
+	return string(body[:limit]) + "...(truncated)"
 }
 
 func NewDocumentHandler(service *services.DocumentService) *DocumentHandler {
@@ -253,7 +299,15 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 // POST /documents/create-from-client
 func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 	var req createFromClientRequest
+	var rawBody []byte
+	if docsDebugSchemaEnabled() {
+		rawBody = readBodyForDebug(c)
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if docsDebugSchemaEnabled() {
+			log.Printf("[docs:create-from-client] bind error: %s", err.Error())
+			log.Printf("[docs:create-from-client] raw body (max %d bytes): %s", docsCreateFromClientDebugMaxBody, truncateForDebugLog(rawBody, docsCreateFromClientDebugMaxBody))
+		}
 		badRequest(c, "Invalid payload")
 		return
 	}

@@ -1593,13 +1593,37 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 
 	drawSectionTitle(pdfFile, "Контроль целостности")
 	pdfFile.SetFont("dejavu", "", 9)
-	hashLine1, hashLine2, hashOK := splitSHA256(session.DocHash)
-	if hashOK {
-		drawKeyValue(pdfFile, "Хэш документа (SHA-256)", hashLine1, 45, 5)
-		drawValueContinuation(pdfFile, hashLine2, 45, 5)
-	} else {
-		drawKeyValue(pdfFile, "Хэш документа (SHA-256)", "—", 45, 5)
+	hashValue := strings.TrimSpace(session.DocHash)
+	if _, _, hashOK := splitSHA256(hashValue); !hashOK {
+		hashValue = "—"
 	}
+	fontSize := 10.0
+	lineH := fontSize * 1.3
+	spacing := 1.0
+	label := "Хэш документа (SHA-256):"
+	gap := 5.0
+	x, y := pdfFile.GetXY()
+	leftMargin, _, rightMargin, _ := pdfFile.GetMargins()
+	pageW, _ := pdfFile.GetPageSize()
+	pdfFile.SetFont("dejavu", "B", fontSize)
+	wLabel := pdfFile.GetStringWidth(label)
+	pdfFile.SetXY(x, y)
+	pdfFile.CellFormat(wLabel, lineH, label, "", 0, "L", false, 0, "")
+
+	// Раздельные блоки и MultiCell предотвращают наложение хеша на лейбл и корректно переносят длинное значение.
+	xHash := x + wLabel + gap
+	if xHash < leftMargin {
+		xHash = leftMargin
+	}
+	wHash := pageW - rightMargin - xHash
+	if wHash < 10 {
+		wHash = 10
+	}
+	pdfFile.SetFont("dejavu", "", fontSize)
+	pdfFile.SetXY(xHash, y)
+	pdfFile.MultiCell(wHash, lineH, hashValue, "", "L", false)
+	y = pdfFile.GetY() + spacing
+	pdfFile.SetXY(x, y)
 
 	verifyURL := extractVerifyURL(doc.SignMetadata)
 	if verifyURL != "" && !strings.EqualFold(verifyURL, "N/A") {

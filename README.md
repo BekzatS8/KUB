@@ -279,9 +279,48 @@ sudo systemctl enable --now turcompany.service
 ## Проверка генерации документов
 
 1. Создать тестовых клиента/сделку (через API или админку).
-2. Отправить запрос на генерацию, например `POST /documents/from-client` (DocumentHandler.CreateDocumentFromClient) через Postman с нужным типом документа и заполненными полями.
+2. Отправить запрос на генерацию, например `POST /documents/create-from-client` (DocumentHandler.CreateDocumentFromClient) через Postman с нужным типом документа и заполненными полями.
 3. Убедиться, что в каталоге `files/pdf`, `files/docx` или `files/excel` появились новые файлы.
 4. Если `libreoffice.enable=true` — убедиться, что `soffice` доступен по пути из конфига; при ошибке в логах будет строка вида `libreoffice conversion failed: ...`.
+
+### JSON payload для POST /documents/create-from-client
+
+```json
+{
+  "client_id": 123,
+  "deal_id": 456,
+  "doc_type": "cancel_appointment",
+  "extra": {
+    "reason_code": "R1",
+    "CANCEL_REASON_TEXT": "Личные обстоятельства",
+    "CANCEL_OTHER_TEXT": ""
+  }
+}
+```
+
+- Верхний уровень:
+  - `client_id` — **обязательное**, `int` (`binding:"required"`).
+  - `deal_id` — опциональное, `int` (если `0`, берётся последняя сделка клиента).
+  - `doc_type` — **обязательное**, `string` (`binding:"required"`).
+  - `extra` — опциональное `object<string,string>`.
+- Обязательные поля `extra` по `doc_type`:
+  - `cancel_appointment` → `reason_code`.
+  - `refund_application` → `reason_code`.
+  - `pause_application` → `reason_code`.
+  - для остальных `doc_type` обязательных полей внутри `extra` нет (но есть опциональные ключи в `internal/services/document_registry.go`).
+- Для всех `doc_type` сервис дополнительно проверяет обязательные данные клиента/сделки: `full_name`, `iin_or_bin`, `address`, `phone`, `contract_number`.
+
+### DEBUG для проблемного payload
+
+Для диагностики ошибок биндинга включите переменную окружения:
+
+```bash
+DOCS_DEBUG_SCHEMA=1
+```
+
+Тогда при `Invalid payload` endpoint залогирует:
+- полный текст ошибки биндинга (`err.Error()`),
+- сырое тело запроса (обрезается до 8192 байт).
 
 ## Логи и конфигурация
 

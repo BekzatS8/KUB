@@ -211,6 +211,12 @@ func (g *DocxGenerator) generateDocxFromTemplate(templatePath, outPath string, p
 
 		// Заменяем только в XML внутри папки word/ (document.xml, header*.xml, footer*.xml и т.п.)
 		if strings.HasPrefix(f.Name, "word/") && strings.HasSuffix(f.Name, ".xml") {
+			if f.Name == "word/document.xml" {
+				data, err = applyOptionalParagraphRules(filepath.Base(templatePath), data, placeholders)
+				if err != nil {
+					return fmt.Errorf("apply optional paragraph rules in %s: %w", f.Name, err)
+				}
+			}
 			data, err = replacePlaceholdersRunAware(data, placeholders)
 			if err != nil {
 				return fmt.Errorf("replace placeholders in %s: %w", f.Name, err)
@@ -368,6 +374,37 @@ type MojibakeDetectedError struct {
 func (e *MojibakeDetectedError) Error() string { return "mojibake_detected" }
 
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
+
+func applyOptionalParagraphRules(templateFile string, data []byte, placeholders map[string]string) ([]byte, error) {
+	optionalByTemplate := map[string][]string{
+		"cancel_appointment.docx": {"CANCEL_OTHER_TEXT"},
+	}
+	keys := optionalByTemplate[templateFile]
+	if len(keys) == 0 {
+		return data, nil
+	}
+	for _, key := range keys {
+		if value, ok := placeholders[key]; ok && strings.TrimSpace(value) != "" {
+			continue
+		}
+		data = removeParagraphContainingPlaceholder(data, key)
+	}
+	return data, nil
+}
+
+var paragraphPattern = regexp.MustCompile(`(?s)<w:p\b[^>]*>.*?</w:p>`)
+
+func removeParagraphContainingPlaceholder(data []byte, key string) []byte {
+	placeholder := "{{" + key + "}}"
+	return paragraphPattern.ReplaceAllFunc(data, func(paragraph []byte) []byte {
+		_, stream := extractTextNodes(paragraph)
+		if strings.Contains(stream, placeholder) {
+			return []byte{}
+		}
+		return paragraph
+	})
+}
+
 var strictPlaceholderPattern = regexp.MustCompile(`\{\{([A-Z0-9_]+)\}\}`)
 
 type textNode struct {
