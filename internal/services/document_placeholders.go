@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -257,7 +258,35 @@ func buildClientPlaceholders(
 		ph["TOTAL_AMOUNT_TEXT"] = ""
 	}
 
+	normalizeMoneyTextPlaceholders(ph)
+
 	return ph
+}
+
+func normalizeMoneyTextPlaceholders(ph map[string]string) {
+	if ph == nil {
+		return
+	}
+
+	moneyWordKeys := []string{
+		"TOTAL_AMOUNT_TEXT",
+		"DEAL_AMOUNT_TEXT",
+		"PREPAY_AMOUNT_TEXT",
+		"REFUND_AMOUNT_TEXT",
+		"DEAL_TOTAL_KZT_TEXT",
+		"DEAL_PREPAY_KZT_TEXT",
+		"DEAL_REMAIN_KZT_TEXT",
+		"REFUND_KZT_TEXT",
+		"AMOUNT_KZT_TEXT",
+		"COURSE_TOTAL_KZT_TEXT",
+		"KOREA_FEE_KZT_TEXT",
+	}
+
+	for _, key := range moneyWordKeys {
+		if value, ok := ph[key]; ok {
+			ph[key] = normalizeKZTWords(value)
+		}
+	}
 }
 
 func ensureBasePlaceholderKeys(ph map[string]string) {
@@ -881,6 +910,26 @@ func isAllDigits(s string) bool {
 
 func amountToRuWords(tenge int64, tiyn int64) string {
 	return fmt.Sprintf("%s тенге %02d тиын", numToRuWordsInt(tenge), tiyn)
+}
+
+var (
+	tengeWordRE       = regexp.MustCompile(`(?i)тенге`)
+	tiynWithNumberRE  = regexp.MustCompile(`(?i)(^|\s)\d{1,2}\s*тиын([\s,.;:!?]|$)`)
+	multiSpaceRE      = regexp.MustCompile(`\s+`)
+	spaceBeforePuncRE = regexp.MustCompile(`\s+([,.;:!?\)])`)
+)
+
+func normalizeKZTWords(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+
+	cleaned := tengeWordRE.ReplaceAllString(s, " ")
+	cleaned = tiynWithNumberRE.ReplaceAllString(cleaned, "$1$2")
+	cleaned = multiSpaceRE.ReplaceAllString(cleaned, " ")
+	cleaned = spaceBeforePuncRE.ReplaceAllString(cleaned, "$1")
+
+	return strings.TrimSpace(cleaned)
 }
 
 // formatAmountWithSpaces: "1600000" -> "1 600 000"
