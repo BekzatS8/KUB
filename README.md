@@ -117,6 +117,7 @@ SIGN_EMAIL_VERIFY_BASE_URL="https://example.com"
 
 Путь к конфигу можно переопределить переменной окружения `CONFIG_PATH` (по умолчанию `config/config.yaml`).
 Секрет JWT можно задавать через `security.jwt_secret` в конфиге или через переменную окружения `JWT_SECRET`.
+TTL access-токена настраивается через переменную окружения `ACCESS_TOKEN_TTL` (формат Go duration, например `2h`; по умолчанию `2h`).
 Для удобства можно создать `.env` из `.env.example` и хранить там параметры, которые затем подставляются в `config.yaml` и/или используются при запуске.
 
 ---
@@ -148,9 +149,10 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 - **Лимит попыток подтверждения**: max **5** (после этого код инвалидируется, нужен resend).  
 - **Resend-троттлинг**: не более **3** раз за **10 минут** (на превышении — **429 Too Many Requests**).  
 - **JWT**:  
-  - Access: ~15 минут  
+  - Access: `ACCESS_TOKEN_TTL` (по умолчанию 2 часа), передаётся в `Authorization: Bearer <token>`  
   - Refresh: ~30 дней, **хранится в БД** у пользователя, **ротация** на `/refresh`.  
 - **Login блокируется**, если `is_verified=false` (телефон не подтверждён).
+- В текущей реализации auth не использует server-side session/cookie/Redis: logout зависит от срока `exp` access JWT и срока refresh в БД.
 
 ---
 

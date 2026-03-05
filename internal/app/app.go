@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"turcompany/internal/docx"
 	wazzupintegration "turcompany/internal/integrations/wazzup"
@@ -108,7 +109,9 @@ func Run() {
 	wazzupRepo := repositories.NewWazzupRepository(db)
 
 	// === Services (общие) ===
-	authService := services.NewAuthService(jwtSecret, nil, 15*time.Minute, 30*24*time.Hour, nil)
+	accessTokenTTL := readDurationEnv("ACCESS_TOKEN_TTL", 2*time.Hour)
+	log.Printf("[BOOT] auth.access_token_ttl=%s (env ACCESS_TOKEN_TTL)", accessTokenTTL)
+	authService := services.NewAuthService(jwtSecret, nil, accessTokenTTL, 30*24*time.Hour, nil)
 	emailService := services.NewEmailService(
 		cfg.Email.SMTPHost,
 		cfg.Email.SMTPPort,
@@ -335,6 +338,19 @@ func Run() {
 	if err := router.Run(addr); err != nil {
 		log.Fatal("[BOOT] Ошибка запуска сервера: ", err)
 	}
+}
+
+func readDurationEnv(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Printf("[BOOT] invalid %s=%q, fallback=%s", name, raw, fallback)
+		return fallback
+	}
+	return d
 }
 
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {

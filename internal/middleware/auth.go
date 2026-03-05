@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -71,6 +73,7 @@ func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 		}
 
 		if tokenStr == "" {
+			log.Printf("[auth][middleware] unauthorized: reason=missing_token path=%s method=%s", c.Request.URL.Path, c.Request.Method)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
 			return
 		}
@@ -83,14 +86,26 @@ func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 			return jwtSecret, nil
 		})
 		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			reason := "invalid_token"
+			message := "Invalid token"
+			switch {
+			case errors.Is(err, jwt.ErrTokenExpired):
+				reason = "expired_token"
+				message = "Token expired"
+			case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+				reason = "invalid_signature"
+				message = "Invalid token signature"
+			}
+			log.Printf("[auth][middleware] unauthorized: reason=%s path=%s method=%s err=%v", reason, c.Request.URL.Path, c.Request.Method, err)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": message})
 			return
 		}
 
 		const leeway = 2 * time.Minute
-		now := time.Now().Add(-leeway)
-		if claims.ExpiresAt == nil || claims.ExpiresAt.Time.Before(now) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+		now := time.Now().UTC().Add(-leeway)
+		if claims.ExpiresAt == nil || claims.ExpiresAt.Before(now) {
+			log.Printf("[auth][middleware] unauthorized: reason=expired_token_leeway path=%s method=%s exp=%v now=%s", c.Request.URL.Path, c.Request.Method, claims.ExpiresAt, now.Format(time.RFC3339))
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token expired"})
 			return
 		}
 
