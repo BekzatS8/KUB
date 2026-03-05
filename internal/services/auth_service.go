@@ -31,7 +31,7 @@ func NewAuthService(accessSecret, refreshSecret []byte, accessTTL, refreshTTL ti
 		panic("access secret is required")
 	}
 	if accessTTL <= 0 {
-		accessTTL = 15 * time.Minute
+		accessTTL = 2 * time.Hour
 	}
 	if refreshTTL <= 0 {
 		refreshTTL = 30 * 24 * time.Hour
@@ -58,11 +58,13 @@ func (s *authService) HashPassword(password string) (string, error) {
 }
 
 func (s *authService) GenerateAccessToken(userID, roleID int) (string, time.Time, error) {
-	expiresAt := s.now().Add(s.AccessTTL)
+	nowUTC := s.now().UTC()
+	expiresAt := nowUTC.Add(s.AccessTTL)
 	accessClaims := &middleware.Claims{
 		UserID: userID,
 		RoleID: roleID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(nowUTC),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
 	}
