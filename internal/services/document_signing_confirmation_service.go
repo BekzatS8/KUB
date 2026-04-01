@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -79,6 +80,7 @@ type DocumentSigningConfirmationConfig struct {
 	EmailTokenPepper   string
 	EmailTTL           time.Duration
 	FilesRoot          string
+	ServerTZ           *time.Location
 }
 
 type SigningChannelStatus struct {
@@ -107,6 +109,7 @@ type DocumentSigningConfirmationService struct {
 	tokenPepper   string
 	emailTTL      time.Duration
 	filesRoot     string
+	serverTZ      *time.Location
 	now           func() time.Time
 	debug         *signConfirmDebugStore
 }
@@ -139,6 +142,10 @@ func NewDocumentSigningConfirmationService(
 	if emailTTL == 0 {
 		emailTTL = 30 * time.Minute
 	}
+	serverTZ := cfg.ServerTZ
+	if serverTZ == nil {
+		serverTZ = time.UTC
+	}
 	return &DocumentSigningConfirmationService{
 		repo:          repo,
 		userRepo:      userRepo,
@@ -151,6 +158,7 @@ func NewDocumentSigningConfirmationService(
 		tokenPepper:   strings.TrimSpace(cfg.EmailTokenPepper),
 		emailTTL:      emailTTL,
 		filesRoot:     strings.TrimSpace(cfg.FilesRoot),
+		serverTZ:      serverTZ,
 		now:           now,
 	}
 }
@@ -312,6 +320,7 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 	if err != nil {
 		return nil, err
 	}
+	s.logConfirmState("created", documentID, "", userID, expiresAt, int(s.emailTTL/time.Minute), "pending", "start_signing")
 
 	magicLink, err := s.buildEmailVerifyURL(emailToken)
 	if err != nil {
@@ -384,10 +393,12 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	}
 	if s.now().After(pending.ExpiresAt) {
 		_ = s.repo.Expire(ctx, pending.ID)
+		s.logConfirmState("expired", pending.DocumentID, pending.ID, pending.UserID, pending.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "ttl_elapsed")
 		return "", "", "", pending, ErrSignConfirmExpired
 	}
 	if pending.Attempts >= signConfirmMaxAttempts {
 		_ = s.repo.Expire(ctx, pending.ID)
+		s.logConfirmState("expired", pending.DocumentID, pending.ID, pending.UserID, pending.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "too_many_attempts")
 		return "", "", "", pending, ErrSignConfirmTooManyTries
 	}
 	if pending.OTPHash == nil || *pending.OTPHash == "" {
@@ -400,6 +411,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 		}
 		if attempts >= signConfirmMaxAttempts {
 			_ = s.repo.Expire(ctx, pending.ID)
+			s.logConfirmState("expired", pending.DocumentID, pending.ID, pending.UserID, pending.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "too_many_attempts_after_invalid_code")
 			return "", "", "", pending, ErrSignConfirmTooManyTries
 		}
 		return "", "", "", nil, ErrSignConfirmInvalidCode
@@ -424,6 +436,7 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	if err != nil {
 		return "", "", "", pending, fmt.Errorf("approve confirmation: %w", err)
 	}
+	s.logConfirmState("approved", approved.DocumentID, approved.ID, approved.UserID, approved.ExpiresAt, int(s.emailTTL/time.Minute), approved.Status, "otp_valid")
 	return "approved", signerEmail, documentHash, approved, nil
 }
 
@@ -471,10 +484,12 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	}
 	if s.now().After(pending.ExpiresAt) {
 		_ = s.repo.Expire(ctx, pending.ID)
+		s.logConfirmState("expired", pending.DocumentID, pending.ID, pending.UserID, pending.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "ttl_elapsed_validate")
 		return nil, ErrSignConfirmExpired
 	}
 	if pending.Attempts >= signConfirmMaxAttempts {
 		_ = s.repo.Expire(ctx, pending.ID)
+		s.logConfirmState("expired", pending.DocumentID, pending.ID, pending.UserID, pending.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "too_many_attempts_validate")
 		return nil, ErrSignConfirmTooManyTries
 	}
 
@@ -599,6 +614,7 @@ func (s *DocumentSigningConfirmationService) GetStatus(ctx context.Context, docu
 			approvedAt = latest.ApprovedAt
 			if status == "pending" && now.After(latest.ExpiresAt) {
 				_ = s.repo.Expire(ctx, latest.ID)
+				s.logConfirmState("expired", latest.DocumentID, latest.ID, latest.UserID, latest.ExpiresAt, int(s.emailTTL/time.Minute), "expired", "status_poll_ttl_elapsed")
 				status = "expired"
 			}
 		}
@@ -618,6 +634,24 @@ func (s *DocumentSigningConfirmationService) GetStatus(ctx context.Context, docu
 		})
 	}
 	return result, nil
+}
+
+func (s *DocumentSigningConfirmationService) logConfirmState(transition string, documentID int64, confirmationID string, userID int64, expiresAt time.Time, ttlMinutes int, status string, reason string) {
+	nowUTC := s.now().UTC()
+	nowLocal := nowUTC.In(s.serverTZ)
+	log.Printf("[sign][confirm][%s] document_id=%d confirmation_id=%s user_id=%d server_tz=%s now_utc=%s now_local=%s expires_at=%s ttl_minutes=%d status=%s reason=%s",
+		transition,
+		documentID,
+		strings.TrimSpace(confirmationID),
+		userID,
+		s.serverTZ.String(),
+		nowUTC.Format(time.RFC3339Nano),
+		nowLocal.Format(time.RFC3339Nano),
+		expiresAt.UTC().Format(time.RFC3339Nano),
+		ttlMinutes,
+		status,
+		reason,
+	)
 }
 
 func (s *DocumentSigningConfirmationService) evaluatePolicy(ctx context.Context, documentID, userID int64) error {

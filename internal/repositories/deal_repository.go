@@ -445,7 +445,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 	query := `
 		SELECT
 			d.client_id,
-			c.name AS client_name,
+			COALESCE(NULLIF(c.display_name, ''), c.name) AS client_name,
 			SUM(d.amount) AS total_amount,
 			d.currency
 		FROM deals d
@@ -458,7 +458,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 		args = append(args, *ownerID)
 	}
 
-	query += " GROUP BY d.client_id, c.name, d.currency ORDER BY total_amount DESC"
+	query += " GROUP BY d.client_id, COALESCE(NULLIF(c.display_name, ''), c.name), d.currency ORDER BY total_amount DESC"
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)

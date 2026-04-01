@@ -45,6 +45,21 @@ func Run() {
 		log.Printf("[BOOT] config: telegram.webhook_url is empty")
 	}
 	log.Printf("[BOOT] config: db=%s", utils.MaskDSN(cfg.Database.DSN))
+	// timezone for signing flow and debug output
+	var serverTZ *time.Location
+	if tz := strings.TrimSpace(cfg.Server.TZ); tz != "" {
+		if l, err := time.LoadLocation(tz); err != nil {
+			log.Printf("[BOOT] invalid server.TZ=%q: %v — fallback to UTC", tz, err)
+			serverTZ = time.UTC
+		} else {
+			serverTZ = l
+		}
+	} else {
+		serverTZ = time.UTC
+	}
+	log.Printf("[BOOT] server timezone set to: %s", serverTZ.String())
+	nowProvider := func() time.Time { return time.Now().UTC() }
+
 	cfg.Files.RootDir = filepath.Clean(cfg.Files.RootDir)
 	log.Printf("[BOOT] config: files.root_dir=%s", cfg.Files.RootDir)
 	log.Printf("[BOOT] config: templates docx=%s xlsx=%s txt=%s", cfg.Templates.DocxDir, cfg.Templates.XlsxDir, cfg.Templates.TxtDir)
@@ -152,7 +167,7 @@ func Run() {
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
 	dealService := services.NewDealService(dealRepo)
-	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir)
+	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, cfg.Templates.TxtDir, "assets/fonts/DejaVuSans.ttf")
@@ -179,6 +194,7 @@ func Run() {
 		docxGen,
 		excelGen,
 	)
+	documentService.SetTimeProvider(nowProvider, serverTZ)
 
 	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)
 	if tgSvc != nil {
@@ -192,8 +208,10 @@ func Run() {
 		signDelivery,
 		services.SignSessionConfig{
 			SignBaseURL: cfg.SignBaseURL,
+			SessionTTL:  time.Duration(cfg.SignSessionTTLMinutes) * time.Minute,
+			ServerTZ:    serverTZ,
 		},
-		nil,
+		nowProvider,
 	)
 	signConfirmService := services.NewDocumentSigningConfirmationService(
 		signatureConfirmRepo,
@@ -208,8 +226,9 @@ func Run() {
 			EmailTokenPepper:   cfg.SignEmailTokenPepper,
 			EmailTTL:           time.Duration(cfg.SignEmailTTLMinutes) * time.Minute,
 			FilesRoot:          cfg.Files.RootDir,
+			ServerTZ:           serverTZ,
 		},
-		nil,
+		nowProvider,
 	)
 	if gin.Mode() != gin.ReleaseMode {
 		signConfirmService.EnableDebug(os.Getenv("DEBUG_KEY"))
@@ -222,8 +241,9 @@ func Run() {
 			BaseURL:     cfg.PublicBaseURL,
 			TokenPepper: cfg.SignPublicTokenPepper,
 			TTLMinutes:  cfg.SignEmailTTLMinutes,
+			ServerTZ:    serverTZ,
 		},
-		nil,
+		nowProvider,
 	)
 	userVerificationService := services.NewUserVerificationService(
 		verifRepo,
@@ -264,23 +284,26 @@ func Run() {
 	publicSignHandler := handlers.NewPublicDocumentSigningHandler(publicSignService)
 	docPublicLinkHandler := handlers.NewDocumentPublicLinkHandler(publicSignService)
 	reportHandler := handlers.NewReportHandler(reportService)
-	wazzupClient := wazzupintegration.NewHTTPClientFromEnv()
-	wazzupService := wazzupintegration.NewService(wazzupRepo, wazzupClient)
-	wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
-
-	// timezone
-	var loc *time.Location
-	if tz := cfg.Server.TZ; tz != "" {
-		if l, err := time.LoadLocation(tz); err != nil {
-			log.Printf("[BOOT] invalid server.TZ=%q: %v — fallback to local", tz, err)
-			loc = time.Local
-		} else {
-			loc = l
-		}
+	if cfg.Wazzup.Enable {
+		wazzupClient := wazzupintegration.NewHTTPClient(
+			cfg.Wazzup.APIBaseURL,
+			time.Duration(cfg.Wazzup.RequestTimeoutSec)*time.Second,
+			cfg.Wazzup.RetryCount,
+			time.Duration(cfg.Wazzup.RetryDelayMS)*time.Millisecond,
+		)
+		wazzupService := wazzupintegration.NewService(
+			wazzupRepo,
+			wazzupClient,
+			cfg.Wazzup.APIToken,
+			cfg.Wazzup.ChannelID,
+			cfg.Wazzup.WebhookVerifyToken,
+			cfg.Wazzup.WebhookBaseURL,
+		)
+		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
+		log.Printf("[BOOT] Wazzup integration enabled base_url=%s timeout_s=%d retries=%d", cfg.Wazzup.APIBaseURL, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount)
 	} else {
-		loc = time.Local
+		log.Printf("[BOOT] Wazzup integration disabled")
 	}
-	log.Printf("[BOOT] server timezone set to: %s", loc.String())
 
 	if tgSvc != nil {
 		integrationsHandler = handlers.NewIntegrationsHandler(tgSvc, teleLinkRepo, userRepo, taskService)

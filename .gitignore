@@ -6,3 +6,5 @@ config/config.yaml
 /web
 /out/
 .env.prod
+.env.local
+config/config.local.yaml

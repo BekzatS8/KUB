@@ -80,8 +80,10 @@ type createClientRequest struct {
 	DiseasesLast3Years      string          `json:"diseases_last3_years"`
 	AdditionalInfo          string          `json:"additional_info"`
 
-	ContactInfo string `json:"contact_info"`
-	ClientType  string `json:"client_type"`
+	ContactInfo       string                          `json:"contact_info"`
+	ClientType        string                          `json:"client_type"`
+	IndividualProfile *models.ClientIndividualProfile `json:"individual_profile"`
+	LegalProfile      *models.ClientLegalProfile      `json:"legal_profile"`
 }
 
 type updateClientRequest struct {
@@ -130,8 +132,10 @@ type updateClientRequest struct {
 	DiseasesLast3Years      *string          `json:"diseases_last3_years"`
 	AdditionalInfo          *string          `json:"additional_info"`
 
-	ContactInfo string  `json:"contact_info"`
-	ClientType  *string `json:"client_type"`
+	ContactInfo       string                          `json:"contact_info"`
+	ClientType        *string                         `json:"client_type"`
+	IndividualProfile *models.ClientIndividualProfile `json:"individual_profile"`
+	LegalProfile      *models.ClientLegalProfile      `json:"legal_profile"`
 }
 
 type patchClientRequest struct {
@@ -190,14 +194,40 @@ func collectMissingRedFields(req createClientRequest) []string {
 	missing := make([]string, 0)
 	trim := strings.TrimSpace
 	if strings.ToLower(trim(req.ClientType)) == models.ClientTypeLegal {
-		if trim(req.Name) == "" {
-			missing = append(missing, "name")
+		companyName := trim(req.Name)
+		bin := trim(req.BinIin)
+		contactName := ""
+		contactPhone := trim(req.Phone)
+		legalAddress := trim(req.Address)
+		if req.LegalProfile != nil {
+			if trim(req.LegalProfile.CompanyName) != "" {
+				companyName = trim(req.LegalProfile.CompanyName)
+			}
+			if trim(req.LegalProfile.BIN) != "" {
+				bin = trim(req.LegalProfile.BIN)
+			}
+			contactName = trim(req.LegalProfile.ContactPersonName)
+			if trim(req.LegalProfile.ContactPersonPhone) != "" {
+				contactPhone = trim(req.LegalProfile.ContactPersonPhone)
+			}
+			if trim(req.LegalProfile.LegalAddress) != "" {
+				legalAddress = trim(req.LegalProfile.LegalAddress)
+			}
 		}
-		if trim(req.BinIin) == "" {
-			missing = append(missing, "bin_iin")
+		if companyName == "" {
+			missing = append(missing, "company_name")
 		}
-		if trim(req.Phone) == "" {
-			missing = append(missing, "phone")
+		if bin == "" {
+			missing = append(missing, "bin")
+		}
+		if contactName == "" {
+			missing = append(missing, "contact_person_name")
+		}
+		if contactPhone == "" {
+			missing = append(missing, "contact_person_phone")
+		}
+		if legalAddress == "" {
+			missing = append(missing, "legal_address")
 		}
 		return missing
 	}
@@ -222,8 +252,11 @@ func collectMissingRedFields(req createClientRequest) []string {
 	return missing
 }
 
-func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client { /* unchanged mapping */
-	return &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client {
+	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+	client.IndividualProfile = req.IndividualProfile
+	client.LegalProfile = req.LegalProfile
+	return client
 }
 
 // POST /clients
@@ -419,6 +452,12 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	}
 	if req.AdditionalInfo != nil {
 		current.AdditionalInfo = *req.AdditionalInfo
+	}
+	if req.IndividualProfile != nil {
+		current.IndividualProfile = req.IndividualProfile
+	}
+	if req.LegalProfile != nil {
+		current.LegalProfile = req.LegalProfile
 	}
 	if err := h.Service.Update(current, userID, roleID); err != nil {
 		if isUniqueViolation(err) {

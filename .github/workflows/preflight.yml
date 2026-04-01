@@ -21,7 +21,7 @@ jobs:
 
       - name: Prepare .env.prod for CI
         run: |
-          cp .env.example .env.prod
+          cp .env.prod.example .env.prod
           {
             echo "SMOKE_LOGIN_EMAIL="
             echo "SMOKE_LOGIN_PASSWORD="

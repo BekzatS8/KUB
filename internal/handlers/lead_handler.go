@@ -29,7 +29,7 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -64,7 +64,7 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -109,7 +109,7 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -133,7 +133,7 @@ func (h *LeadHandler) Delete(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -183,7 +183,7 @@ func (h *LeadHandler) Assign(c *gin.Context) {
 	}
 
 	actorID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -234,7 +234,7 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -295,7 +295,7 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -347,7 +347,7 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -395,7 +395,7 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 
 func (h *LeadHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -429,7 +429,7 @@ func (h *LeadHandler) List(c *gin.Context) {
 // GET /leads/my?page=&size=
 func (h *LeadHandler) ListMy(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}

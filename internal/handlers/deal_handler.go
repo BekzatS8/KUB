@@ -29,7 +29,7 @@ func (h *DealHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -80,7 +80,7 @@ func (h *DealHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -129,7 +129,7 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -152,7 +152,7 @@ func (h *DealHandler) Delete(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -202,7 +202,7 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -236,7 +236,7 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 
 func (h *DealHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -270,7 +270,7 @@ func (h *DealHandler) List(c *gin.Context) {
 // GET /deals/my?page=&size=
 func (h *DealHandler) ListMy(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}

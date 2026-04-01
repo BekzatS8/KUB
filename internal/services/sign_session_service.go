@@ -39,7 +39,6 @@ var (
 )
 
 const (
-	signSessionTTL           = 10 * time.Minute
 	signSessionMaxAttempts   = 5
 	signSessionRateLimitMax  = 3
 	signSessionRateLimitSpan = 10 * time.Minute
@@ -60,6 +59,8 @@ type SignSessionConfig struct {
 	SignBaseURL  string
 	DryRun       bool
 	TokenVisible bool
+	SessionTTL   time.Duration
+	ServerTZ     *time.Location
 }
 
 type SignDocumentService interface {
@@ -75,6 +76,8 @@ type SignSessionService struct {
 	signBaseURL  string
 	dryRun       bool
 	tokenVisible bool
+	sessionTTL   time.Duration
+	serverTZ     *time.Location
 	now          func() time.Time
 }
 
@@ -88,6 +91,14 @@ func NewSignSessionService(
 	if now == nil {
 		now = time.Now
 	}
+	sessionTTL := cfg.SessionTTL
+	if sessionTTL <= 0 {
+		sessionTTL = 30 * time.Minute
+	}
+	serverTZ := cfg.ServerTZ
+	if serverTZ == nil {
+		serverTZ = time.UTC
+	}
 	return &SignSessionService{
 		repo:         repo,
 		docService:   docService,
@@ -95,6 +106,8 @@ func NewSignSessionService(
 		signBaseURL:  strings.TrimSpace(cfg.SignBaseURL),
 		dryRun:       cfg.DryRun,
 		tokenVisible: cfg.TokenVisible,
+		sessionTTL:   sessionTTL,
+		serverTZ:     serverTZ,
 		now:          now,
 	}
 }
@@ -161,7 +174,7 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 		PhoneE164:  phoneE164,
 		CodeHash:   string(codeHash),
 		TokenHash:  tokenHash,
-		ExpiresAt:  s.now().Add(signSessionTTL),
+		ExpiresAt:  s.now().Add(s.sessionTTL),
 		Attempts:   0,
 		Status:     "pending",
 	}
@@ -189,8 +202,7 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 		return "", "", nil, fmt.Errorf("send sign link: %w", err)
 	}
 
-	log.Printf("[sign][session][created] doc=%d session=%d expires=%s",
-		documentID, session.ID, session.ExpiresAt.Format(time.RFC3339))
+	s.logSessionState("created", session, "init")
 
 	if !s.tokenVisible {
 		token = ""
@@ -220,15 +232,14 @@ func (s *SignSessionService) CreateEmailSession(ctx context.Context, documentID 
 		SignerEmail: signerEmail,
 		DocHash:     strings.TrimSpace(docHash),
 		TokenHash:   tokenHash,
-		ExpiresAt:   s.now().Add(signSessionTTL),
+		ExpiresAt:   s.now().Add(s.sessionTTL),
 		Attempts:    0,
 		Status:      "pending",
 	}
 	if err := s.repo.Create(ctx, session); err != nil {
 		return "", nil, err
 	}
-	log.Printf("[sign][session][created] doc=%d session=%d expires=%s",
-		documentID, session.ID, session.ExpiresAt.Format(time.RFC3339))
+	s.logSessionState("created", session, "email_confirmed")
 	return token, session, nil
 }
 
@@ -249,13 +260,11 @@ func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAg
 		return nil, ErrSignSessionExpired
 	}
 	if s.isExpired(session) {
-		session.Status = "expired"
-		_ = s.repo.Update(ctx, session)
+		s.expireSession(ctx, session, "ttl_elapsed")
 		return nil, ErrSignSessionExpired
 	}
 	if session.Attempts >= signSessionMaxAttempts {
-		session.Status = "expired"
-		_ = s.repo.Update(ctx, session)
+		s.expireSession(ctx, session, "too_many_attempts")
 		return nil, ErrSignSessionTooManyTries
 	}
 
@@ -263,6 +272,7 @@ func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAg
 		session.Attempts++
 		if session.Attempts >= signSessionMaxAttempts {
 			session.Status = "expired"
+			s.logSessionState("transition", session, "too_many_attempts_after_invalid_code")
 		}
 		_ = s.repo.Update(ctx, session)
 		return nil, ErrSignSessionInvalidCode
@@ -275,7 +285,7 @@ func (s *SignSessionService) Verify(ctx context.Context, token, code, ip, userAg
 		return nil, err
 	}
 
-	log.Printf("[sign][session][verified] session=%d ip=%s", session.ID, ip)
+	s.logSessionState("verified", session, "otp_valid")
 	return session, nil
 }
 
@@ -287,8 +297,7 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 		return nil, err
 	}
 	if s.isExpired(session) {
-		session.Status = "expired"
-		_ = s.repo.Update(ctx, session)
+		s.expireSession(ctx, session, "ttl_elapsed_before_sign")
 		return nil, ErrSignSessionExpired
 	}
 	if session.Status == "signed" {
@@ -305,8 +314,7 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 
 	if err := s.docService.FinalizeSignedArtifact(session); err != nil {
 		if errors.Is(err, ErrDocumentChangedAfterOTP) {
-			session.Status = "expired"
-			_ = s.repo.Update(ctx, session)
+			s.expireSession(ctx, session, "document_changed_after_otp")
 		}
 		return nil, err
 	}
@@ -319,7 +327,7 @@ func (s *SignSessionService) Sign(ctx context.Context, token, ip, userAgent stri
 		return nil, err
 	}
 
-	log.Printf("[sign][session][signed] session=%d doc=%d ip=%s", session.ID, session.DocumentID, ip)
+	s.logSessionState("signed", session, "signed_success")
 	return session, nil
 }
 
@@ -350,8 +358,7 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 	}
 	if err := s.docService.FinalizeSignedArtifact(session); err != nil {
 		if errors.Is(err, ErrDocumentChangedAfterOTP) {
-			session.Status = "expired"
-			_ = s.repo.Update(ctx, session)
+			s.expireSession(ctx, session, "document_changed_after_otp")
 		}
 		return nil, err
 	}
@@ -370,7 +377,7 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 		return nil, err
 	}
 
-	log.Printf("[sign][session][signed] session=%d doc=%d ip=%s", session.ID, session.DocumentID, ip)
+	s.logSessionState("signed", session, "signed_success")
 	return session, nil
 }
 
@@ -406,13 +413,11 @@ func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID in
 		return session, ErrSignSessionAlreadySigned
 	}
 	if s.isExpired(session) {
-		session.Status = "expired"
-		_ = s.repo.Update(ctx, session)
+		s.expireSession(ctx, session, "ttl_elapsed_page_validation")
 		return nil, ErrSignSessionExpired
 	}
 	if session.Attempts >= signSessionMaxAttempts {
-		session.Status = "expired"
-		_ = s.repo.Update(ctx, session)
+		s.expireSession(ctx, session, "too_many_attempts_page_validation")
 		return nil, ErrSignSessionTooManyTries
 	}
 	hash := hashToken(token)
@@ -422,13 +427,44 @@ func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID in
 			return nil, err
 		}
 		if attempts >= signSessionMaxAttempts {
-			session.Status = "expired"
-			_ = s.repo.Update(ctx, session)
+			s.expireSession(ctx, session, "too_many_attempts_invalid_token")
 			return nil, ErrSignSessionTooManyTries
 		}
 		return nil, ErrSignSessionInvalidToken
 	}
 	return session, nil
+}
+
+func (s *SignSessionService) expireSession(ctx context.Context, session *models.SignSession, reason string) {
+	if session == nil {
+		return
+	}
+	session.Status = "expired"
+	_ = s.repo.Update(ctx, session)
+	s.logSessionState("expired", session, reason)
+}
+
+func (s *SignSessionService) logSessionState(transition string, session *models.SignSession, reason string) {
+	if session == nil {
+		return
+	}
+	nowUTC := s.now().UTC()
+	nowLocal := nowUTC.In(s.serverTZ)
+	createdAt := session.CreatedAt.UTC().Format(time.RFC3339Nano)
+	expiresAt := session.ExpiresAt.UTC().Format(time.RFC3339Nano)
+	log.Printf("[sign][session][%s] document_id=%d session_id=%d server_tz=%s now_utc=%s now_local=%s created_at=%s expires_at=%s ttl_minutes=%d status=%s reason=%s",
+		transition,
+		session.DocumentID,
+		session.ID,
+		s.serverTZ.String(),
+		nowUTC.Format(time.RFC3339Nano),
+		nowLocal.Format(time.RFC3339Nano),
+		createdAt,
+		expiresAt,
+		int(s.sessionTTL/time.Minute),
+		session.Status,
+		strings.TrimSpace(reason),
+	)
 }
 
 func (s *SignSessionService) getByToken(ctx context.Context, token string) (*models.SignSession, error) {

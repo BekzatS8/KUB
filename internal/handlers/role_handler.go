@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
 )
@@ -19,6 +20,11 @@ func NewRoleHandler(service services.RoleService) *RoleHandler {
 }
 
 func (h *RoleHandler) CreateRole(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	var role models.Role
 	if err := c.ShouldBindJSON(&role); err != nil {
 		log.Println("Bind error:", err)
@@ -34,6 +40,11 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 }
 
 func (h *RoleHandler) GetRoleByID(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -49,6 +60,11 @@ func (h *RoleHandler) GetRoleByID(c *gin.Context) {
 }
 
 func (h *RoleHandler) UpdateRole(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -71,6 +87,11 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 }
 
 func (h *RoleHandler) DeleteRole(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -85,6 +106,11 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 }
 
 func (h *RoleHandler) ListRoles(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	pageStr := c.DefaultQuery("page", "1")
 	limitStr := c.DefaultQuery("limit", "10")
 	page, err := strconv.Atoi(pageStr)
@@ -106,6 +132,11 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 }
 
 func (h *RoleHandler) GetRoleCount(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	count, err := h.service.GetRoleCount()
 	if err != nil {
 		internalError(c, "Failed to get role count")
@@ -115,6 +146,11 @@ func (h *RoleHandler) GetRoleCount(c *gin.Context) {
 }
 
 func (h *RoleHandler) GetRolesWithUserCounts(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can manage roles")
+		return
+	}
 	rolesWithCounts, err := h.service.GetRolesWithUserCounts()
 	if err != nil {
 		internalError(c, "Failed to get roles with user counts")

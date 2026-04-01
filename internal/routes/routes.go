@@ -128,6 +128,7 @@ func SetupRoutes(
 		{
 			wazzup.POST("/setup", wazzupHandler.Setup)
 			wazzup.POST("/iframe", wazzupHandler.Iframe)
+			wazzup.POST("/send", wazzupHandler.SendMessage)
 		}
 	}
 
@@ -167,8 +168,8 @@ func SetupRoutes(
 		clients.GET("/:id", clientHandler.GetByID)
 	}
 
-	// ROLES (Management)
-	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleManagement))
+	// ROLES (System admin)
+	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleSystemAdmin))
 	{
 		roles.POST("", roleHandler.CreateRole)
 		roles.GET("/count", roleHandler.GetRoleCount)

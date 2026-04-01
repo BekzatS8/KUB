@@ -34,6 +34,18 @@ type TelegramConfig struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
+type WazzupConfig struct {
+	Enable             bool   `yaml:"enable"`
+	APIBaseURL         string `yaml:"api_base_url"`
+	APIToken           string `yaml:"api_token"`
+	ChannelID          string `yaml:"channel_id"`
+	WebhookVerifyToken string `yaml:"webhook_verify_token"`
+	WebhookBaseURL     string `yaml:"webhook_base_url"`
+	RequestTimeoutSec  int    `yaml:"request_timeout_sec"`
+	RetryCount         int    `yaml:"retry_count"`
+	RetryDelayMS       int    `yaml:"retry_delay_ms"`
+}
+
 type SecurityConfig struct {
 	JWTSecret string `yaml:"jwt_secret"`
 }
@@ -81,6 +93,7 @@ type Config struct {
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
 
 	Telegram  TelegramConfig  `yaml:"telegram"`
+	Wazzup    WazzupConfig    `yaml:"wazzup"`
 	Frontend  FrontendConfig  `yaml:"frontend"`
 	Documents DocumentsConfig `yaml:"documents"`
 	CORS      CORSConfig      `yaml:"cors"`
@@ -91,6 +104,7 @@ type Config struct {
 	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
 	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
 	SignEmailTTLMinutes    int    `yaml:"sign_email_ttl_minutes"`
+	SignSessionTTLMinutes  int    `yaml:"sign_session_ttl_minutes"`
 	SignEmailTokenPepper   string `yaml:"sign_email_token_pepper"`
 	SignPublicTokenPepper  string `yaml:"sign_public_token_pepper"`
 }
@@ -223,6 +237,14 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("email settings required in release mode: %s", strings.Join(missing, ", "))
 		}
 	}
+	if cfg.Wazzup.Enable {
+		if strings.TrimSpace(cfg.Wazzup.APIToken) == "" {
+			return fmt.Errorf("wazzup.api_token is required when wazzup.enable=true")
+		}
+		if strings.TrimSpace(cfg.Wazzup.APIBaseURL) == "" {
+			return fmt.Errorf("wazzup.api_base_url is required when wazzup.enable=true")
+		}
+	}
 
 	return nil
 }
@@ -289,6 +311,18 @@ func applyDefaults(cfg *Config) {
 	if cfg.Frontend.Host == "" {
 		cfg.Frontend.Host = "http://localhost:3000"
 	}
+	if strings.TrimSpace(cfg.Wazzup.APIBaseURL) == "" {
+		cfg.Wazzup.APIBaseURL = "https://api.wazzup24.com"
+	}
+	if cfg.Wazzup.RequestTimeoutSec <= 0 {
+		cfg.Wazzup.RequestTimeoutSec = 10
+	}
+	if cfg.Wazzup.RetryCount < 0 {
+		cfg.Wazzup.RetryCount = 0
+	}
+	if cfg.Wazzup.RetryDelayMS <= 0 {
+		cfg.Wazzup.RetryDelayMS = 300
+	}
 	if cfg.CORS.AllowMethods == "" {
 		cfg.CORS.AllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 	}
@@ -331,6 +365,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.SignEmailTTLMinutes <= 0 {
 		cfg.SignEmailTTLMinutes = 30
 	}
+	if cfg.SignSessionTTLMinutes <= 0 {
+		cfg.SignSessionTTLMinutes = cfg.SignEmailTTLMinutes
+	}
 	if !cfg.Documents.StrictPlaceholders && configMode() != "release" {
 		cfg.Documents.StrictPlaceholders = true
 	}
@@ -367,6 +404,17 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
 	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
 	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)
+	setString(os.Getenv("WAZZUP_API_BASE_URL"), &cfg.Wazzup.APIBaseURL)
+	setString(os.Getenv("WAZZUP_API_TOKEN"), &cfg.Wazzup.APIToken)
+	setString(os.Getenv("WAZZUP_CHANNEL_ID"), &cfg.Wazzup.ChannelID)
+	setString(os.Getenv("WAZZUP_WEBHOOK_VERIFY_TOKEN"), &cfg.Wazzup.WebhookVerifyToken)
+	setString(os.Getenv("WAZZUP_WEBHOOK_BASE_URL"), &cfg.Wazzup.WebhookBaseURL)
+	setInt(os.Getenv("WAZZUP_REQUEST_TIMEOUT_SEC"), &cfg.Wazzup.RequestTimeoutSec)
+	setInt(os.Getenv("WAZZUP_RETRY_COUNT"), &cfg.Wazzup.RetryCount)
+	setInt(os.Getenv("WAZZUP_RETRY_DELAY_MS"), &cfg.Wazzup.RetryDelayMS)
+	if val := strings.TrimSpace(os.Getenv("WAZZUP_ENABLE")); val != "" {
+		cfg.Wazzup.Enable = parseBoolEnvValue(val)
+	}
 	if val := strings.TrimSpace(os.Getenv("DOCUMENTS_STRICT_PLACEHOLDERS")); val != "" {
 		cfg.Documents.StrictPlaceholders = parseBoolEnvValue(val)
 	}
@@ -380,6 +428,7 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.SignEmailTTLMinutes = minutes
 		}
 	}
+	setInt(os.Getenv("SIGN_SESSION_TTL_MINUTES"), &cfg.SignSessionTTLMinutes)
 }
 
 func parseBoolEnvValue(value string) bool {
