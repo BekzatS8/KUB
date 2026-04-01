@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type PublicDocumentSigningConfig struct {
 	BaseURL     string
 	TokenPepper string
 	TTLMinutes  int
+	ServerTZ    *time.Location
 }
 
 type PublicDocumentSigningService struct {
@@ -49,6 +51,7 @@ type PublicDocumentSigningService struct {
 	baseURL    string
 	pepper     string
 	ttlMinutes int
+	serverTZ   *time.Location
 	now        func() time.Time
 }
 
@@ -66,6 +69,10 @@ func NewPublicDocumentSigningService(
 	if ttl <= 0 {
 		ttl = 60
 	}
+	serverTZ := cfg.ServerTZ
+	if serverTZ == nil {
+		serverTZ = time.UTC
+	}
 	return &PublicDocumentSigningService{
 		links:      links,
 		docService: docService,
@@ -73,6 +80,7 @@ func NewPublicDocumentSigningService(
 		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		pepper:     strings.TrimSpace(cfg.TokenPepper),
 		ttlMinutes: ttl,
+		serverTZ:   serverTZ,
 		now:        now,
 	}
 }
@@ -97,6 +105,15 @@ func (s *PublicDocumentSigningService) GenerateSignLink(ctx context.Context, doc
 		return "", time.Time{}, err
 	}
 	expiresAt := s.now().Add(time.Duration(ttl) * time.Minute)
+	nowUTC := s.now().UTC()
+	log.Printf("[sign][public][link_created] document_id=%d server_tz=%s now_utc=%s now_local=%s expires_at=%s ttl_minutes=%d reason=public_link_created",
+		docID,
+		s.serverTZ.String(),
+		nowUTC.Format(time.RFC3339Nano),
+		nowUTC.In(s.serverTZ).Format(time.RFC3339Nano),
+		expiresAt.UTC().Format(time.RFC3339Nano),
+		ttl,
+	)
 	creator := int64(userID)
 	if _, err := s.links.CreateLink(ctx, docID, &creator, tokenHash, expiresAt); err != nil {
 		return "", time.Time{}, err

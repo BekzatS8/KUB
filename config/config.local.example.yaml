@@ -1,0 +1,63 @@
+server:
+  port: 4000
+  tz: Asia/Almaty
+
+database:
+  dsn: "postgres://turcompany:turcompany@postgres:5432/turcompany?sslmode=disable"
+
+email:
+  smtp_host: "localhost"
+  smtp_port: 1025
+  smtp_user: "dev"
+  smtp_password: "dev"
+  from_email: "dev@localhost"
+  from_name: "KUB DEV"
+
+files:
+  root_dir: "./files"
+
+templates:
+  docx_dir: "assets/templates/docx"
+  xlsx_dir: "assets/templates/xlsx"
+  txt_dir: "assets/templates/txt"
+
+telegram:
+  enable: false
+  bot_token: ""
+  webhook_url: ""
+
+wazzup:
+  enable: false
+  api_base_url: "https://api.wazzup24.com"
+  api_token: ""
+  channel_id: ""
+  webhook_verify_token: ""
+  webhook_base_url: "http://localhost:4000"
+  request_timeout_sec: 10
+  retry_count: 1
+  retry_delay_ms: 300
+
+frontend:
+  host: "http://localhost:4000"
+
+cors:
+  allow_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+  allow_methods: "GET, POST, PUT, DELETE, OPTIONS"
+  allow_headers: "Origin, Content-Type, Authorization"
+  expose_headers: "Content-Disposition, Content-Type, Content-Length"
+
+security:
+  jwt_secret: "dev-jwt-secret-change-me"
+
+sign_base_url: "http://localhost:4000/sign"
+public_base_url: "http://localhost:4000"
+sign_confirm_policy: "ANY"
+sign_email_verify_base_url: "http://localhost:4000"
+sign_email_token_pepper: "dev-sign-pepper"
+sign_public_token_pepper: "dev-sign-public-pepper"
+sign_email_ttl_minutes: 30
+sign_session_ttl_minutes: 30

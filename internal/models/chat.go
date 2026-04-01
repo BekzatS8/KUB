@@ -45,11 +45,21 @@ type ChatInfoParticipant struct {
 	JoinedAt          time.Time  `json:"joined_at"`
 	Email             string     `json:"email"`
 	DisplayName       string     `json:"display_name"`
+	RoleCode          string     `json:"role_code,omitempty"`
+	RoleName          string     `json:"role_name,omitempty"`
 	AvatarURL         *string    `json:"avatar_url,omitempty"`
 	Online            bool       `json:"online"`
 	LastSeen          *time.Time `json:"last_seen,omitempty"`
 	LastReadMessageID *int       `json:"last_read_message_id,omitempty"`
 	ReadAt            *time.Time `json:"read_at,omitempty"`
+}
+
+type ChatVisibleProfile struct {
+	UserID      int     `json:"user_id"`
+	DisplayName string  `json:"display_name"`
+	RoleCode    string  `json:"role_code"`
+	RoleName    string  `json:"role_name"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
 }
 
 type ChatReadEvent struct {
@@ -79,6 +89,7 @@ type ChatMessage struct {
 	DeletedBy    *int       `json:"deleted_by,omitempty"`
 	IsDeleted    bool       `json:"is_deleted"`
 	DeleteReason *string    `json:"delete_reason,omitempty"`
+	SenderProfile *ChatVisibleProfile `json:"sender_profile,omitempty"`
 }
 
 type Attachment struct {

@@ -17,7 +17,7 @@ func NewDealService(repo *repositories.DealRepository) *DealService {
 }
 
 func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return 0, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -55,7 +55,7 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 
 func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	// 1) Базовые проверки ролей
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -126,7 +126,7 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 }
 
 func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	deal, err := s.Repo.GetByID(id)
@@ -140,7 +140,7 @@ func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error)
 }
 
 func (s *DealService) Delete(id int, userID, roleID int) error {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -171,7 +171,7 @@ func (s *DealService) ListMy(ownerID, limit, offset int) ([]*models.Deals, error
 }
 
 func (s *DealService) ListForRole(userID, roleID, limit, offset int) ([]*models.Deals, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	if roleID == authz.RoleSales {
@@ -185,7 +185,7 @@ func (s *DealService) GetByLeadID(leadID int) (*models.Deals, error) {
 }
 
 func (s *DealService) UpdateStatus(id int, to string, userID, roleID int) error {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {

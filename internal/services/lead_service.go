@@ -27,7 +27,7 @@ func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositorie
 
 // Create: возвращаем ID созданного лида
 func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return 0, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -50,7 +50,7 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 }
 
 func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -107,7 +107,7 @@ func (s *LeadService) ListMy(ownerID, limit, offset int) ([]*models.Leads, error
 }
 
 func (s *LeadService) ListForRole(userID, roleID, limit, offset int) ([]*models.Leads, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	if roleID == authz.RoleSales {
@@ -117,7 +117,7 @@ func (s *LeadService) ListForRole(userID, roleID, limit, offset int) ([]*models.
 }
 
 func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	lead, err := s.Repo.GetByID(id)
@@ -131,7 +131,7 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 }
 
 func (s *LeadService) Delete(id int, userID, roleID int) error {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -156,7 +156,7 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 // ConvertLeadToDeal оставляем как у тебя, только напомню,
 // что он требует lead.Status == "confirmed"
 func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int) (*models.Deals, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -210,7 +210,7 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 }
 
 func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {
@@ -243,7 +243,7 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 }
 
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	if authz.IsReadOnly(roleID) {

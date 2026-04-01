@@ -56,8 +56,19 @@ func NewChatHandler(service *services.ChatService, hub *realtime.ChatHub) *ChatH
 	return &ChatHandler{service: service, hub: hub}
 }
 
+func ensureCanUseChat(c *gin.Context, roleID int) bool {
+	if !authz.CanUseChat(roleID) {
+		forbidden(c, "Chat is not allowed for this role")
+		return false
+	}
+	return true
+}
+
 func (h *ChatHandler) ListChats(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chats, err := h.service.ListUserChats(userID)
 	if err != nil {
 		internalError(c, "Failed to load chats")
@@ -67,7 +78,10 @@ func (h *ChatHandler) ListChats(c *gin.Context) {
 }
 
 func (h *ChatHandler) SearchChats(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	q := strings.TrimSpace(c.Query("query"))
 	if q == "" {
@@ -87,7 +101,10 @@ func (h *ChatHandler) SearchChats(c *gin.Context) {
 }
 
 func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	var req personalChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -104,7 +121,14 @@ func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
 }
 
 func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+	if !authz.CanCreateChatGroup(roleID) {
+		forbidden(c, "Group chat creation is not allowed")
+		return
+	}
 
 	var req groupChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,7 +150,10 @@ func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
 }
 
 func (h *ChatHandler) GetChatInfo(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -152,7 +179,10 @@ func (h *ChatHandler) GetChatInfo(c *gin.Context) {
 }
 
 func (h *ChatHandler) ListMessages(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -208,7 +238,10 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 }
 
 func (h *ChatHandler) SearchMessages(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -247,7 +280,14 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 }
 
 func (h *ChatHandler) SendMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+	if !authz.CanSendChatMessage(roleID) {
+		forbidden(c, "Message sending is not allowed")
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -290,7 +330,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) UploadAttachment(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -328,7 +371,10 @@ func (h *ChatHandler) UploadAttachmentAlias(c *gin.Context) {
 }
 
 func (h *ChatHandler) DownloadAttachment(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	attachmentID := strings.TrimSpace(c.Param("id"))
 	if attachmentID == "" {
 		badRequest(c, "Invalid attachment id")
@@ -377,7 +423,10 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 		return
 	}
 
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	if err := h.service.AddMembers(chatID, userID, members); err != nil {
 		switch err {
 		case services.ErrChatNotFound:
@@ -395,7 +444,10 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 }
 
 func (h *ChatHandler) LeaveChat(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -420,7 +472,10 @@ func (h *ChatHandler) LeaveChat(c *gin.Context) {
 }
 
 func (h *ChatHandler) DeleteChat(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -464,7 +519,10 @@ func (h *ChatHandler) GetUserStatus(c *gin.Context) {
 }
 
 func (h *ChatHandler) ListUnread(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chats, err := h.service.ListUnreadChats(userID)
 	if err != nil {
@@ -475,7 +533,10 @@ func (h *ChatHandler) ListUnread(c *gin.Context) {
 }
 
 func (h *ChatHandler) MarkRead(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -518,7 +579,10 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 }
 
 func (h *ChatHandler) EditMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -550,7 +614,10 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) DeleteMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -585,7 +652,10 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) PinMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -610,7 +680,10 @@ func (h *ChatHandler) PinMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) UnpinMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -634,7 +707,10 @@ func (h *ChatHandler) UnpinMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -654,7 +730,10 @@ func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) UnfavoriteMessage(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -673,7 +752,10 @@ func (h *ChatHandler) UnfavoriteMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) ListPins(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -690,7 +772,10 @@ func (h *ChatHandler) ListPins(c *gin.Context) {
 }
 
 func (h *ChatHandler) ListFavorites(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
@@ -778,9 +863,8 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 			break
 		}
 
-		// ✅ запрещаем писать через WS для read-only (раньше ReadOnlyGuard это не ловил)
-		if authz.IsReadOnly(roleID) {
-			_ = conn.WriteJSON(map[string]string{"error": "read-only role"})
+		if !authz.CanSendChatMessage(roleID) {
+			_ = conn.WriteJSON(map[string]string{"error": "message sending is not allowed"})
 			continue
 		}
 

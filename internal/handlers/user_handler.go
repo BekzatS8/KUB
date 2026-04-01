@@ -43,8 +43,8 @@ func sanitizeUser(u *models.User) *models.User {
 
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !authz.IsFullAccess(roleID) {
-		forbidden(c, "Only management can create users")
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can create users")
 		return
 	}
 
@@ -57,6 +57,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	newRole := req.RoleID
 	if newRole == 0 {
 		newRole = authz.RoleSales
+	}
+	if !authz.IsKnownRole(newRole) {
+		badRequest(c, "Invalid role_id")
+		return
 	}
 
 	user := &models.User{
@@ -113,7 +117,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 	}
 
 	// Если нет full-access/read-only, то можно смотреть только себя
-	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) && currentUserID != id {
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) && currentUserID != id {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -121,6 +125,10 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 	user, err := h.service.GetUserByID(id)
 	if err != nil || user == nil {
 		notFound(c, ClientNotFoundCode, "User not found")
+		return
+	}
+	if !authz.CanViewLeadershipData(roleID) && user.RoleID == authz.RoleManagement {
+		forbidden(c, "Forbidden")
 		return
 	}
 
@@ -153,7 +161,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	// ВАЖНО: всегда сохраняем текущий хэш, чтобы не затереть его пустой строкой.
 	body.PasswordHash = target.PasswordHash
 
-	if !authz.IsFullAccess(roleID) {
+	if !authz.CanAssignRoles(roleID) {
 		if userID != id {
 			forbidden(c, "Forbidden")
 			return
@@ -162,6 +170,10 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		body.RoleID = target.RoleID
 		body.IsVerified = target.IsVerified
 		body.VerifiedAt = target.VerifiedAt
+	}
+	if authz.CanAssignRoles(roleID) && body.RoleID != 0 && !authz.IsKnownRole(body.RoleID) {
+		badRequest(c, "Invalid role_id")
+		return
 	}
 
 	if err := h.service.UpdateUser(&body); err != nil {
@@ -180,8 +192,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !authz.IsFullAccess(roleID) {
-		forbidden(c, "Only management can delete users")
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Only system admin can delete users")
 		return
 	}
 	idStr := c.Param("id")
@@ -200,7 +212,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -226,6 +238,9 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 	out := make([]*models.User, 0, len(users))
 	for _, u := range users {
+		if !authz.CanViewLeadershipData(roleID) && u.RoleID == authz.RoleManagement {
+			continue
+		}
 		out = append(out, sanitizeUser(u))
 	}
 	c.JSON(http.StatusOK, out)
@@ -233,7 +248,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -248,7 +263,7 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.IsFullAccess(roleID) || authz.IsReadOnly(roleID)) {
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -256,6 +271,10 @@ func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	roleIDVal, err := strconv.Atoi(c.Param("role_id"))
 	if err != nil {
 		badRequest(c, "Invalid role ID")
+		return
+	}
+	if !authz.CanViewLeadershipData(roleID) && roleIDVal == authz.RoleManagement {
+		forbidden(c, "Forbidden")
 		return
 	}
 

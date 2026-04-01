@@ -1,0 +1,61 @@
+# Manual QA smoke checklist (post-integration hardening)
+
+## 0) Environment boot
+1. `cp .env.local.example .env.local`
+2. `cp config/config.local.example.yaml config/config.local.yaml`
+3. `make local-up`
+4. Check health: `curl -fsS http://localhost:4000/healthz`
+
+## 1) Registration -> confirm -> login
+1. `POST /register`
+2. Read verify code from API logs (`[DEV][email][verify]`).
+3. `POST /register/confirm`
+4. `POST /auth/login`
+5. Expected: access+refresh tokens, 200.
+
+## 2) Prepare role for smoke
+- Promote first user to management (`role_id=40`) in local DB (dev only).
+
+## 3) Create individual client
+1. `POST /clients` with `client_type=individual`, `first_name`, `last_name`, `phone`, `birth_date`, `country`, `trip_purpose`.
+2. `GET /clients/:id`
+3. Expected: base fields + `individual_profile`, status 201/200.
+
+## 4) Create legal client
+1. `POST /clients` with `client_type=legal` and either:
+   - flat fields (`name`, `bin_iin`, `phone`, `address`) or
+   - nested `legal_profile` (`company_name`, `bin`, `contact_person_name`, `contact_person_phone`, `legal_address`).
+2. `GET /clients/company`
+3. Expected: legal client appears with correct `display_name` and legal profile.
+
+## 5) Lead + deal with client
+1. `POST /leads`
+2. Convert lead to deal with created `client_id`.
+3. Expected: deal created and references existing `clients.id`.
+
+## 6) Document generation + signing
+1. Create document from lead/deal endpoint.
+2. Start sign session endpoint.
+3. Complete sign flow (`verify` + `sign`).
+4. Expected: signed state transition is successful.
+
+## 7) Chat smoke
+1. Create group chat.
+2. Send message.
+3. List messages.
+4. Expected: message has sender + sender profile payload.
+
+## 8) Wazzup smoke
+1. Enable Wazzup env config (`WAZZUP_ENABLE=true`, token via `.env.local`).
+2. `POST /integrations/wazzup/setup` (JWT).
+3. `POST /integrations/wazzup/send` with `chat_id` + `text`.
+4. Expected: setup/send return 200 or controlled 502 on provider issues, app stays healthy.
+
+## 9) Migrations from zero
+1. Start clean DB volume.
+2. Run local stack/migrations.
+3. Validate tables:
+   - `clients`
+   - `client_individual_profiles`
+   - `client_legal_profiles`
+4. Expected: no migration conflicts, app starts.

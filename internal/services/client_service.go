@@ -107,12 +107,29 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.ClinicName = trim(c.ClinicName)
 	c.DiseasesLast3Years = trim(c.DiseasesLast3Years)
 	c.AdditionalInfo = trim(c.AdditionalInfo)
+	c.DisplayName = c.Name
+	c.PrimaryPhone = c.Phone
+	c.PrimaryEmail = c.Email
 
 	clientType, err := normalizeClientType(c.ClientType)
 	if err != nil {
 		return err
 	}
 	c.ClientType = clientType
+	if c.ClientType == models.ClientTypeLegal && c.LegalProfile != nil {
+		if strings.TrimSpace(c.Name) == "" && strings.TrimSpace(c.LegalProfile.CompanyName) != "" {
+			c.Name = strings.TrimSpace(c.LegalProfile.CompanyName)
+		}
+		if strings.TrimSpace(c.BinIin) == "" && strings.TrimSpace(c.LegalProfile.BIN) != "" {
+			c.BinIin = strings.TrimSpace(c.LegalProfile.BIN)
+		}
+		if strings.TrimSpace(c.Phone) == "" && strings.TrimSpace(c.LegalProfile.ContactPersonPhone) != "" {
+			c.Phone = normalizePhone(strings.TrimSpace(c.LegalProfile.ContactPersonPhone))
+		}
+		if strings.TrimSpace(c.Email) == "" && strings.TrimSpace(c.LegalProfile.ContactPersonEmail) != "" {
+			c.Email = strings.TrimSpace(c.LegalProfile.ContactPersonEmail)
+		}
+	}
 
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
 	if c.Name == "" && (c.LastName != "" || c.FirstName != "") {
@@ -145,14 +162,34 @@ func validateCreateRedFields(c *models.Client) error {
 	missing := make([]string, 0)
 	switch c.ClientType {
 	case models.ClientTypeLegal:
-		if c.Name == "" {
-			missing = append(missing, "name")
+		companyName := c.Name
+		contactName := ""
+		contactPhone := c.Phone
+		if c.LegalProfile != nil {
+			if strings.TrimSpace(c.LegalProfile.CompanyName) != "" {
+				companyName = strings.TrimSpace(c.LegalProfile.CompanyName)
+			}
+			contactName = strings.TrimSpace(c.LegalProfile.ContactPersonName)
+			if strings.TrimSpace(c.LegalProfile.ContactPersonPhone) != "" {
+				contactPhone = strings.TrimSpace(c.LegalProfile.ContactPersonPhone)
+			}
+		}
+		if companyName == "" {
+			missing = append(missing, "company_name")
 		}
 		if c.BinIin == "" {
-			missing = append(missing, "bin_iin")
+			if c.LegalProfile == nil || strings.TrimSpace(c.LegalProfile.BIN) == "" {
+				missing = append(missing, "bin")
+			}
 		}
-		if c.Phone == "" {
-			missing = append(missing, "phone")
+		if contactName == "" {
+			missing = append(missing, "contact_person_name")
+		}
+		if contactPhone == "" {
+			missing = append(missing, "contact_person_phone")
+		}
+		if c.Address == "" && (c.LegalProfile == nil || strings.TrimSpace(c.LegalProfile.LegalAddress) == "") {
+			missing = append(missing, "legal_address")
 		}
 	default:
 		if c.Country == "" {

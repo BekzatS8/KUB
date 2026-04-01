@@ -296,7 +296,7 @@ func (r *wazzupRepository) GetLeadPhoneByID(ctx context.Context, leadID int) (st
 }
 
 func (r *wazzupRepository) GetClientPhoneByID(ctx context.Context, clientID int) (string, error) {
-	const q = `SELECT COALESCE(phone, '') FROM clients WHERE id = $1`
+	const q = `SELECT COALESCE(primary_phone, phone, '') FROM clients WHERE id = $1`
 	var phone string
 	err := r.db.QueryRowContext(ctx, q, clientID).Scan(&phone)
 	if errors.Is(err, sql.ErrNoRows) {

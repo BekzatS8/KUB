@@ -20,12 +20,13 @@ import (
 // ChatService handles read/send operations for chats without realtime transport.
 type ChatService struct {
 	repo      repositories.ChatRepository
+	userRepo  repositories.UserRepository
 	filesRoot string
 	storage   storage.Storage
 }
 
-func NewChatService(repo repositories.ChatRepository, filesRoot string) *ChatService {
-	return &ChatService{repo: repo, filesRoot: filesRoot, storage: storage.NewLocalStorage(filesRoot)}
+func NewChatService(repo repositories.ChatRepository, filesRoot string, userRepo repositories.UserRepository) *ChatService {
+	return &ChatService{repo: repo, userRepo: userRepo, filesRoot: filesRoot, storage: storage.NewLocalStorage(filesRoot)}
 }
 
 func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
@@ -68,6 +69,9 @@ func (s *ChatService) GetMessages(chatID, userID, limit, offset int) ([]*models.
 			return nil, err
 		}
 	}
+	if err := s.attachSenderProfiles(messages); err != nil {
+		return nil, err
+	}
 	return messages, nil
 }
 
@@ -106,9 +110,23 @@ func (s *ChatService) SearchMessages(chatID, userID int, query, mode string, lim
 	}
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "ilike" {
-		return s.repo.SearchMessagesILIKE(chatID, userID, query, limit, offset)
+		messages, err := s.repo.SearchMessagesILIKE(chatID, userID, query, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.attachSenderProfiles(messages); err != nil {
+			return nil, err
+		}
+		return messages, nil
 	}
-	return s.repo.SearchMessagesFTS(chatID, userID, query, limit, offset)
+	messages, err := s.repo.SearchMessagesFTS(chatID, userID, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachSenderProfiles(messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments []string, attachmentIDs []string) (*models.ChatMessage, map[int]int, error) {
@@ -120,6 +138,9 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	}
 
 	if err := s.ensureMember(chatID, senderID); err != nil {
+		return nil, nil, err
+	}
+	if err := s.ensureActiveUser(senderID); err != nil {
 		return nil, nil, err
 	}
 
@@ -154,6 +175,9 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 			return nil, nil, err
 		}
 		unreadByUser[member] = count
+	}
+	if err := s.attachSenderProfiles([]*models.ChatMessage{msg}); err != nil {
+		return nil, nil, err
 	}
 
 	return msg, unreadByUser, nil
@@ -219,6 +243,12 @@ func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error)
 	if user1 == user2 {
 		return nil, fmt.Errorf("cannot create personal chat with the same user")
 	}
+	if err := s.ensureActiveUser(user1); err != nil {
+		return nil, err
+	}
+	if err := s.ensureActiveUser(user2); err != nil {
+		return nil, err
+	}
 	members := uniqueInts([]int{user1, user2})
 	return s.repo.CreateChat("", false, user1, members)
 }
@@ -230,6 +260,11 @@ func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int)
 	}
 	members = append(members, creatorID)
 	members = uniqueInts(members)
+	for _, memberID := range members {
+		if err := s.ensureActiveUser(memberID); err != nil {
+			return nil, err
+		}
+	}
 	return s.repo.CreateChat(name, true, creatorID, members)
 }
 
@@ -267,7 +302,13 @@ func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 		return ErrForbidden
 	}
 
-	return s.repo.AddMembers(chatID, uniqueInts(memberIDs))
+	uniq := uniqueInts(memberIDs)
+	for _, memberID := range uniq {
+		if err := s.ensureActiveUser(memberID); err != nil {
+			return err
+		}
+	}
+	return s.repo.AddMembers(chatID, uniq)
 }
 
 func (s *ChatService) DeleteChat(chatID, userID int) error {
@@ -565,4 +606,41 @@ func uniqueStrings(v []string) []string {
 		res = append(res, s)
 	}
 	return res
+}
+
+func (s *ChatService) ensureActiveUser(userID int) error {
+	if s.userRepo == nil {
+		return nil
+	}
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return err
+	}
+	if user == nil || !user.IsVerified {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (s *ChatService) attachSenderProfiles(messages []*models.ChatMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	userIDs := make([]int, 0, len(messages))
+	seen := map[int]struct{}{}
+	for _, msg := range messages {
+		if _, ok := seen[msg.SenderID]; ok {
+			continue
+		}
+		seen[msg.SenderID] = struct{}{}
+		userIDs = append(userIDs, msg.SenderID)
+	}
+	profiles, err := s.repo.GetChatVisibleProfiles(userIDs)
+	if err != nil {
+		return err
+	}
+	for _, msg := range messages {
+		msg.SenderProfile = profiles[msg.SenderID]
+	}
+	return nil
 }

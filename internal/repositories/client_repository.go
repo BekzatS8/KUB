@@ -5,1022 +5,415 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"turcompany/internal/models"
 )
 
-type ClientRepository struct {
-	db *sql.DB
-}
+type ClientRepository struct{ db *sql.DB }
 
-type clientRowScanner interface {
-	Scan(dest ...any) error
-}
+func NewClientRepository(db *sql.DB) *ClientRepository { return &ClientRepository{db: db} }
 
-func NewClientRepository(db *sql.DB) *ClientRepository {
-	return &ClientRepository{db: db}
-}
+type clientRowScanner interface{ Scan(dest ...any) error }
+
+const clientSelect = `
+SELECT
+	c.id,
+	c.owner_id,
+	c.client_type,
+	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, '')) AS display_name,
+	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, '')) AS primary_phone,
+	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, '')) AS primary_email,
+	COALESCE(c.address, '') AS address,
+	COALESCE(c.contact_info, '') AS contact_info,
+	c.created_at,
+	COALESCE(c.updated_at, c.created_at) AS updated_at,
+	COALESCE(ip.last_name, ''), COALESCE(ip.first_name, ''), COALESCE(ip.middle_name, ''), COALESCE(ip.iin, ''), COALESCE(ip.id_number, ''), COALESCE(ip.passport_series, ''), COALESCE(ip.passport_number, ''),
+	COALESCE(ip.registration_address, ''), COALESCE(ip.actual_address, ''), COALESCE(ip.country, ''), COALESCE(ip.trip_purpose, ''), ip.birth_date, COALESCE(ip.birth_place, ''),
+	COALESCE(ip.citizenship, ''), COALESCE(ip.sex, ''), COALESCE(ip.marital_status, ''), ip.passport_issue_date, ip.passport_expire_date,
+	COALESCE(ip.previous_last_name, ''), COALESCE(ip.spouse_name, ''), COALESCE(ip.spouse_contacts, ''), ip.has_children, ip.children_list,
+	COALESCE(ip.education, ''), COALESCE(ip.job, ''), COALESCE(ip.trips_last5_years, ''), COALESCE(ip.relatives_in_destination, ''), COALESCE(ip.trusted_person, ''),
+	ip.height, ip.weight, ip.driver_license_categories, COALESCE(ip.therapist_name, ''), COALESCE(ip.clinic_name, ''),
+	COALESCE(ip.diseases_last3_years, ''), COALESCE(ip.additional_info, ''),
+	COALESCE(lp.company_name, ''), COALESCE(lp.bin, ''), COALESCE(lp.legal_form, ''), COALESCE(lp.director_full_name, ''), COALESCE(lp.contact_person_name, ''),
+	COALESCE(lp.contact_person_position, ''), COALESCE(lp.contact_person_phone, ''), COALESCE(lp.contact_person_email, ''), COALESCE(lp.legal_address, ''),
+	COALESCE(lp.actual_address, ''), COALESCE(lp.bank_name, ''), COALESCE(lp.iban, ''), COALESCE(lp.bik, ''), COALESCE(lp.kbe, ''), COALESCE(lp.tax_regime, ''), COALESCE(lp.website, ''),
+	COALESCE(lp.industry, ''), COALESCE(lp.company_size, ''), COALESCE(lp.additional_info, '')
+FROM clients c
+LEFT JOIN client_individual_profiles ip ON ip.client_id = c.id
+LEFT JOIN client_legal_profiles lp ON lp.client_id = c.id
+`
 
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
-	var c models.Client
-	var clientType sql.NullString
-	var binIin sql.NullString
-	var address sql.NullString
-	var contactInfo sql.NullString
-	var lastName sql.NullString
-	var firstName sql.NullString
-	var middleName sql.NullString
-	var iin sql.NullString
-	var idNumber sql.NullString
-	var passportSeries sql.NullString
-	var passportNumber sql.NullString
-	var phone sql.NullString
-	var email sql.NullString
-	var registrationAddress sql.NullString
-	var actualAddress sql.NullString
-	var country sql.NullString
-	var tripPurpose sql.NullString
-	var birthDate sql.NullTime
-	var birthPlace sql.NullString
-	var citizenship sql.NullString
-	var sex sql.NullString
-	var maritalStatus sql.NullString
-	var passportIssueDate sql.NullTime
-	var passportExpireDate sql.NullTime
-
-	var previousLastName sql.NullString
-	var spouseName sql.NullString
-	var spouseContacts sql.NullString
-	var hasChildren sql.NullBool
-	var childrenList []byte
-	var education sql.NullString
-	var job sql.NullString
-	var tripsLast5Years sql.NullString
-	var relativesInDestination sql.NullString
-	var trustedPerson sql.NullString
-	var height sql.NullInt64
-	var weight sql.NullInt64
-	var driverLicenseCategories []byte
-	var therapistName sql.NullString
-	var clinicName sql.NullString
-	var diseasesLast3Years sql.NullString
-	var additionalInfo sql.NullString
-
+	c := &models.Client{}
+	var (
+		birthDate, passIssue, passExpire sql.NullTime
+		hasChildren                      sql.NullBool
+		height, weight                   sql.NullInt64
+		children, drivers                []byte
+	)
+	ip := &models.ClientIndividualProfile{}
+	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
-		&c.ID,
-		&c.Name,
-		&clientType,
-		&binIin,
-		&address,
-		&contactInfo,
-		&lastName,
-		&firstName,
-		&middleName,
-		&iin,
-		&idNumber,
-		&passportSeries,
-		&passportNumber,
-		&phone,
-		&email,
-		&registrationAddress,
-		&actualAddress,
-		&country,
-		&tripPurpose,
-		&birthDate,
-		&birthPlace,
-		&citizenship,
-		&sex,
-		&maritalStatus,
-		&passportIssueDate,
-		&passportExpireDate,
-		&previousLastName,
-		&spouseName,
-		&spouseContacts,
-		&hasChildren,
-		&childrenList,
-		&education,
-		&job,
-		&tripsLast5Years,
-		&relativesInDestination,
-		&trustedPerson,
-		&height,
-		&weight,
-		&driverLicenseCategories,
-		&therapistName,
-		&clinicName,
-		&diseasesLast3Years,
-		&additionalInfo,
-		&c.OwnerID,
-		&c.CreatedAt,
+		&c.ID, &c.OwnerID, &c.ClientType, &c.DisplayName, &c.PrimaryPhone, &c.PrimaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
+		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber,
+		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
+		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire,
+		&ip.PreviousLastName, &ip.SpouseName, &ip.SpouseContacts, &hasChildren, &children,
+		&ip.Education, &ip.Job, &ip.TripsLast5Years, &ip.RelativesInDestination, &ip.TrustedPerson,
+		&height, &weight, &drivers, &ip.TherapistName, &ip.ClinicName, &ip.DiseasesLast3Years, &ip.AdditionalInfo,
+		&lp.CompanyName, &lp.BIN, &lp.LegalForm, &lp.DirectorFullName, &lp.ContactPersonName,
+		&lp.ContactPersonPosition, &lp.ContactPersonPhone, &lp.ContactPersonEmail, &lp.LegalAddress,
+		&lp.ActualAddress, &lp.BankName, &lp.IBAN, &lp.BIK, &lp.KBE, &lp.TaxRegime, &lp.Website,
+		&lp.Industry, &lp.CompanySize, &lp.AdditionalInfo,
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	c.ClientType = stringFromNull(clientType)
-	if c.ClientType == "" {
-		c.ClientType = models.ClientTypeIndividual
+	c.Name, c.Phone, c.Email = c.DisplayName, c.PrimaryPhone, c.PrimaryEmail
+	c.BinIin = lp.BIN
+	if c.ClientType == models.ClientTypeIndividual {
+		if birthDate.Valid {
+			t := birthDate.Time
+			ip.BirthDate = &t
+			c.BirthDate = &t
+		}
+		if passIssue.Valid {
+			t := passIssue.Time
+			ip.PassportIssueDate = &t
+			c.PassportIssueDate = &t
+		}
+		if passExpire.Valid {
+			t := passExpire.Time
+			ip.PassportExpireDate = &t
+			c.PassportExpireDate = &t
+		}
+		if hasChildren.Valid {
+			v := hasChildren.Bool
+			ip.HasChildren = &v
+			c.HasChildren = &v
+		}
+		if height.Valid {
+			v := int16(height.Int64)
+			ip.Height = &v
+			c.Height = &v
+		}
+		if weight.Valid {
+			v := int16(weight.Int64)
+			ip.Weight = &v
+			c.Weight = &v
+		}
+		if len(children) > 0 {
+			ip.ChildrenList = json.RawMessage(children)
+			c.ChildrenList = json.RawMessage(children)
+		}
+		if len(drivers) > 0 {
+			ip.DriverLicenseCategories = json.RawMessage(drivers)
+			c.DriverLicenseCategories = json.RawMessage(drivers)
+		}
+		ip.ClientID = c.ID
+		c.IndividualProfile = ip
+		c.LastName, c.FirstName, c.MiddleName = ip.LastName, ip.FirstName, ip.MiddleName
+		c.IIN, c.IDNumber, c.PassportSeries, c.PassportNumber = ip.IIN, ip.IDNumber, ip.PassportSeries, ip.PassportNumber
+		c.RegistrationAddress, c.ActualAddress = ip.RegistrationAddress, ip.ActualAddress
+		c.Country, c.TripPurpose = ip.Country, ip.TripPurpose
+		c.BirthPlace, c.Citizenship, c.Sex, c.MaritalStatus = ip.BirthPlace, ip.Citizenship, ip.Sex, ip.MaritalStatus
+		c.PreviousLastName, c.SpouseName, c.SpouseContacts = ip.PreviousLastName, ip.SpouseName, ip.SpouseContacts
+		c.Education, c.Job, c.TripsLast5Years = ip.Education, ip.Job, ip.TripsLast5Years
+		c.RelativesInDestination, c.TrustedPerson = ip.RelativesInDestination, ip.TrustedPerson
+		c.TherapistName, c.ClinicName, c.DiseasesLast3Years, c.AdditionalInfo = ip.TherapistName, ip.ClinicName, ip.DiseasesLast3Years, ip.AdditionalInfo
 	}
-	c.BinIin = stringFromNull(binIin)
-	c.Address = stringFromNull(address)
-	c.ContactInfo = stringFromNull(contactInfo)
-	c.LastName = stringFromNull(lastName)
-	c.FirstName = stringFromNull(firstName)
-	c.MiddleName = stringFromNull(middleName)
-	c.IIN = stringFromNull(iin)
-	c.IDNumber = stringFromNull(idNumber)
-	c.PassportSeries = stringFromNull(passportSeries)
-	c.PassportNumber = stringFromNull(passportNumber)
-	c.Phone = stringFromNull(phone)
-	c.Email = stringFromNull(email)
-	c.RegistrationAddress = stringFromNull(registrationAddress)
-	c.ActualAddress = stringFromNull(actualAddress)
-	c.Country = stringFromNull(country)
-	c.TripPurpose = stringFromNull(tripPurpose)
-	if birthDate.Valid {
-		v := birthDate.Time
-		c.BirthDate = &v
+	if c.ClientType == models.ClientTypeLegal {
+		lp.ClientID = c.ID
+		c.LegalProfile = lp
+		if c.BinIin == "" {
+			c.BinIin = lp.BIN
+		}
+		if c.Address == "" {
+			c.Address = lp.LegalAddress
+		}
+		if c.ContactInfo == "" {
+			c.ContactInfo = lp.AdditionalInfo
+		}
 	}
-	c.BirthPlace = stringFromNull(birthPlace)
-	c.Citizenship = stringFromNull(citizenship)
-	c.Sex = stringFromNull(sex)
-	c.MaritalStatus = stringFromNull(maritalStatus)
-	if passportIssueDate.Valid {
-		v := passportIssueDate.Time
-		c.PassportIssueDate = &v
-	}
-	if passportExpireDate.Valid {
-		v := passportExpireDate.Time
-		c.PassportExpireDate = &v
-	}
-
-	c.PreviousLastName = stringFromNull(previousLastName)
-	c.SpouseName = stringFromNull(spouseName)
-	c.SpouseContacts = stringFromNull(spouseContacts)
-	if hasChildren.Valid {
-		v := hasChildren.Bool
-		c.HasChildren = &v
-	}
-	if len(childrenList) > 0 {
-		c.ChildrenList = json.RawMessage(append([]byte(nil), childrenList...))
-	}
-	c.Education = stringFromNull(education)
-	c.Job = stringFromNull(job)
-	c.TripsLast5Years = stringFromNull(tripsLast5Years)
-	c.RelativesInDestination = stringFromNull(relativesInDestination)
-	c.TrustedPerson = stringFromNull(trustedPerson)
-	if height.Valid {
-		v := int16(height.Int64)
-		c.Height = &v
-	}
-	if weight.Valid {
-		v := int16(weight.Int64)
-		c.Weight = &v
-	}
-	if len(driverLicenseCategories) > 0 {
-		c.DriverLicenseCategories = json.RawMessage(append([]byte(nil), driverLicenseCategories...))
-	}
-	c.TherapistName = stringFromNull(therapistName)
-	c.ClinicName = stringFromNull(clinicName)
-	c.DiseasesLast3Years = stringFromNull(diseasesLast3Years)
-	c.AdditionalInfo = stringFromNull(additionalInfo)
-
-	return &c, nil
+	return c, nil
 }
 
 func (r *ClientRepository) Create(c *models.Client) (int64, error) {
-	const q = `
-        INSERT INTO clients (
-                name, client_type, bin_iin, address, contact_info,
-                last_name, first_name, middle_name,
-                iin, id_number, passport_series, passport_number,
-                phone, email, registration_address, actual_address,
-                country, trip_purpose, birth_date, birth_place, citizenship, sex, marital_status, passport_issue_date, passport_expire_date,
-                previous_last_name, spouse_name, spouse_contacts, has_children, children_list, education, job, trips_last5_years, relatives_in_destination, trusted_person, height, weight, driver_license_categories, therapist_name, clinic_name, diseases_last3_years, additional_info,
-                owner_id, created_at
-        )
-        VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8,
-                $9, $10, $11, $12,
-                $13, $14, $15, $16,
-                $17, $18, $19, $20, $21, $22, $23, $24, $25,
-                $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42,
-                $43, $44
-        )
-        RETURNING id
-	`
-
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	now := time.Now()
+	if c.UpdatedAt.IsZero() {
+		c.UpdatedAt = now
+	}
+	q := `INSERT INTO clients (owner_id, client_type, display_name, primary_phone, primary_email, address, contact_info, created_at, updated_at, name, phone, email, bin_iin)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`
 	var id int64
-	err := r.db.QueryRow(
-		q,
-		c.Name,
-		c.ClientType,
-		nullStringFromEmpty(c.BinIin),
-		c.Address,
-		c.ContactInfo,
-		c.LastName,
-		c.FirstName,
-		c.MiddleName,
-		nullStringFromEmpty(c.IIN),
-		c.IDNumber,
-		c.PassportSeries,
-		c.PassportNumber,
-		c.Phone,
-		c.Email,
-		c.RegistrationAddress,
-		c.ActualAddress,
-		c.Country,
-		c.TripPurpose,
-		c.BirthDate,
-		c.BirthPlace,
-		c.Citizenship,
-		c.Sex,
-		c.MaritalStatus,
-		c.PassportIssueDate,
-		c.PassportExpireDate,
-		c.PreviousLastName,
-		c.SpouseName,
-		c.SpouseContacts,
-		c.HasChildren,
-		nullRawMessage(c.ChildrenList),
-		c.Education,
-		c.Job,
-		c.TripsLast5Years,
-		c.RelativesInDestination,
-		c.TrustedPerson,
-		nullInt16(c.Height),
-		nullInt16(c.Weight),
-		nullRawMessage(c.DriverLicenseCategories),
-		c.TherapistName,
-		c.ClinicName,
-		c.DiseasesLast3Years,
-		c.AdditionalInfo,
-		c.OwnerID,
-		c.CreatedAt,
-	).Scan(&id)
+	err = tx.QueryRow(q, c.OwnerID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.CreatedAt, c.UpdatedAt, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("create client: %w", err)
+	}
+	c.ID = int(id)
+	if err := upsertProfilesTx(tx, c); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	return id, nil
 }
 
+func upsertProfilesTx(tx *sql.Tx, c *models.Client) error {
+	if c.ClientType == models.ClientTypeIndividual {
+		_, err := tx.Exec(`INSERT INTO client_individual_profiles (client_id,last_name,first_name,middle_name,iin,id_number,passport_series,passport_number,registration_address,actual_address,country,trip_purpose,birth_date,birth_place,citizenship,sex,marital_status,passport_issue_date,passport_expire_date,previous_last_name,spouse_name,spouse_contacts,has_children,children_list,education,job,trips_last5_years,relatives_in_destination,trusted_person,height,weight,driver_license_categories,therapist_name,clinic_name,diseases_last3_years,additional_info,updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,NOW())
+ON CONFLICT (client_id) DO UPDATE SET
+last_name=EXCLUDED.last_name,first_name=EXCLUDED.first_name,middle_name=EXCLUDED.middle_name,iin=EXCLUDED.iin,id_number=EXCLUDED.id_number,passport_series=EXCLUDED.passport_series,passport_number=EXCLUDED.passport_number,registration_address=EXCLUDED.registration_address,actual_address=EXCLUDED.actual_address,country=EXCLUDED.country,trip_purpose=EXCLUDED.trip_purpose,birth_date=EXCLUDED.birth_date,birth_place=EXCLUDED.birth_place,citizenship=EXCLUDED.citizenship,sex=EXCLUDED.sex,marital_status=EXCLUDED.marital_status,passport_issue_date=EXCLUDED.passport_issue_date,passport_expire_date=EXCLUDED.passport_expire_date,previous_last_name=EXCLUDED.previous_last_name,spouse_name=EXCLUDED.spouse_name,spouse_contacts=EXCLUDED.spouse_contacts,has_children=EXCLUDED.has_children,children_list=EXCLUDED.children_list,education=EXCLUDED.education,job=EXCLUDED.job,trips_last5_years=EXCLUDED.trips_last5_years,relatives_in_destination=EXCLUDED.relatives_in_destination,trusted_person=EXCLUDED.trusted_person,height=EXCLUDED.height,weight=EXCLUDED.weight,driver_license_categories=EXCLUDED.driver_license_categories,therapist_name=EXCLUDED.therapist_name,clinic_name=EXCLUDED.clinic_name,diseases_last3_years=EXCLUDED.diseases_last3_years,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
+			c.ID, c.LastName, c.FirstName, c.MiddleName, nullString(c.IIN), nullString(c.IDNumber), nullString(c.PassportSeries), nullString(c.PassportNumber),
+			nullString(c.RegistrationAddress), nullString(c.ActualAddress), nullString(c.Country), nullString(c.TripPurpose), c.BirthDate, nullString(c.BirthPlace), nullString(c.Citizenship), nullString(c.Sex), nullString(c.MaritalStatus), c.PassportIssueDate, c.PassportExpireDate,
+			nullString(c.PreviousLastName), nullString(c.SpouseName), nullString(c.SpouseContacts), c.HasChildren, nullRaw(c.ChildrenList), nullString(c.Education), nullString(c.Job), nullString(c.TripsLast5Years), nullString(c.RelativesInDestination), nullString(c.TrustedPerson), nullInt16(c.Height), nullInt16(c.Weight), nullRaw(c.DriverLicenseCategories), nullString(c.TherapistName), nullString(c.ClinicName), nullString(c.DiseasesLast3Years), nullString(c.AdditionalInfo))
+		if err != nil {
+			return fmt.Errorf("upsert individual profile: %w", err)
+		}
+		_, _ = tx.Exec(`DELETE FROM client_legal_profiles WHERE client_id=$1`, c.ID)
+		return nil
+	}
+	companyName := c.Name
+	bin := c.BinIin
+	var contactName, contactPhone, contactEmail, legalAddr, actualAddr, additional string
+	if c.LegalProfile != nil {
+		if strings.TrimSpace(c.LegalProfile.CompanyName) != "" {
+			companyName = c.LegalProfile.CompanyName
+		}
+		if strings.TrimSpace(c.LegalProfile.BIN) != "" {
+			bin = c.LegalProfile.BIN
+		}
+		contactName, contactPhone, contactEmail = c.LegalProfile.ContactPersonName, c.LegalProfile.ContactPersonPhone, c.LegalProfile.ContactPersonEmail
+		legalAddr, actualAddr, additional = c.LegalProfile.LegalAddress, c.LegalProfile.ActualAddress, c.LegalProfile.AdditionalInfo
+	}
+	_, err := tx.Exec(`INSERT INTO client_legal_profiles (client_id,company_name,bin,contact_person_name,contact_person_phone,contact_person_email,legal_address,actual_address,additional_info,updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+ON CONFLICT (client_id) DO UPDATE SET company_name=EXCLUDED.company_name,bin=EXCLUDED.bin,contact_person_name=EXCLUDED.contact_person_name,contact_person_phone=EXCLUDED.contact_person_phone,contact_person_email=EXCLUDED.contact_person_email,legal_address=EXCLUDED.legal_address,actual_address=EXCLUDED.actual_address,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
+		c.ID, nullString(companyName), nullString(bin), nullString(contactName), nullString(contactPhone), nullString(contactEmail), nullString(legalAddr), nullString(actualAddr), nullString(additional))
+	if err != nil {
+		return fmt.Errorf("upsert legal profile: %w", err)
+	}
+	_, _ = tx.Exec(`DELETE FROM client_individual_profiles WHERE client_id=$1`, c.ID)
+	return nil
+}
+
 func (r *ClientRepository) Update(c *models.Client) error {
-	const q = `
-        UPDATE clients
-        SET
-                name                = $1,
-                bin_iin             = $2,
-                address             = $3,
-                contact_info        = $4,
-                last_name           = $5,
-                first_name          = $6,
-                middle_name         = $7,
-                iin                 = $8,
-                id_number           = $9,
-                passport_series     = $10,
-                passport_number     = $11,
-                phone               = $12,
-                email               = $13,
-                registration_address = $14,
-                actual_address      = $15,
-                country             = $16,
-                trip_purpose        = $17,
-                birth_date          = $18,
-                birth_place         = $19,
-                citizenship         = $20,
-                sex                 = $21,
-                marital_status      = $22,
-                passport_issue_date = $23,
-                passport_expire_date = $24,
-                previous_last_name = $25,
-                spouse_name = $26,
-                spouse_contacts = $27,
-                has_children = $28,
-                children_list = $29,
-                education = $30,
-                job = $31,
-                trips_last5_years = $32,
-                relatives_in_destination = $33,
-                trusted_person = $34,
-                height = $35,
-                weight = $36,
-                driver_license_categories = $37,
-                therapist_name = $38,
-                clinic_name = $39,
-                diseases_last3_years = $40,
-                additional_info = $41,
-                client_type         = $42,
-                owner_id            = $43
-        WHERE id = $44
-	`
-
-	_, err := r.db.Exec(
-		q,
-		c.Name,
-		nullStringFromEmpty(c.BinIin),
-		c.Address,
-		c.ContactInfo,
-		c.LastName,
-		c.FirstName,
-		c.MiddleName,
-		nullStringFromEmpty(c.IIN),
-		c.IDNumber,
-		c.PassportSeries,
-		c.PassportNumber,
-		c.Phone,
-		c.Email,
-		c.RegistrationAddress,
-		c.ActualAddress,
-		c.Country,
-		c.TripPurpose,
-		c.BirthDate,
-		c.BirthPlace,
-		c.Citizenship,
-		c.Sex,
-		c.MaritalStatus,
-		c.PassportIssueDate,
-		c.PassportExpireDate,
-		c.PreviousLastName,
-		c.SpouseName,
-		c.SpouseContacts,
-		c.HasChildren,
-		nullRawMessage(c.ChildrenList),
-		c.Education,
-		c.Job,
-		c.TripsLast5Years,
-		c.RelativesInDestination,
-		c.TrustedPerson,
-		nullInt16(c.Height),
-		nullInt16(c.Weight),
-		nullRawMessage(c.DriverLicenseCategories),
-		c.TherapistName,
-		c.ClinicName,
-		c.DiseasesLast3Years,
-		c.AdditionalInfo,
-		c.ClientType,
-		c.OwnerID,
-		c.ID,
-	)
-
+	q := `UPDATE clients SET owner_id=$1, client_type=$2, display_name=$3, primary_phone=$4, primary_email=$5, address=$6, contact_info=$7, updated_at=NOW(), name=$8, phone=$9, email=$10, bin_iin=$11 WHERE id=$12`
+	_, err := r.db.Exec(q, c.OwnerID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin), c.ID)
 	if err != nil {
 		return fmt.Errorf("update client: %w", err)
 	}
-	return nil
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := upsertProfilesTx(tx, c); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *ClientRepository) Delete(id int) error {
-	const q = `DELETE FROM clients WHERE id = $1`
-	res, err := r.db.Exec(q, id)
-	if err != nil {
-		return fmt.Errorf("delete client: %w", err)
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete client rows affected: %w", err)
-	}
-	if affected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	_, err := r.db.Exec(`DELETE FROM clients WHERE id=$1`, id)
+	return err
 }
 
 func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE id = $1
-`
-
-	row := r.db.QueryRow(q, id)
+	row := r.db.QueryRow(clientSelect+` WHERE c.id=$1`, id)
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get client: %w", err)
+		return nil, err
 	}
 	return c, nil
 }
 
 func (r *ClientRepository) GetByBIN(bin string) (*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE bin_iin = $1
-`
-
-	row := r.db.QueryRow(q, bin)
+	row := r.db.QueryRow(clientSelect+` WHERE COALESCE(lp.bin,c.bin_iin)=$1 LIMIT 1`, strings.TrimSpace(bin))
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get client by BIN/IIN: %w", err)
-	}
-	return c, nil
+	return c, err
 }
-
 func (r *ClientRepository) GetByIIN(iin string) (*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE iin = $1
-`
-
-	row := r.db.QueryRow(q, iin)
+	row := r.db.QueryRow(clientSelect+` WHERE ip.iin=$1 LIMIT 1`, strings.TrimSpace(iin))
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get client by IIN: %w", err)
-	}
-	return c, nil
+	return c, err
 }
-
 func (r *ClientRepository) GetByPhone(phone string) (*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE phone = $1
-`
-
-	row := r.db.QueryRow(q, phone)
+	row := r.db.QueryRow(clientSelect+` WHERE COALESCE(c.primary_phone,c.phone)=$1 LIMIT 1`, strings.TrimSpace(phone))
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get client by phone: %w", err)
+	return c, err
+}
+func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
+	row := r.db.QueryRow(clientSelect+` WHERE LOWER(COALESCE(c.primary_email,c.email))=LOWER($1) LIMIT 1`, strings.TrimSpace(email))
+	c, err := scanClient(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
 	}
-	return c, nil
+	return c, err
 }
 
 func (r *ClientRepository) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE ($3 = '' OR client_type = $3)
-        ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
-	`
-
-	rows, err := r.db.Query(q, limit, offset, strings.ToLower(strings.TrimSpace(clientType)))
-	if err != nil {
-		return nil, fmt.Errorf("list clients: %w", err)
-	}
-	defer rows.Close()
-
-	var res []*models.Client
-	for rows.Next() {
-		c, err := scanClient(rows)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, c)
-	}
-	return res, nil
+	q := clientSelect + ` WHERE ($3='' OR c.client_type=$3) ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`
+	return r.queryMany(q, limit, offset, strings.TrimSpace(strings.ToLower(clientType)))
 }
-
 func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
 	return r.ListAll(limit, offset, "")
 }
-
-func (r *ClientRepository) ListIndividuals(ownerID int, q string, limit, offset int) ([]*models.Client, error) {
-	_ = ownerID
-	return r.listByTypeAndQuery(models.ClientTypeIndividual, q, limit, offset)
-}
-
-func (r *ClientRepository) ListCompanies(ownerID int, q string, limit, offset int) ([]*models.Client, error) {
-	_ = ownerID
-	return r.listByTypeAndQuery(models.ClientTypeLegal, q, limit, offset)
-}
-
-func (r *ClientRepository) listByTypeAndQuery(clientType, q string, limit, offset int) ([]*models.Client, error) {
-	const query = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE client_type = $1
-          AND (
-                $2 = ''
-                OR name ILIKE $2
-                OR CONCAT_WS(' ', last_name, first_name, middle_name) ILIKE $2
-                OR iin ILIKE $2
-                OR bin_iin ILIKE $2
-                OR phone ILIKE $2
-                OR email ILIKE $2
-          )
-        ORDER BY created_at DESC
-        LIMIT $3 OFFSET $4
-    `
-
-	needle := "%" + strings.TrimSpace(q) + "%"
-	if strings.TrimSpace(q) == "" {
-		needle = ""
-	}
-
-	rows, err := r.db.Query(query, strings.ToLower(strings.TrimSpace(clientType)), needle, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("list clients by type: %w", err)
-	}
-	defer rows.Close()
-
-	var res []*models.Client
-	for rows.Next() {
-		c, err := scanClient(rows)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, c)
-	}
-	return res, nil
-}
-
 func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE owner_id = $1
-          AND ($4 = '' OR client_type = $4)
-        ORDER BY created_at DESC
-        LIMIT $2 OFFSET $3
-	`
-
-	rows, err := r.db.Query(q, ownerID, limit, offset, strings.ToLower(strings.TrimSpace(clientType)))
-	if err != nil {
-		return nil, fmt.Errorf("list clients by owner: %w", err)
-	}
-	defer rows.Close()
-
-	var res []*models.Client
-	for rows.Next() {
-		c, err := scanClient(rows)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, c)
-	}
-	return res, nil
+	q := clientSelect + ` WHERE c.owner_id=$1 AND ($4='' OR c.client_type=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	return r.queryMany(q, ownerID, limit, offset, strings.TrimSpace(strings.ToLower(clientType)))
 }
-
+func (r *ClientRepository) ListIndividuals(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
+	_ = ownerID
+	q := clientSelect + ` WHERE c.client_type='individual' AND ($1='' OR CONCAT_WS(' ', ip.last_name, ip.first_name, ip.middle_name) ILIKE $1 OR ip.iin ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	needle := like(search)
+	return r.queryMany(q, needle, limit, offset)
+}
+func (r *ClientRepository) ListCompanies(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
+	_ = ownerID
+	q := clientSelect + ` WHERE c.client_type='legal' AND ($1='' OR lp.company_name ILIKE $1 OR lp.bin ILIKE $1 OR lp.contact_person_name ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	needle := like(search)
+	return r.queryMany(q, needle, limit, offset)
+}
 func (r *ClientRepository) FindByName(name string) ([]*models.Client, error) {
-	const q = `
-        SELECT
-                id,
-                name,
-                client_type,
-                bin_iin,
-                address,
-                contact_info,
-                last_name,
-                first_name,
-                middle_name,
-                iin,
-                id_number,
-                passport_series,
-                passport_number,
-                phone,
-                email,
-                registration_address,
-                actual_address,
-                country,
-                trip_purpose,
-                birth_date,
-                birth_place,
-                citizenship,
-                sex,
-                marital_status,
-                passport_issue_date,
-                passport_expire_date,
-                previous_last_name,
-                spouse_name,
-                spouse_contacts,
-                has_children,
-                children_list,
-                education,
-                job,
-                trips_last5_years,
-                relatives_in_destination,
-                trusted_person,
-                height,
-                weight,
-                driver_license_categories,
-                therapist_name,
-                clinic_name,
-                diseases_last3_years,
-                additional_info,
-                owner_id,
-                created_at
-        FROM clients
-        WHERE LOWER(name) LIKE $1
-        ORDER BY created_at DESC
-`
-
-	rows, err := r.db.Query(q, "%"+strings.ToLower(name)+"%")
-	if err != nil {
-		return nil, fmt.Errorf("find clients by name: %w", err)
-	}
-	defer rows.Close()
-
-	var res []*models.Client
-	for rows.Next() {
-		c, err := scanClient(rows)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, c)
-	}
-	return res, nil
-}
-
-func nullRawMessage(value json.RawMessage) any {
-	if len(value) == 0 {
-		return nil
-	}
-	return []byte(value)
-}
-
-func nullInt16(value *int16) any {
-	if value == nil {
-		return nil
-	}
-	return int64(*value)
+	q := clientSelect + ` WHERE COALESCE(c.display_name,c.name) ILIKE $1 ORDER BY c.created_at DESC`
+	return r.queryMany(q, like(name))
 }
 
 func (r *ClientRepository) UpdatePartial(id int, updates map[string]any) error {
 	if len(updates) == 0 {
 		return nil
 	}
-	allowed := map[string]bool{
-		"name": true, "client_type": true, "bin_iin": true, "address": true, "contact_info": true,
-		"last_name": true, "first_name": true, "middle_name": true, "iin": true, "id_number": true, "passport_series": true, "passport_number": true,
-		"phone": true, "email": true, "registration_address": true, "actual_address": true, "country": true, "trip_purpose": true,
-		"birth_date": true, "birth_place": true, "citizenship": true, "sex": true, "marital_status": true, "passport_issue_date": true, "passport_expire_date": true,
+	current, err := r.GetByID(id)
+	if err != nil || current == nil {
+		return err
 	}
-	setParts := make([]string, 0, len(updates))
-	args := make([]any, 0, len(updates)+1)
-	i := 1
-	for field, value := range updates {
-		if !allowed[field] {
-			continue
-		}
-		setParts = append(setParts, fmt.Sprintf("%s = $%d", field, i))
-		if field == "bin_iin" || field == "iin" || field == "email" {
-			if v, ok := value.(string); ok {
-				args = append(args, nullStringFromEmpty(v))
-			} else {
-				args = append(args, value)
+	for k, v := range updates {
+		s, _ := v.(string)
+		s = strings.TrimSpace(s)
+		switch k {
+		case "name":
+			current.Name = s
+		case "client_type":
+			current.ClientType = strings.ToLower(s)
+		case "bin_iin":
+			current.BinIin = s
+		case "address":
+			current.Address = s
+		case "contact_info":
+			current.ContactInfo = s
+		case "last_name":
+			current.LastName = s
+		case "first_name":
+			current.FirstName = s
+		case "middle_name":
+			current.MiddleName = s
+		case "iin":
+			current.IIN = s
+		case "id_number":
+			current.IDNumber = s
+		case "passport_series":
+			current.PassportSeries = s
+		case "passport_number":
+			current.PassportNumber = s
+		case "phone":
+			current.Phone = s
+		case "email":
+			current.Email = s
+		case "registration_address":
+			current.RegistrationAddress = s
+		case "actual_address":
+			current.ActualAddress = s
+		case "country":
+			current.Country = s
+		case "trip_purpose":
+			current.TripPurpose = s
+		case "birth_place":
+			current.BirthPlace = s
+		case "citizenship":
+			current.Citizenship = s
+		case "sex":
+			current.Sex = s
+		case "marital_status":
+			current.MaritalStatus = s
+		case "birth_date", "passport_issue_date", "passport_expire_date":
+			if t, ok := v.(*time.Time); ok {
+				switch k {
+				case "birth_date":
+					current.BirthDate = t
+				case "passport_issue_date":
+					current.PassportIssueDate = t
+				case "passport_expire_date":
+					current.PassportExpireDate = t
+				}
 			}
-		} else {
-			args = append(args, value)
 		}
-		i++
 	}
-	if len(setParts) == 0 {
-		return nil
-	}
-	args = append(args, id)
-	q := fmt.Sprintf("UPDATE clients SET %s WHERE id = $%d", strings.Join(setParts, ", "), i)
-	if _, err := r.db.Exec(q, args...); err != nil {
-		return fmt.Errorf("partial update client: %w", err)
-	}
-	return nil
+	return r.Update(current)
 }
 
-func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
-	const q = `
-		SELECT
-			id, name, client_type, bin_iin, address, contact_info, last_name, first_name, middle_name,
-			iin, id_number, passport_series, passport_number, phone, email, registration_address, actual_address,
-			country, trip_purpose, birth_date, birth_place, citizenship, sex, marital_status, passport_issue_date, passport_expire_date,
-			previous_last_name, spouse_name, spouse_contacts, has_children, children_list, education, job, trips_last5_years,
-			relatives_in_destination, trusted_person, height, weight, driver_license_categories, therapist_name, clinic_name, diseases_last3_years, additional_info,
-			owner_id, created_at
-		FROM clients WHERE email = $1
-	`
-	row := r.db.QueryRow(q, email)
-	c, err := scanClient(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+func (r *ClientRepository) queryMany(q string, args ...any) ([]*models.Client, error) {
+	rows, err := r.db.Query(q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("get client by email: %w", err)
+		return nil, err
 	}
-	return c, nil
+	defer rows.Close()
+	var out []*models.Client
+	for rows.Next() {
+		c, err := scanClient(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func like(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	return "%" + v + "%"
+}
+func nullString(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return strings.TrimSpace(v)
+}
+func nullRaw(v json.RawMessage) any {
+	if len(v) == 0 {
+		return nil
+	}
+	return []byte(v)
+}
+func nullInt16(v *int16) any {
+	if v == nil {
+		return nil
+	}
+	return int64(*v)
 }

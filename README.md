@@ -14,6 +14,11 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - [Миграции БД](#миграции-бд)  
 - [Аутентификация и безопасность](#аутентификация-и-безопасность)  
 - [RBAC (роли и права)](#rbac-роли-и-права)  
+- [RBAC policy model](docs/rbac.md)
+- [Wazzup / WhatsApp integration](docs/integrations/wazzup.md)
+- [Clients data model](docs/clients.md)
+- [Manual QA smoke checklist](docs/manual_qa_checklist.md)
+- [Smoke map (E2E)](docs/smoke_map.md)
 - [Эндпоинты](#эндпоинты)  
 - [Коллекция Postman](#коллекция-postman)  
 - [Требования/запуск в проде](#требованиязапуск-в-проде)
@@ -66,6 +71,91 @@ GIN_MODE=release go run cmd/web/main.go
 
 ---
 
+## Локальный запуск после чистого клона
+
+> Цель local-режима: быстро поднять `postgres + migrate + api` в Docker без реальных SMTP/Telegram/Wazzup секретов.
+
+### 1) Подготовка локальных файлов
+
+**Bash (Linux/macOS/Git Bash):**
+```bash
+cp .env.local.example .env.local
+cp config/config.local.example.yaml config/config.local.yaml
+mkdir -p files/pdf files/docx files/excel
+```
+
+**PowerShell (Windows):**
+```powershell
+Copy-Item .env.local.example .env.local -ErrorAction SilentlyContinue
+Copy-Item config/config.local.example.yaml config/config.local.yaml -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force files,files/pdf,files/docx,files/excel | Out-Null
+```
+
+### 2) Старт локального стека
+
+**Bash:**
+```bash
+make local-up
+```
+
+**PowerShell:**
+```powershell
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+Проверки:
+```bash
+docker compose -f docker-compose.local.yml ps
+curl -fsS http://localhost:4000/healthz
+```
+
+### 3) Логи, остановка, миграции, psql
+
+```bash
+make local-logs      # хвост логов
+make local-migrate   # ручной прогон миграций
+make local-psql      # psql в контейнер postgres
+make local-down      # остановка локального стека
+```
+
+### 4) Как создать первого пользователя в debug-режиме
+
+1. Зарегистрируй пользователя публичным endpoint:
+```bash
+curl -X POST http://localhost:4000/register \
+  -H "Content-Type: application/json" \
+  -d '{"company_name":"Dev Co","bin_iin":"123456789012","email":"first@local.dev","password":"Passw0rd!","phone":"+77000000000"}'
+```
+
+2. Получи verification code из логов API (dev-лог):
+```bash
+docker compose -f docker-compose.local.yml logs -f api | rg "\[DEV\]\[email\]\[verify\]"
+```
+
+3. Подтверди регистрацию:
+```bash
+curl -X POST http://localhost:4000/register/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":1,"code":"<CODE_FROM_LOGS>"}'
+```
+
+### 5) Временное повышение первого пользователя до management (role_id=40)
+
+Сейчас полный доступ в системе есть у `management`, поэтому для локального smoke удобно временно повысить первого пользователя SQL-командой:
+
+```sql
+UPDATE users SET role_id = 40 WHERE id = 1;
+```
+
+Команда из хоста:
+```bash
+docker compose -f docker-compose.local.yml exec -T postgres \
+  psql -U "${POSTGRES_USER:-turcompany}" -d "${POSTGRES_DB:-turcompany}" \
+  -c "UPDATE users SET role_id = 40 WHERE id = 1;"
+```
+
+> Не коммить `config/config.local.yaml`, `.env.local` и любые реальные секреты.
+
 ## Конфиг
 
 Файл: `config/config.yaml` (скопируй из `config/config.example.yaml`)
@@ -89,6 +179,8 @@ files:
 sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
 sign_confirm_policy: "ANY"         # ANY или BOTH (Email + Telegram)
 sign_email_verify_base_url: "https://YOUR-DOMAIN.TLD"
+sign_email_ttl_minutes: 30
+sign_session_ttl_minutes: 30   # если не задано/<=0 -> берётся sign_email_ttl_minutes
 
 security:
   jwt_secret: "CHANGE_ME"
@@ -119,6 +211,7 @@ SIGN_EMAIL_VERIFY_BASE_URL="https://example.com"
 Секрет JWT можно задавать через `security.jwt_secret` в конфиге или через переменную окружения `JWT_SECRET`.
 TTL access-токена настраивается через переменную окружения `ACCESS_TOKEN_TTL` (формат Go duration, например `2h`; по умолчанию `2h`).
 Для удобства можно создать `.env` из `.env.example` и хранить там параметры, которые затем подставляются в `config.yaml` и/или используются при запуске.
+Для signing flow используются два TTL: `sign_email_ttl_minutes` (email OTP/магическая ссылка) и `sign_session_ttl_minutes` (post-confirm sign session); если `sign_session_ttl_minutes` не задан, он наследуется из `sign_email_ttl_minutes`.
 
 ---
 
@@ -168,6 +261,8 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 | 50 `admin`  | Полный доступ + управление ролями/пользователями  |
 
 > Ограничения в middleware + в хендлерах (проверка владельца и/или повышенной роли).
+
+Подробнее по канонической модели и policy-хелперам: `docs/rbac.md`.
 
 ---
 

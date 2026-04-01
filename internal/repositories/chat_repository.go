@@ -43,6 +43,7 @@ type ChatRepository interface {
 	UnfavoriteMessage(chatID, messageID, userID int) error
 	ListPins(chatID, userID, limit, offset int) ([]*models.PinResponse, error)
 	ListFavorites(chatID, userID, limit, offset int) ([]*models.FavoriteResponse, error)
+	GetChatVisibleProfiles(userIDs []int) (map[int]*models.ChatVisibleProfile, error)
 }
 
 type chatRepository struct {
@@ -337,8 +338,10 @@ WHERE id = $1
 SELECT cm.user_id,
        cm.role,
        cm.joined_at,
-       u.email,
+       ''::text AS email,
        COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+       rl.name AS role_name,
+       rl.name AS role_code,
        NULL::text AS avatar_url,
        COALESCE(us.online, false) AS online,
        us.last_seen,
@@ -369,7 +372,7 @@ ORDER BY CASE cm.role
 		var lastSeen sql.NullTime
 		var lastReadID sql.NullInt64
 		var readAt sql.NullTime
-		if err := rows.Scan(&p.UserID, &p.Role, &p.JoinedAt, &p.Email, &p.DisplayName, &avatar, &p.Online, &lastSeen, &lastReadID, &readAt); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Role, &p.JoinedAt, &p.Email, &p.DisplayName, &p.RoleName, &p.RoleCode, &avatar, &p.Online, &lastSeen, &lastReadID, &readAt); err != nil {
 			return nil, err
 		}
 		if avatar.Valid {
@@ -393,6 +396,36 @@ ORDER BY CASE cm.role
 		return nil, err
 	}
 	return info, nil
+}
+
+func (r *chatRepository) GetChatVisibleProfiles(userIDs []int) (map[int]*models.ChatVisibleProfile, error) {
+	result := make(map[int]*models.ChatVisibleProfile)
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	const q = `
+SELECT u.id,
+       COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+       COALESCE(rl.name, 'unknown') AS role_code,
+       COALESCE(rl.description, rl.name, 'unknown') AS role_name
+FROM users u
+LEFT JOIN roles rl ON rl.id = u.role_id
+WHERE u.id = ANY($1)
+`
+	rows, err := r.DB.Query(q, pq.Array(userIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		p := &models.ChatVisibleProfile{}
+		if err := rows.Scan(&p.UserID, &p.DisplayName, &p.RoleCode, &p.RoleName); err != nil {
+			return nil, err
+		}
+		result[p.UserID] = p
+	}
+	return result, rows.Err()
 }
 
 func (r *chatRepository) CreateAttachment(chatID, uploaderID int, fileName, mime string, size int64, storageKey string) (*models.Attachment, error) {

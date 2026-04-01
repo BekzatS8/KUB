@@ -28,8 +28,12 @@ var (
 )
 
 type Service struct {
-	repo   repositories.WazzupRepository
-	client Client
+	repo               repositories.WazzupRepository
+	client             Client
+	defaultAPIToken    string
+	defaultChannelID   string
+	webhookVerifyToken string
+	webhookBaseURL     string
 }
 
 type SetupResponse struct {
@@ -38,14 +42,28 @@ type SetupResponse struct {
 	CRMKey       string `json:"crm_key"`
 }
 
-func NewService(repo repositories.WazzupRepository, client Client) *Service {
-	return &Service{repo: repo, client: client}
+func NewService(repo repositories.WazzupRepository, client Client, defaultAPIToken, defaultChannelID, webhookVerifyToken, webhookBaseURL string) *Service {
+	return &Service{
+		repo:               repo,
+		client:             client,
+		defaultAPIToken:    strings.TrimSpace(defaultAPIToken),
+		defaultChannelID:   strings.TrimSpace(defaultChannelID),
+		webhookVerifyToken: strings.TrimSpace(webhookVerifyToken),
+		webhookBaseURL:     strings.TrimSpace(webhookBaseURL),
+	}
 }
 
-func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, apiKey string, enabled bool) (*SetupResponse, error) {
+func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*SetupResponse, error) {
 	base := strings.TrimRight(strings.TrimSpace(webhooksBaseURL), "/")
 	if base == "" {
+		base = strings.TrimRight(s.webhookBaseURL, "/")
+	}
+	if base == "" {
 		return nil, fmt.Errorf("%w: webhooks base url is required", ErrBadRequest)
+	}
+	apiKey := s.defaultAPIToken
+	if enabled && strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("%w: wazzup api token is required", ErrBadRequest)
 	}
 	crmKey, crmHash, err := generateCRMKey()
 	if err != nil {
@@ -75,9 +93,9 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 	}
 
 	if enabled {
-		log.Printf("[WAZZUP][setup] patching webhooks uri=%s token=%s crm_key=%s", webhooksURI, keyPrefix(apiKey), keyPrefix(crmKey))
+		log.Printf("integration=wazzup operation=setup owner_user_id=%d enabled=%v webhook=%s token=%s", ownerUserID, enabled, webhooksURI, keyPrefix(apiKey))
 		if err := s.client.PatchWebhooks(ctx, apiKey, webhooksURI, crmKey); err != nil {
-			log.Printf("[WAZZUP][setup] patch webhooks failed err=%v", err)
+			log.Printf("integration=wazzup operation=setup status=failed owner_user_id=%d err=%v", ownerUserID, err)
 			return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 		}
 	}
@@ -112,16 +130,17 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID i
 		companyID = ownerUserID
 	}
 	wazzupUserID := fmt.Sprintf("kub-%d-%d", companyID, ownerUserID)
-	if err := s.client.UpsertUsers(ctx, integration.APIKeyEnc, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
-		log.Printf("[WAZZUP][iframe] users sync failed owner_user_id=%d status_body_err=%v", ownerUserID, err)
+	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
+	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
+		log.Printf("integration=wazzup operation=iframe_upsert_users status=failed owner_user_id=%d err=%v", ownerUserID, err)
 		return "", fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
 	}
-	url, err := s.client.CreateIframe(ctx, integration.APIKeyEnc, CreateIframeRequest{
+	url, err := s.client.CreateIframe(ctx, apiKey, CreateIframeRequest{
 		User:  UserUpsert{ID: wazzupUserID, Name: name},
 		Scope: "global",
 	})
 	if err != nil {
-		log.Printf("[WAZZUP][iframe] create iframe failed owner_user_id=%d status_body_err=%v", ownerUserID, err)
+		log.Printf("integration=wazzup operation=iframe_create status=failed owner_user_id=%d err=%v", ownerUserID, err)
 		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	return url, nil
@@ -138,6 +157,12 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 	}
 	if !integration.Enabled {
 		return 0, false, ErrDisabled
+	}
+	if s.webhookVerifyToken != "" && strings.TrimSpace(authHeader) != "" {
+		if !strings.EqualFold(strings.TrimSpace(authHeader), "Bearer "+s.webhookVerifyToken) &&
+			strings.TrimSpace(authHeader) != s.webhookVerifyToken {
+			return 0, false, ErrUnauthorized
+		}
 	}
 	var req webhookPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -198,8 +223,45 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 		}
 		processed++
 	}
-	log.Printf("[WAZZUP:WEBHOOK] token=%s integration_id=%d processed_count=%d duration_ms=%d", tokenPrefix(token), integration.ID, processed, time.Since(start).Milliseconds())
+	log.Printf("integration=wazzup operation=webhook status=ok token=%s integration_id=%d processed=%d duration_ms=%d", tokenPrefix(token), integration.ID, processed, time.Since(start).Milliseconds())
 	return createdLeadID, created, nil
+}
+
+func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, text string) (*SendMessageResponse, error) {
+	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if integration == nil || !integration.Enabled {
+		return nil, ErrDisabled
+	}
+	req := SendMessageRequest{
+		ChannelID: s.defaultChannelID,
+		ChatID:    strings.TrimSpace(chatID),
+		Text:      strings.TrimSpace(text),
+	}
+	resp, err := s.client.SendMessage(ctx, s.resolveAPIKey(integration.APIKeyEnc), req)
+	if err != nil {
+		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d target_chat=%s err=%v", ownerUserID, maskChatID(chatID), err)
+		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
+	}
+	log.Printf("integration=wazzup operation=send_message status=ok owner_user_id=%d target_chat=%s message_id=%s", ownerUserID, maskChatID(chatID), tokenPrefix(resp.MessageID))
+	return resp, nil
+}
+
+func (s *Service) resolveAPIKey(saved string) string {
+	if strings.TrimSpace(s.defaultAPIToken) != "" {
+		return s.defaultAPIToken
+	}
+	return strings.TrimSpace(saved)
+}
+
+func maskChatID(chatID string) string {
+	clean := strings.TrimSpace(chatID)
+	if len(clean) <= 4 {
+		return "***"
+	}
+	return clean[:2] + "***" + clean[len(clean)-2:]
 }
 
 type webhookPayload struct {

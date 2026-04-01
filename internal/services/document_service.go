@@ -74,6 +74,8 @@ type DocumentService struct {
 	PDFGen    pdf.Generator // генератор PDF (internal/pdf, txt-шаблоны/старые контракты)
 	DocxGen   docx.Generator
 	XlsxGen   xlsx.Generator
+	now       func() time.Time
+	displayTZ *time.Location
 }
 
 type DocumentMissingFieldsError struct {
@@ -125,6 +127,17 @@ func NewDocumentService(
 		PDFGen:     pdfGen,
 		DocxGen:    docxGen,
 		XlsxGen:    xlsxGen,
+		now:        time.Now,
+		displayTZ:  time.UTC,
+	}
+}
+
+func (s *DocumentService) SetTimeProvider(now func() time.Time, displayTZ *time.Location) {
+	if now != nil {
+		s.now = now
+	}
+	if displayTZ != nil {
+		s.displayTZ = displayTZ
 	}
 }
 
@@ -325,7 +338,7 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	if authz.IsReadOnly(roleID) {
 		return 0, errors.New("read-only role")
 	}
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		return 0, errors.New("forbidden")
 	}
 
@@ -539,7 +552,7 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
-	if !(roleID == authz.RoleOperations || roleID == authz.RoleManagement) {
+	if !authz.CanProcessDocuments(roleID) {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)
@@ -1552,15 +1565,7 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 
 	signedAt := ""
 	if session.SignedAt != nil {
-		loc, _ := time.LoadLocation("Asia/Aqtobe")
-		if loc == nil {
-			loc = time.UTC
-		}
-		tzLabel := loc.String()
-		if tzLabel == "" || tzLabel == "UTC" {
-			tzLabel = session.SignedAt.In(loc).Format("-07:00")
-		}
-		signedAt = fmt.Sprintf("%s (%s)", session.SignedAt.In(loc).Format("02.01.2006 15:04"), tzLabel)
+		signedAt = formatSignedAtForSigningSheet(session.SignedAt, s.displayTZ)
 	}
 
 	docTypeTitle := doc.DocType
@@ -1647,6 +1652,20 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 		return fmt.Errorf("create signing page: %w", err)
 	}
 	return nil
+}
+
+func formatSignedAtForSigningSheet(signedAt *time.Time, loc *time.Location) string {
+	if signedAt == nil {
+		return ""
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	tzLabel := loc.String()
+	if tzLabel == "" || tzLabel == "UTC" {
+		tzLabel = signedAt.In(loc).Format("-07:00")
+	}
+	return fmt.Sprintf("%s (%s)", signedAt.In(loc).Format("02.01.2006 15:04"), tzLabel)
 }
 
 func drawSectionTitle(pdfFile *gofpdf.Fpdf, title string) {

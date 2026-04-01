@@ -26,6 +26,17 @@ telegram:
   bot_token: "REPLACE_TELEGRAM_BOT_TOKEN"
   webhook_url: "https://example.com/integrations/telegram/webhook"
 
+wazzup:
+  enable: false
+  api_base_url: "https://api.wazzup24.com"
+  api_token: ""
+  channel_id: ""
+  webhook_verify_token: ""
+  webhook_base_url: "https://api.kubcrm.kz"
+  request_timeout_sec: 10
+  retry_count: 1
+  retry_delay_ms: 300
+
 frontend:
   host: "https://kubcrm.kz"
 
@@ -46,3 +57,4 @@ sign_email_verify_base_url: "https://kubcrm.kz"
 sign_email_token_pepper: "REPLACE_SIGN_EMAIL_TOKEN_PEPPER"
 sign_public_token_pepper: "REPLACE_SIGN_PUBLIC_TOKEN_PEPPER"
 sign_email_ttl_minutes: 30
+sign_session_ttl_minutes: 30

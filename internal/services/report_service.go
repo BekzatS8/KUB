@@ -26,7 +26,7 @@ func (s *ReportService) resolveOwnerFilter(userID, roleID int) (ownerID *int, er
 		return &userID, nil
 	case authz.RoleOperations, authz.RoleManagement, authz.RoleControl:
 		return nil, nil
-	case authz.RoleAdminStaff:
+	case authz.RoleSystemAdmin:
 		return nil, ErrForbidden
 	default:
 		return nil, ErrForbidden

@@ -87,7 +87,7 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -119,7 +119,7 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 // POST /documents/upload
 func (h *DocumentHandler) Upload(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -164,7 +164,7 @@ func (h *DocumentHandler) GetDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -188,7 +188,7 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -212,7 +212,7 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -456,7 +456,7 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if authz.CanManageSystem(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}

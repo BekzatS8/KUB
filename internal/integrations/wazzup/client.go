@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -18,6 +18,7 @@ type Client interface {
 	PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crmKey string) error
 	UpsertUsers(ctx context.Context, apiKey string, users []UserUpsert) error
 	CreateIframe(ctx context.Context, apiKey string, req CreateIframeRequest) (string, error)
+	SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error)
 }
 
 type UserUpsert struct {
@@ -30,19 +31,42 @@ type CreateIframeRequest struct {
 	Scope string     `json:"scope"`
 }
 
+type SendMessageRequest struct {
+	ChannelID string `json:"channelId,omitempty"`
+	ChatID    string `json:"chatId"`
+	Text      string `json:"text"`
+}
+
+type SendMessageResponse struct {
+	MessageID string
+}
+
 type HTTPClient struct {
 	baseURL string
 	http    *http.Client
+	retries int
+	retryIn time.Duration
 }
 
-func NewHTTPClientFromEnv() *HTTPClient {
-	baseURL := strings.TrimSpace(os.Getenv("WAZZUP_BASE_URL"))
+func NewHTTPClient(baseURL string, timeout time.Duration, retries int, retryDelay time.Duration) *HTTPClient {
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	if retries < 0 {
+		retries = 0
+	}
+	if retryDelay <= 0 {
+		retryDelay = 300 * time.Millisecond
+	}
 	return &HTTPClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: 10 * time.Second},
+		http:    &http.Client{Timeout: timeout},
+		retries: retries,
+		retryIn: retryDelay,
 	}
 }
 
@@ -89,30 +113,73 @@ func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey string, req Create
 	return "", fmt.Errorf("iframe url is empty")
 }
 
+func (c *HTTPClient) SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
+	req.ChatID = strings.TrimSpace(req.ChatID)
+	req.Text = strings.TrimSpace(req.Text)
+	if req.ChatID == "" || req.Text == "" {
+		return nil, fmt.Errorf("chatId and text are required")
+	}
+	body, err := c.doJSON(ctx, http.MethodPost, "/v3/message", apiKey, req)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		MessageID string `json:"messageId"`
+		ID        string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode send message response: %w", err)
+	}
+	messageID := strings.TrimSpace(resp.MessageID)
+	if messageID == "" {
+		messageID = strings.TrimSpace(resp.ID)
+	}
+	return &SendMessageResponse{MessageID: messageID}, nil
+}
+
 func (c *HTTPClient) doJSON(ctx context.Context, method, path, apiKey string, payload any) ([]byte, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("wazzup request: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		traceID := strings.TrimSpace(resp.Header.Get("trace-id"))
-		if traceID != "" {
-			return nil, fmt.Errorf("wazzup %s %s failed: status=%d trace_id=%s body=%s", method, path, resp.StatusCode, traceID, string(body))
+	var lastErr error
+	for attempt := 0; attempt <= c.retries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(b))
+		if err != nil {
+			return nil, fmt.Errorf("new request: %w", err)
 		}
-		return nil, fmt.Errorf("wazzup %s %s failed: status=%d body=%s", method, path, resp.StatusCode, string(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("wazzup request: %w", err)
+		} else {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return body, nil
+			}
+			traceID := strings.TrimSpace(resp.Header.Get("trace-id"))
+			if traceID != "" {
+				lastErr = fmt.Errorf("wazzup %s %s failed: status=%d trace_id=%s body=%s", method, path, resp.StatusCode, traceID, string(body))
+			} else {
+				lastErr = fmt.Errorf("wazzup %s %s failed: status=%d body=%s", method, path, resp.StatusCode, string(body))
+			}
+			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+				return nil, lastErr
+			}
+		}
+		if attempt < c.retries {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(c.retryIn):
+			}
+		}
 	}
-	return body, nil
+	if lastErr == nil {
+		lastErr = errors.New("wazzup request failed")
+	}
+	return nil, lastErr
 }
