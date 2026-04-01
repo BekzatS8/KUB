@@ -316,13 +316,17 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 
 ## Коллекция Postman
 
-Коллекция включает **все текущие роуты**, три шага **register → confirm → login**, ротацию refresh и примеры запросов по сущностям.
+Актуальные файлы:
+- `postman/KUB API.postman_collection.json`
+- `postman/KUB Local.postman_environment.json`
+- `postman/README.md` (быстрый гайд по импорту и smoke flow)
 
-Переменные коллекции:
-- `baseUrl` — `http://localhost:4000`
-- `accessToken`, `refreshToken` — выставляются автоматически после `login`/`refresh`
+Коллекция включает все текущие роуты (Auth, Users & Roles, Clients, Leads, Deals, Documents, Signing, Chats, Tasks, Reports, Integrations/Wazzup, Debug) и выстроена под локальный smoke flow на `http://localhost:4000`.
 
-Импортируй актуальный JSON (обновлён под твоё приложение).
+Базовый сценарий:
+1. Импортируй collection + environment.
+2. Запусти `Auth / Login` (access/refresh token сохраняются автоматически).
+3. Выполняй smoke по папкам сверху вниз.
 
 ---
 

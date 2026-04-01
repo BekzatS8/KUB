@@ -4,36 +4,55 @@
 1. Импортируйте коллекцию: `postman/KUB API.postman_collection.json`.
 2. Импортируйте окружение: `postman/KUB Local.postman_environment.json`.
 3. Выберите окружение **KUB Local**.
+4. Убедитесь, что `baseUrl = http://localhost:4000`.
 
-## Обязательные переменные окружения
-- `base_url` — базовый URL API (пример: `http://localhost:4000`)
-- `jwt` — access token без префикса `Bearer`
-- `client_id` — ID клиента
-- `deal_id` — ID сделки
-- `doc_id` — заполняется автоматически после генерации документа
-- `signed_by` — кто подписал
-- `signed_at` — RFC3339 (если оставить пустым, сервер использует текущее время)
+## Структура коллекции
+- Auth
+- Users & Roles
+- Clients
+- Leads
+- Deals
+- Documents
+- Signing
+- Chats
+- Tasks
+- Reports
+- Integrations/Wazzup
+- Debug (dev-only)
 
-> Для совместимости также выставлены алиасы: `baseUrl`, `accessToken`, `clientId`, `dealId`, `documentId`.
+## Ключевые переменные environment
+- `baseUrl`, `accessToken`, `refreshToken`
+- `adminEmail`, `adminPassword`, `bossEmail`, `bossPassword`
+- `userId`, `roleId`
+- `clientId`, `individualClientId`, `legalClientId`
+- `leadId`, `dealId`, `documentId`
+- `chatId`, `messageId`
+- `signSessionId`, `signSessionToken`, `publicDocumentToken`
+- `wazzupVerifyToken`, `wazzupChatId`, `wazzupWebhookToken`
+- `emailVerificationCode`, `registerUserId`
 
-## Раздел Documents
-Добавлены запросы:
-- `GET /documents/types`
-- `POST /documents/create-from-client` — 15 запросов, по одному на каждый `doc_type`
-- `GET /documents/{{doc_id}}/download?format=pdf`
-- `POST /documents/{{doc_id}}/send-for-signature`
-- `POST /documents/{{doc_id}}/sign`
-- `GET /documents/{{doc_id}}`
+> Для обратной совместимости сохранены алиасы (`base_url`, `jwt`, `client_id`, `lead_id`, `deal_id`, `doc_id`, `chat_id`, `message_id`, `sign_session_id`, `session_token`).
 
-У всех create-запросов в тестах сохраняется `doc_id` из ответа (`id` или `data.id`).
+## Полезные автоскрипты (Tests)
+- После `Auth / Login` сохраняются `accessToken` и `refreshToken`.
+- После `Clients / Create...` сохраняется `clientId`.
+- После `Leads / Create Lead` сохраняется `leadId`.
+- После `Leads / Convert...` сохраняется `dealId`.
+- После `Documents / Create...` сохраняется `documentId`.
+- После `Chats / Create...` и `Chats / Send Message` сохраняются `chatId`/`messageId`.
+- После `Signing / Confirm Email Token` сохраняются `signSessionId` и `signSessionToken`.
 
-## Быстрый сценарий
-1. Выполнить `GET document types`.
-2. Выполнить любой `Create from client: <doc_type>`.
-3. Выполнить `Download PDF by doc_id`.
-4. Выполнить `Send for signature`.
-5. Выполнить `Sign document`.
-6. Проверить статус через `Get document by doc_id`.
+## Быстрый smoke flow (локально)
+1. `Auth / Login`
+2. `Clients / Create Client (individual_profile nested)` или `... (legal_profile nested)`
+3. `Leads / Create Lead`
+4. `Leads / Convert Lead To Deal` (или `...With Client`)
+5. `Documents / Create from client: <doc_type>`
+6. `Signing / Start Signing (Email)` → `Verify Email Token` → `Confirm Email Token` → `Signing Status`
+7. `Chats / Create Personal Chat` → `Send Message`
+8. `Reports / Funnel|Leads|Revenue`
 
-## Важно
-Если реальные шаблоны еще не загружены в `assets/templates/docx` и `assets/templates/xlsx`, сервер может вернуть `template_not_found` — это ожидаемое поведение.
+## Wazzup
+- Запросы в `Integrations/Wazzup` доступны в коллекции даже для локального контура.
+- Для работы backend должен быть запущен с `WAZZUP_ENABLE=true`.
+- `Wazzup Setup` больше **не требует** `api_key` в body (токен берётся из server config/env).
