@@ -40,14 +40,25 @@
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "const data = pm.response.json();",
-                  "if (data?.tokens?.access_token) pm.environment.set('access_token', data.tokens.access_token);",
-                  "if (data?.tokens?.accessToken) pm.environment.set('accessToken', data.tokens.accessToken);",
-                  "if (data?.tokens?.refresh_token) pm.environment.set('refreshToken', data.tokens.refresh_token);",
-                  "if (data?.user?.id) pm.environment.set('userId', data.user.id);"
-                ],
-                "type": "text/javascript"
+                  "pm.test('Status code is successful', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const access = data?.tokens?.access_token || data?.access_token || data?.token;",
+                  "const refresh = data?.tokens?.refresh_token || data?.refresh_token;",
+                  "if (access) {",
+                  "  pm.environment.set('accessToken', access);",
+                  "  pm.environment.set('jwt', access);",
+                  "}",
+                  "if (refresh) {",
+                  "  pm.environment.set('refreshToken', refresh);",
+                  "}",
+                  "const uid = data?.user?.id || data?.id;",
+                  "if (uid) { pm.environment.set('userId', uid); }"
+                ]
               }
             }
           ],
@@ -118,68 +129,6 @@
           "response": []
         },
         {
-          "name": "Forgot Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/forgot-password",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "forgot-password"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Reset Password",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/reset-password",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "reset-password"
-              ]
-            }
-          },
-          "response": []
-        }
-      ],
-      "auth": {
-        "type": "noauth"
-      }
-    },
-    {
-      "name": "Register",
-      "item": [
-        {
           "name": "Register",
           "event": [
             {
@@ -245,78 +194,6 @@
           "response": []
         },
         {
-          "name": "Register Resend",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"user_id\": {{userId}}\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/register/resend",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "register",
-                "resend"
-              ]
-            }
-          },
-          "response": []
-        }
-      ],
-      "auth": {
-        "type": "noauth"
-      }
-    },
-    {
-      "name": "Users",
-      "item": [
-        {
-          "name": "Create User",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('userId', data.id); }"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"{{phone}}\",\n  \"role_id\": {{roleId}}\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/users",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Get My Profile",
           "request": {
             "method": "GET",
@@ -333,291 +210,338 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Get Users",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/users?page=1&limit=20",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users"
-              ],
-              "query": [
-                {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "limit",
-                  "value": "20"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get User By ID",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/users/{{userId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users",
-                "{{userId}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Update User",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"phone\": \"{{phone}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/users/{{userId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users",
-                "{{userId}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Delete User",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/users/{{userId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users",
-                "{{userId}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get User Count",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/users/count",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users",
-                "count"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get User Count By Role",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/users/count/role/{{roleId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "users",
-                "count",
-                "role",
-                "{{roleId}}"
-              ]
-            }
-          },
-          "response": []
         }
       ]
     },
     {
-      "name": "Roles",
+      "name": "Users & Roles",
       "item": [
         {
-          "name": "Create Role",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{roleName}}\",\n  \"description\": \"{{roleDescription}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/roles",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Roles",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/roles?page=1&limit=20",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles"
-              ],
-              "query": [
+          "name": "Users",
+          "item": [
+            {
+              "name": "Create User",
+              "event": [
                 {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "limit",
-                  "value": "20"
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('userId', data.id); }"
+                    ],
+                    "type": "text/javascript"
+                  }
                 }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Role",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/roles/{{roleId}}",
-              "host": [
-                "{{baseUrl}}"
               ],
-              "path": [
-                "roles",
-                "{{roleId}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Update Role",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{roleName}}\",\n  \"description\": \"{{roleDescription}}\"\n}"
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"{{phone}}\",\n  \"role_id\": {{roleId}}\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ]
+                }
+              },
+              "response": []
             },
-            "url": {
-              "raw": "{{baseUrl}}/roles/{{roleId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles",
-                "{{roleId}}"
-              ]
+            {
+              "name": "Get Users",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get User By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{userId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update User",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"phone\": \"{{phone}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{userId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete User",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "{{userId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get User Count",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users/count",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "count"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get User Count By Role",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/users/count/role/{{roleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "count",
+                    "role",
+                    "{{roleId}}"
+                  ]
+                }
+              },
+              "response": []
             }
-          },
-          "response": []
+          ]
         },
         {
-          "name": "Delete Role",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/roles/{{roleId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles",
-                "{{roleId}}"
-              ]
+          "name": "Roles",
+          "item": [
+            {
+              "name": "Create Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"{{roleName}}\",\n  \"description\": \"{{roleDescription}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Roles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/roles?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get Role",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/roles/{{roleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles",
+                    "{{roleId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Role",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"{{roleName}}\",\n  \"description\": \"{{roleDescription}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/roles/{{roleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles",
+                    "{{roleId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Role",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/roles/{{roleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles",
+                    "{{roleId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get Role Count",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/roles/count",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles",
+                    "count"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get Roles With User Counts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/roles/with-user-counts",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "roles",
+                    "with-user-counts"
+                  ]
+                }
+              },
+              "response": []
             }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Role Count",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/roles/count",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles",
-                "count"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Roles With User Counts",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/roles/with-user-counts",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "roles",
-                "with-user-counts"
-              ]
-            }
-          },
-          "response": []
+          ]
         }
       ]
     },
@@ -625,20 +549,18 @@
       "name": "Clients",
       "item": [
         {
-          "name": "Create Client (default individual)",
+          "name": "Create Client (individual_profile nested)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"create client default individual status\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
-                  "const j = pm.response.json();",
-                  "const client = j.data?.client || j.data || j;",
-                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
-                  "pm.test(\"client_type defaults to individual\", function(){ pm.expect(client.client_type).to.eql(\"individual\"); });",
-                  "const cid = client.id;",
-                  "if (cid) { pm.environment.set(\"clientId\", cid); pm.environment.set(\"client_id\", cid); pm.collectionVariables.set(\"clientId\", String(cid)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('clientId', id); }",
+                  "pm.environment.set('client_id', pm.environment.get('clientId'));"
                 ]
               }
             }
@@ -653,7 +575,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"country\": \"Poland\",\n  \"trip_purpose\": \"visa\",\n  \"last_name\": \"Ivanova\",\n  \"first_name\": \"Alina\",\n  \"birth_date\": \"2000-01-01\",\n  \"phone\": \"+77001234567\"\n}"
+              "raw": "{\n  \"client_type\": \"individual\",\n  \"phone\": \"+77001234567\",\n  \"email\": \"individual@example.com\",\n  \"individual_profile\": {\n    \"last_name\": \"Ivanova\",\n    \"first_name\": \"Alina\",\n    \"middle_name\": \"Sergeevna\",\n    \"iin\": \"000101450001\",\n    \"id_number\": \"123456789\",\n    \"country\": \"Poland\",\n    \"trip_purpose\": \"visa\",\n    \"birth_date\": \"2000-01-01\",\n    \"registration_address\": \"Almaty\",\n    \"actual_address\": \"Almaty\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/clients",
@@ -668,20 +595,18 @@
           "response": []
         },
         {
-          "name": "Create Client (legal)",
+          "name": "Create Client (legal_profile nested)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"create legal client status\", function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
-                  "const j = pm.response.json();",
-                  "const client = j.data?.client || j.data || j;",
-                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
-                  "pm.test(\"client_type is legal\", function(){ pm.expect(client.client_type).to.eql(\"legal\"); });",
-                  "const cid = client.id;",
-                  "if (cid) { pm.environment.set(\"clientId\", cid); pm.environment.set(\"client_id\", cid); pm.collectionVariables.set(\"clientId\", String(cid)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('clientId', id); }",
+                  "pm.environment.set('client_id', pm.environment.get('clientId'));"
                 ]
               }
             }
@@ -696,7 +621,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"TOO KUB\",\n  \"bin_iin\": \"123456789012\",\n  \"phone\": \"+77001234568\"\n}"
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"phone\": \"+77001234568\",\n  \"email\": \"legal@example.com\",\n  \"legal_profile\": {\n    \"company_name\": \"TOO KUB\",\n    \"bin\": \"123456789012\",\n    \"contact_person_name\": \"Aidos Sarsenov\",\n    \"contact_person_phone\": \"+77001234568\",\n    \"legal_address\": \"Almaty, Abay 10\",\n    \"contact_person_email\": \"ops@kub.local\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/clients",
@@ -888,7 +818,7 @@
           "response": []
         },
         {
-          "name": "Update Client",
+          "name": "Update Client (Legacy/flat compatible)",
           "request": {
             "method": "PUT",
             "header": [
@@ -915,7 +845,7 @@
           "response": []
         },
         {
-          "name": "Update Client Type",
+          "name": "Update Client Type (Legacy/flat compatible)",
           "request": {
             "method": "PUT",
             "header": [
@@ -962,7 +892,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/clients/{{client_id}}/completeness",
+              "raw": "{{baseUrl}}/clients/{{clientId}}/completeness",
               "host": [
                 "{{base_url}}"
               ],
@@ -993,7 +923,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/clients/{{client_id}}/profile",
+              "raw": "{{baseUrl}}/clients/{{clientId}}/profile",
               "host": [
                 "{{base_url}}"
               ],
@@ -1027,7 +957,7 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/clients/{{client_id}}/files",
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
@@ -1073,7 +1003,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/clients/{{client_id}}/files/primary?category=photo35x45",
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files/primary?category=photo35x45",
               "host": [
                 "{{base_url}}"
               ],
@@ -1104,7 +1034,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/clients/{{client_id}}/files/primary/download?category=photo35x45",
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files/primary/download?category=photo35x45",
               "host": [
                 "{{base_url}}"
               ],
@@ -1136,7 +1066,7 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{client_id}}",
+              "raw": "{{baseUrl}}/clients/{{clientId}}",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1159,10 +1089,14 @@
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('leadId', data.id); }"
-                ],
-                "type": "text/javascript"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('leadId', id); }",
+                  "pm.environment.set('lead_id', pm.environment.get('leadId'));"
+                ]
               }
             }
           ],
@@ -1395,7 +1329,22 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('dealId', id); }",
+                  "pm.environment.set('deal_id', pm.environment.get('dealId'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Convert Lead To Deal With Client",
@@ -1428,7 +1377,22 @@
               }
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('dealId', id); }",
+                  "pm.environment.set('deal_id', pm.environment.get('dealId'));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1681,11 +1645,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1727,11 +1691,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1773,11 +1737,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1819,11 +1783,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1865,11 +1829,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1911,11 +1875,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -1957,11 +1921,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2003,11 +1967,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2049,11 +2013,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2095,11 +2059,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2141,11 +2105,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2187,11 +2151,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2233,11 +2197,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2279,11 +2243,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2325,11 +2289,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 2xx', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
-                  "let jsonData = {};",
-                  "try { jsonData = pm.response.json(); } catch (e) {}",
-                  "const newId = (jsonData && jsonData.data && jsonData.data.id) || (jsonData && jsonData.id);",
-                  "if (newId) { pm.environment.set('doc_id', String(newId)); pm.environment.set('documentId', String(newId)); }"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
                 ]
               }
             }
@@ -2496,7 +2460,22 @@
               }
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Create from lead",
@@ -2528,7 +2507,22 @@
               }
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Upload Document",
@@ -2546,7 +2540,22 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get document file stream",
@@ -2636,11 +2645,57 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Generate Public Sign Link",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/generate-sign-link",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "generate-sign-link"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let d={};try{d=pm.response.json()}catch(e){};const t=d?.token||d?.public_token||d?.data?.token;if(t) pm.environment.set('publicDocumentToken',t);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "Signing (Email)",
+      "name": "Signing",
       "item": [
         {
           "name": "Start Signing (Email)",
@@ -2669,7 +2724,18 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let d={};try{d=pm.response.json()}catch(e){};if(d?.email_token) pm.environment.set('email_token', d.email_token);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Signing Status",
@@ -2722,14 +2788,10 @@
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 200) {",
-                  "  const data = pm.response.json();",
-                  "  if (data?.session_id) pm.environment.set('sign_session_id', String(data.session_id));",
-                  "  if (data?.session_token) pm.environment.set('session_token', data.session_token);",
-                  "}"
-                ],
-                "type": "text/javascript"
+                  "let d={};try{d=pm.response.json()}catch(e){};if(d?.session_id) pm.environment.set('signSessionId', d.session_id);if(d?.session_token) pm.environment.set('signSessionToken', d.session_token);if(d?.email_token) pm.environment.set('email_token', d.email_token);"
+                ]
               }
             }
           ],
@@ -2885,198 +2947,49 @@
             }
           },
           "response": []
-        }
-      ]
-    },
-    {
-      "name": "Integrations",
-      "item": [
-        {
-          "name": "Telegram Webhook",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"update_id\": 1,\n  \"message\": {\n    \"message_id\": 1,\n    \"date\": 0,\n    \"chat\": {\n      \"id\": {{tgChatId}},\n      \"type\": \"private\"\n    },\n    \"text\": \"/start\"\n  }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/integrations/telegram/webhook",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "integrations",
-                "telegram",
-                "webhook"
-              ]
-            }
-          },
-          "response": []
         },
         {
-          "name": "Request Telegram Link",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) { const data = pm.response.json(); if (data?.code) pm.environment.set('tgLinkCode', data.code); }"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/integrations/telegram/request-link",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "integrations",
-                "telegram",
-                "request-link"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Confirm Telegram Link",
+          "name": "Public Get Document",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/integrations/telegram/link?code={{tgLinkCode}}",
+              "raw": "{{baseUrl}}/public/documents/{{publicDocumentToken}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "integrations",
-                "telegram",
-                "link"
-              ],
-              "query": [
-                {
-                  "key": "code",
-                  "value": "{{tgLinkCode}}"
-                }
+                "public",
+                "documents",
+                "{{publicDocumentToken}}"
               ]
             }
-          },
-          "response": []
+          }
         },
         {
-          "name": "WhatsApp (Wazzup)",
-          "item": [
-            {
-              "name": "Wazzup Setup",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"webhooks_base_url\": \"{{baseUrl}}\",\n  \"api_key\": \"{{wazzupApiKey}}\",\n  \"enabled\": true\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/integrations/wazzup/setup",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "integrations",
-                    "wazzup",
-                    "setup"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Wazzup Iframe URL",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "if (pm.response.code === 200) {",
-                      "  const data = pm.response.json();",
-                      "  if (data?.iframe_url) pm.environment.set('wazzupIframeUrl', data.iframe_url);",
-                      "}"
-                    ]
-                  }
-                }
+          "name": "Public Sign Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/documents/{{publicDocumentToken}}/sign",
+              "host": [
+                "{{baseUrl}}"
               ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"77001112233\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/integrations/wazzup/iframe",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "integrations",
-                    "wazzup",
-                    "iframe"
-                  ]
-                }
-              },
-              "response": []
+              "path": [
+                "sign"
+              ]
             },
-            {
-              "name": "Wazzup Webhook (Public)",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"messages\": [\n    {\n      \"messageId\": \"demo-message-id\",\n      \"chatType\": \"whatsapp\",\n      \"text\": \"Привет из Wazzup\",\n      \"timestamp\": \"2024-01-01T10:00:00Z\",\n      \"chatId\": \"77001112233\"\n    }\n  ]\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/integrations/wazzup/webhook/{{wazzupWebhookToken}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "integrations",
-                    "wazzup",
-                    "webhook",
-                    "{{wazzupWebhookToken}}"
-                  ]
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Postman Signer\",\n  \"agree\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
                 }
-              },
-              "response": []
+              }
             }
-          ]
+          }
         }
       ]
     },
@@ -3167,10 +3080,14 @@
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('chatId', data.id); }"
-                ],
-                "type": "text/javascript"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('chatId', id); }",
+                  "pm.environment.set('chat_id', pm.environment.get('chatId'));"
+                ]
               }
             }
           ],
@@ -3205,10 +3122,14 @@
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('chatId', data.id); }"
-                ],
-                "type": "text/javascript"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('chatId', id); }",
+                  "pm.environment.set('chat_id', pm.environment.get('chatId'));"
+                ]
               }
             }
           ],
@@ -3473,7 +3394,8 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"text\": \"{{message_text}}\",\n  \"attachment_ids\": [\"{{attachment_id}}\"],\n  \"attachments\": []\n}"
-            }
+            },
+            "description": "Response includes sender_profile. Use this request to validate chat message permissions and sender_profile mapping."
           },
           "response": [],
           "event": [
@@ -3482,7 +3404,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 201', function () { pm.response.to.have.status(201); });"
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('messageId', id); }",
+                  "pm.environment.set('message_id', pm.environment.get('messageId'));"
                 ]
               }
             }
@@ -4354,6 +4280,154 @@
             }
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Integrations/Wazzup",
+      "item": [
+        {
+          "name": "Wazzup Setup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"webhooks_base_url\": \"{{baseUrl}}\",\n  \"enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/setup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "setup"
+              ]
+            },
+            "description": "api_key is not needed in body. Backend uses WAZZUP_API_TOKEN from config/env. Requires WAZZUP_ENABLE=true."
+          },
+          "response": []
+        },
+        {
+          "name": "Wazzup Iframe URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data?.iframe_url) pm.environment.set('wazzupIframeUrl', data.iframe_url);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"77001112233\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/iframe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "iframe"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Wazzup Webhook (Public)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    {\n      \"messageId\": \"demo-message-id\",\n      \"chatType\": \"whatsapp\",\n      \"text\": \"Привет из Wazzup\",\n      \"timestamp\": \"2024-01-01T10:00:00Z\",\n      \"chatId\": \"77001112233\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/webhook/{{wazzupWebhookToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "webhook",
+                "{{wazzupWebhookToken}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Wazzup Send Message",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/send",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "send"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"{{wazzupChatId}}\",\n  \"text\": \"Smoke test from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires WAZZUP_ENABLE=true and configured WAZZUP_API_TOKEN in backend env."
+          }
         }
       ]
     },
