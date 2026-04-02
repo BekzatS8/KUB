@@ -56,3 +56,8 @@
 - Запросы в `Integrations/Wazzup` доступны в коллекции даже для локального контура.
 - Для работы backend должен быть запущен с `WAZZUP_ENABLE=true`.
 - `Wazzup Setup` больше **не требует** `api_key` в body (токен берётся из server config/env).
+- `Wazzup Setup` требует JWT пользователя с ролью `system_admin`.
+
+## Debug
+- Папка `Debug` работает только в `GIN_MODE != release`.
+- Для `/debug/*` нужен JWT пользователя с ролью `system_admin`.

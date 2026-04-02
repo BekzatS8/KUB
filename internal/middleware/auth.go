@@ -19,7 +19,7 @@ type Claims struct {
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/login", "/register", "/refresh", "/register/confirm", "/register/resend":
+	case "/register", "/register/confirm", "/register/resend", "/auth/login", "/auth/refresh":
 		return true
 	case "/auth/forgot-password", "/auth/reset-password":
 		return true

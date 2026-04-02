@@ -14,7 +14,7 @@
 5. Expected: access+refresh tokens, 200.
 
 ## 2) Prepare role for smoke
-- Promote first user to management (`role_id=40`) in local DB (dev only).
+- Promote first user to leadership (`role_id=40`) for business smoke, or system_admin (`role_id=50`) for system/integrations checks (dev only).
 
 ## 3) Create individual client
 1. `POST /clients` with `client_type=individual`, `first_name`, `last_name`, `phone`, `birth_date`, `country`, `trip_purpose`.
@@ -47,9 +47,15 @@
 
 ## 8) Wazzup smoke
 1. Enable Wazzup env config (`WAZZUP_ENABLE=true`, token via `.env.local`).
-2. `POST /integrations/wazzup/setup` (JWT).
+2. `POST /integrations/wazzup/setup` (JWT, `system_admin`).
 3. `POST /integrations/wazzup/send` with `chat_id` + `text`.
 4. Expected: setup/send return 200 or controlled 502 on provider issues, app stays healthy.
+
+## 10) Debug endpoint guard (dev-only)
+1. Run app in `GIN_MODE=debug`.
+2. `GET /debug/register-verification/latest?user_id=<id>` and `GET /debug/sign-confirmations/latest?document_id=<id>` with JWT `system_admin`.
+3. Repeat call with JWT role `leadership`.
+4. Expected: `system_admin` gets 200/404 by data availability; non-system-admin gets 403.
 
 ## 9) Migrations from zero
 1. Start clean DB volume.

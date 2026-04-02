@@ -38,7 +38,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - ✅ Троттлинг и защита от брутфорса для кода подтверждения
 - ✅ Безопасное хранение кода (bcrypt-хэш), TTL, попытки, resend-лимиты
 - ✅ JWT-аутентификация + ротация refresh-токена
-- ✅ RBAC: sales / staff / operations / audit / management / admin
+- ✅ RBAC: sales / backoffice staff / operations / control / leadership / system_admin
 - ✅ Лиды, сделки, задачи, сообщения; документы с подтверждением подписи кодом
 - ✅ Отчёты и фильтры
 - ✅ Скачивание/просмотр PDF из защищённого стора
@@ -50,7 +50,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - **Go 1.22+**, **Gin** (HTTP, middleware)
 - **PostgreSQL** (модель данных и индексы заточены под RBAC/аудит/фильтры)
 - **SMTP** (почта)
-- **JWT**: access (короткий), refresh (длинный, хранится в БД с ротацией)
+- **JWT**: access (короткий), refresh (длинный, хранится в БД в hashed-виде с ротацией)
 - **bcrypt** для паролей и верификационных кодов
 - Генерация PDF (пользовательские шаблоны/шрифты)
 
@@ -139,9 +139,9 @@ curl -X POST http://localhost:4000/register/confirm \
   -d '{"user_id":1,"code":"<CODE_FROM_LOGS>"}'
 ```
 
-### 5) Временное повышение первого пользователя до management (role_id=40)
+### 5) Временное повышение первого пользователя до leadership (role_id=40)
 
-Сейчас полный доступ в системе есть у `management`, поэтому для локального smoke удобно временно повысить первого пользователя SQL-командой:
+Для локального smoke чаще всего нужен полный доступ к бизнес-сущностям (`leadership`, role_id=40), поэтому можно временно повысить первого пользователя SQL-командой:
 
 ```sql
 UPDATE users SET role_id = 40 WHERE id = 1;
@@ -217,11 +217,9 @@ TTL access-токена настраивается через переменну
 
 ## Миграции БД
 
-Применяй миграции вручную (автоприменения нет). В staging/prod последовательно выполни:
+Применяй миграции последовательно из `db/migrations/*.up.sql` (в compose это делает сервис `migrate` через `scripts/run-migrations.sh`). Для ручного прогона:
 ```bash
-psql "$DATABASE_URL" -f db/migrations/001_init.up.sql
-psql "$DATABASE_URL" -f db/migrations/002_sign_sessions.up.sql
-psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
+./scripts/run-migrations.sh
 ```
 **Миграция содержит:**
 - `roles`, `users` (+refresh-поля, телефон, флаг верификации)
@@ -243,7 +241,7 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 - **Resend-троттлинг**: не более **3** раз за **10 минут** (на превышении — **429 Too Many Requests**).  
 - **JWT**:  
   - Access: `ACCESS_TOKEN_TTL` (по умолчанию 2 часа), передаётся в `Authorization: Bearer <token>`  
-  - Refresh: ~30 дней, **хранится в БД** у пользователя, **ротация** на `/refresh`.  
+  - Refresh: ~30 дней, **хранится в БД в hashed-виде**, **ротация** на `/auth/refresh`.  
 - **Login блокируется**, если `is_verified=false` (телефон не подтверждён).
 - В текущей реализации auth не использует server-side session/cookie/Redis: logout зависит от срока `exp` access JWT и срока refresh в БД.
 
@@ -254,11 +252,11 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 | Роль (ID)   | Описание                                         |
 |-------------|---------------------------------------------------|
 | 10 `sales`  | Лиды/сделки свои, документы — отправка на ревью   |
-| 15 `staff`  | Доступ к задачам и сообщениям                     |
-| 20 `ops`    | Проверка/ревью документов                         |
-| 30 `audit`  | Read-only (частичная маскировка чувствит. полей)  |
-| 40 `mgmt`   | Полный доступ + подпись документов                |
-| 50 `admin`  | Полный доступ + управление ролями/пользователями  |
+| 15 `backoffice_staff`  | Административный персонал (задачи/мессенджер) |
+| 20 `operations`    | Операционный доступ к бизнес-сущностям и документам |
+| 30 `control`  | Широкий read-only доступ к бизнес-данным |
+| 40 `leadership` | Полный доступ к бизнес-сущностям + подпись документов |
+| 50 `system_admin` | Системное администрирование: роли/пользователи/интеграции/debug |
 
 > Ограничения в middleware + в хендлерах (проверка владельца и/или повышенной роли).
 
@@ -272,25 +270,26 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 - `POST /register` — регистрация sales + код подтверждения  
 - `POST /register/confirm` — подтвердить email (payload: `user_id`, `code`)  
 - `POST /register/resend` — повторная отправка кода (payload: `user_id`)  
-- `POST /login` — логин (если `is_verified=false` → 403)  
-- `POST /refresh` — ротация refresh и выдача нового access  
+- `POST /auth/login` — логин (если `is_verified=false` → 403)  
+- `POST /auth/refresh` — ротация refresh и выдача нового access  
 
 ### Защищённые (JWT)
 
 **Users**
-- `POST /users` (admin) — создать пользователя любой роли  
-- `GET /users` (mgmt/admin/audit) — список  
-- `GET /users/:id` (mgmt/admin/audit; обычный юзер — только себя)  
-- `PUT /users/:id` — обновить (обычный юзер — только себя; поля верификации/роль — только админ)  
-- `DELETE /users/:id` (admin)
+- `POST /users` (system_admin) — создать пользователя любой роли  
+- `GET /users` (leadership/system_admin/control) — список  
+- `GET /users/:id` (leadership/system_admin/control; обычный юзер — только себя)  
+- `PUT /users/:id` — обновить (обычный юзер — только себя; поля верификации/роль — только system_admin)  
+- `DELETE /users/:id` (system_admin)
 
-**Roles** (admin)
+**Roles** (system_admin)
 - CRUD + счётчики
 
 **Clients**
 - `GET /clients` — общий список клиентов
 - `GET /clients/individual?limit=&offset=&q=` — только физ. лица (`client_type=individual`)
 - `GET /clients/company?limit=&offset=&q=` — только юр. лица (`client_type=legal`)
+- Payload/response: базовые поля клиента + вложенные `individual_profile` / `legal_profile` (legacy flat payload остаётся совместимым).
 
 **Leads / Deals**
 - CRUD, конвертация лида в сделку, фильтры/пагинация, ограничения по владельцу для sales
@@ -298,19 +297,19 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 **Documents**
 - Создание по сделке, генерация/хранение файла, просмотр/скачивание с проверкой прав  
 - `POST /documents/:id/submit` — отправка на ревью (sales/elevated)  
-- `POST /documents/:id/review` — ревью (ops/mgmt/admin)  
-- `POST /documents/:id/sign` — подпись (mgmt/admin)
+- `POST /documents/:id/review` — ревью (operations/leadership)  
+- `POST /documents/:id/sign` — подпись (leadership)
 
-**Tasks** (staff/ops/mgmt/admin)
+**Tasks** (sales/backoffice/operations/control/leadership/system_admin)
 - CRUD
 
-**Messages** (staff/ops/mgmt/admin)
+**Messages** (roles with chat access; см. `docs/rbac.md`)
 - Отправка, список диалогов, история
 
-**Подписание документов по коду** (sales/ops/mgmt/admin)
+**Подписание документов по коду** (доступ согласно документным policy checks; см. `docs/rbac.md`)
 
-**Reports** (audit/ops/mgmt/admin)
-- `/reports/summary`, `/reports/leads/filter`, `/reports/deals/filter`
+**Reports** (sales/operations/control/leadership/system_admin)
+- `/reports/funnel`, `/reports/leads`, `/reports/revenue`, `/reports/revenue/export`
 
 ---
 
@@ -322,6 +321,8 @@ psql "$DATABASE_URL" -f db/migrations/999_audit_logs.sql
 - `postman/README.md` (быстрый гайд по импорту и smoke flow)
 
 Коллекция включает все текущие роуты (Auth, Users & Roles, Clients, Leads, Deals, Documents, Signing, Chats, Tasks, Reports, Integrations/Wazzup, Debug) и выстроена под локальный smoke flow на `http://localhost:4000`.
+
+WebSocket (`GET /chats/:id/ws`) использует JWT из `Authorization: Bearer <token>` как основной способ. Query-параметр `token`/`access_token` поддерживается только как fallback для браузерных клиентов и не должен логироваться или проксироваться в access-логи.
 
 Базовый сценарий:
 1. Импортируй collection + environment.
@@ -482,12 +483,12 @@ curl -X POST http://localhost:4000/register/resend   -H "Content-Type: applicati
 
 4) **Вход**
 ```bash
-curl -X POST http://localhost:4000/login   -H "Content-Type: application/json"   -d '{"email":"sales1@example.com","password":"sales12345"}'
+curl -X POST http://localhost:4000/auth/login   -H "Content-Type: application/json"   -d '{"email":"sales1@example.com","password":"sales12345"}'
 ```
 
 5) **Ротация refresh**
 ```bash
-curl -X POST http://localhost:4000/refresh   -H "Content-Type: application/json"   -d '{"refresh_token":"<your_refresh_token>"}'
+curl -X POST http://localhost:4000/auth/refresh   -H "Content-Type: application/json"   -d '{"refresh_token":"<your_refresh_token>"}'
 ```
 ### Подписание документа (Email + Telegram)
 **Создать сессию подписи (требует JWT):**
@@ -524,6 +525,6 @@ GET /api/v1/sign/sessions/id/{id}/page?token={token}
 ## Что проверить после деплоя
 
 - ✅ SIGN_BASE_URL указывает на публичный домен с доступным `/api/v1/sign/sessions/id/{id}/page?token={token}`.
-- ✅ Миграция `002_sign_sessions.up.sql` применена.
+- ✅ Все `*.up.sql` миграции из `db/migrations` применены (включая split clients profiles и Wazzup data layer).
 - ✅ Проверить rate limit: >3 сессий за 10 минут на документ/телефон возвращает 429.
-- ✅ Проверить TTL: по истечении 10 минут verify/sign возвращает 410.
+- ✅ Проверить TTL по фактическому конфигу: после `sign_email_ttl_minutes` истекает verify, после `sign_session_ttl_minutes` истекает sign-сессия (410).

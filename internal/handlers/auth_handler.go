@@ -109,7 +109,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 	old := strings.TrimSpace(req.RefreshToken)
 	user, err := h.userService.GetByRefreshToken(old)
-	if err != nil || user == nil || user.RefreshToken == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked {
+	if err != nil || user == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}

@@ -35,7 +35,7 @@ func TestWazzupSetupAllowsEmptyWebhookBaseURL(t *testing.T) {
 	r := gin.New()
 	r.POST("/setup", func(c *gin.Context) {
 		c.Set("user_id", 1)
-		c.Set("role_id", 40) // management
+		c.Set("role_id", 50) // system admin
 		h.Setup(c)
 	})
 
@@ -49,5 +49,55 @@ func TestWazzupSetupAllowsEmptyWebhookBaseURL(t *testing.T) {
 	}
 	if !svc.called {
 		t.Fatal("expected service setup call")
+	}
+}
+
+func TestWazzupSetupForbiddenForLeadership(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubWazzupService{}
+	h := NewWazzupHandler(svc)
+
+	r := gin.New()
+	r.POST("/setup", func(c *gin.Context) {
+		c.Set("user_id", 1)
+		c.Set("role_id", 40) // leadership
+		h.Setup(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.called {
+		t.Fatal("service setup must not be called for leadership role")
+	}
+}
+
+func TestWazzupSetupForbiddenForOrdinaryRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubWazzupService{}
+	h := NewWazzupHandler(svc)
+
+	r := gin.New()
+	r.POST("/setup", func(c *gin.Context) {
+		c.Set("user_id", 1)
+		c.Set("role_id", 10) // sales
+		h.Setup(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.called {
+		t.Fatal("service setup must not be called for ordinary role")
 	}
 }
