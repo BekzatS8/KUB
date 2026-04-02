@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"turcompany/internal/models"
@@ -314,20 +315,30 @@ func (r *userRepository) GetCountByRole(roleID int) (int, error) {
 // ===== refresh helpers =====
 
 func (r *userRepository) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
+	stored := hashRefreshToken(token)
+	if stored == "" {
+		stored = strings.TrimSpace(token)
+	}
 	const q = `
 		UPDATE users
 		SET refresh_token=$1, refresh_expires_at=$2, refresh_revoked=FALSE
 		WHERE id=$3
 	`
-	_, err := r.DB.Exec(q, token, expiresAt, userID)
+	_, err := r.DB.Exec(q, stored, expiresAt, userID)
 	return err
 }
 
 func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error) {
+	newStored := hashRefreshToken(newToken)
+	if newStored == "" {
+		newStored = strings.TrimSpace(newToken)
+	}
+	oldRaw := strings.TrimSpace(oldToken)
+	oldHashed := hashRefreshToken(oldToken)
 	const q = `
 		UPDATE users
 		SET refresh_token=$1, refresh_expires_at=$2, refresh_revoked=FALSE
-		WHERE refresh_token=$3
+		WHERE refresh_token=$3 OR refresh_token=$4
 		RETURNING
 			id, company_name, bin_iin, email, password_hash, role_id,
 			phone, is_verified, verified_at,
@@ -341,7 +352,7 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 		tgChatID   sql.NullInt64
 		tgNotify   sql.NullBool
 	)
-	err := r.DB.QueryRow(q, newToken, newExpiresAt, oldToken).Scan(
+	err := r.DB.QueryRow(q, newStored, newExpiresAt, oldRaw, oldHashed).Scan(
 		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
 		&phone, &u.IsVerified, &verifiedAt,
 		&tgChatID, &tgNotify,
@@ -378,6 +389,8 @@ func (r *userRepository) ClearRefresh(userID int) error {
 }
 
 func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
+	normalized := strings.TrimSpace(token)
+	hashed := hashRefreshToken(token)
 	const q = `
 		SELECT
 			id, company_name, bin_iin, email, password_hash, role_id,
@@ -385,7 +398,7 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
-		WHERE refresh_token = $1
+		WHERE refresh_token = $1 OR refresh_token = $2
 	`
 	u := &models.User{}
 	var (
@@ -399,7 +412,7 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 		tgChatID   sql.NullInt64
 		tgNotify   sql.NullBool
 	)
-	err := r.DB.QueryRow(q, token).Scan(
+	err := r.DB.QueryRow(q, normalized, hashed).Scan(
 		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
 		&rt, &rte, &rr,
 		&phone, &isVerified, &verifiedAt,
@@ -413,7 +426,9 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 	}
 	if rt.Valid {
 		s := rt.String
-		u.RefreshToken = &s
+		if !isHashedRefreshToken(s) {
+			u.RefreshToken = &s
+		}
 	}
 	if rte.Valid {
 		t := rte.Time

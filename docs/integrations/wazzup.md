@@ -31,7 +31,7 @@ All fields can be set via env (`WAZZUP_*`) or yaml config.
    - `WAZZUP_API_TOKEN=<your_real_token>`
    - `WAZZUP_WEBHOOK_BASE_URL=http://localhost:4000`
 3. Start app with local config (`CONFIG_PATH=config/config.local.example.yaml` or local config file).
-4. Run setup endpoint once (JWT required):
+4. Run setup endpoint once (JWT `system_admin` required):
    - `POST /integrations/wazzup/setup` with `{"webhooks_base_url":"http://localhost:4000","enabled":true}`
 
 ## Implemented endpoints
@@ -41,7 +41,7 @@ Public:
 - `GET /integrations/wazzup/crm/:token/users/:id`
 
 JWT protected:
-- `POST /integrations/wazzup/setup`
+- `POST /integrations/wazzup/setup` (`system_admin` only)
 - `POST /integrations/wazzup/iframe`
 - `POST /integrations/wazzup/send`
 

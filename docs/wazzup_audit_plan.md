@@ -1,5 +1,7 @@
 # Wazzup WhatsApp Integration Audit (Go/Gin + PostgreSQL)
 
+> ⚠️ Этот файл — исторический аудит/план. Текущий runtime-контракт описан в `docs/integrations/wazzup.md`, `internal/routes/routes.go` и Postman-коллекции.
+
 A) КАРТА ПРОЕКТА
 1) Список ключевых папок и назначение
 - `cmd/web` — точка входа HTTP API (`main -> app.Run`).
@@ -29,7 +31,7 @@ A) КАРТА ПРОЕКТА
 - JWT secret: `security.jwt_secret` либо `JWT_SECRET` env.
 - Есть env overrides для SMTP, sign-параметров, Telegram.
 - В release-режиме часть секретов/параметров обязательна (`jwt_secret`, SMTP, pepper).
-- Сейчас отдельной секции под Wazzup (`api_key`, `crmKey`, base URL) нет.
+- Актуально: секция `wazzup.*` в конфиге уже есть (`api_base_url`, `api_token`, `webhook_*`, retry/timeout).
 
 4) Как устроены миграции
 - Миграции — SQL-файлы в `db/migrations`.
@@ -106,7 +108,7 @@ D) WAZZUP ИНТЕГРАЦИЯ — ТОЧКИ ВСТРАИВАНИЯ
 2) Минимальные endpoints
 - `POST /api/v1/integrations/wazzup/webhook` (public, без JWT, с проверкой подписи/`crmKey`).
 - `POST /api/v1/integrations/wazzup/iframe` (JWT, получить URL iFrame для номера/лида).
-- Опционально `POST /api/v1/integrations/wazzup/setup` (JWT admin/mgmt): сохранить webhooksUri/crmKey/api key reference.
+- Опционально `POST /api/v1/integrations/wazzup/setup` (JWT system_admin): сохранить webhooksUri/crmKey/api key reference.
 
 Примечание по текущему проекту:
 - Сейчас API в основном без общего `/api/v1`; если важно единообразие, можно:

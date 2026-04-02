@@ -90,7 +90,7 @@ func (h *WazzupHandler) Webhook(c *gin.Context) {
 
 func (h *WazzupHandler) Setup(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID != authz.RoleManagement && roleID != authz.RoleAdminStaff {
+	if !authz.CanManageIntegrations(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}

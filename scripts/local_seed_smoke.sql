@@ -1,7 +1,7 @@
 -- Dev-only seed helper for manual smoke checks.
 -- Do NOT use in production.
 
--- promote first user to management for local smoke
+-- promote first user to leadership for local business smoke
 UPDATE users SET role_id = 40 WHERE id = 1;
 
 -- optional sample individual client

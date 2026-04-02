@@ -103,7 +103,7 @@ func SetupRoutes(
 		}
 	}
 	if gin.Mode() != gin.ReleaseMode {
-		debug := r.Group("/debug")
+		debug := r.Group("/debug", middleware.RequireRoles(authz.RoleSystemAdmin))
 		{
 			if signConfirmHandler != nil {
 				debug.GET("/sign-confirmations/latest", signConfirmHandler.DebugLatest)
