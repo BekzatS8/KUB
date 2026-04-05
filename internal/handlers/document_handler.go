@@ -37,8 +37,10 @@ type DocumentHandler struct {
 //	}
 //
 // Валидация в сервисе:
-// - Для всех doc_type обязательны client-поля full_name, iin_or_bin, address, phone и deal-поле contract_number.
-// - Дополнительно обязательные поля extra по doc_type:
+//   - Для всех doc_type обязательны базовые поля клиента и deal contract_number.
+//   - Для legal клиента дополнительно проверяются company/signer поля и,
+//     для contract-подобных шаблонов, банковские реквизиты.
+//   - Дополнительно обязательные поля extra по doc_type:
 //   - cancel_appointment: reason_code
 //   - refund_application: reason_code
 //   - pause_application: reason_code
@@ -281,6 +283,9 @@ func (h *DocumentHandler) CreateDocumentFromLead(c *gin.Context) {
 			return
 		case "deal not found":
 			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		case "unsupported_doc_type_for_lead_use_create_from_client":
+			writeError(c, http.StatusBadRequest, UnsupportedDocType, "Unsupported doc_type for lead path; use /documents/create-from-client for legal/templated contracts")
 			return
 		case "forbidden", "read-only role":
 			forbidden(c, "Read-only role")

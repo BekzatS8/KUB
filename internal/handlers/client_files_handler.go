@@ -43,9 +43,9 @@ func (h *ClientFilesHandler) Upload(c *gin.Context) {
 		case errors.Is(err, repositories.ErrClientNotFound):
 			notFound(c, ClientNotFoundCode, "Client not found")
 		case errors.Is(err, services.ErrUnsupportedClientFileCategory):
-			badRequest(c, "unsupported category; only photo35x45 is allowed")
+			badRequest(c, "unsupported category for this client type")
 		case errors.Is(err, services.ErrUnsupportedClientFileExtension):
-			badRequest(c, "unsupported file extension; allowed: .jpg, .jpeg, .png")
+			badRequest(c, "unsupported file extension for selected category")
 		case errors.Is(err, services.ErrFileRequired):
 			badRequest(c, err.Error())
 		default:

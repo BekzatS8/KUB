@@ -33,23 +33,70 @@ type ClientFilesService struct {
 	FileRepo clientFileStore
 }
 
+var individualClientFileCategories = []string{
+	"photo35x45",
+}
+
+var legalClientFileCategories = []string{
+	"photo35x45", // legacy optional compatibility
+	"charter",
+	"bin_certificate",
+	"power_of_attorney",
+	"bank_details",
+	"director_id",
+	"representative_id",
+	"signed_contract",
+	"corporate_other",
+}
+
 func NewClientFilesService(rootDir string, clients clientAccessChecker, fileRepo clientFileStore) *ClientFilesService {
 	return &ClientFilesService{RootDir: rootDir, Clients: clients, FileRepo: fileRepo}
+}
+
+func normalizeClientFileCategory(category string) string {
+	return strings.ToLower(strings.TrimSpace(category))
+}
+
+func allowedClientFileCategories(clientType string) []string {
+	if strings.TrimSpace(clientType) == models.ClientTypeLegal {
+		return legalClientFileCategories
+	}
+	return individualClientFileCategories
+}
+
+func isAllowedCategoryForClient(clientType, category string) bool {
+	category = normalizeClientFileCategory(category)
+	for _, allowed := range allowedClientFileCategories(clientType) {
+		if category == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func categoryAllowsImageOnly(category string) bool {
+	return normalizeClientFileCategory(category) == "photo35x45"
 }
 
 func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, clientID int, category string, fileHeader *multipart.FileHeader) (*models.ClientFile, error) {
 	if fileHeader == nil {
 		return nil, ErrFileRequired
 	}
-	if err := s.ensureClientAccess(clientID, userID, roleID); err != nil {
+	client, err := s.ensureClientAccess(clientID, userID, roleID)
+	if err != nil {
 		return nil, err
 	}
-	if category != "photo35x45" {
+	category = normalizeClientFileCategory(category)
+	if !isAllowedCategoryForClient(client.ClientType, category) {
 		return nil, ErrUnsupportedClientFileCategory
 	}
 
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+	if categoryAllowsImageOnly(category) {
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+			return nil, ErrUnsupportedClientFileExtension
+		}
+	} else if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".pdf" && ext != ".doc" && ext != ".docx" && ext != ".xls" && ext != ".xlsx" {
 		return nil, ErrUnsupportedClientFileExtension
 	}
 
@@ -116,9 +163,10 @@ func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, 
 }
 
 func (s *ClientFilesService) ResolvePrimaryPath(ctx context.Context, userID, roleID, clientID int, category string) (absPath string, fileName string, mimeType string, err error) {
-	if err = s.ensureClientAccess(clientID, userID, roleID); err != nil {
+	if _, err = s.ensureClientAccess(clientID, userID, roleID); err != nil {
 		return "", "", "", err
 	}
+	category = normalizeClientFileCategory(category)
 	rec, err := s.FileRepo.GetPrimaryByCategory(ctx, int64(clientID), category)
 	if err != nil {
 		return "", "", "", err
@@ -141,15 +189,15 @@ func (s *ClientFilesService) ResolvePrimaryPath(ctx context.Context, userID, rol
 	return absPath, fileName, mimeType, nil
 }
 
-func (s *ClientFilesService) ensureClientAccess(clientID, userID, roleID int) error {
+func (s *ClientFilesService) ensureClientAccess(clientID, userID, roleID int) (*models.Client, error) {
 	client, err := s.Clients.GetByID(clientID, userID, roleID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if client == nil {
-		return repositories.ErrClientNotFound
+		return nil, repositories.ErrClientNotFound
 	}
-	return nil
+	return client, nil
 }
 
 func (s *ClientFilesService) safeAbsPath(rel string) (string, error) {

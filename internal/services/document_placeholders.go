@@ -166,6 +166,9 @@ func buildClientPlaceholders(
 		ph["CLIENT_REG_ADDRESS"] = strings.TrimSpace(client.RegistrationAddress)
 		ph["CLIENT_FACT_ADDRESS"] = strings.TrimSpace(client.ActualAddress)
 	}
+	buildIndividualPlaceholders(client, ph)
+	buildLegalPlaceholders(client, ph)
+	buildSignerPlaceholders(client, extra, ph)
 
 	// ================== ДАТЫ ДОКУМЕНТА ==================
 	// базовая дата документа — "сейчас"
@@ -261,6 +264,135 @@ func buildClientPlaceholders(
 	normalizeMoneyTextPlaceholders(ph)
 
 	return ph
+}
+
+func buildLegalPlaceholders(client *models.Client, ph map[string]string) {
+	if client == nil || ph == nil || client.ClientType != models.ClientTypeLegal {
+		return
+	}
+	var lp *models.ClientLegalProfile
+	if client.LegalProfile != nil {
+		lp = client.LegalProfile
+	}
+	companyName := strings.TrimSpace(client.Name)
+	bin := strings.TrimSpace(client.BinIin)
+	legalAddress := strings.TrimSpace(client.Address)
+	actualAddress := strings.TrimSpace(client.ActualAddress)
+	legalForm := ""
+	bankName := ""
+	iban := ""
+	bik := ""
+	kbe := ""
+	taxRegime := ""
+	if lp != nil {
+		if strings.TrimSpace(lp.CompanyName) != "" {
+			companyName = strings.TrimSpace(lp.CompanyName)
+		}
+		if strings.TrimSpace(lp.BIN) != "" {
+			bin = strings.TrimSpace(lp.BIN)
+		}
+		if strings.TrimSpace(lp.LegalAddress) != "" {
+			legalAddress = strings.TrimSpace(lp.LegalAddress)
+		}
+		if strings.TrimSpace(lp.ActualAddress) != "" {
+			actualAddress = strings.TrimSpace(lp.ActualAddress)
+		}
+		legalForm = strings.TrimSpace(lp.LegalForm)
+		bankName = strings.TrimSpace(lp.BankName)
+		iban = strings.TrimSpace(lp.IBAN)
+		bik = strings.TrimSpace(lp.BIK)
+		kbe = strings.TrimSpace(lp.KBE)
+		taxRegime = strings.TrimSpace(lp.TaxRegime)
+	}
+	ph["LEGAL_COMPANY_NAME"] = companyName
+	ph["LEGAL_BIN"] = bin
+	ph["LEGAL_LEGAL_ADDRESS"] = legalAddress
+	ph["LEGAL_ACTUAL_ADDRESS"] = actualAddress
+	ph["LEGAL_FORM"] = legalForm
+	ph["LEGAL_BANK_NAME"] = bankName
+	ph["LEGAL_IBAN"] = iban
+	ph["LEGAL_BIK"] = bik
+	ph["LEGAL_KBE"] = kbe
+	ph["LEGAL_TAX_REGIME"] = taxRegime
+}
+
+func buildIndividualPlaceholders(client *models.Client, ph map[string]string) {
+	if client == nil || ph == nil || client.ClientType == models.ClientTypeLegal {
+		return
+	}
+	ph["INDIVIDUAL_FULL_NAME"] = strings.TrimSpace(ph["CLIENT_FULL_NAME"])
+	ph["INDIVIDUAL_IIN"] = strings.TrimSpace(ph["CLIENT_IIN"])
+}
+
+func buildSignerPlaceholders(client *models.Client, extra map[string]string, ph map[string]string) {
+	if client == nil || ph == nil {
+		return
+	}
+	override := func(keys ...string) string {
+		for _, k := range keys {
+			if v := strings.TrimSpace(extra[k]); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	var fullName, position, email, phone, basis string
+	if client.ClientType == models.ClientTypeLegal {
+		lp := client.LegalProfile
+		fullName = override("SIGNER_FULL_NAME", "signer_full_name")
+		position = override("SIGNER_POSITION", "signer_position")
+		email = override("SIGNER_EMAIL", "signer_email")
+		phone = override("SIGNER_PHONE", "signer_phone")
+		basis = override("SIGNER_BASIS", "signer_basis")
+		if lp != nil {
+			if fullName == "" {
+				fullName = strings.TrimSpace(lp.DirectorFullName)
+			}
+			if fullName == "" {
+				fullName = strings.TrimSpace(lp.ContactPersonName)
+			}
+			if position == "" {
+				position = strings.TrimSpace(lp.ContactPersonPosition)
+			}
+			if email == "" {
+				email = strings.TrimSpace(lp.ContactPersonEmail)
+			}
+			if phone == "" {
+				phone = normalizeKzPhone(strings.TrimSpace(lp.ContactPersonPhone))
+			}
+		}
+		if email == "" {
+			email = strings.TrimSpace(client.Email)
+		}
+		if phone == "" {
+			phone = normalizeKzPhone(strings.TrimSpace(client.Phone))
+		}
+		if basis == "" {
+			basis = "Устава"
+		}
+	} else {
+		fullName = override("SIGNER_FULL_NAME", "signer_full_name")
+		if fullName == "" {
+			fullName = strings.TrimSpace(ph["CLIENT_FULL_NAME"])
+		}
+		position = override("SIGNER_POSITION", "signer_position")
+		email = override("SIGNER_EMAIL", "signer_email")
+		if email == "" {
+			email = strings.TrimSpace(client.Email)
+		}
+		phone = override("SIGNER_PHONE", "signer_phone")
+		if phone == "" {
+			phone = normalizeKzPhone(strings.TrimSpace(client.Phone))
+		}
+		basis = override("SIGNER_BASIS", "signer_basis")
+	}
+	ph["SIGNER_FULL_NAME"] = strings.TrimSpace(fullName)
+	ln, fn, mn := splitFIO(fullName)
+	ph["SIGNER_SHORT_NAME"] = buildShortName(ln, fn, mn)
+	ph["SIGNER_POSITION"] = strings.TrimSpace(position)
+	ph["SIGNER_EMAIL"] = strings.TrimSpace(email)
+	ph["SIGNER_PHONE"] = normalizeKzPhone(strings.TrimSpace(phone))
+	ph["SIGNER_BASIS"] = strings.TrimSpace(basis)
 }
 
 func normalizeMoneyTextPlaceholders(ph map[string]string) {
@@ -455,6 +587,13 @@ func applyPlaceholderAliases(ph map[string]string) {
 
 	copyCanon("CLIENT_FULL_NAME", "CLIENT_FIO")
 	copyAlias("CLIENT_FIO", "CLIENT_FULL_NAME")
+	copyCanon("LEGAL_COMPANY_NAME", "CLIENT_FULL_NAME")
+	copyAlias("LEGAL_COMPANY_NAME", "CLIENT_FULL_NAME")
+	copyAlias("LEGAL_BIN", "CLIENT_BIN_IIN")
+	copyAlias("LEGAL_SIGNER_FULL_NAME", "SIGNER_FULL_NAME")
+	copyAlias("LEGAL_SIGNER_POSITION", "SIGNER_POSITION")
+	copyAlias("LEGAL_SIGNER_EMAIL", "SIGNER_EMAIL")
+	copyAlias("LEGAL_SIGNER_PHONE", "SIGNER_PHONE")
 
 	copyCanon("CLIENT_FULL_NAME_SHORT", "CLIENT_FIO_SHORT")
 	copyCanon("CLIENT_FULL_NAME_SHORT", "CLIENT_LAST_NAME_INITIALS")
