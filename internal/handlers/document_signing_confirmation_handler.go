@@ -52,7 +52,10 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Email string `json:"email"`
+		Email          string `json:"email"`
+		SignerFullName string `json:"signer_full_name"`
+		SignerPosition string `json:"signer_position"`
+		SignerPhone    string `json:"signer_phone"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 		badRequest(c, "Invalid request body")
@@ -72,7 +75,12 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 
-	signerEmail, err := h.DocumentSvc.ResolveSignerEmail(documentID, userID, roleID, body.Email)
+	signer, err := h.DocumentSvc.ResolveSigner(documentID, userID, roleID, services.SignerOverrides{
+		Email:    body.Email,
+		FullName: body.SignerFullName,
+		Position: body.SignerPosition,
+		Phone:    body.SignerPhone,
+	})
 	if err != nil {
 		switch err.Error() {
 		case "forbidden":
@@ -86,12 +94,12 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.Service.StartSigning(c.Request.Context(), documentID, int64(userID), signerEmail)
+	result, err := h.Service.StartSigning(c.Request.Context(), documentID, int64(userID), signer.Email)
 	if err != nil {
 		requestID := requestIDFromContext(c)
 		wrapped := fmt.Errorf("start signing: %w", err)
 		log.Printf("[sign][confirm][start][error] doc=%d email=%s user=%d role=%d request_id=%s err=%v",
-			documentID, signerEmail, userID, roleID, requestID, wrapped)
+			documentID, signer.Email, userID, roleID, requestID, wrapped)
 		handleSignConfirmError(c, err)
 		return
 	}

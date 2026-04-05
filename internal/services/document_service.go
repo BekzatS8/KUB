@@ -78,6 +78,20 @@ type DocumentService struct {
 	displayTZ *time.Location
 }
 
+type SignerOverrides struct {
+	Email    string
+	FullName string
+	Position string
+	Phone    string
+}
+
+type ResolvedSigner struct {
+	Email    string
+	FullName string
+	Position string
+	Phone    string
+}
+
 type DocumentMissingFieldsError struct {
 	Scope  string                 `json:"scope"`
 	Fields []DocumentMissingField `json:"fields"`
@@ -457,38 +471,88 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 }
 
 func (s *DocumentService) ResolveSignerEmail(id int64, userID, roleID int, fallbackEmail string) (string, error) {
-	doc, err := s.GetDocument(id, userID, roleID)
-	if err != nil || doc == nil {
+	resolved, err := s.ResolveSigner(id, userID, roleID, SignerOverrides{Email: fallbackEmail})
+	if err != nil {
 		return "", err
 	}
-	fallbackEmail = strings.TrimSpace(fallbackEmail)
+	return resolved.Email, nil
+}
+
+func (s *DocumentService) ResolveSigner(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
+	doc, err := s.GetDocument(id, userID, roleID)
+	if err != nil || doc == nil {
+		return ResolvedSigner{}, err
+	}
+	overrides.Email = strings.TrimSpace(overrides.Email)
+	overrides.FullName = strings.TrimSpace(overrides.FullName)
+	overrides.Position = strings.TrimSpace(overrides.Position)
+	overrides.Phone = strings.TrimSpace(overrides.Phone)
 	if s.DealRepo == nil || s.ClientRepo == nil {
-		if fallbackEmail == "" {
-			return "", errors.New("signer email is required")
+		if overrides.Email == "" {
+			return ResolvedSigner{}, errors.New("signer email is required")
 		}
-		return fallbackEmail, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
 	}
 	deal, err := s.DealRepo.GetByID(int(doc.DealID))
 	if err != nil || deal == nil {
-		if fallbackEmail == "" {
-			return "", errors.New("signer email is required")
+		if overrides.Email == "" {
+			return ResolvedSigner{}, errors.New("signer email is required")
 		}
-		return fallbackEmail, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
 	}
 	client, err := s.ClientRepo.GetByID(deal.ClientID)
 	if err != nil || client == nil {
-		if fallbackEmail == "" {
-			return "", errors.New("signer email is required")
+		if overrides.Email == "" {
+			return ResolvedSigner{}, errors.New("signer email is required")
 		}
-		return fallbackEmail, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
 	}
-	if email := strings.TrimSpace(client.Email); email != "" {
-		return email, nil
+
+	result := ResolvedSigner{
+		Email:    overrides.Email,
+		FullName: overrides.FullName,
+		Position: overrides.Position,
+		Phone:    normalizePhone(overrides.Phone),
 	}
-	if fallbackEmail == "" {
-		return "", errors.New("signer email is required")
+	if client.ClientType == models.ClientTypeLegal {
+		if lp := client.LegalProfile; lp != nil {
+			if result.Email == "" {
+				result.Email = strings.TrimSpace(lp.ContactPersonEmail)
+			}
+			if result.FullName == "" {
+				result.FullName = strings.TrimSpace(lp.DirectorFullName)
+			}
+			if result.FullName == "" {
+				result.FullName = strings.TrimSpace(lp.ContactPersonName)
+			}
+			if result.Position == "" {
+				result.Position = strings.TrimSpace(lp.ContactPersonPosition)
+			}
+			if result.Phone == "" {
+				result.Phone = normalizePhone(strings.TrimSpace(lp.ContactPersonPhone))
+			}
+		}
+		if result.Email == "" {
+			result.Email = strings.TrimSpace(client.Email)
+		}
+		if result.Phone == "" {
+			result.Phone = normalizePhone(strings.TrimSpace(client.Phone))
+		}
+	} else {
+		if result.Email == "" {
+			result.Email = strings.TrimSpace(client.Email)
+		}
+		if result.FullName == "" {
+			result.FullName = strings.TrimSpace(client.Name)
+		}
+		if result.Phone == "" {
+			result.Phone = normalizePhone(strings.TrimSpace(client.Phone))
+		}
 	}
-	return fallbackEmail, nil
+	if result.Email == "" {
+		return ResolvedSigner{}, errors.New("signer email is required")
+	}
+	return result, nil
 }
 
 func (s *DocumentService) ListDocuments(limit, offset int) ([]*models.Document, error) {
@@ -919,7 +983,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 			CreatedAt: deal.CreatedAt,
 		})
 	default:
-		return nil, errors.New("unsupported doc_type")
+		return nil, errors.New("unsupported_doc_type_for_lead_use_create_from_client")
 	}
 	if err != nil {
 		return nil, err
@@ -997,6 +1061,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 	now := time.Now()
 	dealExtra := buildDealExtraFallback(deal)
 	mergedExtra := mergeExtra(dealExtra, extra)
+	selectedTemplate := selectTemplateForClient(spec, client)
 
 	// базовые плейсхолдеры
 	placeholders := buildClientPlaceholders(client, deal, mergedExtra, now)
@@ -1004,7 +1069,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 	applyReasonCheckboxes(docType, mergedExtra, placeholders)
 
 	missingClient := mapClientMissing(docType, validateClientFieldsForDocType(docType, client))
-	missing := append(missingClient, validateRequiredByPlaceholders(spec, placeholders)...)
+	required := requiredFieldsForClientType(spec, client, selectedTemplate)
+	missing := append(missingClient, validateRequiredByPlaceholders(required, placeholders)...)
 	if len(missing) > 0 {
 		return nil, &DocumentMissingFieldsError{Scope: docType, Fields: missing}
 	}
@@ -1023,7 +1089,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 			return nil, errors.New("xlsx generator not configured")
 		}
 
-		excelRelPath, excelPDFPath, err := s.XlsxGen.GenerateFromTemplateAndPDF(spec.TemplateFile, placeholders, baseFilename)
+		excelRelPath, excelPDFPath, err := s.XlsxGen.GenerateFromTemplateAndPDF(selectedTemplate, placeholders, baseFilename)
 		if err != nil {
 			return nil, wrapGenerationError(docType, err)
 		}
@@ -1053,7 +1119,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 	// ================== DOCX ==================
 	if spec.Format == DocumentFormatDOCX {
 		docxRelPath, pdfRelPath, err := s.DocxGen.GenerateDocxAndPDF(
-			spec.TemplateFile,
+			selectedTemplate,
 			placeholders,
 			baseFilename,
 		)
@@ -1136,6 +1202,55 @@ func validateClientFieldsForDocType(docType string, c *models.Client) (missing [
 	if strings.TrimSpace(c.Phone) == "" {
 		add("phone")
 	}
+	if c.ClientType == models.ClientTypeLegal {
+		company := strings.TrimSpace(c.Name)
+		bin := strings.TrimSpace(c.BinIin)
+		legalAddress := strings.TrimSpace(c.Address)
+		signerName := ""
+		signerPosition := ""
+		signerEmail := strings.TrimSpace(c.Email)
+		signerPhone := strings.TrimSpace(c.Phone)
+		if c.LegalProfile != nil {
+			if v := strings.TrimSpace(c.LegalProfile.CompanyName); v != "" {
+				company = v
+			}
+			if v := strings.TrimSpace(c.LegalProfile.BIN); v != "" {
+				bin = v
+			}
+			if v := strings.TrimSpace(c.LegalProfile.LegalAddress); v != "" {
+				legalAddress = v
+			}
+			signerName = strings.TrimSpace(c.LegalProfile.DirectorFullName)
+			if signerName == "" {
+				signerName = strings.TrimSpace(c.LegalProfile.ContactPersonName)
+			}
+			signerPosition = strings.TrimSpace(c.LegalProfile.ContactPersonPosition)
+			if v := strings.TrimSpace(c.LegalProfile.ContactPersonEmail); v != "" {
+				signerEmail = v
+			}
+			if v := strings.TrimSpace(c.LegalProfile.ContactPersonPhone); v != "" {
+				signerPhone = v
+			}
+		}
+		if company == "" {
+			add("company_name")
+		}
+		if bin == "" {
+			add("bin")
+		}
+		if legalAddress == "" {
+			add("legal_address")
+		}
+		if signerName == "" {
+			add("signer_full_name")
+		}
+		if signerPosition == "" {
+			add("signer_position")
+		}
+		if signerEmail == "" && signerPhone == "" {
+			add("signer_email")
+		}
+	}
 	for _, req := range spec.RequiredFields {
 		if req.Scope != FieldScopeClient || !req.Required {
 			continue
@@ -1148,6 +1263,48 @@ func validateClientFieldsForDocType(docType string, c *models.Client) (missing [
 		}
 	}
 	return missing
+}
+
+func selectTemplateForClient(spec DocumentTypeSpec, client *models.Client) string {
+	if client != nil && client.ClientType == models.ClientTypeLegal && strings.TrimSpace(spec.LegalTemplate) != "" {
+		return spec.LegalTemplate
+	}
+	return spec.TemplateFile
+}
+
+func requiredFieldsForClientType(spec DocumentTypeSpec, client *models.Client, templateFile string) DocumentTypeSpec {
+	result := spec
+	result.TemplateFile = templateFile
+	if client == nil || client.ClientType != models.ClientTypeLegal {
+		return result
+	}
+	legalRequired := []DocumentFieldRequirement{
+		{Key: "LEGAL_COMPANY_NAME", Scope: FieldScopeClient, Required: true},
+		{Key: "LEGAL_BIN", Scope: FieldScopeClient, Required: true},
+		{Key: "LEGAL_LEGAL_ADDRESS", Scope: FieldScopeClient, Required: true},
+		{Key: "SIGNER_FULL_NAME", Scope: FieldScopeClient, Required: true},
+		{Key: "SIGNER_POSITION", Scope: FieldScopeClient, Required: true},
+		{Key: "signer_contact", Scope: FieldScopeClient, Required: true},
+	}
+	if requiresLegalBankDetails(spec.DocType) {
+		legalRequired = append(legalRequired,
+			DocumentFieldRequirement{Key: "LEGAL_BANK_NAME", Scope: FieldScopeClient, Required: true},
+			DocumentFieldRequirement{Key: "LEGAL_IBAN", Scope: FieldScopeClient, Required: true},
+			DocumentFieldRequirement{Key: "LEGAL_BIK", Scope: FieldScopeClient, Required: true},
+			DocumentFieldRequirement{Key: "LEGAL_KBE", Scope: FieldScopeClient, Required: true},
+		)
+	}
+	result.RequiredFields = append(result.RequiredFields, legalRequired...)
+	return result
+}
+
+func requiresLegalBankDetails(docType string) bool {
+	switch normalizeDocType(docType) {
+	case "contract_paid_full_ru", "contract_paid_50_50_ru", "contract_language_courses":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRequiredByPlaceholders(spec DocumentTypeSpec, placeholders map[string]string) []DocumentMissingField {
@@ -1197,6 +1354,11 @@ func resolveRequiredValue(req DocumentFieldRequirement, placeholders map[string]
 		return placeholders["CLIENT_PASSPORT_NUMBER"]
 	case "reason_code":
 		return placeholders["reason_code"]
+	case "signer_contact":
+		if v := strings.TrimSpace(placeholders["SIGNER_EMAIL"]); v != "" {
+			return v
+		}
+		return placeholders["SIGNER_PHONE"]
 	default:
 		return placeholders[key]
 	}

@@ -184,28 +184,43 @@ last_name=EXCLUDED.last_name,first_name=EXCLUDED.first_name,middle_name=EXCLUDED
 		_, _ = tx.Exec(`DELETE FROM client_legal_profiles WHERE client_id=$1`, c.ID)
 		return nil
 	}
-	companyName := c.Name
-	bin := c.BinIin
-	var contactName, contactPhone, contactEmail, legalAddr, actualAddr, additional string
-	if c.LegalProfile != nil {
-		if strings.TrimSpace(c.LegalProfile.CompanyName) != "" {
-			companyName = c.LegalProfile.CompanyName
-		}
-		if strings.TrimSpace(c.LegalProfile.BIN) != "" {
-			bin = c.LegalProfile.BIN
-		}
-		contactName, contactPhone, contactEmail = c.LegalProfile.ContactPersonName, c.LegalProfile.ContactPersonPhone, c.LegalProfile.ContactPersonEmail
-		legalAddr, actualAddr, additional = c.LegalProfile.LegalAddress, c.LegalProfile.ActualAddress, c.LegalProfile.AdditionalInfo
-	}
-	_, err := tx.Exec(`INSERT INTO client_legal_profiles (client_id,company_name,bin,contact_person_name,contact_person_phone,contact_person_email,legal_address,actual_address,additional_info,updated_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-ON CONFLICT (client_id) DO UPDATE SET company_name=EXCLUDED.company_name,bin=EXCLUDED.bin,contact_person_name=EXCLUDED.contact_person_name,contact_person_phone=EXCLUDED.contact_person_phone,contact_person_email=EXCLUDED.contact_person_email,legal_address=EXCLUDED.legal_address,actual_address=EXCLUDED.actual_address,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
-		c.ID, nullString(companyName), nullString(bin), nullString(contactName), nullString(contactPhone), nullString(contactEmail), nullString(legalAddr), nullString(actualAddr), nullString(additional))
+	lp := buildLegalProfileForUpsert(c)
+	_, err := tx.Exec(`INSERT INTO client_legal_profiles (client_id,company_name,bin,legal_form,director_full_name,contact_person_name,contact_person_position,contact_person_phone,contact_person_email,legal_address,actual_address,bank_name,iban,bik,kbe,tax_regime,website,industry,company_size,additional_info,updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+ON CONFLICT (client_id) DO UPDATE SET
+company_name=EXCLUDED.company_name,bin=EXCLUDED.bin,legal_form=EXCLUDED.legal_form,director_full_name=EXCLUDED.director_full_name,contact_person_name=EXCLUDED.contact_person_name,contact_person_position=EXCLUDED.contact_person_position,contact_person_phone=EXCLUDED.contact_person_phone,contact_person_email=EXCLUDED.contact_person_email,legal_address=EXCLUDED.legal_address,actual_address=EXCLUDED.actual_address,bank_name=EXCLUDED.bank_name,iban=EXCLUDED.iban,bik=EXCLUDED.bik,kbe=EXCLUDED.kbe,tax_regime=EXCLUDED.tax_regime,website=EXCLUDED.website,industry=EXCLUDED.industry,company_size=EXCLUDED.company_size,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
+		c.ID, nullString(lp.CompanyName), nullString(lp.BIN), nullString(lp.LegalForm), nullString(lp.DirectorFullName), nullString(lp.ContactPersonName), nullString(lp.ContactPersonPosition), nullString(lp.ContactPersonPhone), nullString(lp.ContactPersonEmail), nullString(lp.LegalAddress), nullString(lp.ActualAddress), nullString(lp.BankName), nullString(lp.IBAN), nullString(lp.BIK), nullString(lp.KBE), nullString(lp.TaxRegime), nullString(lp.Website), nullString(lp.Industry), nullString(lp.CompanySize), nullString(lp.AdditionalInfo))
 	if err != nil {
 		return fmt.Errorf("upsert legal profile: %w", err)
 	}
 	_, _ = tx.Exec(`DELETE FROM client_individual_profiles WHERE client_id=$1`, c.ID)
 	return nil
+}
+
+func buildLegalProfileForUpsert(c *models.Client) models.ClientLegalProfile {
+	lp := models.ClientLegalProfile{
+		CompanyName: c.Name,
+		BIN:         c.BinIin,
+	}
+	if c.LegalProfile != nil {
+		lp = *c.LegalProfile
+		if strings.TrimSpace(lp.CompanyName) == "" {
+			lp.CompanyName = c.Name
+		}
+		if strings.TrimSpace(lp.BIN) == "" {
+			lp.BIN = c.BinIin
+		}
+		if strings.TrimSpace(lp.ContactPersonPhone) == "" {
+			lp.ContactPersonPhone = c.Phone
+		}
+		if strings.TrimSpace(lp.ContactPersonEmail) == "" {
+			lp.ContactPersonEmail = c.Email
+		}
+		if strings.TrimSpace(lp.LegalAddress) == "" {
+			lp.LegalAddress = c.Address
+		}
+	}
+	return lp
 }
 
 func (r *ClientRepository) Update(c *models.Client) error {

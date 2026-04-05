@@ -29,9 +29,14 @@ func NewClientService(repo *repositories.ClientRepository, fileRepo ...*reposito
 }
 
 type ClientProfilePayload struct {
-	Client        *models.Client
-	MissingYellow []string
-	PhotoExists   bool
+	Client             *models.Client
+	MissingYellow      []string
+	MissingContract    []string
+	CompletenessType   string
+	ContractReady      bool
+	PhotoExists        bool
+	PrimaryFileExists  map[string]bool
+	PrimaryFileCatalog []string
 }
 
 type MissingFieldsError struct {
@@ -107,28 +112,13 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.ClinicName = trim(c.ClinicName)
 	c.DiseasesLast3Years = trim(c.DiseasesLast3Years)
 	c.AdditionalInfo = trim(c.AdditionalInfo)
-	c.DisplayName = c.Name
-	c.PrimaryPhone = c.Phone
-	c.PrimaryEmail = c.Email
-
 	clientType, err := normalizeClientType(c.ClientType)
 	if err != nil {
 		return err
 	}
 	c.ClientType = clientType
-	if c.ClientType == models.ClientTypeLegal && c.LegalProfile != nil {
-		if strings.TrimSpace(c.Name) == "" && strings.TrimSpace(c.LegalProfile.CompanyName) != "" {
-			c.Name = strings.TrimSpace(c.LegalProfile.CompanyName)
-		}
-		if strings.TrimSpace(c.BinIin) == "" && strings.TrimSpace(c.LegalProfile.BIN) != "" {
-			c.BinIin = strings.TrimSpace(c.LegalProfile.BIN)
-		}
-		if strings.TrimSpace(c.Phone) == "" && strings.TrimSpace(c.LegalProfile.ContactPersonPhone) != "" {
-			c.Phone = normalizePhone(strings.TrimSpace(c.LegalProfile.ContactPersonPhone))
-		}
-		if strings.TrimSpace(c.Email) == "" && strings.TrimSpace(c.LegalProfile.ContactPersonEmail) != "" {
-			c.Email = strings.TrimSpace(c.LegalProfile.ContactPersonEmail)
-		}
+	if c.ClientType == models.ClientTypeLegal {
+		normalizeLegalAliases(c)
 	}
 
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
@@ -154,8 +144,140 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	if c.CreatedAt.IsZero() {
 		c.CreatedAt = time.Now()
 	}
+	c.DisplayName = c.Name
+	c.PrimaryPhone = c.Phone
+	c.PrimaryEmail = c.Email
 
 	return nil
+}
+
+func normalizeLegalAliases(c *models.Client) {
+	trim := strings.TrimSpace
+	if c.LegalProfile == nil {
+		c.LegalProfile = &models.ClientLegalProfile{}
+	}
+	lp := c.LegalProfile
+
+	lp.CompanyName = trim(lp.CompanyName)
+	lp.BIN = trim(lp.BIN)
+	lp.LegalForm = trim(lp.LegalForm)
+	lp.DirectorFullName = trim(lp.DirectorFullName)
+	lp.ContactPersonName = trim(lp.ContactPersonName)
+	lp.ContactPersonPosition = trim(lp.ContactPersonPosition)
+	lp.ContactPersonPhone = normalizePhone(trim(lp.ContactPersonPhone))
+	lp.ContactPersonEmail = trim(lp.ContactPersonEmail)
+	lp.LegalAddress = trim(lp.LegalAddress)
+	lp.ActualAddress = trim(lp.ActualAddress)
+	lp.BankName = trim(lp.BankName)
+	lp.IBAN = trim(lp.IBAN)
+	lp.BIK = trim(lp.BIK)
+	lp.KBE = trim(lp.KBE)
+	lp.TaxRegime = trim(lp.TaxRegime)
+	lp.Website = trim(lp.Website)
+	lp.Industry = trim(lp.Industry)
+	lp.CompanySize = trim(lp.CompanySize)
+	lp.AdditionalInfo = trim(lp.AdditionalInfo)
+
+	if lp.CompanyName == "" {
+		lp.CompanyName = c.Name
+	} else {
+		c.Name = lp.CompanyName
+	}
+	if lp.BIN == "" {
+		lp.BIN = c.BinIin
+	} else {
+		c.BinIin = lp.BIN
+	}
+	if lp.ContactPersonPhone == "" {
+		lp.ContactPersonPhone = c.Phone
+	} else {
+		c.Phone = lp.ContactPersonPhone
+	}
+	if lp.ContactPersonEmail == "" {
+		lp.ContactPersonEmail = c.Email
+	} else {
+		c.Email = lp.ContactPersonEmail
+	}
+	if lp.LegalAddress == "" {
+		lp.LegalAddress = c.Address
+	} else {
+		c.Address = lp.LegalAddress
+	}
+	if c.Address == "" {
+		c.Address = lp.ActualAddress
+	}
+}
+
+func mergeLegalProfile(base, patch *models.ClientLegalProfile) *models.ClientLegalProfile {
+	if base == nil && patch == nil {
+		return nil
+	}
+	if base == nil {
+		cp := *patch
+		return &cp
+	}
+	merged := *base
+	if patch == nil {
+		return &merged
+	}
+	if patch.CompanyName != "" {
+		merged.CompanyName = patch.CompanyName
+	}
+	if patch.BIN != "" {
+		merged.BIN = patch.BIN
+	}
+	if patch.LegalForm != "" {
+		merged.LegalForm = patch.LegalForm
+	}
+	if patch.DirectorFullName != "" {
+		merged.DirectorFullName = patch.DirectorFullName
+	}
+	if patch.ContactPersonName != "" {
+		merged.ContactPersonName = patch.ContactPersonName
+	}
+	if patch.ContactPersonPosition != "" {
+		merged.ContactPersonPosition = patch.ContactPersonPosition
+	}
+	if patch.ContactPersonPhone != "" {
+		merged.ContactPersonPhone = patch.ContactPersonPhone
+	}
+	if patch.ContactPersonEmail != "" {
+		merged.ContactPersonEmail = patch.ContactPersonEmail
+	}
+	if patch.LegalAddress != "" {
+		merged.LegalAddress = patch.LegalAddress
+	}
+	if patch.ActualAddress != "" {
+		merged.ActualAddress = patch.ActualAddress
+	}
+	if patch.BankName != "" {
+		merged.BankName = patch.BankName
+	}
+	if patch.IBAN != "" {
+		merged.IBAN = patch.IBAN
+	}
+	if patch.BIK != "" {
+		merged.BIK = patch.BIK
+	}
+	if patch.KBE != "" {
+		merged.KBE = patch.KBE
+	}
+	if patch.TaxRegime != "" {
+		merged.TaxRegime = patch.TaxRegime
+	}
+	if patch.Website != "" {
+		merged.Website = patch.Website
+	}
+	if patch.Industry != "" {
+		merged.Industry = patch.Industry
+	}
+	if patch.CompanySize != "" {
+		merged.CompanySize = patch.CompanySize
+	}
+	if patch.AdditionalInfo != "" {
+		merged.AdditionalInfo = patch.AdditionalInfo
+	}
+	return &merged
 }
 
 func validateCreateRedFields(c *models.Client) error {
@@ -295,6 +417,9 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	}
 	if roleID != authz.RoleManagement {
 		c.OwnerID = current.OwnerID
+	}
+	if c.ClientType == models.ClientTypeLegal {
+		c.LegalProfile = mergeLegalProfile(current.LegalProfile, c.LegalProfile)
 	}
 	if err := s.normalizeAndValidate(c); err != nil {
 		return err
@@ -459,19 +584,21 @@ func (s *ClientService) GetMissingYellow(ctx context.Context, clientID, userID, 
 		return nil, ErrClientNotFound
 	}
 
-	hasPhoto := false
-	if s.FileRepo != nil {
-		_, err = s.FileRepo.GetPrimaryByCategory(ctx, int64(clientID), "photo35x45")
-		if err != nil && !errors.Is(err, repositories.ErrClientFileNotFound) {
-			return nil, err
-		}
-		hasPhoto = err == nil
+	files, err := s.fetchPrimaryFileExists(ctx, clientID, client.ClientType)
+	if err != nil {
+		return nil, err
 	}
-
-	return missingYellowFields(client, hasPhoto), nil
+	return missingYellowFields(client, files), nil
 }
 
-func missingYellowFields(client *models.Client, hasPhoto35x45 bool) []string {
+func missingYellowFields(client *models.Client, primaryFiles map[string]bool) []string {
+	if client != nil && client.ClientType == models.ClientTypeLegal {
+		return missingYellowFieldsLegal(client)
+	}
+	return missingYellowFieldsIndividual(client, primaryFiles["photo35x45"])
+}
+
+func missingYellowFieldsIndividual(client *models.Client, hasPhoto35x45 bool) []string {
 	missing := make([]string, 0)
 	if client.MiddleName == "" {
 		missing = append(missing, "middle_name")
@@ -518,6 +645,121 @@ func missingYellowFields(client *models.Client, hasPhoto35x45 bool) []string {
 	return missing
 }
 
+func missingYellowFieldsLegal(client *models.Client) []string {
+	if client == nil {
+		return []string{"company_name", "bin", "legal_address", "contact_person_phone", "contact_person_email"}
+	}
+	missing := make([]string, 0)
+	lp := client.LegalProfile
+	companyName := strings.TrimSpace(client.Name)
+	bin := strings.TrimSpace(client.BinIin)
+	legalAddress := strings.TrimSpace(client.Address)
+	actualAddress := strings.TrimSpace(client.ActualAddress)
+	director := ""
+	contactName := ""
+	contactPhone := strings.TrimSpace(client.Phone)
+	contactEmail := strings.TrimSpace(client.Email)
+	signerPosition := ""
+	if lp != nil {
+		if v := strings.TrimSpace(lp.CompanyName); v != "" {
+			companyName = v
+		}
+		if v := strings.TrimSpace(lp.BIN); v != "" {
+			bin = v
+		}
+		if v := strings.TrimSpace(lp.LegalAddress); v != "" {
+			legalAddress = v
+		}
+		if v := strings.TrimSpace(lp.ActualAddress); v != "" {
+			actualAddress = v
+		}
+		director = strings.TrimSpace(lp.DirectorFullName)
+		contactName = strings.TrimSpace(lp.ContactPersonName)
+		if v := strings.TrimSpace(lp.ContactPersonPhone); v != "" {
+			contactPhone = v
+		}
+		if v := strings.TrimSpace(lp.ContactPersonEmail); v != "" {
+			contactEmail = v
+		}
+		signerPosition = strings.TrimSpace(lp.ContactPersonPosition)
+	}
+	if companyName == "" {
+		missing = append(missing, "company_name")
+	}
+	if bin == "" {
+		missing = append(missing, "bin")
+	}
+	if legalAddress == "" {
+		missing = append(missing, "legal_address")
+	}
+	if actualAddress == "" {
+		missing = append(missing, "actual_address")
+	}
+	if director == "" && contactName == "" {
+		missing = append(missing, "director_full_name|contact_person_name")
+	}
+	if contactPhone == "" {
+		missing = append(missing, "contact_person_phone")
+	}
+	if contactEmail == "" {
+		missing = append(missing, "contact_person_email")
+	}
+	if signerPosition == "" {
+		missing = append(missing, "signer_position")
+	}
+	return missing
+}
+
+func contractReadinessMissing(client *models.Client, primaryFiles map[string]bool) []string {
+	if client == nil {
+		return []string{"client"}
+	}
+	if client.ClientType != models.ClientTypeLegal {
+		return []string{}
+	}
+	missing := append([]string{}, missingYellowFieldsLegal(client)...)
+	lp := client.LegalProfile
+	if lp == nil || strings.TrimSpace(lp.BankName) == "" {
+		missing = append(missing, "bank_name")
+	}
+	if lp == nil || strings.TrimSpace(lp.IBAN) == "" {
+		missing = append(missing, "iban")
+	}
+	if lp == nil || strings.TrimSpace(lp.BIK) == "" {
+		missing = append(missing, "bik")
+	}
+	if lp == nil || strings.TrimSpace(lp.KBE) == "" {
+		missing = append(missing, "kbe")
+	}
+	if !primaryFiles["charter"] {
+		missing = append(missing, "file:charter")
+	}
+	if !primaryFiles["bin_certificate"] {
+		missing = append(missing, "file:bin_certificate")
+	}
+	return missing
+}
+
+func (s *ClientService) fetchPrimaryFileExists(ctx context.Context, clientID int, clientType string) (map[string]bool, error) {
+	files := make(map[string]bool)
+	categories := allowedClientFileCategories(clientType)
+	for _, category := range categories {
+		files[category] = false
+		if s.FileRepo == nil {
+			continue
+		}
+		_, err := s.FileRepo.GetPrimaryByCategory(ctx, int64(clientID), category)
+		if err == nil {
+			files[category] = true
+			continue
+		}
+		if !errors.Is(err, repositories.ErrClientFileNotFound) {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
 func (s *ClientService) GetProfile(ctx context.Context, clientID, userID, roleID int) (*ClientProfilePayload, error) {
 	client, err := s.GetByID(clientID, userID, roleID)
 	if err != nil {
@@ -527,22 +769,23 @@ func (s *ClientService) GetProfile(ctx context.Context, clientID, userID, roleID
 		return nil, ErrClientNotFound
 	}
 
-	missing, err := s.GetMissingYellow(ctx, clientID, userID, roleID)
+	primaryFiles, err := s.fetchPrimaryFileExists(ctx, clientID, client.ClientType)
 	if err != nil {
 		return nil, err
 	}
+	missing := missingYellowFields(client, primaryFiles)
+	missingContract := contractReadinessMissing(client, primaryFiles)
 
-	photoExists := false
-	if s.FileRepo != nil {
-		_, err = s.FileRepo.GetPrimaryByCategory(ctx, int64(clientID), "photo35x45")
-		if err == nil {
-			photoExists = true
-		} else if !errors.Is(err, repositories.ErrClientFileNotFound) {
-			return nil, err
-		}
-	}
-
-	return &ClientProfilePayload{Client: client, MissingYellow: missing, PhotoExists: photoExists}, nil
+	return &ClientProfilePayload{
+		Client:             client,
+		MissingYellow:      missing,
+		MissingContract:    missingContract,
+		CompletenessType:   client.ClientType,
+		ContractReady:      len(missingContract) == 0,
+		PhotoExists:        primaryFiles["photo35x45"],
+		PrimaryFileExists:  primaryFiles,
+		PrimaryFileCatalog: allowedClientFileCategories(client.ClientType),
+	}, nil
 }
 
 func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error) {

@@ -7,7 +7,7 @@
   },
   "item": [
     {
-      "name": "Health",
+      "name": "Health & Bootstrap",
       "item": [
         {
           "name": "Health Check",
@@ -25,11 +25,26 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Bootstrap Health + JWT check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            },
+            "description": "Run first. Then login and call /users/me."
+          },
+          "response": []
         }
-      ],
-      "auth": {
-        "type": "noauth"
-      }
+      ]
     },
     {
       "name": "Auth",
@@ -42,22 +57,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is successful', function () {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
-                  "});",
-                  "let data = {};",
-                  "try { data = pm.response.json(); } catch (e) {}",
+                  "pm.test('Status code is successful', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "let data = {}; try { data = pm.response.json(); } catch (e) {}",
                   "const access = data?.tokens?.access_token || data?.access_token || data?.token;",
                   "const refresh = data?.tokens?.refresh_token || data?.refresh_token;",
-                  "if (access) {",
-                  "  pm.environment.set('accessToken', access);",
-                  "  pm.environment.set('jwt', access);",
-                  "}",
-                  "if (refresh) {",
-                  "  pm.environment.set('refreshToken', refresh);",
-                  "}",
-                  "const uid = data?.user?.id || data?.id;",
-                  "if (uid) { pm.environment.set('userId', uid); }"
+                  "if (access) { pm.environment.set('accessToken', access); pm.environment.set('jwt', access); pm.environment.set('token', access); }",
+                  "if (refresh) { pm.environment.set('refreshToken', refresh); }",
+                  "const user = data?.user || {};",
+                  "const uid = user?.id || data?.id; if (uid) pm.environment.set('userId', uid);",
+                  "const rid = user?.role_id || user?.roleId; if (rid !== undefined) pm.environment.set('roleId', rid);"
                 ]
               }
             }
@@ -94,10 +102,11 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "const data = pm.response.json();",
-                  "if (data?.access_token) pm.environment.set('access_token', data.access_token);",
-                  "if (data?.accessToken) pm.environment.set('accessToken', data.accessToken);",
-                  "if (data?.refresh_token) pm.environment.set('refreshToken', data.refresh_token);"
+                  "let data = {}; try { data = pm.response.json(); } catch (e) {}",
+                  "const access = data?.tokens?.access_token || data?.access_token || data?.accessToken;",
+                  "const refresh = data?.tokens?.refresh_token || data?.refresh_token || data?.refreshToken;",
+                  "if (access) { pm.environment.set('accessToken', access); pm.environment.set('jwt', access); pm.environment.set('token', access); pm.environment.set('access_token', access); }",
+                  "if (refresh) { pm.environment.set('refreshToken', refresh); }"
                 ],
                 "type": "text/javascript"
               }
@@ -546,7 +555,7 @@
       ]
     },
     {
-      "name": "Clients",
+      "name": "Clients / Individual",
       "item": [
         {
           "name": "Create Client (individual_profile nested)",
@@ -558,9 +567,8 @@
                 "exec": [
                   "let data={};",
                   "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('clientId', id); }",
-                  "pm.environment.set('client_id', pm.environment.get('clientId'));"
+                  "const id = data?.id || data?.data?.id || data?.value?.id;",
+                  "if (id) { pm.environment.set('individualClientId', id); pm.environment.set('clientId', id); pm.environment.set('client_id', id); }"
                 ]
               }
             }
@@ -590,53 +598,8 @@
               "path": [
                 "clients"
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Client (legal_profile nested)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('clientId', id); }",
-                  "pm.environment.set('client_id', pm.environment.get('clientId'));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_type\": \"legal\",\n  \"phone\": \"+77001234568\",\n  \"email\": \"legal@example.com\",\n  \"legal_profile\": {\n    \"company_name\": \"TOO KUB\",\n    \"bin\": \"123456789012\",\n    \"contact_person_name\": \"Aidos Sarsenov\",\n    \"contact_person_phone\": \"+77001234568\",\n    \"legal_address\": \"Almaty, Abay 10\",\n    \"contact_person_email\": \"ops@kub.local\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             },
-            "url": {
-              "raw": "{{baseUrl}}/clients",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "clients"
-              ]
-            }
+            "description": "Individual client creation (personal profile). Keeps legacy-compatible fields and nested individual_profile."
           },
           "response": []
         },
@@ -698,88 +661,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "List Company Clients",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/clients/company?limit=20&offset=0&q=",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "clients",
-                "company"
-              ],
-              "query": [
-                {
-                  "key": "limit",
-                  "value": "20"
-                },
-                {
-                  "key": "offset",
-                  "value": "0"
-                },
-                {
-                  "key": "q",
-                  "value": ""
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Clients (legal)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/clients?client_type=legal&page=1&limit=20",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "clients"
-              ],
-              "query": [
-                {
-                  "key": "client_type",
-                  "value": "legal"
-                },
-                {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "limit",
-                  "value": "20"
-                }
-              ]
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"list legal clients status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
-                  "const j = pm.response.json();",
-                  "const list = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.data?.items) ? j.data.items : []));",
-                  "pm.test(\"list response is array\", function(){ pm.expect(Array.isArray(list)).to.eql(true); });",
-                  "if (list.length > 0) {",
-                  "  pm.test(\"all listed clients are legal\", function(){",
-                  "    list.forEach(c => { pm.expect(c).to.have.property(\"client_type\"); pm.expect(c.client_type).to.eql(\"legal\"); });",
-                  "  });",
-                  "}"
-                ]
-              }
-            }
-          ]
         },
         {
           "name": "List My Clients",
@@ -845,54 +726,12 @@
           "response": []
         },
         {
-          "name": "Update Client Type (Legacy/flat compatible)",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"phone\": \"{{clientPhone}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "clients",
-                "{{clientId}}"
-              ]
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"update client type status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
-                  "const j = pm.response.json();",
-                  "const client = j.data?.client || j.data || j;",
-                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
-                  "pm.test(\"client_type updated to legal\", function(){ pm.expect(client.client_type).to.eql(\"legal\"); });"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Client Completeness",
+          "name": "Individual Completeness",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/completeness",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/completeness",
               "host": [
                 "{{base_url}}"
               ],
@@ -901,7 +740,8 @@
                 "{{client_id}}",
                 "completeness"
               ]
-            }
+            },
+            "description": "Legacy completeness endpoint. Backward compatible summary (`missing_yellow`, `yellow_ready`). For legal, must not include personal-only requirements."
           },
           "response": [],
           "event": [
@@ -918,12 +758,12 @@
           ]
         },
         {
-          "name": "Client Profile",
+          "name": "Get Individual Profile",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/profile",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/profile",
               "host": [
                 "{{base_url}}"
               ],
@@ -932,7 +772,8 @@
                 "{{client_id}}",
                 "profile"
               ]
-            }
+            },
+            "description": "Client profile view. For legal client verify: completeness.type=legal, missing_contract, contract_ready and files map with corporate categories."
           },
           "response": [],
           "event": [
@@ -1059,24 +900,553 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Clients / Legal",
+      "item": [
+        {
+          "name": "Create Client (legal_profile nested)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id;",
+                  "if (id) { pm.environment.set('legalClientId', id); pm.environment.set('clientId', id); pm.environment.set('client_id', id); }",
+                  "const company = data?.legal_profile?.company_name || data?.name; if (company) pm.environment.set('legalCompanyName', company);",
+                  "const bin = data?.legal_profile?.bin || data?.bin_iin; if (bin) pm.environment.set('legalBin', bin);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{legalCompanyName}}\",\n  \"bin_iin\": \"{{legalBin}}\",\n  \"phone\": \"{{contactPersonPhone}}\",\n  \"email\": \"{{contactPersonEmail}}\",\n  \"address\": \"{{legalAddress}}\",\n  \"legal_profile\": {\n    \"company_name\": \"{{legalCompanyName}}\",\n    \"bin\": \"{{legalBin}}\",\n    \"legal_form\": \"TOO\",\n    \"director_full_name\": \"{{signerFullName}}\",\n    \"contact_person_name\": \"{{contactPersonName}}\",\n    \"contact_person_position\": \"{{signerPosition}}\",\n    \"contact_person_phone\": \"{{contactPersonPhone}}\",\n    \"contact_person_email\": \"{{contactPersonEmail}}\",\n    \"legal_address\": \"{{legalAddress}}\",\n    \"actual_address\": \"{{legalAddress}}\",\n    \"bank_name\": \"Halyk Bank\",\n    \"iban\": \"KZ000000000000000000\",\n    \"bik\": \"HSBKKZKX\",\n    \"kbe\": \"17\",\n    \"tax_regime\": \"general\",\n    \"website\": \"https://example.kz\",\n    \"industry\": \"travel\",\n    \"company_size\": \"11-50\",\n    \"additional_info\": \"Postman legal smoke profile\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/clients",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ]
+            },
+            "description": "Legal client creation (canonical corporate profile). Use for company onboarding. Expects nested legal_profile and synchronizes base aliases automatically."
+          },
+          "response": []
         },
         {
-          "name": "Delete Client",
+          "name": "List Company Clients",
           "request": {
-            "method": "DELETE",
+            "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "raw": "{{baseUrl}}/clients/company?limit=20&offset=0&q=",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}"
+                "company"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                }
               ]
             }
           },
           "response": []
+        },
+        {
+          "name": "List Clients (legal)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?client_type=legal&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "legal"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"list legal clients status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
+                  "const j = pm.response.json();",
+                  "const list = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.data?.items) ? j.data.items : []));",
+                  "pm.test(\"list response is array\", function(){ pm.expect(Array.isArray(list)).to.eql(true); });",
+                  "if (list.length > 0) {",
+                  "  pm.test(\"all listed clients are legal\", function(){",
+                  "    list.forEach(c => { pm.expect(c).to.have.property(\"client_type\"); pm.expect(c.client_type).to.eql(\"legal\"); });",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Legal Completeness (legacy endpoint)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/completeness",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "completeness"
+              ]
+            },
+            "description": "Backward-compatible completeness endpoint for legal client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"completeness ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.missing_yellow).to.be.an(\"array\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Legal Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "profile"
+              ]
+            },
+            "description": "Legal profile endpoint. Validate legal_profile payload + completeness.type=legal + missing_contract/contract_ready."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"profile ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json();",
+                  "pm.expect(j).to.have.property(\"client\");",
+                  "pm.expect(j).to.have.property(\"completeness\");",
+                  "pm.expect(j).to.have.property(\"files\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: charter",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "charter",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "charter.pdf"
+                }
+              ]
+            },
+            "description": "Legal corporate file upload (category=charter)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: bin_certificate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "bin_certificate",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "bin_certificate.pdf"
+                }
+              ]
+            },
+            "description": "Legal corporate file upload (category=bin_certificate)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: bank_details",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "bank_details",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "bank_details.pdf"
+                }
+              ]
+            },
+            "description": "Legal corporate file upload (category=bank_details)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: power_of_attorney",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "power_of_attorney",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "poa.pdf"
+                }
+              ]
+            },
+            "description": "Legal corporate file upload (category=power_of_attorney)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: director_id",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "director_id",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "director_id.png"
+                }
+              ]
+            },
+            "description": "Legal representative identity file."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Legal File: representative_id",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "category",
+                  "value": "representative_id",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "rep_id.png"
+                }
+              ]
+            },
+            "description": "Legal representative identity file."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload ok\", ()=> pm.expect(pm.response.code).to.eql(200));",
+                  "const j = pm.response.json(); pm.expect(j.category).to.eql(\"photo35x45\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "View Legal Primary File (dynamic category)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files/primary?category=charter",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files",
+                "primary"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"view ok\", ()=> pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Download Legal Primary File (dynamic category)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files/primary/download?category=charter",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}",
+                "files",
+                "primary",
+                "download"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"download ok\", ()=> pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1590,7 +1960,7 @@
       ]
     },
     {
-      "name": "Documents",
+      "name": "Documents / Individual",
       "item": [
         {
           "name": "GET document types",
@@ -1610,7 +1980,7 @@
           "response": []
         },
         {
-          "name": "Create from client: termination_transfer",
+          "name": "Create Individual Document from client (contract_free_ru)",
           "request": {
             "method": "POST",
             "header": [
@@ -1630,13 +2000,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {}\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Individual happy-path from client/deal."
           },
           "response": [],
           "event": [
@@ -1656,237 +2027,101 @@
           ]
         },
         {
-          "name": "Create from client: termination_waiver",
+          "name": "Get document by doc_id",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
               {
                 "key": "Authorization",
                 "value": "Bearer {{jwt}}",
                 "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{{base_url}}/documents/{{doc_id}}"
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
-          "name": "Create from client: cancel_appointment",
+          "name": "List Documents",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_codes\": [\"R1\", \"R4\"],\n    \"DESTINATION_PLACE\": \"Посольство Республики Корея\",\n    \"APPOINTMENT_DATE_TEXT\": \"«10» марта 2026 г.\",\n    \"CANCEL_OTHER_TEXT\": \"\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{{base_url}}/documents?page=1&size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ]
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
-          "name": "Create from client: receipt_refund_partial",
+          "name": "List Documents By Deal",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{{base_url}}/documents/deal/{{deal_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "deal",
+                "{{deal_id}}"
+              ]
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
-          "name": "Create from client: receipt_refund_full",
+          "name": "Download PDF by doc_id",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
               {
                 "key": "Authorization",
                 "value": "Bearer {{jwt}}",
                 "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"250000\",\n    \"REFUND_AMOUNT_TEXT\": \"Двести пятьдесят тысяч тенге\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{{base_url}}/documents/{{doc_id}}/download?format=pdf"
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
-          "name": "Create from client: documents_handover_act",
+          "name": "Get document file stream",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"ACT_NUMBER\": \"ACT-0001\",\n    \"DOCS_PRESENT\": [1, 2, 5, 9]\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{{base_url}}/documents/{{doc_id}}/file",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}",
+                "file"
+              ]
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Documents / Legal",
+      "item": [
         {
-          "name": "Create from client: visa_questionnaire",
+          "name": "Create Legal Document from client (contract_paid_full_ru)",
           "request": {
             "method": "POST",
             "header": [
@@ -1906,13 +2141,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"CLIENT_ID_NUMBER\": \"123456789\",\n    \"CLIENT_PASSPORT_NUMBER\": \"N1234567\",\n    \"CLIENT_PASSPORT_DATES\": \"01.01.2024 - 01.01.2034\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Туризм\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-LEGAL-0001\",\n    \"SIGNER_FULL_NAME\": \"{{signerFullName}}\",\n    \"SIGNER_POSITION\": \"{{signerPosition}}\",\n    \"SIGNER_PHONE\": \"{{signerPhone}}\",\n    \"SIGNER_EMAIL\": \"{{signerEmail}}\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Canonical legal document path. Requires existing legal client + deal. Backend picks legal template variant automatically."
           },
           "response": [],
           "event": [
@@ -1953,98 +2189,6 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create from client: contract_free_ru",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create from client: contract_paid_full_ru",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2116,207 +2260,6 @@
           ]
         },
         {
-          "name": "Create from client: addendum_korea",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create from client: refund_application",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_codes\": [\"R1\", \"R4\"],\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"120000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто двадцать тысяч тенге\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create from client: pause_application",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R2\",\n    \"PAUSE_DAYS\": \"30\",\n    \"PAUSE_START_DATE_TEXT\": \"«05» марта 2026 г.\",\n    \"PAUSE_END_DATE_TEXT\": \"«04» апреля 2026 г.\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create from client: avr_kub_group",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-client"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Download PDF by doc_id",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/{{doc_id}}/download?format=pdf"
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Send for signature",
           "request": {
             "method": "POST",
@@ -2348,27 +2291,32 @@
           "response": []
         },
         {
-          "name": "Sign document",
+          "name": "Generate Public Sign Link",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
+            "header": [],
             "url": {
-              "raw": "{{base_url}}/documents/{{doc_id}}/sign"
+              "raw": "{{baseUrl}}/documents/{{documentId}}/generate-sign-link",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "generate-sign-link"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"signed_by\": \"{{signed_by}}\",\n  \"signed_at\": \"{{signed_at}}\"\n}",
+              "raw": "{}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2376,205 +2324,17 @@
               }
             }
           },
-          "response": []
-        },
-        {
-          "name": "Get document by doc_id",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/{{doc_id}}"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Documents",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/documents?page=1&size=20",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Documents By Deal",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/documents/deal/{{deal_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents",
-                "deal",
-                "{{deal_id}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Document (legacy)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"invoice\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                  "let d={};try{d=pm.response.json()}catch(e){};const t=d?.token||d?.public_token||d?.data?.token;if(t) pm.environment.set('publicDocumentToken',t);"
                 ]
               }
             }
           ]
-        },
-        {
-          "name": "Create from lead",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/documents/create-from-lead",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents",
-                "create-from-lead"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"lead_id\": {{lead_id}},\n  \"doc_type\": \"invoice\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Upload Document",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/documents/upload",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents",
-                "upload"
-              ]
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get document file stream",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/documents/{{doc_id}}/file",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents",
-                "{{doc_id}}",
-                "file"
-              ]
-            }
-          },
-          "response": []
         },
         {
           "name": "Submit document",
@@ -2627,70 +2387,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Delete document",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/documents/{{doc_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "documents",
-                "{{doc_id}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Generate Public Sign Link",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/documents/{{documentId}}/generate-sign-link",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "generate-sign-link"
-              ]
-            },
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{accessToken}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "let d={};try{d=pm.response.json()}catch(e){};const t=d?.token||d?.public_token||d?.data?.token;if(t) pm.environment.set('publicDocumentToken',t);"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -2709,7 +2405,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{signerEmail}}\"\n}"
+              "raw": "{\n  \"email\": \"{{signerEmail}}\",\n  \"signer_full_name\": \"{{signerFullName}}\",\n  \"signer_position\": \"{{signerPosition}}\",\n  \"signer_phone\": \"{{signerPhone}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/documents/{{documentId}}/sign/start",
@@ -2722,7 +2418,8 @@
                 "sign",
                 "start"
               ]
-            }
+            },
+            "description": "Start signing flow. For legal signer = representative. Supports additive overrides: signer_full_name, signer_position, signer_phone (and email)."
           },
           "response": [],
           "event": [
@@ -2731,7 +2428,54 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let d={};try{d=pm.response.json()}catch(e){};if(d?.email_token) pm.environment.set('email_token', d.email_token);"
+                  "let d={};try{d=pm.response.json()}catch(e){};",
+                  "if(d?.email_token) pm.environment.set('email_token', d.email_token);",
+                  "if(d?.session_id) pm.environment.set('signSessionId', d.session_id);",
+                  "if(d?.session_token) pm.environment.set('signSessionToken', d.session_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start Signing (Legal representative overrides)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{signerEmail}}\",\n  \"signer_full_name\": \"{{signerFullName}}\",\n  \"signer_position\": \"{{signerPosition}}\",\n  \"signer_phone\": \"{{signerPhone}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}/sign/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "sign",
+                "start"
+              ]
+            },
+            "description": "Start signing flow. For legal signer = representative. Supports additive overrides: signer_full_name, signer_position, signer_phone (and email)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let d={};try{d=pm.response.json()}catch(e){};",
+                  "if(d?.email_token) pm.environment.set('email_token', d.email_token);",
+                  "if(d?.session_id) pm.environment.set('signSessionId', d.session_id);",
+                  "if(d?.session_token) pm.environment.set('signSessionToken', d.session_token);"
                 ]
               }
             }
@@ -4284,7 +4028,7 @@
       ]
     },
     {
-      "name": "Integrations/Wazzup",
+      "name": "Integrations / Wazzup",
       "item": [
         {
           "name": "Wazzup Setup",
@@ -4316,7 +4060,41 @@
                 "setup"
               ]
             },
-            "description": "api_key is not needed in body. Backend uses WAZZUP_API_TOKEN from config/env. Requires WAZZUP_ENABLE=true."
+            "description": "Requires system_admin (role_id=50). api_key in body is NOT used. Backend must have WAZZUP_ENABLE=true and server-side token configured."
+          },
+          "response": []
+        },
+        {
+          "name": "Wazzup Setup (Leadership should be forbidden)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"webhooks_base_url\": \"{{baseUrl}}\",\n  \"enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/setup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "setup"
+              ]
+            },
+            "description": "Run after login as leadership (role_id=40). Expected 403 forbidden."
           },
           "response": []
         },
@@ -4363,35 +4141,6 @@
           "response": []
         },
         {
-          "name": "Wazzup Webhook (Public)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"messages\": [\n    {\n      \"messageId\": \"demo-message-id\",\n      \"chatType\": \"whatsapp\",\n      \"text\": \"Привет из Wazzup\",\n      \"timestamp\": \"2024-01-01T10:00:00Z\",\n      \"chatId\": \"77001112233\"\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/integrations/wazzup/webhook/{{wazzupWebhookToken}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "integrations",
-                "wazzup",
-                "webhook",
-                "{{wazzupWebhookToken}}"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Wazzup Send Message",
           "request": {
             "method": "POST",
@@ -4428,12 +4177,276 @@
             },
             "description": "Requires WAZZUP_ENABLE=true and configured WAZZUP_API_TOKEN in backend env."
           }
+        },
+        {
+          "name": "Wazzup Webhook (Public)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    {\n      \"messageId\": \"demo-message-id\",\n      \"chatType\": \"whatsapp\",\n      \"text\": \"Привет из Wazzup\",\n      \"timestamp\": \"2024-01-01T10:00:00Z\",\n      \"chatId\": \"77001112233\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/integrations/wazzup/webhook/{{wazzupWebhookToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "integrations",
+                "wazzup",
+                "webhook",
+                "{{wazzupWebhookToken}}"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
     {
-      "name": "Debug",
+      "name": "Debug / Legacy",
       "item": [
+        {
+          "name": "Update Client Type (Legacy/flat compatible)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"phone\": \"{{clientPhone}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{clientId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"update client type status\", function(){ pm.expect(pm.response.code).to.eql(200); });",
+                  "const j = pm.response.json();",
+                  "const client = j.data?.client || j.data || j;",
+                  "pm.test(\"client_type exists\", function(){ pm.expect(client).to.have.property(\"client_type\"); });",
+                  "pm.test(\"client_type updated to legal\", function(){ pm.expect(client.client_type).to.eql(\"legal\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Client",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{client_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create from lead",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-lead",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "create-from-lead"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": {{lead_id}},\n  \"doc_type\": \"invoice\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Document (legacy)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"invoice\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "upload"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', id); }",
+                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}/sign"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signed_by\": \"{{signed_by}}\",\n  \"signed_at\": \"{{signed_at}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{doc_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{doc_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
         {
           "name": "Latest Sign Tokens",
           "event": [
