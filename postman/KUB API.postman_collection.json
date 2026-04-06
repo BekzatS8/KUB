@@ -1977,10 +1977,28 @@
               "raw": "{{base_url}}/documents/types"
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "let data = [];",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);",
+                  "const mustHave = [\"addendum_korea\",\"avr_kub_group\",\"cancel_appointment\",\"contract_free_ru\",\"contract_language_courses\",\"contract_paid_50_50_ru\",\"contract_paid_full_ru\",\"documents_handover_act\",\"pause_application\",\"receipt_refund_full\",\"receipt_refund_partial\",\"refund_application\",\"termination_transfer\",\"termination_waiver\",\"visa_questionnaire\"];",
+                  "const found = list.map(x => x.doc_type || x.type).filter(Boolean);",
+                  "mustHave.forEach(t => pm.test(`doc type ${t} is listed`, function () { pm.expect(found).to.include(t); }));",
+                  "pm.environment.set('documentTypesCount', String(found.length));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Create Individual Document from client (contract_free_ru)",
+          "name": "Create from client: addendum_korea (ready example)",
           "request": {
             "method": "POST",
             "header": [
@@ -2000,14 +2018,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "description": "Individual happy-path from client/deal."
+            "description": "Ready-to-run example for doc_type=addendum_korea via POST /documents/create-from-client."
           },
           "response": [],
           "event": [
@@ -2016,11 +2034,729 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: avr_kub_group (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=avr_kub_group via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: cancel_appointment (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=cancel_appointment via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: contract_free_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_free_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: contract_language_courses (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_language_courses via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: contract_paid_50_50_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_paid_50_50_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: contract_paid_full_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_paid_full_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: documents_handover_act (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=documents_handover_act via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: pause_application (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=pause_application via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: receipt_refund_full (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=receipt_refund_full via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: receipt_refund_partial (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=receipt_refund_partial via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: refund_application (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=refund_application via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: termination_transfer (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=termination_transfer via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: termination_waiver (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=termination_waiver via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client: visa_questionnaire (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=visa_questionnaire via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
                 ]
               }
             }
@@ -2121,7 +2857,7 @@
       "name": "Documents / Legal",
       "item": [
         {
-          "name": "Create Legal Document from client (contract_paid_full_ru)",
+          "name": "Create from client (legal): addendum_korea (ready example)",
           "request": {
             "method": "POST",
             "header": [
@@ -2141,14 +2877,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-LEGAL-0001\",\n    \"SIGNER_FULL_NAME\": \"{{signerFullName}}\",\n    \"SIGNER_POSITION\": \"{{signerPosition}}\",\n    \"SIGNER_PHONE\": \"{{signerPhone}}\",\n    \"SIGNER_EMAIL\": \"{{signerEmail}}\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "description": "Canonical legal document path. Requires existing legal client + deal. Backend picks legal template variant automatically."
+            "description": "Ready-to-run example for doc_type=addendum_korea via POST /documents/create-from-client."
           },
           "response": [],
           "event": [
@@ -2157,18 +2893,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Create from client: contract_paid_50_50_ru",
+          "name": "Create from client (legal): avr_kub_group (ready example)",
           "request": {
             "method": "POST",
             "header": [
@@ -2188,13 +2928,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Ready-to-run example for doc_type=avr_kub_group via POST /documents/create-from-client."
           },
           "response": [],
           "event": [
@@ -2203,18 +2944,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Create from client: contract_language_courses",
+          "name": "Create from client (legal): cancel_appointment (ready example)",
           "request": {
             "method": "POST",
             "header": [
@@ -2234,13 +2979,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{client_id}},\n  \"deal_id\": {{deal_id}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Ready-to-run example for doc_type=cancel_appointment via POST /documents/create-from-client."
           },
           "response": [],
           "event": [
@@ -2249,11 +2995,627 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "let data={};",
-                  "try { data=pm.response.json(); } catch(e) {}",
-                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
-                  "if (id) { pm.environment.set('documentId', id); }",
-                  "pm.environment.set('doc_id', pm.environment.get('documentId'));"
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): contract_free_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_free_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): contract_language_courses (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_language_courses via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): contract_paid_50_50_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_paid_50_50_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): contract_paid_full_ru (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=contract_paid_full_ru via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): documents_handover_act (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=documents_handover_act via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): pause_application (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=pause_application via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): receipt_refund_full (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=receipt_refund_full via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): receipt_refund_partial (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=receipt_refund_partial via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): refund_application (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=refund_application via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): termination_transfer (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=termination_transfer via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): termination_waiver (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=termination_waiver via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create from client (legal): visa_questionnaire (ready example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/create-from-client"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ready-to-run example for doc_type=visa_questionnaire via POST /documents/create-from-client."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is success\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]);",
+                  "});",
+                  "let data = {};",
+                  "try { data = pm.response.json(); } catch (e) {}",
+                  "const id = data?.id || data?.data?.id || data?.value?.id || data?.document?.id;",
+                  "if (id) { pm.environment.set('documentId', String(id)); pm.environment.set('doc_id', String(id)); }",
+                  "const t = pm.request.body && pm.request.body.raw ? JSON.parse(pm.request.body.raw).doc_type : '';",
+                  "if (t) pm.environment.set('lastDocType', t);"
                 ]
               }
             }
