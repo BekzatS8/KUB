@@ -57,6 +57,7 @@ type DealRepo interface {
 	GetByID(id int) (*models.Deals, error)
 	GetByLeadID(leadID int) (*models.Deals, error)
 	GetLatestByClientID(clientID int) (*models.Deals, error)
+	GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error)
 }
 
 type ClientRepo interface {
@@ -1010,6 +1011,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 
 func (s *DocumentService) CreateDocumentFromClient(
 	clientID int,
+	clientType string,
 	dealID int,
 	docType string,
 	userID, roleID int,
@@ -1028,9 +1030,20 @@ func (s *DocumentService) CreateDocumentFromClient(
 	}
 
 	// --- Клиент ---
+	normalizedClientType, err := normalizeRequiredDealClientType(clientType)
+	if err != nil {
+		return nil, err
+	}
 	client, err := s.ClientRepo.GetByID(clientID)
 	if err != nil || client == nil {
 		return nil, errors.New("client not found")
+	}
+	storedClientType, err := normalizeRequiredDealClientType(client.ClientType)
+	if err != nil {
+		return nil, err
+	}
+	if storedClientType != normalizedClientType {
+		return nil, ErrClientTypeMismatch
 	}
 
 	// --- Нужна ли сделка? ---
@@ -1043,8 +1056,14 @@ func (s *DocumentService) CreateDocumentFromClient(
 			if err != nil || deal == nil {
 				return nil, errors.New("deal not found")
 			}
+			if deal.ClientID != clientID {
+				return nil, errors.New("deal does not belong to client")
+			}
+			if strings.TrimSpace(deal.ClientType) != "" && strings.ToLower(strings.TrimSpace(deal.ClientType)) != normalizedClientType {
+				return nil, ErrClientTypeMismatch
+			}
 		} else {
-			deal, err = s.DealRepo.GetLatestByClientID(clientID)
+			deal, err = s.DealRepo.GetLatestByClientRef(clientID, normalizedClientType)
 			if err != nil {
 				return nil, err
 			}

@@ -52,10 +52,11 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 // Получение сделки по lead_id (последняя по времени)
 func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	query := `
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		WHERE lead_id = $1
-		ORDER BY created_at DESC
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE d.lead_id = $1
+		ORDER BY d.created_at DESC
 		LIMIT 1
 	`
 
@@ -66,6 +67,7 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 		&deal.ID,
 		&deal.LeadID,
 		&deal.ClientID,
+		&deal.ClientType,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
@@ -109,9 +111,10 @@ func (r *DealRepository) Update(deal *models.Deals) error {
 // Получение по ID
 func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	query := `
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		WHERE id=$1
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE d.id=$1
 	`
 
 	deal := &models.Deals{}
@@ -121,6 +124,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 		&deal.ID,
 		&deal.LeadID,
 		&deal.ClientID,
+		&deal.ClientType,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
@@ -173,52 +177,53 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		order = "desc"
 	}
 
-	allowedSortFields := map[string]bool{
-		"created_at": true,
-		"amount":     true,
-		"status":     true,
-		"currency":   true,
+	allowedSortFields := map[string]string{
+		"created_at": "d.created_at",
+		"amount":     "d.amount",
+		"status":     "d.status",
+		"currency":   "d.currency",
 	}
-	if !allowedSortFields[sortBy] {
-		sortBy = "created_at"
+	sortExpr, ok := allowedSortFields[sortBy]
+	if !ok {
+		sortExpr = "d.created_at"
 	}
 
-	query := "SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at FROM deals WHERE 1=1"
+	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE 1=1"
 	args := []interface{}{}
 	i := 1
 
 	if status != "" {
-		query += fmt.Sprintf(" AND status = $%d", i)
+		query += fmt.Sprintf(" AND d.status = $%d", i)
 		args = append(args, status)
 		i++
 	}
 	if fromDate != "" {
-		query += fmt.Sprintf(" AND created_at >= $%d", i)
+		query += fmt.Sprintf(" AND d.created_at >= $%d", i)
 		args = append(args, fromDate)
 		i++
 	}
 	if toDate != "" {
-		query += fmt.Sprintf(" AND created_at <= $%d", i)
+		query += fmt.Sprintf(" AND d.created_at <= $%d", i)
 		args = append(args, toDate)
 		i++
 	}
 	if currency != "" {
-		query += fmt.Sprintf(" AND currency = $%d", i)
+		query += fmt.Sprintf(" AND d.currency = $%d", i)
 		args = append(args, currency)
 		i++
 	}
 	if amountMin > 0 {
-		query += fmt.Sprintf(" AND amount >= $%d", i)
+		query += fmt.Sprintf(" AND d.amount >= $%d", i)
 		args = append(args, amountMin)
 		i++
 	}
 	if amountMax > 0 {
-		query += fmt.Sprintf(" AND amount <= $%d", i)
+		query += fmt.Sprintf(" AND d.amount <= $%d", i)
 		args = append(args, amountMax)
 		i++
 	}
 
-	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortBy, order, i, i+1)
+	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortExpr, order, i, i+1)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(query, args...)
@@ -236,6 +241,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 			&deal.ID,
 			&deal.LeadID,
 			&deal.ClientID,
+			&deal.ClientType,
 			&deal.OwnerID,
 			&deal.Amount,
 			&deal.Currency,
@@ -253,9 +259,10 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 
 func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 	query := `
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		ORDER BY created_at DESC
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		ORDER BY d.created_at DESC
 		LIMIT $1 OFFSET $2
 	`
 
@@ -274,6 +281,7 @@ func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 			&d.ID,
 			&d.LeadID,
 			&d.ClientID,
+			&d.ClientType,
 			&d.OwnerID,
 			&d.Amount,
 			&d.Currency,
@@ -296,10 +304,11 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 // Только сделки конкретного владельца
 func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deals, error) {
 	query := `
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		WHERE owner_id = $1
-		ORDER BY created_at DESC
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE d.owner_id = $1
+		ORDER BY d.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -318,6 +327,7 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 			&d.ID,
 			&d.LeadID,
 			&d.ClientID,
+			&d.ClientType,
 			&d.OwnerID,
 			&d.Amount,
 			&d.Currency,
@@ -342,10 +352,11 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		WHERE client_id = $1
-		ORDER BY created_at DESC
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE d.client_id = $1
+		ORDER BY d.created_at DESC
 		LIMIT 1
 	`
 
@@ -356,6 +367,7 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		&deal.ID,
 		&deal.LeadID,
 		&deal.ClientID,
+		&deal.ClientType,
 		&deal.OwnerID,
 		&deal.Amount,
 		&deal.Currency,
@@ -370,6 +382,41 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		return nil, fmt.Errorf("get deal by client_id: %w", err)
 	}
 
+	deal.Status = normalizeDealStatus(status)
+	return deal, nil
+}
+
+// GetLatestByClientRef возвращает последнюю сделку по точной typed ссылке клиента.
+func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error) {
+	query := `
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		JOIN clients c ON c.id = d.client_id
+		WHERE d.client_id = $1 AND c.client_type = $2
+		ORDER BY d.created_at DESC
+		LIMIT 1
+	`
+
+	deal := &models.Deals{}
+	var status sql.NullString
+
+	err := r.db.QueryRow(query, clientID, clientType).Scan(
+		&deal.ID,
+		&deal.LeadID,
+		&deal.ClientID,
+		&deal.ClientType,
+		&deal.OwnerID,
+		&deal.Amount,
+		&deal.Currency,
+		&status,
+		&deal.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get latest deal by typed client ref: %w", err)
+	}
 	deal.Status = normalizeDealStatus(status)
 	return deal, nil
 }
@@ -445,6 +492,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 	query := `
 		SELECT
 			d.client_id,
+			c.client_type,
 			COALESCE(NULLIF(c.display_name, ''), c.name) AS client_name,
 			SUM(d.amount) AS total_amount,
 			d.currency
@@ -458,7 +506,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 		args = append(args, *ownerID)
 	}
 
-	query += " GROUP BY d.client_id, COALESCE(NULLIF(c.display_name, ''), c.name), d.currency ORDER BY total_amount DESC"
+	query += " GROUP BY d.client_id, c.client_type, COALESCE(NULLIF(c.display_name, ''), c.name), d.currency ORDER BY total_amount DESC"
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", len(args)+1)
@@ -474,7 +522,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 	var result []models.TopClientRow
 	for rows.Next() {
 		var row models.TopClientRow
-		if err := rows.Scan(&row.ClientID, &row.ClientName, &row.TotalAmount, &row.Currency); err != nil {
+		if err := rows.Scan(&row.ClientID, &row.ClientType, &row.ClientName, &row.TotalAmount, &row.Currency); err != nil {
 			return nil, fmt.Errorf("scan top client row: %w", err)
 		}
 		result = append(result, row)

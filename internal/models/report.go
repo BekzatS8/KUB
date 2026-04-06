@@ -15,6 +15,7 @@ type RevenueRow struct {
 
 type TopClientRow struct {
 	ClientID    int     `db:"client_id" json:"client_id"`
+	ClientType  string  `db:"client_type" json:"client_type"`
 	ClientName  string  `db:"client_name" json:"client_name"`
 	TotalAmount float64 `db:"total_amount" json:"total_amount"`
 	Currency    string  `db:"currency" json:"currency"`

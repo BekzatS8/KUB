@@ -18,7 +18,7 @@ import (
 
 type WazzupService interface {
 	Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error)
-	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string, phone string, leadID int, clientID int) (string, error)
+	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error)
 	HandleWebhook(ctx context.Context, token string, authHeader string, payload []byte) (leadID int, created bool, err error)
 	SendMessage(ctx context.Context, ownerUserID int, chatID, text string) (*wz.SendMessageResponse, error)
 }
@@ -41,11 +41,7 @@ type wazzupSetupRequest struct {
 	Enabled         bool   `json:"enabled"`
 }
 
-type wazzupIframeRequest struct {
-	Phone    string `json:"phone"`
-	LeadID   int    `json:"lead_id"`
-	ClientID int    `json:"client_id"`
-}
+type wazzupIframeRequest struct{}
 
 type wazzupSendMessageRequest struct {
 	ChatID string `json:"chat_id"`
@@ -159,11 +155,6 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
 	defer cancel()
 
-	phone := req.Phone
-	if req.LeadID > 0 || req.ClientID > 0 {
-		phone = ""
-	}
-
 	userName := ""
 	if h.repo != nil {
 		crmUser, repoErr := h.repo.GetCRMUserByID(ctx, userID)
@@ -176,9 +167,9 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		}
 	}
 
-	url, err := h.svc.GetIframeURL(ctx, userID, companyID, userName, phone, req.LeadID, req.ClientID)
+	url, err := h.svc.GetIframeURL(ctx, userID, companyID, userName)
 	if err != nil {
-		log.Printf("[WAZZUP][iframe] user_id=%d lead_id=%d client_id=%d phone=%q err=%v", userID, req.LeadID, req.ClientID, req.Phone, err)
+		log.Printf("[WAZZUP][iframe] user_id=%d err=%v", userID, err)
 		switch {
 		case errors.Is(err, wz.ErrBadRequest):
 			badRequest(c, err.Error())

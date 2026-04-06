@@ -155,7 +155,7 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 
 // ConvertLeadToDeal оставляем как у тебя, только напомню,
 // что он требует lead.Status == "confirmed"
-func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int) (*models.Deals, error) {
+func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int, clientType string) (*models.Deals, error) {
 	if authz.CanManageSystem(roleID) {
 		return nil, ErrForbidden
 	}
@@ -170,6 +170,10 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 	}
 	if clientID <= 0 {
 		return nil, ErrClientIDRequired
+	}
+	normalizedClientType, err := normalizeRequiredDealClientType(clientType)
+	if err != nil {
+		return nil, err
 	}
 	lead, err := s.Repo.GetByID(leadID)
 	if err != nil || lead == nil {
@@ -188,13 +192,18 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 	if client == nil {
 		return nil, ErrClientNotFound
 	}
+	if strings.ToLower(strings.TrimSpace(client.ClientType)) != normalizedClientType {
+		return nil, ErrClientTypeMismatch
+	}
 	deal := &models.Deals{
-		LeadID:    leadID,
-		OwnerID:   ownerID,
-		Amount:    amount,
-		Currency:  currency,
-		Status:    "new",
-		CreatedAt: time.Now(),
+		LeadID:     leadID,
+		ClientID:   clientID,
+		ClientType: normalizedClientType,
+		OwnerID:    ownerID,
+		Amount:     amount,
+		Currency:   currency,
+		Status:     "new",
+		CreatedAt:  time.Now(),
 	}
 	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, client)
 	if err != nil {
@@ -225,6 +234,11 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 	if clientData == nil {
 		return nil, errors.New("client data is required")
 	}
+	clientType, err := normalizeRequiredDealClientType(clientData.ClientType)
+	if err != nil {
+		return nil, err
+	}
+	clientData.ClientType = clientType
 	if clientData.OwnerID == 0 {
 		clientData.OwnerID = ownerID
 	}
@@ -239,7 +253,7 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 	if client == nil {
 		return nil, ErrClientNotFound
 	}
-	return s.ConvertLeadToDeal(leadID, amount, currency, ownerID, userID, roleID, client.ID)
+	return s.ConvertLeadToDeal(leadID, amount, currency, ownerID, userID, roleID, client.ID, clientData.ClientType)
 }
 
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {

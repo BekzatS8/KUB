@@ -102,7 +102,7 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 	return &SetupResponse{WebhookURL: webhooksURI, WebhookToken: webhookToken, CRMKey: crmKey}, nil
 }
 
-func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string, _ string, _ int, _ int) (string, error) {
+func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error) {
 	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
 	if err != nil {
 		return "", err

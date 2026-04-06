@@ -30,6 +30,7 @@ func NewClientService(repo *repositories.ClientRepository, fileRepo ...*reposito
 
 type ClientProfilePayload struct {
 	Client             *models.Client
+	ClientRef          models.TypedClientRef
 	MissingYellow      []string
 	MissingContract    []string
 	CompletenessType   string
@@ -70,6 +71,29 @@ func normalizeClientType(value string) (string, error) {
 	default:
 		return "", errors.New("invalid client_type: allowed values are individual, legal")
 	}
+}
+
+func normalizeRequiredClientType(value string) (string, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return "", ErrClientTypeRequired
+	}
+	return normalizeClientType(v)
+}
+
+func ensureClientTypeImmutable(storedType, requestedType string) (string, error) {
+	stored, err := normalizeRequiredClientType(storedType)
+	if err != nil {
+		return "", err
+	}
+	requested, err := normalizeClientType(requestedType)
+	if err != nil {
+		return "", err
+	}
+	if requested != stored {
+		return "", ErrClientTypeImmutable
+	}
+	return stored, nil
 }
 
 func (s *ClientService) authorizeWrite(roleID int) error {
@@ -418,6 +442,11 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	if roleID != authz.RoleManagement {
 		c.OwnerID = current.OwnerID
 	}
+	stableClientType, err := ensureClientTypeImmutable(current.ClientType, c.ClientType)
+	if err != nil {
+		return err
+	}
+	c.ClientType = stableClientType
 	if c.ClientType == models.ClientTypeLegal {
 		c.LegalProfile = mergeLegalProfile(current.LegalProfile, c.LegalProfile)
 	}
@@ -778,6 +807,7 @@ func (s *ClientService) GetProfile(ctx context.Context, clientID, userID, roleID
 
 	return &ClientProfilePayload{
 		Client:             client,
+		ClientRef:          client.TypedRef(),
 		MissingYellow:      missing,
 		MissingContract:    missingContract,
 		CompletenessType:   client.ClientType,
@@ -819,7 +849,7 @@ func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int
 	}
 	if v, ok := updates["client_type"]; ok {
 		ct, _ := v.(string)
-		ct, err = normalizeClientType(ct)
+		ct, err = ensureClientTypeImmutable(current.ClientType, ct)
 		if err != nil {
 			return nil, err
 		}

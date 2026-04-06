@@ -390,6 +390,7 @@ sudo systemctl enable --now turcompany.service
 ```json
 {
   "client_id": 123,
+  "client_type": "individual",
   "deal_id": 456,
   "doc_type": "cancel_appointment",
   "extra": {
@@ -402,7 +403,8 @@ sudo systemctl enable --now turcompany.service
 
 - Верхний уровень:
   - `client_id` — **обязательное**, `int` (`binding:"required"`).
-  - `deal_id` — опциональное, `int` (если `0`, берётся последняя сделка клиента).
+  - `client_type` — **обязательное**, `individual|legal` (`binding:"required"`).
+  - `deal_id` — опциональное, `int` (если `0`, берётся последняя сделка по точной typed-ссылке `client_id+client_type`).
   - `doc_type` — **обязательное**, `string` (`binding:"required"`).
   - `extra` — опциональное `object<string,string>`.
 - Обязательные поля `extra` по `doc_type`:
@@ -411,6 +413,17 @@ sudo systemctl enable --now turcompany.service
   - `pause_application` → `reason_code`.
   - для остальных `doc_type` обязательных полей внутри `extra` нет (но есть опциональные ключи в `internal/services/document_registry.go`).
 - Для всех `doc_type` сервис дополнительно проверяет обязательные данные клиента/сделки: `full_name`, `iin_or_bin`, `address`, `phone`, `contract_number`.
+- Сервис валидирует typed client reference и возвращает ошибку при mismatch (`client_type does not match stored client type`), а также при попытке скрестить `deal_id` от другого клиента.
+
+### Typed client contract (deals/leads/documents)
+
+- `POST /deals` и `PUT /deals/:id` требуют `client_id` + `client_type`.
+- `PUT /leads/:id/convert` требует `client_id` + `client_type`.
+- `POST /documents/create-from-client` требует `client_id` + `client_type`.
+
+### Immutability
+
+`client_type` существующего клиента считается неизменяемым: `PUT/PATCH /clients/:id` не может менять `individual <-> legal`.
 
 ### DEBUG для проблемного payload
 

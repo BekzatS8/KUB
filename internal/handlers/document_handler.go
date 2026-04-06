@@ -31,6 +31,7 @@ type DocumentHandler struct {
 //
 //	{
 //	  "client_id": number,                // required, int, binding:"required"
+//	  "client_type": "individual|legal", // required
 //	  "deal_id": number,                  // optional, int, 0 => взять последнюю сделку клиента
 //	  "doc_type": string,                 // required, binding:"required"
 //	  "extra": {"KEY":"VALUE", ...}    // optional, object<string,string>
@@ -47,10 +48,11 @@ type DocumentHandler struct {
 //
 // - Остальные extra-поля зависят от doc_type и перечислены в internal/services/document_registry.go (ExtraKeys).
 type createFromClientRequest struct {
-	ClientID int               `json:"client_id" binding:"required"`
-	DealID   int               `json:"deal_id"` // можно 0, тогда возьмём последнюю сделку клиента
-	DocType  string            `json:"doc_type" binding:"required"`
-	Extra    map[string]string `json:"extra"` // сумма, причина и т.п.
+	ClientID   int               `json:"client_id" binding:"required"`
+	ClientType string            `json:"client_type" binding:"required"`
+	DealID     int               `json:"deal_id"` // можно 0, тогда возьмём последнюю сделку клиента
+	DocType    string            `json:"doc_type" binding:"required"`
+	Extra      map[string]string `json:"extra"` // сумма, причина и т.п.
 }
 
 const docsCreateFromClientDebugMaxBody = 8192
@@ -321,6 +323,7 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 
 	doc, err := h.Service.CreateDocumentFromClient(
 		req.ClientID,
+		req.ClientType,
 		req.DealID,
 		req.DocType,
 		userID,
@@ -349,8 +352,17 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 		case "client not found":
 			notFound(c, ClientNotFoundCode, "Client not found")
 			return
+		case "client_type is required", "client_type does not match stored client type":
+			badRequest(c, err.Error())
+			return
+		case "invalid client_type: allowed values are individual, legal":
+			badRequest(c, err.Error())
+			return
 		case "deal not found":
 			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		case "deal does not belong to client":
+			badRequest(c, err.Error())
 			return
 		case "unsupported doc_type":
 			writeError(c, http.StatusBadRequest, UnsupportedDocType, "Unsupported document type")

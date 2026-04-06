@@ -28,6 +28,7 @@ type clientService interface {
 	ListIndividualsForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
 	ListCompaniesForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
 	GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error)
+	GetProfile(ctx context.Context, clientID, userID, roleID int) (*services.ClientProfilePayload, error)
 }
 
 type ClientHandler struct {
@@ -484,6 +485,10 @@ func (h *ClientHandler) Update(c *gin.Context) {
 			badRequest(c, err.Error())
 			return
 		}
+		if errors.Is(err, services.ErrClientTypeImmutable) {
+			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
+			return
+		}
 		badRequest(c, "Failed to update client")
 		return
 	}
@@ -612,6 +617,10 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 		}
 		if strings.Contains(err.Error(), "invalid client_type") {
 			badRequest(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrClientTypeImmutable) {
+			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
 			return
 		}
 		badRequest(c, "Failed to update client")
@@ -783,7 +792,7 @@ func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 		forbidden(c, "Forbidden")
 		return
 	}
-	missing, err := h.Service.GetMissingYellow(c.Request.Context(), id, userID, roleID)
+	profile, err := h.Service.GetProfile(c.Request.Context(), id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -792,5 +801,11 @@ func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 		notFound(c, ClientNotFoundCode, "Client not found")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"client_id": id, "missing_yellow": missing, "yellow_ready": len(missing) == 0})
+	c.JSON(http.StatusOK, gin.H{
+		"client_ref":     profile.ClientRef,
+		"client_id":      profile.ClientRef.ClientID,
+		"client_type":    profile.ClientRef.ClientType,
+		"missing_yellow": profile.MissingYellow,
+		"yellow_ready":   len(profile.MissingYellow) == 0,
+	})
 }

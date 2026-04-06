@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"turcompany/internal/models"
@@ -301,10 +302,11 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	existing := &models.Deals{}
 	var status sql.NullString
 	row := tx.QueryRow(`
-		SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-		FROM deals
-		WHERE lead_id = $1
-		ORDER BY created_at DESC
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		FROM deals d
+		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE d.lead_id = $1
+		ORDER BY d.created_at DESC
 		LIMIT 1
 		FOR UPDATE
 	`, leadID)
@@ -312,6 +314,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		&existing.ID,
 		&existing.LeadID,
 		&existing.ClientID,
+		&existing.ClientType,
 		&existing.OwnerID,
 		&existing.Amount,
 		&existing.Currency,
@@ -344,12 +347,20 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	if client.ID == 0 {
 		return nil, errors.New("client data is required")
 	}
-	if err = tx.QueryRow(`SELECT id FROM clients WHERE id = $1 FOR UPDATE`, client.ID).Scan(&deal.ClientID); err != nil {
+	var storedClientType string
+	if err = tx.QueryRow(`SELECT id, client_type FROM clients WHERE id = $1 FOR UPDATE`, client.ID).Scan(&deal.ClientID, &storedClientType); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrClientNotFound
 		}
 		return nil, fmt.Errorf("lookup client: %w", err)
 	}
+	if strings.TrimSpace(client.ClientType) == "" {
+		return nil, errors.New("client_type is required")
+	}
+	if strings.ToLower(strings.TrimSpace(client.ClientType)) != strings.ToLower(strings.TrimSpace(storedClientType)) {
+		return nil, errors.New("client_type does not match stored client type")
+	}
+	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
 
 	err = tx.QueryRow(`
 		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
@@ -368,10 +379,11 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			row := tx.QueryRow(`
-				SELECT id, lead_id, client_id, owner_id, amount, currency, status, created_at
-				FROM deals
-				WHERE lead_id = $1
-				ORDER BY created_at DESC
+				SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+				FROM deals d
+				LEFT JOIN clients c ON c.id = d.client_id
+				WHERE d.lead_id = $1
+				ORDER BY d.created_at DESC
 				LIMIT 1
 				FOR UPDATE
 			`, leadID)
@@ -379,6 +391,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 				&existing.ID,
 				&existing.LeadID,
 				&existing.ClientID,
+				&existing.ClientType,
 				&existing.OwnerID,
 				&existing.Amount,
 				&existing.Currency,

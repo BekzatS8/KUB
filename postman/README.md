@@ -28,7 +28,7 @@
 - `baseUrl`, `accessToken`, `refreshToken`
 - `adminEmail`, `adminPassword`, `bossEmail`, `bossPassword`
 - `userId`, `roleId`
-- `clientId`, `individualClientId`, `legalClientId`
+- `individualClientId`, `legalClientId`
 - `leadId`, `dealId`, `documentId`
 - `chatId`, `messageId`
 - `signSessionId`, `signSessionToken`, `publicDocumentToken`
@@ -39,11 +39,14 @@
   - `legalCompanyName`, `legalBin`, `legalAddress`
   - `contactPersonName`, `contactPersonEmail`, `contactPersonPhone`
 
-> Для обратной совместимости сохранены алиасы (`base_url`, `jwt`, `client_id`, `lead_id`, `deal_id`, `doc_id`, `chat_id`, `message_id`, `sign_session_id`, `session_token`).
+> `clientId`/`client_id` оставлены только как **deprecated aliases** (по умолчанию указывают на `individualClientId`). В typed-сценариях используйте только `individualClientId`/`legalClientId` + явный `client_type`.
+>
+> Почему общий `clientId` опасен: при переключении между physical/individual и legal сценариями один mutable ID легко перетирается и приводит к ложным mismatch в `deals`, `lead convert` и `documents/create-from-client`.
 
 ## Полезные автоскрипты (Tests)
 - После `Auth / Login` сохраняются `accessToken` и `refreshToken`.
-- После `Clients / Create...` сохраняется `clientId`.
+- После `Clients / Individual / Create...` сохраняется `individualClientId`.
+- После `Clients / Legal / Create...` сохраняется `legalClientId`.
 - После `Leads / Create Lead` сохраняется `leadId`.
 - После `Leads / Convert...` сохраняется `dealId`.
 - После `Documents / Create...` сохраняется `documentId`.
@@ -55,13 +58,13 @@
 ## Готовые POST-примеры создания документов
 - В `Documents / Individual` добавлены готовые `POST {{base_url}}/documents/create-from-client` для **каждого** `doc_type`.
 - В `Documents / Legal` добавлены готовые `POST {{base_url}}/documents/create-from-client` для **каждого** `doc_type` с `legalClientId`.
-- Во всех примерах заполнены URL, `client_id`, `deal_id`, `doc_type` и примерные `extra` поля.
+- Во всех примерах заполнены URL, `client_id`, `client_type`, `deal_id`, `doc_type` и примерные `extra` поля.
 
 ## Быстрый smoke flow (локально)
 1. `Auth / Login`
 2. `Clients / Create Client (individual_profile nested)` или `... (legal_profile nested)`
 3. `Leads / Create Lead`
-4. `Leads / Convert Lead To Deal` (или `...With Client`)
+4. `Leads / Convert Lead To Deal` (обязательно `client_id + client_type`) или `...With Client`
 5. `Documents / Create from client: <doc_type>`
 6. `Signing / Start Signing (Email)` → `Verify Email Token` → `Confirm Email Token` → `Signing Status`
 7. `Chats / Create Personal Chat` → `Send Message`
@@ -72,7 +75,7 @@
 2. **Individual smoke**:
    - `Clients / Individual / Create Client (individual_profile nested)`
    - `Leads / Create Lead`
-   - `Leads / Convert Lead To Deal With Client` (или `Deals / Create Deal`)
+   - `Leads / Convert Lead To Deal With Client` (обязательно `client_type`) или `Deals / Create Deal` (обязательно `client_id + client_type`)
    - `Documents / Individual / Create Individual Document from client (contract_free_ru)`
 3. **Legal smoke**:
    - `Clients / Legal / Create Client (legal_profile nested)`

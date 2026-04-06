@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,14 @@ func (h *DealHandler) Create(c *gin.Context) {
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
+	if deal.ClientID <= 0 {
+		badRequest(c, "Client ID is required")
+		return
+	}
+	if deal.ClientType == "" {
+		badRequest(c, "Client type is required")
+		return
+	}
 	if deal.CreatedAt.IsZero() {
 		deal.CreatedAt = time.Now()
 	}
@@ -53,8 +62,20 @@ func (h *DealHandler) Create(c *gin.Context) {
 			badRequest(c, "Lead ID is required")
 			return
 		}
-		if err.Error() == "client_id is required" {
+		if errors.Is(err, services.ErrClientIDRequired) {
 			badRequest(c, "Client ID is required")
+			return
+		}
+		if errors.Is(err, services.ErrClientTypeRequired) {
+			badRequest(c, "Client type is required")
+			return
+		}
+		if errors.Is(err, services.ErrClientTypeMismatch) {
+			badRequest(c, "client_id and client_type mismatch")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
 			return
 		}
 		if err.Error() == "amount must be greater than 0" {
@@ -104,8 +125,32 @@ func (h *DealHandler) Update(c *gin.Context) {
 		badRequest(c, "Invalid payload")
 		return
 	}
+	if body.ClientID <= 0 {
+		badRequest(c, "Client ID is required")
+		return
+	}
+	if body.ClientType == "" {
+		badRequest(c, "Client type is required")
+		return
+	}
 	body.ID = id
 	if err := h.Service.Update(&body, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrClientIDRequired) {
+			badRequest(c, "Client ID is required")
+			return
+		}
+		if errors.Is(err, services.ErrClientTypeRequired) {
+			badRequest(c, "Client type is required")
+			return
+		}
+		if errors.Is(err, services.ErrClientTypeMismatch) {
+			badRequest(c, "client_id and client_type mismatch")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid client_type") {
+			badRequest(c, err.Error())
+			return
+		}
 		if err.Error() == "amount must be greater than 0" {
 			badRequest(c, "Amount must be greater than 0")
 			return
