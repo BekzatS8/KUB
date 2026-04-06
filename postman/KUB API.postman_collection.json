@@ -568,7 +568,7 @@
                   "let data={};",
                   "try { data=pm.response.json(); } catch(e) {}",
                   "const id = data?.id || data?.data?.id || data?.value?.id;",
-                  "if (id) { pm.environment.set('individualClientId', id); pm.environment.set('clientId', id); pm.environment.set('client_id', id); }"
+                  "if (id) { pm.environment.set('individualClientId', id); }"
                 ]
               }
             }
@@ -686,13 +686,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "clients",
-                "{{clientId}}"
+                "{{individualClientId}}"
               ]
             }
           },
@@ -713,13 +713,13 @@
               "raw": "{\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"iin\": \"{{clientIin}}\",\n  \"phone\": \"{{clientPhone}}\",\n  \"email\": \"{{clientEmail}}\",\n  \"address\": \"{{clientAddress}}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "clients",
-                "{{clientId}}"
+                "{{individualClientId}}"
               ]
             }
           },
@@ -737,7 +737,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{individualClientId}}",
                 "completeness"
               ]
             },
@@ -769,7 +769,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{individualClientId}}",
                 "profile"
               ]
             },
@@ -798,13 +798,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{individualClientId}}",
                 "files"
               ]
             },
@@ -844,13 +844,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files/primary?category=photo35x45",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/files/primary?category=photo35x45",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{individualClientId}}",
                 "files",
                 "primary"
               ]
@@ -875,13 +875,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files/primary/download?category=photo35x45",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/files/primary/download?category=photo35x45",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{individualClientId}}",
                 "files",
                 "primary",
                 "download"
@@ -917,7 +917,7 @@
                   "let data={};",
                   "try { data=pm.response.json(); } catch(e) {}",
                   "const id = data?.id || data?.data?.id || data?.value?.id;",
-                  "if (id) { pm.environment.set('legalClientId', id); pm.environment.set('clientId', id); pm.environment.set('client_id', id); }",
+                  "if (id) { pm.environment.set('legalClientId', id); }",
                   "const company = data?.legal_profile?.company_name || data?.name; if (company) pm.environment.set('legalCompanyName', company);",
                   "const bin = data?.legal_profile?.bin || data?.bin_iin; if (bin) pm.environment.set('legalBin', bin);"
                 ]
@@ -1048,7 +1048,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "completeness"
               ]
             },
@@ -1080,7 +1080,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "profile"
               ]
             },
@@ -1109,13 +1109,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1156,13 +1156,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1203,13 +1203,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1250,13 +1250,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1297,13 +1297,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1344,13 +1344,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}/files",
+              "raw": "{{baseUrl}}/clients/{{legalClientId}}/files",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files"
               ]
             },
@@ -1397,7 +1397,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files",
                 "primary"
               ]
@@ -1428,7 +1428,7 @@
               ],
               "path": [
                 "clients",
-                "{{client_id}}",
+                "{{legalClientId}}",
                 "files",
                 "primary",
                 "download"
@@ -1685,7 +1685,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"client_id\": {{clientId}}\n}"
+              "raw": "{\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/leads/{{leadId}}/convert",
@@ -1739,7 +1739,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount\": 100000,\n  \"currency\": \"KZT\",\n  \"client_name\": \"ТОО Пример\",\n  \"client_bin_iin\": \"123456789012\",\n  \"client_address\": \"г. Алматы\",\n  \"client_contact_info\": \"+77010000000\"\n}",
+              "raw": "{\n  \"amount\": 100000,\n  \"currency\": \"KZT\",\n  \"client_type\": \"legal\",\n  \"client_name\": \"ТОО Пример\",\n  \"client_bin_iin\": \"123456789012\",\n  \"client_address\": \"г. Алматы\",\n  \"client_contact_info\": \"+77010000000\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1792,7 +1792,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{clientId}},\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
+              "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/deals",
@@ -1891,7 +1891,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{clientId}},\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
+              "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/deals/{{dealId}}",
@@ -2018,7 +2018,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2069,7 +2069,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2120,7 +2120,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2171,7 +2171,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2222,7 +2222,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2273,7 +2273,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2324,7 +2324,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2375,7 +2375,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2426,7 +2426,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2477,7 +2477,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2528,7 +2528,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2579,7 +2579,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2630,7 +2630,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2681,7 +2681,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2732,7 +2732,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2877,7 +2877,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2928,7 +2928,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"avr_kub_group\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2979,7 +2979,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"cancel_appointment\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"CANCEL_REASON_TEXT\": \"Личные обстоятельства\",\n    \"DESTINATION_PLACE\": \"Алматы\",\n    \"APPOINTMENT_DATE_TEXT\": \"15.05.2026\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3030,7 +3030,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000123\",\n    \"CONTRACT_DATE_TEXT\": \"«01» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3081,7 +3081,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_language_courses\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000124\",\n    \"CONTRACT_DATE_TEXT\": \"«02» марта 2026 г.\",\n    \"COURSE_NAME\": \"General English\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3132,7 +3132,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_50_50_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000125\",\n    \"CONTRACT_DATE_TEXT\": \"«03» марта 2026 г.\",\n    \"PREPAY_AMOUNT_NUM\": \"100000\",\n    \"PREPAY_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3183,7 +3183,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_paid_full_ru\",\n  \"extra\": {\n    \"CONTRACT_NUMBER\": \"KUB-000126\",\n    \"CONTRACT_DATE_TEXT\": \"«04» марта 2026 г.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3234,7 +3234,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"documents_handover_act\",\n  \"extra\": {\n    \"DOCS_PRESENT\": \"[1,2,5,9]\",\n    \"DOCS_ITEMS_JSON\": \"[{\"name\":\"Паспорт\",\"mark\":\"☑\"}]\",\n    \"ACT_NUMBER\": \"A-2026-001\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3285,7 +3285,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"pause_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"PAUSE_REASON_TEXT\": \"По семейным обстоятельствам\",\n    \"PAUSE_FROM_DATE\": \"01.06.2026\",\n    \"PAUSE_TO_DATE\": \"30.06.2026\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3336,7 +3336,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_full\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3387,7 +3387,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"receipt_refund_partial\",\n  \"extra\": {\n    \"REFUND_AMOUNT_NUM\": \"50000\",\n    \"REFUND_AMOUNT_TEXT\": \"Пятьдесят тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3438,7 +3438,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"refund_application\",\n  \"extra\": {\n    \"reason_code\": \"R1\",\n    \"reason_codes\": \"[\"R1\",\"R4\"]\",\n    \"REFUND_REASON_TEXT\": \"Отказ в визе\",\n    \"REFUND_AMOUNT_NUM\": \"100000\",\n    \"REFUND_AMOUNT_TEXT\": \"Сто тысяч тенге\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3489,7 +3489,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_transfer\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3540,7 +3540,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"termination_waiver\",\n  \"extra\": {\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3591,7 +3591,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"visa_questionnaire\",\n  \"extra\": {\n    \"QUESTIONNAIRE_PURPOSE\": \"Туризм\",\n    \"TRIP_COUNTRY\": \"Корея\",\n    \"TRIP_PURPOSE\": \"Обучение\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5486,7 +5486,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"77001112233\"\n}"
+              "raw": "{}"
             },
             "url": {
               "raw": "{{baseUrl}}/integrations/wazzup/iframe",
@@ -5589,13 +5589,13 @@
               "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientBinIin}}\",\n  \"phone\": \"{{clientPhone}}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "clients",
-                "{{clientId}}"
+                "{{individualClientId}}"
               ]
             }
           },
@@ -5622,13 +5622,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/clients/{{clientId}}",
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "clients",
-                "{{client_id}}"
+                "{{individualClientId}}"
               ]
             }
           },
@@ -5908,7 +5908,8 @@
     },
     {
       "key": "client_id",
-      "value": "1"
+      "value": "{{individualClientId}}",
+      "description": "DEPRECATED alias. Prefer individualClientId / legalClientId + explicit client_type."
     },
     {
       "key": "baseUrl",
@@ -5916,7 +5917,8 @@
     },
     {
       "key": "clientId",
-      "value": "{{client_id}}"
+      "value": "{{individualClientId}}",
+      "description": "DEPRECATED alias. Prefer individualClientId / legalClientId + explicit client_type."
     },
     {
       "key": "accessToken",

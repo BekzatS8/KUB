@@ -42,7 +42,7 @@ Public:
 
 JWT protected:
 - `POST /integrations/wazzup/setup` (`system_admin` only)
-- `POST /integrations/wazzup/iframe`
+- `POST /integrations/wazzup/iframe` (global iframe; payload `{}` — `lead_id/client_id` не используются)
 - `POST /integrations/wazzup/send`
 
 ## Quick checks

@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -9,11 +10,57 @@ import (
 )
 
 type DealService struct {
-	Repo *repositories.DealRepository
+	Repo       *repositories.DealRepository
+	ClientRepo *repositories.ClientRepository
 }
 
-func NewDealService(repo *repositories.DealRepository) *DealService {
-	return &DealService{Repo: repo}
+func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
+	service := &DealService{Repo: repo}
+	if len(clientRepo) > 0 {
+		service.ClientRepo = clientRepo[0]
+	}
+	return service
+}
+
+func normalizeRequiredDealClientType(value string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if v == "" {
+		return "", ErrClientTypeRequired
+	}
+	switch v {
+	case models.ClientTypeIndividual, models.ClientTypeLegal:
+		return v, nil
+	default:
+		return "", errors.New("invalid client_type: allowed values are individual, legal")
+	}
+}
+
+func (s *DealService) validateTypedClientRef(clientID int, clientType string) (string, error) {
+	if clientID == 0 {
+		return "", ErrClientIDRequired
+	}
+	requestedType, err := normalizeRequiredDealClientType(clientType)
+	if err != nil {
+		return "", err
+	}
+	if s.ClientRepo == nil {
+		return "", errors.New("client repository not configured")
+	}
+	client, err := s.ClientRepo.GetByID(clientID)
+	if err != nil {
+		return "", err
+	}
+	if client == nil {
+		return "", ErrClientNotFound
+	}
+	storedType, err := normalizeRequiredDealClientType(client.ClientType)
+	if err != nil {
+		return "", err
+	}
+	if storedType != requestedType {
+		return "", ErrClientTypeMismatch
+	}
+	return requestedType, nil
 }
 
 func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, error) {
@@ -31,9 +78,11 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 	if deal.Amount <= 0 {
 		return 0, ErrAmountInvalid
 	}
-	if deal.ClientID == 0 {
-		return 0, ErrClientIDRequired
+	clientType, err := s.validateTypedClientRef(deal.ClientID, deal.ClientType)
+	if err != nil {
+		return 0, err
 	}
+	deal.ClientType = clientType
 
 	// Ownership rules
 	if deal.OwnerID == 0 {
@@ -82,21 +131,23 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		deal.LeadID = current.LeadID
 	}
 	if deal.LeadID == 0 {
-		return errors.New("lead_id is required")
+		return ErrLeadIDRequired
 	}
 
 	if deal.ClientID == 0 {
-		deal.ClientID = current.ClientID
+		return ErrClientIDRequired
 	}
-	if deal.ClientID == 0 {
-		return errors.New("client_id is required")
+	clientType, err := s.validateTypedClientRef(deal.ClientID, deal.ClientType)
+	if err != nil {
+		return err
 	}
+	deal.ClientType = clientType
 
 	if deal.Amount == 0 {
 		deal.Amount = current.Amount
 	}
 	if deal.Amount <= 0 {
-		return errors.New("amount must be greater than 0")
+		return ErrAmountInvalid
 	}
 
 	if deal.Currency == "" {

@@ -10,6 +10,11 @@ Old `clients` mixed base CRM identity + individual questionnaire + legal/company
 
 `deals.client_id`, documents/tasks/files and all existing FK references still point to `clients.id`.
 
+Typed contract на уровне API/сервисов:
+- write-пути для сделок и конвертации требуют `client_id + client_type`;
+- `POST /documents/create-from-client` требует `client_id + client_type`;
+- latest deal для документов выбирается по точной typed-ссылке.
+
 ## Migration strategy
 This step uses safe two-phase compatibility:
 1. Add profile tables + base columns + backfill from existing `clients` rows.
@@ -39,3 +44,7 @@ This step uses safe two-phase compatibility:
 
 ## Deprecated
 Legacy mixed columns in `clients` remain for compatibility and will be removed in a follow-up migration after consumers fully switch.
+
+## Invariants
+- `client_type` у существующего клиента immutable (запрещено менять через `PUT/PATCH /clients/:id`).
+- Недопустима «тихая конвертация» клиента между `individual` и `legal`.

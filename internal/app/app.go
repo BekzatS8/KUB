@@ -166,7 +166,7 @@ func Run() {
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
-	dealService := services.NewDealService(dealRepo)
+	dealService := services.NewDealService(dealRepo, clientRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 

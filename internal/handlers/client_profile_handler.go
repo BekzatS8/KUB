@@ -55,7 +55,9 @@ func (h *ClientProfileHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"client": payload.Client,
 		"completeness": gin.H{
-			"client_id":        id,
+			"client_ref":       payload.ClientRef,
+			"client_id":        payload.ClientRef.ClientID,
+			"client_type":      payload.ClientRef.ClientType,
 			"type":             payload.CompletenessType,
 			"missing_yellow":   payload.MissingYellow,
 			"yellow_ready":     len(payload.MissingYellow) == 0,

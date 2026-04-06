@@ -110,6 +110,7 @@ type RevenueItem struct {
 
 type TopClientItem struct {
 	ClientID    int     `json:"client_id"`
+	ClientType  string  `json:"client_type"`
 	ClientName  string  `json:"client_name"`
 	TotalAmount float64 `json:"total_amount"`
 	Currency    string  `json:"currency"`
@@ -148,6 +149,7 @@ func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time,
 	for _, row := range topRows {
 		topItems = append(topItems, TopClientItem{
 			ClientID:    row.ClientID,
+			ClientType:  row.ClientType,
 			ClientName:  row.ClientName,
 			TotalAmount: row.TotalAmount,
 			Currency:    row.Currency,

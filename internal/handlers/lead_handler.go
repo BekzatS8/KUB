@@ -273,18 +273,29 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 
 // --- Convert ---
 type ConvertLeadByIDRequest struct {
-	Amount   float64 `json:"amount" binding:"required" example:"50000"`
-	Currency string  `json:"currency" binding:"required" example:"USD"`
-	ClientID int     `json:"client_id" binding:"required" example:"1"`
+	Amount     float64 `json:"amount" binding:"required" example:"50000"`
+	Currency   string  `json:"currency" binding:"required" example:"USD"`
+	ClientID   int     `json:"client_id" binding:"required" example:"1"`
+	ClientType string  `json:"client_type" binding:"required" example:"individual"`
 }
 
 type ConvertLeadWithClientRequest struct {
 	Amount            float64 `json:"amount" binding:"required" example:"50000"`
 	Currency          string  `json:"currency" binding:"required" example:"USD"`
+	ClientType        string  `json:"client_type" binding:"required" example:"individual"`
 	ClientName        string  `json:"client_name" binding:"required"`
 	ClientBinIin      string  `json:"client_bin_iin"`
 	ClientAddress     string  `json:"client_address"`
 	ClientContactInfo string  `json:"client_contact_info"`
+	Phone             string  `json:"phone"`
+	Email             string  `json:"email"`
+
+	CompanyName        string `json:"company_name"`
+	Bin                string `json:"bin"`
+	LegalAddress       string `json:"legal_address"`
+	ContactPersonName  string `json:"contact_person_name"`
+	ContactPersonPhone string `json:"contact_person_phone"`
+	ContactPersonEmail string `json:"contact_person_email"`
 }
 
 func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
@@ -318,15 +329,23 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 		badRequest(c, "Invalid payload")
 		return
 	}
-	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || req.ClientID <= 0 {
+	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || req.ClientID <= 0 || strings.TrimSpace(req.ClientType) == "" {
 		badRequest(c, "Invalid payload")
 		return
 	}
 
-	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, req.ClientID)
+	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, req.ClientID, req.ClientType)
 	if convErr != nil {
 		if errors.Is(convErr, services.ErrClientNotFound) {
 			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		if errors.Is(convErr, services.ErrClientTypeRequired) || errors.Is(convErr, services.ErrClientTypeMismatch) {
+			badRequest(c, convErr.Error())
+			return
+		}
+		if strings.Contains(convErr.Error(), "invalid client_type") {
+			badRequest(c, convErr.Error())
 			return
 		}
 		if errors.Is(convErr, services.ErrDealAlreadyExists) && deal != nil {
@@ -370,19 +389,25 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 		badRequest(c, "Invalid payload")
 		return
 	}
-	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || strings.TrimSpace(req.ClientName) == "" {
+	if req.Amount <= 0 || strings.TrimSpace(req.Currency) == "" || strings.TrimSpace(req.ClientType) == "" {
 		badRequest(c, "Invalid payload")
 		return
 	}
-
-	client := &models.Client{
-		Name:        req.ClientName,
-		BinIin:      req.ClientBinIin,
-		Address:     req.ClientAddress,
-		ContactInfo: req.ClientContactInfo,
+	client, mapErr := buildClientFromConvertWithClientRequest(req)
+	if mapErr != nil {
+		badRequest(c, "Invalid payload")
+		return
 	}
 	deal, convErr := h.Service.ConvertLeadToDealWithClientData(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
 	if convErr != nil {
+		if errors.Is(convErr, services.ErrClientTypeRequired) || errors.Is(convErr, services.ErrClientTypeMismatch) {
+			badRequest(c, convErr.Error())
+			return
+		}
+		if strings.Contains(convErr.Error(), "invalid client_type") {
+			badRequest(c, convErr.Error())
+			return
+		}
 		if errors.Is(convErr, services.ErrDealAlreadyExists) && deal != nil {
 			c.JSON(http.StatusConflict, deal)
 			return
@@ -391,6 +416,51 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 		return
 	}
 	c.JSON(201, deal)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func buildClientFromConvertWithClientRequest(req ConvertLeadWithClientRequest) (*models.Client, error) {
+	clientType := strings.ToLower(strings.TrimSpace(req.ClientType))
+	if clientType == "" {
+		return nil, services.ErrClientTypeRequired
+	}
+	client := &models.Client{ClientType: clientType, ContactInfo: req.ClientContactInfo}
+	switch clientType {
+	case models.ClientTypeLegal:
+		client.Name = firstNonEmpty(req.CompanyName, req.ClientName)
+		client.BinIin = firstNonEmpty(req.Bin, req.ClientBinIin)
+		client.Address = firstNonEmpty(req.LegalAddress, req.ClientAddress)
+		client.Phone = firstNonEmpty(req.ContactPersonPhone, req.Phone)
+		client.Email = firstNonEmpty(req.ContactPersonEmail, req.Email)
+		client.LegalProfile = &models.ClientLegalProfile{
+			CompanyName:        firstNonEmpty(req.CompanyName, req.ClientName),
+			BIN:                firstNonEmpty(req.Bin, req.ClientBinIin),
+			LegalAddress:       firstNonEmpty(req.LegalAddress, req.ClientAddress),
+			ContactPersonName:  strings.TrimSpace(req.ContactPersonName),
+			ContactPersonPhone: firstNonEmpty(req.ContactPersonPhone, req.Phone),
+			ContactPersonEmail: firstNonEmpty(req.ContactPersonEmail, req.Email),
+		}
+	case models.ClientTypeIndividual:
+		client.Name = strings.TrimSpace(req.ClientName)
+		client.BinIin = strings.TrimSpace(req.ClientBinIin)
+		client.Address = strings.TrimSpace(req.ClientAddress)
+		client.Phone = strings.TrimSpace(req.Phone)
+		client.Email = strings.TrimSpace(req.Email)
+	default:
+		return nil, errors.New("invalid client_type")
+	}
+	if strings.TrimSpace(client.Name) == "" {
+		return nil, errors.New("client name is required")
+	}
+	return client, nil
 }
 
 func (h *LeadHandler) List(c *gin.Context) {

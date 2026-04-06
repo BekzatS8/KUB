@@ -67,6 +67,22 @@ type Client struct {
 	LegalProfile      *ClientLegalProfile      `json:"legal_profile,omitempty"`
 }
 
+// TypedClientRef — явная типизированная ссылка на клиента.
+type TypedClientRef struct {
+	ClientID   int    `json:"client_id"`
+	ClientType string `json:"client_type"`
+}
+
+func (c *Client) TypedRef() TypedClientRef {
+	if c == nil {
+		return TypedClientRef{}
+	}
+	return TypedClientRef{
+		ClientID:   c.ID,
+		ClientType: c.ClientType,
+	}
+}
+
 type ClientIndividualProfile struct {
 	ClientID                int             `json:"client_id"`
 	LastName                string          `json:"last_name"`
