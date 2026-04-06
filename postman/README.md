@@ -47,8 +47,15 @@
 - После `Leads / Create Lead` сохраняется `leadId`.
 - После `Leads / Convert...` сохраняется `dealId`.
 - После `Documents / Create...` сохраняется `documentId`.
+- В `Documents / Individual / GET document types` добавлена проверка наличия всех поддерживаемых `doc_type`.
+- Во всех `Documents / ... / Create from client ... (ready example)` добавлена верификация успешного HTTP-статуса и автосохранение `documentId`/`doc_id` + `lastDocType`.
 - После `Chats / Create...` и `Chats / Send Message` сохраняются `chatId`/`messageId`.
 - После `Signing / Confirm Email Token` сохраняются `signSessionId` и `signSessionToken`.
+
+## Готовые POST-примеры создания документов
+- В `Documents / Individual` добавлены готовые `POST {{base_url}}/documents/create-from-client` для **каждого** `doc_type`.
+- В `Documents / Legal` добавлены готовые `POST {{base_url}}/documents/create-from-client` для **каждого** `doc_type` с `legalClientId`.
+- Во всех примерах заполнены URL, `client_id`, `deal_id`, `doc_type` и примерные `extra` поля.
 
 ## Быстрый smoke flow (локально)
 1. `Auth / Login`
