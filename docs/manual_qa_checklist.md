@@ -42,11 +42,31 @@
 5. Complete sign flow (`verify` + `sign`).
 6. Expected: signed state transition is successful.
 
-## 7) Chat smoke
-1. Create group chat.
-2. Send message.
-3. List messages.
-4. Expected: message has sender + sender profile payload.
+## 7) Chat smoke (role-aware)
+### 7.1 Sales
+1. Login as `sales`.
+2. `GET /chats/users?query=` — directory должен вернуть safe-lite users + `existing_personal_chat_id`.
+3. `POST /chats/personal` (target из directory).
+4. `POST /chats/:id/messages`.
+5. `GET /chats`, `GET /chats/search`, `GET /chats/:id/info`.
+6. Expected:
+   - personal chat содержит `counterparty`,
+   - group chat (если есть) содержит `participants_preview`,
+   - messages содержат `sender_profile`.
+
+### 7.2 Operations
+1. Login as `operations`.
+2. Повторить шаги sales.
+3. Дополнительно проверить поиск `GET /chats/search` по display_name/email собеседника (personal chat с пустым `name` должен находиться).
+
+### 7.3 Control (read-only)
+1. Login as `control`.
+2. Проверить read-path: `GET /chats/users`, `GET /chats`, `GET /chats/:id/info`.
+3. Проверить текущую policy chat-write:
+   - `POST /chats/personal`
+   - `POST /chats/:id/messages`
+   - `POST /chats/:id/read`
+4. Ожидание: chat-write разрешён по узкому исключению, но write по бизнес-эндпоинтам (`POST /clients`, `POST /deals` и т.п.) остаётся `403`.
 
 ## 8) Wazzup smoke
 1. Enable Wazzup env config (`WAZZUP_ENABLE=true`, token via `.env.local`).

@@ -279,7 +279,7 @@ TTL access-токена настраивается через переменну
 ### Защищённые (JWT)
 
 **Users**
-- `POST /users` (system_admin) — создать пользователя любой роли  
+- `POST /users` (system_admin) — создать пользователя любой роли; опционально `is_verified=true` для мгновенной верификации (если поле не передано, поведение прежнее: `is_verified=false`)  
 - `GET /users` (leadership/system_admin/control) — список  
 - `GET /users/:id` (leadership/system_admin/control; обычный юзер — только себя)  
 - `PUT /users/:id` — обновить (обычный юзер — только себя; поля верификации/роль — только system_admin)  
@@ -308,6 +308,14 @@ TTL access-токена настраивается через переменну
 
 **Messages** (roles with chat access; см. `docs/rbac.md`)
 - Отправка, список диалогов, история
+- `GET /chats/users` — chat-scoped directory для выбора пользователя в личный чат (`q/query`, `limit`, `offset`, только safe-lite поля)
+- `GET /chats` / `GET /chats/search` — теперь включают `counterparty` (для personal) и `participants_preview`/`member_profiles` (для group), чтобы UI не зависел от `/users`
+- Для `control` (read-only) включено **узкое исключение** только для chat-actions: `POST /chats/personal`, `POST /chats/:id/messages`, `POST /chats/:id/read`; write-доступ к бизнес-сущностям остаётся закрытым.
+- `GET /chats/users` возвращает `existing_personal_chat_id` и используется как основной chat picker для фронта (вместо privileged `/users`).
+- UI rendering policy:
+  - personal chat: использовать `counterparty`,
+  - group chat: использовать `participants_preview` + `member_profiles`,
+  - messages: использовать `sender_profile`.
 
 **Подписание документов по коду** (доступ согласно документным policy checks; см. `docs/rbac.md`)
 

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,6 +38,13 @@ func ReadOnlyGuard() gin.HandlerFunc {
 			switch c.Request.Method {
 			case http.MethodGet, http.MethodHead, http.MethodOptions:
 				// ok
+			case http.MethodPost:
+				if isReadOnlyChatWriteAllowed(c.Request.URL.Path) {
+					c.Next()
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "read-only role"})
+				return
 			default:
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "read-only role"})
 				return
@@ -44,4 +52,14 @@ func ReadOnlyGuard() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func isReadOnlyChatWriteAllowed(path string) bool {
+	if path == "/chats/personal" {
+		return true
+	}
+	if !strings.HasPrefix(path, "/chats/") {
+		return false
+	}
+	return strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/read")
 }

@@ -44,6 +44,8 @@ type ChatRepository interface {
 	ListPins(chatID, userID, limit, offset int) ([]*models.PinResponse, error)
 	ListFavorites(chatID, userID, limit, offset int) ([]*models.FavoriteResponse, error)
 	GetChatVisibleProfiles(userIDs []int) (map[int]*models.ChatVisibleProfile, error)
+	ListChatDirectoryUsers(viewerUserID int, query string, limit, offset int) ([]*models.ChatUserDirectoryItem, int, error)
+	FindPersonalChat(user1, user2 int) (*models.Chat, error)
 }
 
 type chatRepository struct {
@@ -251,6 +253,27 @@ ON CONFLICT DO NOTHING
 	return chat, nil
 }
 
+func (r *chatRepository) FindPersonalChat(user1, user2 int) (*models.Chat, error) {
+	const q = `
+SELECT c.id
+FROM chats c
+JOIN chat_members cm1 ON cm1.chat_id = c.id AND cm1.user_id = $1
+JOIN chat_members cm2 ON cm2.chat_id = c.id AND cm2.user_id = $2
+WHERE c.is_group = FALSE
+  AND (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) = 2
+ORDER BY c.id
+LIMIT 1
+`
+	var chatID int
+	if err := r.DB.QueryRow(q, user1, user2).Scan(&chatID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return r.GetChatByID(chatID)
+}
+
 func (r *chatRepository) AddMembers(chatID int, memberIDs []int) error {
 	const q = `
 INSERT INTO chat_members (chat_id, user_id, role)
@@ -338,10 +361,10 @@ WHERE id = $1
 SELECT cm.user_id,
        cm.role,
        cm.joined_at,
-       ''::text AS email,
+       u.email AS email,
        COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
-       rl.name AS role_name,
-       rl.name AS role_code,
+       COALESCE(rl.description, rl.name, 'unknown') AS role_name,
+       COALESCE(rl.name, 'unknown') AS role_code,
        NULL::text AS avatar_url,
        COALESCE(us.online, false) AS online,
        us.last_seen,
@@ -349,6 +372,7 @@ SELECT cm.user_id,
        crs.read_at
 FROM chat_members cm
 JOIN users u ON u.id = cm.user_id
+LEFT JOIN roles rl ON rl.id = u.role_id
 LEFT JOIN user_status us ON us.user_id = cm.user_id
 LEFT JOIN chat_read_state crs ON crs.chat_id = cm.chat_id AND crs.user_id = cm.user_id
 WHERE cm.chat_id = $1
@@ -407,7 +431,8 @@ func (r *chatRepository) GetChatVisibleProfiles(userIDs []int) (map[int]*models.
 SELECT u.id,
        COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
        COALESCE(rl.name, 'unknown') AS role_code,
-       COALESCE(rl.description, rl.name, 'unknown') AS role_name
+       COALESCE(rl.description, rl.name, 'unknown') AS role_name,
+       u.email
 FROM users u
 LEFT JOIN roles rl ON rl.id = u.role_id
 WHERE u.id = ANY($1)
@@ -420,12 +445,117 @@ WHERE u.id = ANY($1)
 
 	for rows.Next() {
 		p := &models.ChatVisibleProfile{}
-		if err := rows.Scan(&p.UserID, &p.DisplayName, &p.RoleCode, &p.RoleName); err != nil {
+		if err := rows.Scan(&p.UserID, &p.DisplayName, &p.RoleCode, &p.RoleName, &p.Email); err != nil {
 			return nil, err
 		}
 		result[p.UserID] = p
 	}
 	return result, rows.Err()
+}
+
+func (r *chatRepository) ListChatDirectoryUsers(viewerUserID int, query string, limit, offset int) ([]*models.ChatUserDirectoryItem, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	const countQ = `
+SELECT COUNT(*)
+FROM users u
+LEFT JOIN roles rl ON rl.id = u.role_id
+WHERE u.id <> $1
+  AND u.is_verified = TRUE
+  AND (
+      $2 = ''
+      OR COALESCE(u.company_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.email, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(rl.name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(rl.description, '') ILIKE '%' || $2 || '%'
+  )
+`
+	var total int
+	if err := r.DB.QueryRow(countQ, viewerUserID, query).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const listQ = `
+SELECT
+	u.id,
+	COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+	COALESCE(rl.name, 'unknown') AS role_code,
+	COALESCE(rl.description, rl.name, 'unknown') AS role_name,
+	u.email,
+	COALESCE(us.online, false) AS online,
+	us.last_seen,
+	pc.id AS existing_personal_chat_id
+FROM users u
+LEFT JOIN roles rl ON rl.id = u.role_id
+LEFT JOIN user_status us ON us.user_id = u.id
+LEFT JOIN LATERAL (
+	SELECT c.id
+	FROM chats c
+	JOIN chat_members cm_viewer ON cm_viewer.chat_id = c.id AND cm_viewer.user_id = $1
+	JOIN chat_members cm_target ON cm_target.chat_id = c.id AND cm_target.user_id = u.id
+	WHERE c.is_group = FALSE
+	ORDER BY c.id
+	LIMIT 1
+) pc ON TRUE
+WHERE u.id <> $1
+  AND u.is_verified = TRUE
+  AND (
+      $2 = ''
+      OR COALESCE(u.company_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.email, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(rl.name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(rl.description, '') ILIKE '%' || $2 || '%'
+  )
+ORDER BY display_name ASC, u.id ASC
+LIMIT $3 OFFSET $4
+`
+	rows, err := r.DB.Query(listQ, viewerUserID, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]*models.ChatUserDirectoryItem, 0, limit)
+	for rows.Next() {
+		item := &models.ChatUserDirectoryItem{}
+		var (
+			lastSeen sql.NullTime
+			chatID   sql.NullInt64
+		)
+		if err := rows.Scan(
+			&item.UserID,
+			&item.DisplayName,
+			&item.RoleCode,
+			&item.RoleName,
+			&item.Email,
+			&item.Online,
+			&lastSeen,
+			&chatID,
+		); err != nil {
+			return nil, 0, err
+		}
+		if lastSeen.Valid {
+			t := lastSeen.Time
+			item.LastSeen = &t
+		}
+		if chatID.Valid {
+			id := int(chatID.Int64)
+			item.ExistingPersonalChatID = &id
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
 func (r *chatRepository) CreateAttachment(chatID, uploaderID int, fileName, mime string, size int64, storageKey string) (*models.Attachment, error) {
@@ -683,15 +813,21 @@ SELECT c.id,
        COALESCE(array_agg(cm.user_id ORDER BY cm.user_id), '{}') AS members,
        lm.text AS last_message_text,
        lm.created_at AS last_message_at,
+       cp.display_name AS counterparty_display_name,
+       cp.email AS counterparty_email,
        us.online,
        us.last_seen,
        COALESCE(unread.unread_count, 0) AS unread_count,
        CASE WHEN c.name ILIKE $2 THEN 0
-            WHEN COALESCE(lm.text, '') ILIKE $2 THEN 1
-            ELSE 2 END AS prefix_rank,
+            WHEN COALESCE(cp.display_name, '') ILIKE $2 THEN 1
+            WHEN COALESCE(cp.email, '') ILIKE $2 THEN 1
+            WHEN COALESCE(lm.text, '') ILIKE $2 THEN 2
+            ELSE 3 END AS prefix_rank,
        CASE WHEN c.name ILIKE $3 THEN 0
-            WHEN COALESCE(lm.text, '') ILIKE $3 THEN 1
-            ELSE 2 END AS contains_rank
+            WHEN COALESCE(cp.display_name, '') ILIKE $3 THEN 1
+            WHEN COALESCE(cp.email, '') ILIKE $3 THEN 1
+            WHEN COALESCE(lm.text, '') ILIKE $3 THEN 2
+            ELSE 3 END AS contains_rank
 FROM chats c
 JOIN chat_members cm ON cm.chat_id = c.id
 LEFT JOIN LATERAL (
@@ -701,6 +837,14 @@ LEFT JOIN LATERAL (
     ORDER BY created_at DESC, id DESC
     LIMIT 1
 ) lm ON true
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name, u.email
+    FROM chat_members cm3
+    JOIN users u ON u.id = cm3.user_id
+    WHERE cm3.chat_id = c.id AND cm3.user_id <> $1
+    ORDER BY cm3.user_id
+    LIMIT 1
+) cp ON true
 LEFT JOIN LATERAL (
     SELECT COALESCE(status.online, false) AS online, status.last_seen
     FROM chat_members cm2
@@ -716,8 +860,17 @@ LEFT JOIN LATERAL (
     WHERE m.chat_id = c.id AND m.id > COALESCE(crs.last_read_message_id, 0)
 ) unread ON true
 WHERE c.id IN (SELECT chat_id FROM chat_members WHERE user_id = $1)
-  AND (c.name ILIKE $3 OR COALESCE(lm.text, '') ILIKE $3 OR c.name ILIKE $2 OR COALESCE(lm.text, '') ILIKE $2)
-GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, us.online, us.last_seen, unread.unread_count, prefix_rank, contains_rank
+  AND (
+      c.name ILIKE $3
+      OR COALESCE(lm.text, '') ILIKE $3
+      OR COALESCE(cp.display_name, '') ILIKE $3
+      OR COALESCE(cp.email, '') ILIKE $3
+      OR c.name ILIKE $2
+      OR COALESCE(lm.text, '') ILIKE $2
+      OR COALESCE(cp.display_name, '') ILIKE $2
+      OR COALESCE(cp.email, '') ILIKE $2
+  )
+GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, cp.display_name, cp.email, us.online, us.last_seen, unread.unread_count, prefix_rank, contains_rank
 ORDER BY c.is_group ASC, prefix_rank, contains_rank, c.id
 `
 	rows, err := r.DB.Query(q, userID, prefix, pattern)
@@ -730,14 +883,16 @@ ORDER BY c.is_group ASC, prefix_rank, contains_rank, c.id
 	for rows.Next() {
 		chat := &models.Chat{}
 		var (
-			members      pq.Int64Array
-			lastText     sql.NullString
-			lastAt       sql.NullTime
-			online       sql.NullBool
-			lastSeen     sql.NullTime
-			unreadCount  sql.NullInt64
-			prefixRank   int // ✅ вместо &_
-			containsRank int // ✅ вместо &_2
+			members             pq.Int64Array
+			lastText            sql.NullString
+			lastAt              sql.NullTime
+			counterpartyDisplay sql.NullString
+			counterpartyEmail   sql.NullString
+			online              sql.NullBool
+			lastSeen            sql.NullTime
+			unreadCount         sql.NullInt64
+			prefixRank          int // ✅ вместо &_
+			containsRank        int // ✅ вместо &_2
 		)
 
 		if err := rows.Scan(
@@ -748,6 +903,8 @@ ORDER BY c.is_group ASC, prefix_rank, contains_rank, c.id
 			&members,
 			&lastText,
 			&lastAt,
+			&counterpartyDisplay,
+			&counterpartyEmail,
 			&online,
 			&lastSeen,
 			&unreadCount,

@@ -54,6 +54,7 @@ func (s *userService) CreateUserWithPassword(user *models.User, plainPassword st
 		return err
 	}
 	user.PasswordHash = hashedPassword
+	normalizeUserVerificationForCreate(user)
 
 	if err := s.repo.Create(user); err != nil {
 		return err
@@ -82,6 +83,7 @@ func (s *userService) CreateUser(user *models.User) error {
 	} else {
 		user.PasswordHash = ph
 	}
+	normalizeUserVerificationForCreate(user)
 
 	if err := s.repo.Create(user); err != nil {
 		return err
@@ -138,4 +140,18 @@ func (s *userService) RotateRefresh(oldToken, newToken string, newExpiresAt time
 // === verification ===
 func (s *userService) VerifyUser(userID int) error {
 	return s.repo.VerifyUser(userID)
+}
+
+func normalizeUserVerificationForCreate(user *models.User) {
+	if user == nil {
+		return
+	}
+	if user.IsVerified {
+		if user.VerifiedAt == nil {
+			now := time.Now().UTC()
+			user.VerifiedAt = &now
+		}
+		return
+	}
+	user.VerifiedAt = nil
 }
