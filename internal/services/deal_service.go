@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/lib/pq"
-
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -33,7 +31,7 @@ func normalizeRequiredDealClientType(value string) (string, error) {
 	case models.ClientTypeIndividual, models.ClientTypeLegal:
 		return v, nil
 	default:
-		return "", errors.New("invalid client_type: allowed values are individual, legal")
+		return "", ErrInvalidClientType
 	}
 }
 
@@ -103,8 +101,19 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 
 	id, err := s.Repo.Create(deal)
 	if err != nil {
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && string(pqErr.Code) == "23503" {
+		if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) && repositories.ConstraintName(err) == "deals_lead_unique_idx" {
+			existing, lookupErr := s.Repo.GetByLeadID(deal.LeadID)
+			if lookupErr != nil {
+				return 0, &DealAlreadyExistsError{LeadID: deal.LeadID}
+			}
+			existingID := 0
+			if existing != nil {
+				existingID = existing.ID
+			}
+			return 0, &DealAlreadyExistsError{LeadID: deal.LeadID, ExistingDealID: existingID}
+		}
+		if repositories.IsSQLState(err, repositories.SQLStateForeignKey) {
+			pqErr, _ := repositories.AsPQError(err)
 			fkMeta := strings.ToLower(string(pqErr.Constraint) + " " + pqErr.Message + " " + pqErr.Detail)
 			switch {
 			case strings.Contains(fkMeta, "lead"):
@@ -112,6 +121,9 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 			case strings.Contains(fkMeta, "client"):
 				return 0, ErrClientNotFound
 			}
+		}
+		if repositories.IsSQLState(err, repositories.SQLStateCheckViolation) {
+			return 0, ErrInvalidState
 		}
 		return 0, err
 	}
@@ -189,7 +201,27 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	}
 
 	// 6) Сохраняем изменения в БД
-	return s.Repo.Update(deal)
+	err = s.Repo.Update(deal)
+	if err != nil {
+		if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) && repositories.ConstraintName(err) == "deals_lead_unique_idx" {
+			return &DealAlreadyExistsError{LeadID: deal.LeadID}
+		}
+		if repositories.IsSQLState(err, repositories.SQLStateForeignKey) {
+			pqErr, _ := repositories.AsPQError(err)
+			fkMeta := strings.ToLower(string(pqErr.Constraint) + " " + pqErr.Message + " " + pqErr.Detail)
+			switch {
+			case strings.Contains(fkMeta, "lead"):
+				return ErrLeadNotFound
+			case strings.Contains(fkMeta, "client"):
+				return ErrClientNotFound
+			}
+		}
+		if repositories.IsSQLState(err, repositories.SQLStateCheckViolation) {
+			return ErrInvalidState
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error) {

@@ -325,6 +325,11 @@ func Run() {
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware(cfg))
 
 	auditRepo := repositories.NewAuditRepository(db)
+	if ok, err := auditRepo.AuditTableExists(context.Background()); err != nil {
+		log.Printf("[BOOT] audit schema check failed: %v", err)
+	} else if !ok {
+		log.Printf("[BOOT] audit schema check: audit_logs table is missing; apply latest migrations")
+	}
 	auditSvc := services.NewAuditService(auditRepo)
 	router.Use(audit.AuditMiddleware(auditSvc))
 

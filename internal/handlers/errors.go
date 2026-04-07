@@ -9,6 +9,7 @@ import (
 type APIError struct {
 	ErrorCode string `json:"error_code"`
 	Message   string `json:"message"`
+	Details   any    `json:"details,omitempty"`
 }
 
 const (
@@ -31,12 +32,23 @@ const (
 	InvalidStatusCode     = "INVALID_STATUS"
 	ValidationFailed      = "VALIDATION_FAILED"
 	ExpiredCode           = "EXPIRED"
+	DealAlreadyExistsCode = "DEAL_ALREADY_EXISTS_FOR_LEAD"
+	ClientAlreadyExists   = "CLIENT_ALREADY_EXISTS"
+	ClientInUseCode       = "CLIENT_IN_USE"
 )
 
 func writeError(c *gin.Context, status int, code string, msg string) {
 	c.JSON(status, APIError{
 		ErrorCode: code,
 		Message:   msg,
+	})
+}
+
+func writeErrorWithDetails(c *gin.Context, status int, code string, msg string, details any) {
+	c.JSON(status, APIError{
+		ErrorCode: code,
+		Message:   msg,
+		Details:   details,
 	})
 }
 

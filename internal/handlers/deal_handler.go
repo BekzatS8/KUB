@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -93,12 +92,25 @@ func (h *DealHandler) Create(c *gin.Context) {
 			badRequest(c, "client_id and client_type mismatch")
 			return
 		}
-		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+		if errors.Is(err, services.ErrInvalidClientType) {
+			badRequest(c, "invalid client_type: allowed values are individual, legal")
 			return
 		}
 		if errors.Is(err, services.ErrAmountInvalid) {
 			badRequest(c, "Amount must be greater than 0")
+			return
+		}
+		var dealConflict *services.DealAlreadyExistsError
+		if errors.As(err, &dealConflict) {
+			details := gin.H{"resource": "deal", "field": "lead_id", "value": dealConflict.LeadID}
+			if dealConflict.ExistingDealID > 0 {
+				details["existing_deal_id"] = dealConflict.ExistingDealID
+			}
+			writeErrorWithDetails(c, http.StatusConflict, DealAlreadyExistsCode, "Deal already exists for this lead", details)
+			return
+		}
+		if errors.Is(err, services.ErrInvalidState) {
+			conflict(c, InvalidStatusCode, "Invalid deal state")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
@@ -167,12 +179,33 @@ func (h *DealHandler) Update(c *gin.Context) {
 			badRequest(c, "client_id and client_type mismatch")
 			return
 		}
-		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+		if errors.Is(err, services.ErrInvalidClientType) {
+			badRequest(c, "invalid client_type: allowed values are individual, legal")
 			return
 		}
-		if err.Error() == "amount must be greater than 0" {
+		if errors.Is(err, services.ErrAmountInvalid) {
 			badRequest(c, "Amount must be greater than 0")
+			return
+		}
+		var dealConflict *services.DealAlreadyExistsError
+		if errors.As(err, &dealConflict) {
+			details := gin.H{"resource": "deal", "field": "lead_id", "value": dealConflict.LeadID}
+			if dealConflict.ExistingDealID > 0 {
+				details["existing_deal_id"] = dealConflict.ExistingDealID
+			}
+			writeErrorWithDetails(c, http.StatusConflict, DealAlreadyExistsCode, "Deal already exists for this lead", details)
+			return
+		}
+		if errors.Is(err, services.ErrLeadNotFound) {
+			notFound(c, LeadNotFoundCode, "Lead not found")
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidState) {
+			conflict(c, InvalidStatusCode, "Invalid deal state")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {

@@ -185,7 +185,7 @@ func (r *wazzupRepository) UpsertIntegrationByOwner(ctx context.Context, ownerUs
 			RETURNING id, webhook_token
 		`
 		if err = tx.QueryRowContext(ctx, insQ, ownerUserID, apiKeyEnc, crmKeyHash, newToken, enabled, strings.TrimSpace(webhooksURI)).Scan(&id, &token); err != nil {
-			if !isUniqueViolation(err) {
+			if !IsSQLState(err, SQLStateUniqueViolation) {
 				return 0, "", fmt.Errorf("insert integration: %w", err)
 			}
 			if scanErr := tx.QueryRowContext(ctx, findQ, ownerUserID).Scan(&id, &token); scanErr != nil {
@@ -306,14 +306,6 @@ func (r *wazzupRepository) GetClientPhoneByID(ctx context.Context, clientID int)
 		return "", fmt.Errorf("get client phone by id: %w", err)
 	}
 	return phone, nil
-}
-
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
 }
 
 func normalizePhone(s string) string {

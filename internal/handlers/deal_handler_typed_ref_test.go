@@ -165,3 +165,20 @@ func TestDealCreate_AmountValidationWrapped(t *testing.T) {
 		t.Fatalf("expected 400, got %d; body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestDealCreate_ExistingLeadConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &DealHandler{Service: &stubDealService{
+		createFn: func(deal *models.Deals, userID, roleID int) (int64, error) {
+			return 0, &services.DealAlreadyExistsError{LeadID: 2, ExistingDealID: 17}
+		},
+	}}
+	w := performCreate(t, h, `{"lead_id":2,"client_id":4,"client_type":"legal","amount":50000,"currency":"USD"}`)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d; body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, DealAlreadyExistsCode) || !strings.Contains(body, `"existing_deal_id":17`) {
+		t.Fatalf("unexpected body: %s", body)
+	}
+}

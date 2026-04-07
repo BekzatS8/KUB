@@ -221,6 +221,9 @@ TTL access-токена настраивается через переменну
 ```bash
 ./scripts/run-migrations.sh
 ```
+> Важно: миграционный раннер подхватывает только файлы с суффиксом `.up.sql`/`.down.sql`.  
+> Для audit-логов используется `db/migrations/022_audit_logs.up.sql`.
+
 **Миграция содержит:**
 - `roles`, `users` (+refresh-поля, телефон, флаг верификации)
 - `leads`, `deals`, `documents`, `messages`, `tasks`
