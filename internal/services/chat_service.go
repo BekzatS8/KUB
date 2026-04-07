@@ -37,6 +37,9 @@ func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
 	if err := s.attachMemberStatuses(chats, userID); err != nil {
 		return nil, err
 	}
+	if err := s.attachChatProfiles(chats, userID); err != nil {
+		return nil, err
+	}
 	return chats, nil
 }
 
@@ -52,7 +55,28 @@ func (s *ChatService) SearchChats(userID int, query string) ([]*models.Chat, err
 	if err := s.attachMemberStatuses(chats, userID); err != nil {
 		return nil, err
 	}
+	if err := s.attachChatProfiles(chats, userID); err != nil {
+		return nil, err
+	}
 	return chats, nil
+}
+
+func (s *ChatService) ListDirectoryUsers(viewerUserID int, query string, limit, offset int) ([]*models.ChatUserDirectoryItem, int, error) {
+	query = strings.TrimSpace(query)
+	items, total, err := s.repo.ListChatDirectoryUsers(viewerUserID, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// defense-in-depth: even if repository filter changes, never return current user in picker.
+	filtered := make([]*models.ChatUserDirectoryItem, 0, len(items))
+	for _, item := range items {
+		if item == nil || item.UserID == viewerUserID {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, total, nil
 }
 
 func (s *ChatService) GetMessages(chatID, userID, limit, offset int) ([]*models.ChatMessage, error) {
@@ -134,7 +158,7 @@ func (s *ChatService) SendMessage(chatID, senderID int, text string, attachments
 	attachments = normalizeAttachments(attachments)
 
 	if text == "" && len(attachments) == 0 && len(attachmentIDs) == 0 {
-		return nil, nil, fmt.Errorf("message text or attachments are required")
+		return nil, nil, ErrInvalidChatPayload
 	}
 
 	if err := s.ensureMember(chatID, senderID); err != nil {
@@ -241,13 +265,20 @@ func (s *ChatService) DownloadAttachment(attachmentID string, userID int) (*mode
 
 func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error) {
 	if user1 == user2 {
-		return nil, fmt.Errorf("cannot create personal chat with the same user")
+		return nil, ErrDirectChatWithSelf
 	}
 	if err := s.ensureActiveUser(user1); err != nil {
 		return nil, err
 	}
-	if err := s.ensureActiveUser(user2); err != nil {
+	if err := s.ensureTargetUserForPersonalChat(user2); err != nil {
 		return nil, err
+	}
+	existing, err := s.repo.FindPersonalChat(user1, user2)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
 	}
 	members := uniqueInts([]int{user1, user2})
 	return s.repo.CreateChat("", false, user1, members)
@@ -256,7 +287,7 @@ func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error)
 func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int) (*models.Chat, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, fmt.Errorf("chat name is required")
+		return nil, ErrGroupChatNameRequired
 	}
 	members = append(members, creatorID)
 	members = uniqueInts(members)
@@ -286,7 +317,7 @@ func contains(slice []int, v int) bool {
 
 func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 	if len(memberIDs) == 0 {
-		return fmt.Errorf("no members to add")
+		return ErrInvalidChatPayload
 	}
 
 	chat, err := s.repo.GetChatByID(chatID)
@@ -299,7 +330,7 @@ func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 
 	// проверяем, что userID – участник чата
 	if !contains(chat.Members, userID) {
-		return ErrForbidden
+		return ErrChatForbidden
 	}
 
 	uniq := uniqueInts(memberIDs)
@@ -335,7 +366,7 @@ func (s *ChatService) DeleteChat(chatID, userID int) error {
 		return err
 	}
 	if role != models.ChatMemberRoleOwner && role != models.ChatMemberRoleAdmin {
-		return ErrForbidden
+		return ErrChatForbidden
 	}
 	return s.repo.DeleteChat(chatID)
 }
@@ -417,6 +448,9 @@ func (s *ChatService) ListUnreadChats(userID int) ([]*models.Chat, error) {
 	if err := s.attachMemberStatuses(res, userID); err != nil {
 		return nil, err
 	}
+	if err := s.attachChatProfiles(res, userID); err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 
@@ -441,6 +475,80 @@ func (s *ChatService) attachMemberStatuses(chats []*models.Chat, currentUserID i
 		chat.MemberStatuses = statuses
 		chat.Online = online
 		chat.LastSeen = latest
+	}
+	return nil
+}
+
+func (s *ChatService) attachChatProfiles(chats []*models.Chat, currentUserID int) error {
+	if len(chats) == 0 {
+		return nil
+	}
+	seen := map[int]struct{}{}
+	userIDs := make([]int, 0)
+	for _, chat := range chats {
+		for _, memberID := range chat.Members {
+			if _, ok := seen[memberID]; ok {
+				continue
+			}
+			seen[memberID] = struct{}{}
+			userIDs = append(userIDs, memberID)
+		}
+	}
+	profiles, err := s.repo.GetChatVisibleProfiles(userIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, chat := range chats {
+		statusByUser := make(map[int]models.UserStatus, len(chat.MemberStatuses))
+		for _, st := range chat.MemberStatuses {
+			statusByUser[st.UserID] = st
+		}
+
+		memberProfiles := make([]models.ChatParticipantLite, 0, len(chat.Members))
+		var counterparty *models.ChatParticipantLite
+		for _, memberID := range chat.Members {
+			p, ok := profiles[memberID]
+			if !ok || p == nil {
+				continue
+			}
+			item := models.ChatParticipantLite{
+				UserID:      p.UserID,
+				DisplayName: p.DisplayName,
+				RoleCode:    p.RoleCode,
+				RoleName:    p.RoleName,
+				Email:       p.Email,
+			}
+			if st, ok := statusByUser[memberID]; ok {
+				item.Online = st.IsOnline
+				lastSeen := st.LastSeen
+				item.LastSeen = &lastSeen
+			}
+			memberProfiles = append(memberProfiles, item)
+			if !chat.IsGroup && memberID != currentUserID {
+				cp := item
+				counterparty = &cp
+			}
+		}
+
+		chat.MemberProfiles = memberProfiles
+		if chat.IsGroup {
+			preview := make([]models.ChatParticipantLite, 0, 3)
+			for _, item := range memberProfiles {
+				if item.UserID == currentUserID {
+					continue
+				}
+				preview = append(preview, item)
+				if len(preview) == 3 {
+					break
+				}
+			}
+			chat.ParticipantsPreview = preview
+			chat.Counterparty = nil
+		} else {
+			chat.Counterparty = counterparty
+			chat.ParticipantsPreview = nil
+		}
 	}
 	return nil
 }
@@ -484,12 +592,12 @@ func normalizeAttachments(values []string) []string {
 func (s *ChatService) EditMessage(chatID, messageID, userID int, text string) (*models.ChatMessage, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil, fmt.Errorf("text is required")
+		return nil, ErrInvalidChatPayload
 	}
 	msg, err := s.repo.EditMessage(chatID, messageID, userID, text)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrForbidden
+			return nil, ErrChatForbidden
 		}
 		return nil, err
 	}
@@ -500,7 +608,7 @@ func (s *ChatService) DeleteMessage(chatID, messageID, userID int) (*models.Chat
 	msg, err := s.repo.DeleteMessage(chatID, messageID, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrForbidden
+			return nil, ErrChatForbidden
 		}
 		return nil, err
 	}
@@ -511,7 +619,7 @@ func (s *ChatService) PinMessage(chatID, messageID, userID int) (*models.PinResp
 	p, err := s.repo.PinMessage(chatID, messageID, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrForbidden
+			return nil, ErrChatForbidden
 		}
 		return nil, err
 	}
@@ -521,7 +629,7 @@ func (s *ChatService) PinMessage(chatID, messageID, userID int) (*models.PinResp
 func (s *ChatService) UnpinMessage(chatID, messageID, userID int) error {
 	if err := s.repo.UnpinMessage(chatID, messageID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrForbidden
+			return ErrChatForbidden
 		}
 		return err
 	}
@@ -617,7 +725,30 @@ func (s *ChatService) ensureActiveUser(userID int) error {
 		return err
 	}
 	if user == nil || !user.IsVerified {
-		return ErrForbidden
+		if user == nil {
+			return ErrChatUserNotFound
+		}
+		return ErrChatUserInactive
+	}
+	return nil
+}
+
+func (s *ChatService) ensureTargetUserForPersonalChat(userID int) error {
+	if s.userRepo == nil {
+		return nil
+	}
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrTargetUserNotFound
+		}
+		return err
+	}
+	if user == nil {
+		return ErrTargetUserNotFound
+	}
+	if !user.IsVerified {
+		return ErrTargetUserNotVerified
 	}
 	return nil
 }

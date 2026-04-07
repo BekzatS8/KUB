@@ -53,7 +53,24 @@
 - В `Documents / Individual / GET document types` добавлена проверка наличия всех поддерживаемых `doc_type`.
 - Во всех `Documents / ... / Create from client ... (ready example)` добавлена верификация успешного HTTP-статуса и автосохранение `documentId`/`doc_id` + `lastDocType`.
 - После `Chats / Create...` и `Chats / Send Message` сохраняются `chatId`/`messageId`.
+- После `Chats / Chat Users Directory` сохраняется `chatTargetUserId` (и дублируется в `userId` для совместимости старых запросов).
 - После `Signing / Confirm Email Token` сохраняются `signSessionId` и `signSessionToken`.
+
+## Users / Create User
+- В запрос `POST /users` добавлено опциональное поле `is_verified`.
+- Пример для privileged flow (`system_admin`):
+  ```json
+  {
+    "company_name": "{{companyName}}",
+    "bin_iin": "{{binIin}}",
+    "email": "{{userEmail}}",
+    "password": "{{userPassword}}",
+    "phone": "{{phone}}",
+    "role_id": {{roleId}},
+    "is_verified": true
+  }
+  ```
+- Если `is_verified` не передан, создаётся пользователь с прежним поведением (`is_verified=false`).
 
 ## Готовые POST-примеры создания документов
 - В `Documents / Individual` добавлены готовые `POST {{base_url}}/documents/create-from-client` для **каждого** `doc_type`.
@@ -69,6 +86,29 @@
 6. `Signing / Start Signing (Email)` → `Verify Email Token` → `Confirm Email Token` → `Signing Status`
 7. `Chats / Create Personal Chat` → `Send Message`
 8. `Reports / Funnel|Leads|Revenue`
+
+## Chat smoke by role
+### Sales
+1. `Auth / Login` (sales).
+2. `Chats / Chat Users Directory` (`GET /chats/users?query=`) — получить safe picker.
+3. `Chats / Create Personal Chat` (`POST /chats/personal` с `chatTargetUserId`).
+4. `Chats / Send Message`.
+5. `Chats / List Chats` / `Chats / Get Chat Info`.
+6. Проверить в ответах поля: `counterparty`, `sender_profile`.
+
+### Operations
+1. `Auth / Login` (operations).
+2. Повторить те же шаги: directory → create personal → send → list/info.
+3. Проверить поиск: `Chats / Search Chats` по display_name/email собеседника.
+
+### Control (read-only)
+1. `Auth / Login` (control).
+2. `Chats / Chat Users Directory`, `Chats / List Chats`, `Chats / Get Chat Info`.
+3. Проверить policy write-path:
+   - `Chats / Create Personal Chat`
+   - `Chats / Send Message`
+   - `Chats / Mark Read`
+4. Ожидание по текущей policy: write для chat **разрешён**, но бизнес write endpoints (например, `/clients` POST) остаются запрещены.
 
 ## Final smoke order для owner (рекомендуемый)
 1. **Health & Bootstrap**: `Health Check`, затем `Auth / Login`.

@@ -100,9 +100,48 @@ func (h *ChatHandler) SearchChats(c *gin.Context) {
 	c.JSON(http.StatusOK, listWithCount(chats))
 }
 
+func (h *ChatHandler) ListChatDirectoryUsers(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+
+	query := strings.TrimSpace(c.Query("query"))
+	if query == "" {
+		query = strings.TrimSpace(c.Query("q"))
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	items, total, err := h.service.ListDirectoryUsers(userID, query, limit, offset)
+	if err != nil {
+		internalError(c, "Failed to load chat directory users")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"value": ensureNonNilSlice(items),
+		"count": total,
+	})
+}
+
 func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+	if !authz.CanStartPersonalChat(roleID) {
+		forbidden(c, "Personal chat creation is not allowed")
 		return
 	}
 
@@ -114,7 +153,7 @@ func (h *ChatHandler) CreatePersonalChat(c *gin.Context) {
 
 	chat, err := h.service.CreatePersonalChat(userID, req.UserID)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeChatError(c, err, "Failed to create personal chat")
 		return
 	}
 	c.JSON(http.StatusCreated, chat)
@@ -143,7 +182,7 @@ func (h *ChatHandler) CreateGroupChat(c *gin.Context) {
 
 	chat, err := h.service.CreateGroupChat(req.Name, userID, req.Members)
 	if err != nil {
-		badRequest(c, err.Error())
+		writeChatError(c, err, "Failed to create group chat")
 		return
 	}
 	c.JSON(http.StatusCreated, chat)
@@ -163,17 +202,8 @@ func (h *ChatHandler) GetChatInfo(c *gin.Context) {
 
 	info, err := h.service.GetChatInfo(chatID, userID)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			internalError(c, "Failed to load chat info")
-			return
-		}
+		writeChatError(c, err, "Failed to load chat info")
+		return
 	}
 	c.JSON(http.StatusOK, info)
 }
@@ -203,17 +233,8 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 	if includeAttachments {
 		messages, attached, err := h.service.GetMessagesWithAttachments(chatID, userID, limit, offset)
 		if err != nil {
-			switch err {
-			case services.ErrNotChatMember:
-				forbidden(c, "Not a chat member")
-				return
-			case services.ErrChatNotFound:
-				notFound(c, NotFoundCode, "Chat not found")
-				return
-			default:
-				internalError(c, "Failed to load chat messages")
-				return
-			}
+			writeChatError(c, err, "Failed to load chat messages")
+			return
 		}
 		resp := buildMessagesWithAttachmentsResponse(messages, attached)
 		c.JSON(http.StatusOK, resp)
@@ -222,17 +243,8 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 
 	messages, err := h.service.GetMessages(chatID, userID, limit, offset)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			internalError(c, "Failed to load chat messages")
-			return
-		}
+		writeChatError(c, err, "Failed to load chat messages")
+		return
 	}
 	c.JSON(http.StatusOK, listWithCount(messages))
 }
@@ -264,17 +276,8 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 
 	messages, err := h.service.SearchMessages(chatID, userID, q, mode, limit, offset)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			internalError(c, "Failed to search messages")
-			return
-		}
+		writeChatError(c, err, "Failed to search messages")
+		return
 	}
 	c.JSON(http.StatusOK, listWithCount(messages))
 }
@@ -286,6 +289,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 	if !authz.CanSendChatMessage(roleID) {
 		forbidden(c, "Message sending is not allowed")
+		return
+	}
+	if !authz.CanWriteChat(roleID) {
+		forbidden(c, "Chat write is not allowed")
 		return
 	}
 
@@ -301,25 +308,15 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	req.Text = strings.TrimSpace(req.Text)
-	if req.Text == "" && len(req.Attachments) == 0 {
-		badRequest(c, "Message text or attachments are required")
+	if err := validateSendMessagePayload(&req); err != nil {
+		writeChatError(c, err, "Invalid message payload")
 		return
 	}
 
 	msg, unreadByUser, err := h.service.SendMessage(chatID, userID, req.Text, req.Attachments, req.AttachmentIDs)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			internalError(c, "Failed to send message")
-			return
-		}
+		writeChatError(c, err, "Failed to send message")
+		return
 	}
 
 	h.hub.Broadcast(msg)
@@ -350,17 +347,8 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 
 	uploaded, err := h.service.UploadAttachment(chatID, userID, file)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			badRequest(c, err.Error())
-			return
-		}
+		writeChatError(c, err, "Failed to upload attachment")
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"id": uploaded.ID, "url": uploaded.URL, "file_name": uploaded.FileName, "mime_type": uploaded.MimeType, "size_bytes": uploaded.SizeBytes})
@@ -428,17 +416,8 @@ func (h *ChatHandler) AddMembers(c *gin.Context) {
 		return
 	}
 	if err := h.service.AddMembers(chatID, userID, members); err != nil {
-		switch err {
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		case services.ErrForbidden:
-			forbidden(c, "Forbidden")
-			return
-		default:
-			internalError(c, "Failed to add members")
-			return
-		}
+		writeChatError(c, err, "Failed to add members")
+		return
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -537,6 +516,10 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 	if !ensureCanUseChat(c, roleID) {
 		return
 	}
+	if !authz.CanMarkReadChat(roleID) {
+		forbidden(c, "Mark read is not allowed")
+		return
+	}
 
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -558,17 +541,8 @@ func (h *ChatHandler) MarkRead(c *gin.Context) {
 
 	unread, evt, err := h.service.MarkChatRead(chatID, userID, req.MessageID)
 	if err != nil {
-		switch err {
-		case services.ErrNotChatMember:
-			forbidden(c, "Not a chat member")
-			return
-		case services.ErrChatNotFound:
-			notFound(c, NotFoundCode, "Chat not found")
-			return
-		default:
-			internalError(c, "Failed to mark chat as read")
-			return
-		}
+		writeChatError(c, err, "Failed to mark chat as read")
+		return
 	}
 
 	h.hub.NotifyUnread(chatID, userID, unread)
@@ -803,6 +777,45 @@ func listWithCount[T any](items []T) gin.H {
 	return gin.H{"value": items, "Count": len(items)}
 }
 
+func validateSendMessagePayload(req *sendMessageRequest) error {
+	if req == nil {
+		return services.ErrInvalidChatPayload
+	}
+	req.Text = strings.TrimSpace(req.Text)
+	if req.Text == "" && len(req.Attachments) == 0 {
+		return services.ErrInvalidChatPayload
+	}
+	return nil
+}
+
+func mapChatError(err error, fallbackMsg string) (int, string, string) {
+	switch {
+	case errors.Is(err, services.ErrNotChatMember):
+		return http.StatusForbidden, ChatNotMemberCode, "Not a chat member"
+	case errors.Is(err, services.ErrChatForbidden), errors.Is(err, services.ErrForbidden):
+		return http.StatusForbidden, ChatForbiddenCode, "Forbidden"
+	case errors.Is(err, services.ErrChatNotFound):
+		return http.StatusNotFound, ChatNotFoundCode, "Chat not found"
+	case errors.Is(err, services.ErrChatUserNotFound):
+		return http.StatusNotFound, ChatUserNotFoundCode, "Target user not found"
+	case errors.Is(err, services.ErrChatUserInactive):
+		return http.StatusBadRequest, ChatUserInactiveCode, "Target user is inactive or not verified"
+	case errors.Is(err, services.ErrDirectChatWithSelf):
+		return http.StatusBadRequest, DirectChatWithSelfCode, "Cannot create direct chat with yourself"
+	case errors.Is(err, services.ErrInvalidChatPayload), errors.Is(err, services.ErrGroupChatNameRequired):
+		return http.StatusBadRequest, ChatInvalidPayloadCode, "Invalid chat payload"
+	case errors.Is(err, services.ErrPersonalChatAlreadyExists):
+		return http.StatusConflict, ChatConflictCode, "Personal chat already exists"
+	default:
+		return http.StatusInternalServerError, InternalErrorCode, fallbackMsg
+	}
+}
+
+func writeChatError(c *gin.Context, err error, fallbackMsg string) {
+	status, code, message := mapChatError(err, fallbackMsg)
+	writeError(c, status, code, message)
+}
+
 func buildMessagesWithAttachmentsResponse(messages []*models.ChatMessage, attached map[int][]models.AttachmentResponse) []gin.H {
 	messages = ensureNonNilSlice(messages)
 	resp := make([]gin.H, 0, len(messages))
@@ -864,20 +877,26 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 		}
 
 		if !authz.CanSendChatMessage(roleID) {
-			_ = conn.WriteJSON(map[string]string{"error": "message sending is not allowed"})
+			_ = conn.WriteJSON(APIError{ErrorCode: ChatForbiddenCode, Message: "Message sending is not allowed"})
 			continue
 		}
-
-		incoming.Text = strings.TrimSpace(incoming.Text)
-		if incoming.Text == "" && len(incoming.Attachments) == 0 {
-			_ = conn.WriteJSON(map[string]string{"error": "Message text or attachments are required"})
+		if !authz.CanWriteChat(roleID) {
+			_ = conn.WriteJSON(APIError{ErrorCode: ChatForbiddenCode, Message: "Chat write is not allowed"})
+			continue
+		}
+		if err := validateSendMessagePayload(&incoming); err != nil {
+			_ = conn.WriteJSON(APIError{ErrorCode: ChatInvalidPayloadCode, Message: "Message text or attachments are required"})
 			continue
 		}
 
 		msg, unreadByUser, err := h.service.SendMessage(chatID, userID, incoming.Text, incoming.Attachments, incoming.AttachmentIDs)
 		if err != nil {
 			log.Printf("[chat_stream] failed to persist message for chat %d user %d: %v", chatID, userID, err)
-			_ = conn.WriteJSON(APIError{ErrorCode: InternalErrorCode, Message: "Failed to send message"})
+			status, code, message := mapChatError(err, "Failed to send message")
+			if status >= 500 {
+				message = "Failed to send message"
+			}
+			_ = conn.WriteJSON(APIError{ErrorCode: code, Message: message})
 			continue
 		}
 

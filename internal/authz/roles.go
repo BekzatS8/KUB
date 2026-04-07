@@ -143,6 +143,18 @@ func CanSendChatMessage(roleID int) bool {
 	return CanUseChat(roleID)
 }
 
+func CanWriteChat(roleID int) bool {
+	return CanUseChat(roleID)
+}
+
+func CanStartPersonalChat(roleID int) bool {
+	return CanUseChat(roleID)
+}
+
+func CanMarkReadChat(roleID int) bool {
+	return CanUseChat(roleID)
+}
+
 func CanCreateChatGroup(roleID int) bool {
 	return CanUseChat(roleID)
 }

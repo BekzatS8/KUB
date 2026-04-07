@@ -23,6 +23,7 @@ type createUserRequest struct {
 	Password    string `json:"password" binding:"required,min=6"`
 	Phone       string `json:"phone" binding:"required"` // НОВОЕ: телефон обязателен
 	RoleID      int    `json:"role_id"`                  // игнорится если создатель не админ
+	IsVerified  *bool  `json:"is_verified"`
 }
 
 func NewUserHandler(
@@ -69,8 +70,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		Email:       req.Email,
 		Phone:       req.Phone,
 		RoleID:      newRole,
-		// админ создает сразу верифицированного? оставим false, чтобы процесс был единый
-		IsVerified: false,
+		IsVerified:  false,
+	}
+	if req.IsVerified != nil {
+		user.IsVerified = *req.IsVerified
 	}
 
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {

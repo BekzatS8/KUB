@@ -237,6 +237,7 @@ func SetupRoutes(
 	// CHATS
 	chats := r.Group("/chats")
 	{
+		chats.GET("/users", chatHandler.ListChatDirectoryUsers)
 		chats.GET("", chatHandler.ListChats)
 		chats.GET("/search", chatHandler.SearchChats)
 		chats.GET("/unread", chatHandler.ListUnread)

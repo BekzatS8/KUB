@@ -251,7 +251,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"{{phone}}\",\n  \"role_id\": {{roleId}}\n}"
+                  "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"{{phone}}\",\n  \"role_id\": {{roleId}},\n  \"is_verified\": true\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/users",
@@ -4120,6 +4120,52 @@
           "response": []
         },
         {
+          "name": "Chat Users Directory",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data={};",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "const first = Array.isArray(data?.value) && data.value.length ? data.value[0] : null;",
+                  "if (first && first.user_id) { pm.environment.set('chatTargetUserId', first.user_id); pm.environment.set('userId', first.user_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chats/users?query={{chatQuery}}&limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chats",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "{{chatQuery}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Search Chats",
           "request": {
             "method": "GET",
@@ -4207,7 +4253,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": {{userId}}\n}"
+              "raw": "{\n  \"user_id\": {{chatTargetUserId}}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chats/personal",

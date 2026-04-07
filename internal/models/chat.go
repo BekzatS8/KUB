@@ -9,18 +9,21 @@ const (
 )
 
 type Chat struct {
-	ID              int          `json:"id"`
-	CreatorID       int          `json:"creator_id"`
-	Name            string       `json:"name"`
-	IsGroup         bool         `json:"is_group"`
-	Members         []int        `json:"members"`
-	MemberStatuses  []UserStatus `json:"member_statuses,omitempty"`
-	LastMessageText string       `json:"last_message_text"`
-	LastMessageAt   time.Time    `json:"last_message_at"`
-	Online          bool         `json:"online"`
-	LastSeen        time.Time    `json:"last_seen"`
-	UnreadCount     int          `json:"unread_count"`
-	CreatedAt       time.Time    `json:"created_at"`
+	ID                  int                   `json:"id"`
+	CreatorID           int                   `json:"creator_id"`
+	Name                string                `json:"name"`
+	IsGroup             bool                  `json:"is_group"`
+	Members             []int                 `json:"members"`
+	MemberStatuses      []UserStatus          `json:"member_statuses,omitempty"`
+	Counterparty        *ChatParticipantLite  `json:"counterparty,omitempty"`
+	ParticipantsPreview []ChatParticipantLite `json:"participants_preview,omitempty"`
+	MemberProfiles      []ChatParticipantLite `json:"member_profiles,omitempty"`
+	LastMessageText     string                `json:"last_message_text"`
+	LastMessageAt       time.Time             `json:"last_message_at"`
+	Online              bool                  `json:"online"`
+	LastSeen            time.Time             `json:"last_seen"`
+	UnreadCount         int                   `json:"unread_count"`
+	CreatedAt           time.Time             `json:"created_at"`
 }
 
 type ChatInfoResponse struct {
@@ -59,7 +62,29 @@ type ChatVisibleProfile struct {
 	DisplayName string  `json:"display_name"`
 	RoleCode    string  `json:"role_code"`
 	RoleName    string  `json:"role_name"`
+	Email       string  `json:"email,omitempty"`
 	AvatarURL   *string `json:"avatar_url,omitempty"`
+}
+
+type ChatParticipantLite struct {
+	UserID      int        `json:"user_id"`
+	DisplayName string     `json:"display_name"`
+	RoleCode    string     `json:"role_code"`
+	RoleName    string     `json:"role_name"`
+	Email       string     `json:"email"`
+	Online      bool       `json:"online"`
+	LastSeen    *time.Time `json:"last_seen,omitempty"`
+}
+
+type ChatUserDirectoryItem struct {
+	UserID                 int        `json:"user_id"`
+	DisplayName            string     `json:"display_name"`
+	RoleCode               string     `json:"role_code"`
+	RoleName               string     `json:"role_name"`
+	Email                  string     `json:"email"`
+	Online                 bool       `json:"online"`
+	LastSeen               *time.Time `json:"last_seen,omitempty"`
+	ExistingPersonalChatID *int       `json:"existing_personal_chat_id,omitempty"`
 }
 
 type ChatReadEvent struct {
@@ -78,17 +103,17 @@ type UserStatus struct {
 }
 
 type ChatMessage struct {
-	ID           int        `json:"id"`
-	ChatID       int        `json:"chat_id"`
-	SenderID     int        `json:"sender_id"`
-	Text         string     `json:"text"`
-	Attachments  []string   `json:"attachments"`
-	CreatedAt    time.Time  `json:"created_at"`
-	EditedAt     *time.Time `json:"edited_at,omitempty"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
-	DeletedBy    *int       `json:"deleted_by,omitempty"`
-	IsDeleted    bool       `json:"is_deleted"`
-	DeleteReason *string    `json:"delete_reason,omitempty"`
+	ID            int                 `json:"id"`
+	ChatID        int                 `json:"chat_id"`
+	SenderID      int                 `json:"sender_id"`
+	Text          string              `json:"text"`
+	Attachments   []string            `json:"attachments"`
+	CreatedAt     time.Time           `json:"created_at"`
+	EditedAt      *time.Time          `json:"edited_at,omitempty"`
+	DeletedAt     *time.Time          `json:"deleted_at,omitempty"`
+	DeletedBy     *int                `json:"deleted_by,omitempty"`
+	IsDeleted     bool                `json:"is_deleted"`
+	DeleteReason  *string             `json:"delete_reason,omitempty"`
 	SenderProfile *ChatVisibleProfile `json:"sender_profile,omitempty"`
 }
 
