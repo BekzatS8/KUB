@@ -50,7 +50,7 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Login",
+          "name": "Login as Admin",
           "event": [
             {
               "listen": "test",
@@ -80,7 +80,145 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login as Sales",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is successful', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "let data = {}; try { data = pm.response.json(); } catch (e) {}",
+                  "const access = data?.tokens?.access_token || data?.access_token || data?.token;",
+                  "const refresh = data?.tokens?.refresh_token || data?.refresh_token;",
+                  "if (access) { pm.environment.set('accessToken', access); pm.environment.set('jwt', access); pm.environment.set('token', access); }",
+                  "if (refresh) { pm.environment.set('refreshToken', refresh); }",
+                  "const user = data?.user || {};",
+                  "const uid = user?.id || data?.id; if (uid) pm.environment.set('userId', uid);",
+                  "const rid = user?.role_id || user?.roleId; if (rid !== undefined) pm.environment.set('roleId', rid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{salesEmail}}\",\n  \"password\": \"{{salesPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login as Operations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is successful', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "let data = {}; try { data = pm.response.json(); } catch (e) {}",
+                  "const access = data?.tokens?.access_token || data?.access_token || data?.token;",
+                  "const refresh = data?.tokens?.refresh_token || data?.refresh_token;",
+                  "if (access) { pm.environment.set('accessToken', access); pm.environment.set('jwt', access); pm.environment.set('token', access); }",
+                  "if (refresh) { pm.environment.set('refreshToken', refresh); }",
+                  "const user = data?.user || {};",
+                  "const uid = user?.id || data?.id; if (uid) pm.environment.set('userId', uid);",
+                  "const rid = user?.role_id || user?.roleId; if (rid !== undefined) pm.environment.set('roleId', rid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{operationsEmail}}\",\n  \"password\": \"{{operationsPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login as Control",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is successful', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "let data = {}; try { data = pm.response.json(); } catch (e) {}",
+                  "const access = data?.tokens?.access_token || data?.access_token || data?.token;",
+                  "const refresh = data?.tokens?.refresh_token || data?.refresh_token;",
+                  "if (access) { pm.environment.set('accessToken', access); pm.environment.set('jwt', access); pm.environment.set('token', access); }",
+                  "if (refresh) { pm.environment.set('refreshToken', refresh); }",
+                  "const user = data?.user || {};",
+                  "const uid = user?.id || data?.id; if (uid) pm.environment.set('userId', uid);",
+                  "const rid = user?.role_id || user?.roleId; if (rid !== undefined) pm.environment.set('roleId', rid);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{controlEmail}}\",\n  \"password\": \"{{controlPassword}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
@@ -229,15 +367,22 @@
           "name": "Users",
           "item": [
             {
-              "name": "Create User",
+              "name": "Create Sales User (verified)",
               "event": [
                 {
                   "listen": "test",
                   "script": {
+                    "type": "text/javascript",
                     "exec": [
-                      "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('userId', data.id); }"
-                    ],
-                    "type": "text/javascript"
+                      "let data = {};",
+                      "try { data = pm.response.json(); } catch (e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id;",
+                      "if (id) {",
+                      "  pm.environment.set('createdUserId', id);",
+                      "  pm.environment.set('createdUserEmail', pm.environment.get('salesEmail'));",
+                      "  pm.environment.set('salesUserId', id);",
+                      "}"
+                    ]
                   }
                 }
               ],
@@ -251,7 +396,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"company_name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"{{phone}}\",\n  \"role_id\": {{roleId}},\n  \"is_verified\": true\n}"
+                  "raw": "{\n  \"company_name\": \"KUB Sales Team\",\n  \"bin_iin\": \"111111111111\",\n  \"email\": \"{{salesEmail}}\",\n  \"password\": \"{{salesPassword}}\",\n  \"phone\": \"+77010000001\",\n  \"role_id\": {{salesRoleId}},\n  \"is_verified\": true\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/users",
@@ -264,6 +409,139 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "Create Operations User (verified)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data = {};",
+                      "try { data = pm.response.json(); } catch (e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id;",
+                      "if (id) {",
+                      "  pm.environment.set('createdUserId', id);",
+                      "  pm.environment.set('createdUserEmail', pm.environment.get('operationsEmail'));",
+                      "  pm.environment.set('operationsUserId', id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_name\": \"KUB Operations Team\",\n  \"bin_iin\": \"222222222222\",\n  \"email\": \"{{operationsEmail}}\",\n  \"password\": \"{{operationsPassword}}\",\n  \"phone\": \"+77010000002\",\n  \"role_id\": {{operationsRoleId}},\n  \"is_verified\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create Control User (verified)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data = {};",
+                      "try { data = pm.response.json(); } catch (e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id;",
+                      "if (id) {",
+                      "  pm.environment.set('createdUserId', id);",
+                      "  pm.environment.set('createdUserEmail', pm.environment.get('controlEmail'));",
+                      "  pm.environment.set('controlUserId', id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_name\": \"KUB Control Team\",\n  \"bin_iin\": \"333333333333\",\n  \"email\": \"{{controlEmail}}\",\n  \"password\": \"{{controlPassword}}\",\n  \"phone\": \"+77010000003\",\n  \"role_id\": {{controlRoleId}},\n  \"is_verified\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create System Admin User (verified)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data = {};",
+                      "try { data = pm.response.json(); } catch (e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id;",
+                      "if (id) {",
+                      "  pm.environment.set('createdUserId', id);",
+                      "  pm.environment.set('createdUserEmail', pm.environment.get('adminEmail'));",
+                      "  pm.environment.set('userId', id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company_name\": \"KUB System Admin Team\",\n  \"bin_iin\": \"999999999999\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\",\n  \"phone\": \"+77010000009\",\n  \"role_id\": {{roleId}},\n  \"is_verified\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/users",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ]
+                }
+              },
+              "response": [],
+              "description": "Use only if your environment policy allows creating system_admin via POST /users."
             },
             {
               "name": "Get Users",
@@ -558,7 +836,7 @@
       "name": "Clients / Individual",
       "item": [
         {
-          "name": "Create Client (individual_profile nested)",
+          "name": "Create Individual Client (full flat)",
           "event": [
             {
               "listen": "test",
@@ -583,7 +861,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_type\": \"individual\",\n  \"phone\": \"+77001234567\",\n  \"email\": \"individual@example.com\",\n  \"individual_profile\": {\n    \"last_name\": \"Ivanova\",\n    \"first_name\": \"Alina\",\n    \"middle_name\": \"Sergeevna\",\n    \"iin\": \"000101450001\",\n    \"id_number\": \"123456789\",\n    \"country\": \"Poland\",\n    \"trip_purpose\": \"visa\",\n    \"birth_date\": \"2000-01-01\",\n    \"registration_address\": \"Almaty\",\n    \"actual_address\": \"Almaty\"\n  }\n}",
+              "raw": "{\n  \"client_type\": \"individual\",\n  \"name\": \"{{individualFullName}}\",\n  \"bin_iin\": \"{{individualIin}}\",\n  \"address\": \"{{individualActualAddress}}\",\n  \"contact_info\": \"{{individualContactInfo}}\",\n  \"last_name\": \"{{individualLastName}}\",\n  \"first_name\": \"{{individualFirstName}}\",\n  \"middle_name\": \"{{individualMiddleName}}\",\n  \"iin\": \"{{individualIin}}\",\n  \"id_number\": \"{{individualIdNumber}}\",\n  \"passport_series\": \"{{individualPassportSeries}}\",\n  \"passport_number\": \"{{individualPassportNumber}}\",\n  \"phone\": \"{{individualPhone}}\",\n  \"email\": \"{{individualEmail}}\",\n  \"registration_address\": \"{{individualRegistrationAddress}}\",\n  \"actual_address\": \"{{individualActualAddress}}\",\n  \"country\": \"{{individualCountry}}\",\n  \"trip_purpose\": \"{{individualTripPurpose}}\",\n  \"birth_date\": \"{{individualBirthDate}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -907,7 +1185,7 @@
       "name": "Clients / Legal",
       "item": [
         {
-          "name": "Create Client (legal_profile nested)",
+          "name": "Create Legal Client (full legal_profile)",
           "event": [
             {
               "listen": "test",
@@ -934,7 +1212,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{legalCompanyName}}\",\n  \"bin_iin\": \"{{legalBin}}\",\n  \"phone\": \"{{contactPersonPhone}}\",\n  \"email\": \"{{contactPersonEmail}}\",\n  \"address\": \"{{legalAddress}}\",\n  \"legal_profile\": {\n    \"company_name\": \"{{legalCompanyName}}\",\n    \"bin\": \"{{legalBin}}\",\n    \"legal_form\": \"TOO\",\n    \"director_full_name\": \"{{signerFullName}}\",\n    \"contact_person_name\": \"{{contactPersonName}}\",\n    \"contact_person_position\": \"{{signerPosition}}\",\n    \"contact_person_phone\": \"{{contactPersonPhone}}\",\n    \"contact_person_email\": \"{{contactPersonEmail}}\",\n    \"legal_address\": \"{{legalAddress}}\",\n    \"actual_address\": \"{{legalAddress}}\",\n    \"bank_name\": \"Halyk Bank\",\n    \"iban\": \"KZ000000000000000000\",\n    \"bik\": \"HSBKKZKX\",\n    \"kbe\": \"17\",\n    \"tax_regime\": \"general\",\n    \"website\": \"https://example.kz\",\n    \"industry\": \"travel\",\n    \"company_size\": \"11-50\",\n    \"additional_info\": \"Postman legal smoke profile\"\n  }\n}",
+              "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{legalCompanyName}}\",\n  \"bin_iin\": \"{{legalBin}}\",\n  \"phone\": \"{{contactPersonPhone}}\",\n  \"email\": \"{{contactPersonEmail}}\",\n  \"address\": \"{{legalAddress}}\",\n  \"actual_address\": \"{{legalAddress}}\",\n  \"registration_address\": \"{{legalAddress}}\",\n  \"contact_info\": \"Main contact: {{contactPersonName}}, WhatsApp {{contactPersonPhone}}, working hours 09:00-18:00\",\n  \"legal_profile\": {\n    \"company_name\": \"{{legalCompanyName}}\",\n    \"bin\": \"{{legalBin}}\",\n    \"legal_form\": \"TOO\",\n    \"director_full_name\": \"{{signerFullName}}\",\n    \"contact_person_name\": \"{{contactPersonName}}\",\n    \"contact_person_position\": \"{{signerPosition}}\",\n    \"contact_person_phone\": \"{{contactPersonPhone}}\",\n    \"contact_person_email\": \"{{contactPersonEmail}}\",\n    \"legal_address\": \"{{legalAddress}}\",\n    \"actual_address\": \"{{legalAddress}}\",\n    \"bank_name\": \"Kaspi Bank\",\n    \"iban\": \"KZ689261501234567890\",\n    \"bik\": \"CASPKZKA\",\n    \"kbe\": \"17\",\n    \"tax_regime\": \"general\",\n    \"website\": \"https://silkroadtravel.kz\",\n    \"industry\": \"travel\",\n    \"company_size\": \"11-50\",\n    \"additional_info\": \"Corporate visa support, outbound tourism, B2B partner network\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1770,7 +2048,7 @@
       "name": "Deals",
       "item": [
         {
-          "name": "Create Deal",
+          "name": "Create Deal for Individual",
           "event": [
             {
               "listen": "test",
@@ -1792,7 +2070,44 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
+              "raw": "{\n  \"lead_id\": {{individualLeadId}},\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/deals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Deal for Legal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) { const data = pm.response.json(); if (data?.id) pm.environment.set('dealId', data.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": {{legalLeadId}},\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/deals",
@@ -1998,7 +2313,7 @@
           ]
         },
         {
-          "name": "Create from client: addendum_korea (ready example)",
+          "name": "Documents create-from-client (individual)",
           "request": {
             "method": "POST",
             "header": [
@@ -2018,7 +2333,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2857,7 +3172,7 @@
       "name": "Documents / Legal",
       "item": [
         {
-          "name": "Create from client (legal): addendum_korea (ready example)",
+          "name": "Documents create-from-client (legal)",
           "request": {
             "method": "POST",
             "header": [
@@ -2877,7 +3192,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {\n  }\n}",
+              "raw": "{\n  \"client_id\": {{legalClientId}},\n  \"client_type\": \"legal\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"addendum_korea\",\n  \"extra\": {}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4130,7 +4445,7 @@
                   "let data={};",
                   "try { data=pm.response.json(); } catch(e) {}",
                   "const first = Array.isArray(data?.value) && data.value.length ? data.value[0] : null;",
-                  "if (first && first.user_id) { pm.environment.set('chatTargetUserId', first.user_id); pm.environment.set('userId', first.user_id); }"
+                  "if (first && first.user_id) { pm.environment.set('chatTargetUserId', first.user_id); }"
                 ]
               }
             }
