@@ -3,6 +3,9 @@ package services
 import (
 	"errors"
 	"testing"
+
+	"turcompany/internal/authz"
+	"turcompany/internal/models"
 )
 
 func TestNormalizeRequiredDealClientType_RequiresValue(t *testing.T) {
@@ -51,5 +54,19 @@ func TestNormalizeRequiredDealClientType_Table(t *testing.T) {
 				t.Fatalf("unexpected normalized value: got=%q want=%q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDealCreate_ClientRepoNotConfigured(t *testing.T) {
+	svc := NewDealService(nil)
+	_, err := svc.Create(&models.Deals{
+		LeadID:     2,
+		ClientID:   4,
+		ClientType: "legal",
+		Amount:     50000,
+		Currency:   "USD",
+	}, 101, authz.RoleSales)
+	if !errors.Is(err, ErrClientRepoNotConfigured) {
+		t.Fatalf("expected ErrClientRepoNotConfigured, got %v", err)
 	}
 }
