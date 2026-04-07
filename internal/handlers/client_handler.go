@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -174,11 +173,6 @@ func NewClientHandler(service *services.ClientService) *ClientHandler {
 	return &ClientHandler{Service: service}
 }
 
-func isUniqueViolation(err error) bool {
-	var pqErr *pq.Error
-	return errors.As(err, &pqErr) && string(pqErr.Code) == "23505"
-}
-
 func parseDateField(field, value string, required bool) (*time.Time, error) {
 	v, err := parseFlexibleDate(field, value, required)
 	if err != nil {
@@ -304,8 +298,16 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	client := buildClientFromCreateRequest(req, userID, birthDate, passportIssueDate, passportExpireDate)
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
-		if isUniqueViolation(err) {
-			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+		if errors.Is(err, services.ErrClientAlreadyExists) {
+			conflict(c, ClientAlreadyExists, "Client with the same BIN/IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrIndividualIINExists) {
+			conflict(c, ConflictCode, "Individual profile with this IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrLegalBINExists) {
+			conflict(c, ConflictCode, "Legal profile with this BIN already exists")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEmail) {
@@ -325,8 +327,8 @@ func (h *ClientHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": missingErr.Error(), "missing_fields": missingErr.Fields})
 			return
 		}
-		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+		if errors.Is(err, services.ErrInvalidClientType) {
+			badRequest(c, "invalid client_type: allowed values are individual, legal")
 			return
 		}
 		badRequest(c, "Failed to create client")
@@ -461,8 +463,16 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		current.LegalProfile = req.LegalProfile
 	}
 	if err := h.Service.Update(current, userID, roleID); err != nil {
-		if isUniqueViolation(err) {
-			conflict(c, ConflictCode, "Client with the same BIN/IIN already exists")
+		if errors.Is(err, services.ErrClientAlreadyExists) {
+			conflict(c, ClientAlreadyExists, "Client with the same BIN/IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrIndividualIINExists) {
+			conflict(c, ConflictCode, "Individual profile with this IIN already exists")
+			return
+		}
+		if errors.Is(err, services.ErrLegalBINExists) {
+			conflict(c, ConflictCode, "Legal profile with this BIN already exists")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEmail) {
@@ -481,8 +491,8 @@ func (h *ClientHandler) Update(c *gin.Context) {
 			forbidden(c, err.Error())
 			return
 		}
-		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+		if errors.Is(err, services.ErrInvalidClientType) {
+			badRequest(c, "invalid client_type: allowed values are individual, legal")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {
@@ -523,9 +533,8 @@ func (h *ClientHandler) Delete(c *gin.Context) {
 			notFound(c, ClientNotFoundCode, "Client not found")
 			return
 		}
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && string(pqErr.Code) == "23503" {
-			conflict(c, ConflictCode, "Client has linked deals/documents and cannot be deleted")
+		if errors.Is(err, services.ErrClientInUse) {
+			conflict(c, ClientInUseCode, "Client has linked deals/documents and cannot be deleted")
 			return
 		}
 		internalError(c, "Failed to delete client")
@@ -615,8 +624,8 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 			forbidden(c, err.Error())
 			return
 		}
-		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+		if errors.Is(err, services.ErrInvalidClientType) {
+			badRequest(c, "invalid client_type: allowed values are individual, legal")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {

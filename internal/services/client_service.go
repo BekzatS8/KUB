@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lib/pq"
-
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -52,14 +50,6 @@ func (s *ClientService) NormalizeAndValidate(c *models.Client) error {
 	return s.normalizeAndValidate(c)
 }
 
-func isUniqueViolation(err error) bool {
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		return string(pqErr.Code) == "23505"
-	}
-	return false
-}
-
 func normalizeClientType(value string) (string, error) {
 	v := strings.ToLower(strings.TrimSpace(value))
 	if v == "" {
@@ -69,7 +59,7 @@ func normalizeClientType(value string) (string, error) {
 	case models.ClientTypeIndividual, models.ClientTypeLegal:
 		return v, nil
 	default:
-		return "", errors.New("invalid client_type: allowed values are individual, legal")
+		return "", ErrInvalidClientType
 	}
 }
 
@@ -422,7 +412,11 @@ func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, err
 	if err := validateCreateRedFields(c); err != nil {
 		return 0, err
 	}
-	return s.Repo.Create(c)
+	id, err := s.Repo.Create(c)
+	if err != nil {
+		return 0, mapClientDBError(err)
+	}
+	return id, nil
 }
 
 func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
@@ -456,7 +450,11 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	if err := s.ensureEmailUnique(c.Email, c.ID); err != nil {
 		return err
 	}
-	return s.Repo.Update(c)
+	err = s.Repo.Update(c)
+	if err != nil {
+		return mapClientDBError(err)
+	}
+	return nil
 }
 
 func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, error) {
@@ -490,6 +488,9 @@ func (s *ClientService) Delete(id int, userID, roleID int) error {
 	err = s.Repo.Delete(id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrClientNotFound
+	}
+	if repositories.IsSQLState(err, repositories.SQLStateForeignKey) {
+		return ErrClientInUse
 	}
 	return err
 }
@@ -541,7 +542,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 
 	id, err := s.Repo.Create(fallback)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
 			if fallback.BinIin != "" {
 				existing, lookupErr := s.Repo.GetByBIN(fallback.BinIin)
 				if lookupErr != nil {
@@ -565,6 +566,25 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client) (*
 	}
 	fallback.ID = int(id)
 	return fallback, nil
+}
+
+func mapClientDBError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if !repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
+		return err
+	}
+	switch repositories.ConstraintName(err) {
+	case "clients_bin_iin_unique_idx":
+		return ErrClientAlreadyExists
+	case "client_individual_profiles_iin_uq":
+		return ErrIndividualIINExists
+	case "client_legal_profiles_bin_uq":
+		return ErrLegalBINExists
+	default:
+		return ErrClientAlreadyExists
+	}
 }
 
 func (s *ClientService) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {

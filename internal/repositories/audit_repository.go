@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type AuditRepository struct {
@@ -38,6 +39,20 @@ func (r *AuditRepository) Insert(
 		INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, ip, user_agent, meta)
 		VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6, COALESCE(NULLIF($7,''),'{}')::jsonb)
 	`, actorUserID, action, entityType, entityID, ipVal, uaVal, metaJSON)
-
+	if IsSQLState(err, SQLStateUndefinedTable) {
+		return errors.Join(ErrAuditSchemaMissing, err)
+	}
 	return err
+}
+
+func (r *AuditRepository) AuditTableExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'audit_logs'
+		)
+	`).Scan(&exists)
+	return exists, err
 }
