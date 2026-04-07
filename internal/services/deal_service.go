@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -44,7 +46,7 @@ func (s *DealService) validateTypedClientRef(clientID int, clientType string) (s
 		return "", err
 	}
 	if s.ClientRepo == nil {
-		return "", errors.New("client repository not configured")
+		return "", ErrClientRepoNotConfigured
 	}
 	client, err := s.ClientRepo.GetByID(clientID)
 	if err != nil {
@@ -99,7 +101,21 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 		deal.Status = "new"
 	}
 
-	return s.Repo.Create(deal)
+	id, err := s.Repo.Create(deal)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && string(pqErr.Code) == "23503" {
+			fkMeta := strings.ToLower(string(pqErr.Constraint) + " " + pqErr.Message + " " + pqErr.Detail)
+			switch {
+			case strings.Contains(fkMeta, "lead"):
+				return 0, ErrLeadNotFound
+			case strings.Contains(fkMeta, "client"):
+				return 0, ErrClientNotFound
+			}
+		}
+		return 0, err
+	}
+	return id, nil
 }
 
 func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {

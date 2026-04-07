@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,7 +16,17 @@ import (
 )
 
 type DealHandler struct {
-	Service *services.DealService
+	Service dealService
+}
+
+type dealService interface {
+	Create(deal *models.Deals, userID, roleID int) (int64, error)
+	Update(deal *models.Deals, userID, roleID int) error
+	GetByID(id int, userID, roleID int) (*models.Deals, error)
+	Delete(id, userID, roleID int) error
+	ListForRole(userID, roleID, limit, offset int) ([]*models.Deals, error)
+	ListMy(ownerID, limit, offset int) ([]*models.Deals, error)
+	UpdateStatus(id int, to string, userID, roleID int) error
 }
 
 func NewDealHandler(service *services.DealService) *DealHandler {
@@ -58,12 +69,20 @@ func (h *DealHandler) Create(c *gin.Context) {
 
 	id, err := h.Service.Create(&deal, userID, roleID)
 	if err != nil {
-		if err.Error() == "lead_id is required" {
+		if errors.Is(err, services.ErrLeadIDRequired) {
 			badRequest(c, "Lead ID is required")
+			return
+		}
+		if errors.Is(err, services.ErrLeadNotFound) {
+			notFound(c, LeadNotFoundCode, "Lead not found")
 			return
 		}
 		if errors.Is(err, services.ErrClientIDRequired) {
 			badRequest(c, "Client ID is required")
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeRequired) {
@@ -78,7 +97,7 @@ func (h *DealHandler) Create(c *gin.Context) {
 			badRequest(c, err.Error())
 			return
 		}
-		if err.Error() == "amount must be greater than 0" {
+		if errors.Is(err, services.ErrAmountInvalid) {
 			badRequest(c, "Amount must be greater than 0")
 			return
 		}
@@ -86,6 +105,7 @@ func (h *DealHandler) Create(c *gin.Context) {
 			forbidden(c, err.Error())
 			return
 		}
+		log.Printf("[DealHandler.Create] create failed: %v", err)
 		internalError(c, "Failed to create deal")
 		return
 	}
