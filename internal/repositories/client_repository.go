@@ -20,7 +20,7 @@ const clientSelect = `
 SELECT
 	c.id,
 	c.owner_id,
-	c.client_type,
+	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
 	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, '')) AS display_name,
 	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, '')) AS primary_phone,
 	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, '')) AS primary_email,
@@ -28,20 +28,46 @@ SELECT
 	COALESCE(c.contact_info, '') AS contact_info,
 	c.created_at,
 	COALESCE(c.updated_at, c.created_at) AS updated_at,
-	COALESCE(ip.last_name, ''), COALESCE(ip.first_name, ''), COALESCE(ip.middle_name, ''), COALESCE(ip.iin, ''), COALESCE(ip.id_number, ''), COALESCE(ip.passport_series, ''), COALESCE(ip.passport_number, ''),
-	COALESCE(ip.registration_address, ''), COALESCE(ip.actual_address, ''), COALESCE(ip.country, ''), COALESCE(ip.trip_purpose, ''), ip.birth_date, COALESCE(ip.birth_place, ''),
-	COALESCE(ip.citizenship, ''), COALESCE(ip.sex, ''), COALESCE(ip.marital_status, ''), ip.passport_issue_date, ip.passport_expire_date,
-	COALESCE(ip.previous_last_name, ''), COALESCE(ip.spouse_name, ''), COALESCE(ip.spouse_contacts, ''), ip.has_children, ip.children_list,
-	COALESCE(ip.education, ''), COALESCE(ip.job, ''), COALESCE(ip.trips_last5_years, ''), COALESCE(ip.relatives_in_destination, ''), COALESCE(ip.trusted_person, ''),
-	ip.height, ip.weight, ip.driver_license_categories, COALESCE(ip.therapist_name, ''), COALESCE(ip.clinic_name, ''),
-	COALESCE(ip.diseases_last3_years, ''), COALESCE(ip.additional_info, ''),
-	COALESCE(lp.company_name, ''), COALESCE(lp.bin, ''), COALESCE(lp.legal_form, ''), COALESCE(lp.director_full_name, ''), COALESCE(lp.contact_person_name, ''),
-	COALESCE(lp.contact_person_position, ''), COALESCE(lp.contact_person_phone, ''), COALESCE(lp.contact_person_email, ''), COALESCE(lp.legal_address, ''),
-	COALESCE(lp.actual_address, ''), COALESCE(lp.bank_name, ''), COALESCE(lp.iban, ''), COALESCE(lp.bik, ''), COALESCE(lp.kbe, ''), COALESCE(lp.tax_regime, ''), COALESCE(lp.website, ''),
-	COALESCE(lp.industry, ''), COALESCE(lp.company_size, ''), COALESCE(lp.additional_info, '')
+	COALESCE(ip.last_name, c.last_name, ''), COALESCE(ip.first_name, c.first_name, ''), COALESCE(ip.middle_name, c.middle_name, ''), COALESCE(ip.iin, c.iin, ''), COALESCE(ip.id_number, c.id_number, ''), COALESCE(ip.passport_series, c.passport_series, ''), COALESCE(ip.passport_number, c.passport_number, ''),
+	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''), COALESCE(ip.country, c.country, ''), COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
+	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date),
+	COALESCE(ip.previous_last_name, c.previous_last_name, ''), COALESCE(ip.spouse_name, c.spouse_name, ''), COALESCE(ip.spouse_contacts, c.spouse_contacts, ''), COALESCE(ip.has_children, c.has_children), COALESCE(ip.children_list, c.children_list),
+	COALESCE(ip.education, c.education, ''), COALESCE(ip.job, c.job, ''), COALESCE(ip.trips_last5_years, c.trips_last5_years, ''), COALESCE(ip.relatives_in_destination, c.relatives_in_destination, ''), COALESCE(ip.trusted_person, c.trusted_person, ''),
+	COALESCE(ip.height, c.height), COALESCE(ip.weight, c.weight), COALESCE(ip.driver_license_categories, c.driver_license_categories), COALESCE(ip.therapist_name, c.therapist_name, ''), COALESCE(ip.clinic_name, c.clinic_name, ''),
+	COALESCE(ip.diseases_last3_years, c.diseases_last3_years, ''), COALESCE(ip.additional_info, c.additional_info, ''),
+	COALESCE(lp.company_name, c.name, ''), COALESCE(lp.bin, c.bin_iin, ''), COALESCE(lp.legal_form, ''), COALESCE(lp.director_full_name, ''), COALESCE(lp.contact_person_name, ''),
+	COALESCE(lp.contact_person_position, ''), COALESCE(lp.contact_person_phone, c.phone, ''), COALESCE(lp.contact_person_email, c.email, ''), COALESCE(lp.legal_address, c.address, ''),
+	COALESCE(lp.actual_address, c.actual_address, ''), COALESCE(lp.bank_name, ''), COALESCE(lp.iban, ''), COALESCE(lp.bik, ''), COALESCE(lp.kbe, ''), COALESCE(lp.tax_regime, ''), COALESCE(lp.website, ''),
+	COALESCE(lp.industry, ''), COALESCE(lp.company_size, ''), COALESCE(lp.additional_info, c.contact_info, '')
 FROM clients c
 LEFT JOIN client_individual_profiles ip ON ip.client_id = c.id
 LEFT JOIN client_legal_profiles lp ON lp.client_id = c.id
+`
+
+const clientSelectLegacy = `
+SELECT
+	c.id,
+	c.owner_id,
+	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
+	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, '')) AS display_name,
+	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, '')) AS primary_phone,
+	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, '')) AS primary_email,
+	COALESCE(c.address, '') AS address,
+	COALESCE(c.contact_info, '') AS contact_info,
+	c.created_at,
+	COALESCE(c.updated_at, c.created_at) AS updated_at,
+	COALESCE(c.last_name, ''), COALESCE(c.first_name, ''), COALESCE(c.middle_name, ''), COALESCE(c.iin, ''), COALESCE(c.id_number, ''), COALESCE(c.passport_series, ''), COALESCE(c.passport_number, ''),
+	COALESCE(c.registration_address, ''), COALESCE(c.actual_address, ''), COALESCE(c.country, ''), COALESCE(c.trip_purpose, ''), c.birth_date, COALESCE(c.birth_place, ''),
+	COALESCE(c.citizenship, ''), COALESCE(c.sex, ''), COALESCE(c.marital_status, ''), c.passport_issue_date, c.passport_expire_date,
+	COALESCE(c.previous_last_name, ''), COALESCE(c.spouse_name, ''), COALESCE(c.spouse_contacts, ''), c.has_children, c.children_list,
+	COALESCE(c.education, ''), COALESCE(c.job, ''), COALESCE(c.trips_last5_years, ''), COALESCE(c.relatives_in_destination, ''), COALESCE(c.trusted_person, ''),
+	c.height, c.weight, c.driver_license_categories, COALESCE(c.therapist_name, ''), COALESCE(c.clinic_name, ''),
+	COALESCE(c.diseases_last3_years, ''), COALESCE(c.additional_info, ''),
+	COALESCE(c.name, ''), COALESCE(c.bin_iin, ''), '' AS legal_form, '' AS director_full_name, '' AS contact_person_name,
+	'' AS contact_person_position, COALESCE(c.phone, ''), COALESCE(c.email, ''), COALESCE(c.address, ''),
+	COALESCE(c.actual_address, ''), '' AS bank_name, '' AS iban, '' AS bik, '' AS kbe, '' AS tax_regime, '' AS website,
+	'' AS industry, '' AS company_size, COALESCE(c.contact_info, '')
+FROM clients c
 `
 
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
@@ -299,7 +325,16 @@ func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
 }
 func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
 	q := clientSelect + ` WHERE c.owner_id=$1 AND ($4='' OR c.client_type=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	return r.queryMany(q, ownerID, limit, offset, strings.TrimSpace(strings.ToLower(clientType)))
+	filter := strings.TrimSpace(strings.ToLower(clientType))
+	clients, err := r.queryMany(q, ownerID, limit, offset, filter)
+	if err == nil {
+		return clients, nil
+	}
+	if !isProfileSplitTableMissing(err) {
+		return nil, err
+	}
+	legacyQ := clientSelectLegacy + ` WHERE c.owner_id=$1 AND ($4='' OR COALESCE(c.client_type,'individual')=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	return r.queryMany(legacyQ, ownerID, limit, offset, filter)
 }
 func (r *ClientRepository) ListIndividuals(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
 	_ = ownerID
@@ -413,6 +448,17 @@ func like(v string) string {
 		return ""
 	}
 	return "%" + v + "%"
+}
+
+func isProfileSplitTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	if IsSQLState(err, SQLStateUndefinedTable) {
+		msg := strings.ToLower(err.Error())
+		return strings.Contains(msg, "client_individual_profiles") || strings.Contains(msg, "client_legal_profiles")
+	}
+	return false
 }
 func nullString(v string) any {
 	if strings.TrimSpace(v) == "" {
