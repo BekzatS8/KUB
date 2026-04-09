@@ -299,29 +299,50 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		return nil, fmt.Errorf("lock lead: %w", err)
 	}
 
-	existing := &models.Deals{}
-	var status sql.NullString
-	row := tx.QueryRow(`
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
-		FROM deals d
-		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.lead_id = $1
-		ORDER BY d.created_at DESC
-		LIMIT 1
-		FOR UPDATE
-	`, leadID)
-	if err = row.Scan(
-		&existing.ID,
-		&existing.LeadID,
-		&existing.ClientID,
-		&existing.ClientType,
-		&existing.OwnerID,
-		&existing.Amount,
-		&existing.Currency,
-		&status,
-		&existing.CreatedAt,
-	); err == nil {
+	loadClientType := func(clientID int) (string, error) {
+		var clientType sql.NullString
+		if err := tx.QueryRow(`SELECT client_type FROM clients WHERE id = $1`, clientID).Scan(&clientType); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", nil
+			}
+			return "", err
+		}
+		return stringFromNull(clientType), nil
+	}
+
+	loadExistingDealForUpdate := func(leadID int) (*models.Deals, error) {
+		existing := &models.Deals{}
+		var status sql.NullString
+		err := tx.QueryRow(`
+			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.amount, d.currency, d.status, d.created_at
+			FROM deals d
+			WHERE d.lead_id = $1
+			ORDER BY d.created_at DESC
+			LIMIT 1
+			FOR UPDATE
+		`, leadID).Scan(
+			&existing.ID,
+			&existing.LeadID,
+			&existing.ClientID,
+			&existing.OwnerID,
+			&existing.Amount,
+			&existing.Currency,
+			&status,
+			&existing.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
 		existing.Status = normalizeDealStatus(status)
+		existing.ClientType, err = loadClientType(existing.ClientID)
+		if err != nil {
+			return nil, err
+		}
+		return existing, nil
+	}
+
+	existing, existingErr := loadExistingDealForUpdate(leadID)
+	if existingErr == nil {
 		if normalizeLeadStatus(leadStatus) != "converted" {
 			if _, err = tx.Exec(`UPDATE leads SET status = 'converted' WHERE id = $1`, leadID); err != nil {
 				return nil, fmt.Errorf("update lead status after existing deal: %w", err)
@@ -332,8 +353,8 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		}
 		return existing, ErrDealAlreadyExists
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("check existing deal: %w", err)
+	if !errors.Is(existingErr, sql.ErrNoRows) {
+		return nil, fmt.Errorf("check existing deal: %w", existingErr)
 	}
 
 	leadStatusValue := normalizeLeadStatus(leadStatus)
@@ -378,29 +399,10 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	).Scan(&deal.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			row := tx.QueryRow(`
-				SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
-				FROM deals d
-				LEFT JOIN clients c ON c.id = d.client_id
-				WHERE d.lead_id = $1
-				ORDER BY d.created_at DESC
-				LIMIT 1
-				FOR UPDATE
-			`, leadID)
-			if err = row.Scan(
-				&existing.ID,
-				&existing.LeadID,
-				&existing.ClientID,
-				&existing.ClientType,
-				&existing.OwnerID,
-				&existing.Amount,
-				&existing.Currency,
-				&status,
-				&existing.CreatedAt,
-			); err != nil {
+			existing, err := loadExistingDealForUpdate(leadID)
+			if err != nil {
 				return nil, fmt.Errorf("fetch existing deal after conflict: %w", err)
 			}
-			existing.Status = normalizeDealStatus(status)
 			if _, err = tx.Exec(`UPDATE leads SET status = 'converted' WHERE id = $1`, leadID); err != nil {
 				return nil, fmt.Errorf("update lead status after conflict: %w", err)
 			}
