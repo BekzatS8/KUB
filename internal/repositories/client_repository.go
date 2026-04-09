@@ -330,11 +330,16 @@ func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType st
 	if err == nil {
 		return clients, nil
 	}
+	err = fmt.Errorf("list clients by owner primary query: %w", err)
 	if !isProfileSplitTableMissing(err) {
 		return nil, err
 	}
 	legacyQ := clientSelectLegacy + ` WHERE c.owner_id=$1 AND ($4='' OR COALESCE(c.client_type,'individual')=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	return r.queryMany(legacyQ, ownerID, limit, offset, filter)
+	clients, err = r.queryMany(legacyQ, ownerID, limit, offset, filter)
+	if err != nil {
+		return nil, fmt.Errorf("list clients by owner legacy fallback: %w", err)
+	}
+	return clients, nil
 }
 func (r *ClientRepository) ListIndividuals(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
 	_ = ownerID
@@ -435,7 +440,7 @@ func (r *ClientRepository) queryMany(q string, args ...any) ([]*models.Client, e
 	for rows.Next() {
 		c, err := scanClient(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan client row: %w", err)
 		}
 		out = append(out, c)
 	}
