@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -336,15 +337,15 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 
 	deal, convErr := h.Service.ConvertLeadToDeal(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, req.ClientID, req.ClientType)
 	if convErr != nil {
+		log.Printf(
+			"lead conversion failed: lead_id=%d user_id=%d role_id=%d client_id=%d client_type=%q err=%v",
+			id, userID, roleID, req.ClientID, req.ClientType, convErr,
+		)
 		if errors.Is(convErr, services.ErrClientNotFound) {
 			notFound(c, ClientNotFoundCode, "Client not found")
 			return
 		}
-		if errors.Is(convErr, services.ErrClientTypeRequired) || errors.Is(convErr, services.ErrClientTypeMismatch) {
-			badRequest(c, convErr.Error())
-			return
-		}
-		if strings.Contains(convErr.Error(), "invalid client_type") {
+		if isLeadConversionBadRequestError(convErr) {
 			badRequest(c, convErr.Error())
 			return
 		}
@@ -352,7 +353,7 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 			c.JSON(http.StatusConflict, deal)
 			return
 		}
-		conflict(c, ValidationFailed, "Lead conversion conflict")
+		internalError(c, convErr.Error())
 		return
 	}
 	c.JSON(201, deal)
@@ -400,11 +401,11 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 	}
 	deal, convErr := h.Service.ConvertLeadToDealWithClientData(id, req.Amount, req.Currency, lead.OwnerID, userID, roleID, client)
 	if convErr != nil {
-		if errors.Is(convErr, services.ErrClientTypeRequired) || errors.Is(convErr, services.ErrClientTypeMismatch) {
-			badRequest(c, convErr.Error())
-			return
-		}
-		if strings.Contains(convErr.Error(), "invalid client_type") {
+		log.Printf(
+			"lead conversion with client failed: lead_id=%d user_id=%d role_id=%d client_id=%d client_type=%q err=%v",
+			id, userID, roleID, 0, req.ClientType, convErr,
+		)
+		if isLeadConversionBadRequestError(convErr) {
 			badRequest(c, convErr.Error())
 			return
 		}
@@ -412,10 +413,24 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 			c.JSON(http.StatusConflict, deal)
 			return
 		}
-		conflict(c, ValidationFailed, "Lead conversion conflict")
+		internalError(c, convErr.Error())
 		return
 	}
 	c.JSON(201, deal)
+}
+
+func isLeadConversionBadRequestError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, services.ErrClientTypeRequired) || errors.Is(err, services.ErrClientTypeMismatch) {
+		return true
+	}
+	errText := err.Error()
+	return strings.Contains(errText, "invalid client_type") ||
+		strings.Contains(errText, "lead is not in a convertible status") ||
+		strings.Contains(errText, "client_type is required") ||
+		strings.Contains(errText, "client_type does not match")
 }
 
 func firstNonEmpty(values ...string) string {
