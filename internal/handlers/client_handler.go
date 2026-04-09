@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -745,6 +746,7 @@ func (h *ClientHandler) List(c *gin.Context) {
 	clientType := strings.TrimSpace(c.Query("client_type"))
 	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType)
 	if err != nil {
+		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
 			return
@@ -774,8 +776,10 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 		size = 100
 	}
 	offset := (page - 1) * size
+	clientType := strings.TrimSpace(c.Query("client_type"))
 	clients, err := h.Service.ListMine(userID, size, offset, "")
 	if err != nil {
+		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
 			return
