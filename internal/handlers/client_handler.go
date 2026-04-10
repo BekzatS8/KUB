@@ -777,7 +777,7 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 	clientType := strings.TrimSpace(c.Query("client_type"))
-	clients, err := h.Service.ListMine(userID, size, offset, "")
+	clients, err := h.Service.ListMine(userID, size, offset, clientType)
 	if err != nil {
 		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
 		if errors.Is(err, services.ErrForbidden) {

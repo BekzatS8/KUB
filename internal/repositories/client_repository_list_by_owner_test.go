@@ -178,6 +178,38 @@ func TestListByOwnerSupportsMixedClientTypeRows(t *testing.T) {
 	}
 }
 
+func TestListByOwnerHandlesNullPrimaryEmail(t *testing.T) {
+	row := testClientRowValues(103, 7, "individual")
+	row[5] = nil
+
+	drv := &clientScriptedDriver{responses: []clientScriptedQueryResponse{{
+		queryContains: "FROM clients c",
+		rows: &clientScriptedRows{
+			columns: testClientColumns(),
+			data:    [][]driver.Value{row},
+		},
+	}}}
+	driverName := "scripted_owner_null_primary_email"
+	sql.Register(driverName, drv)
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewClientRepository(db)
+	clients, err := repo.ListByOwner(7, 20, 0, "")
+	if err != nil {
+		t.Fatalf("ListByOwner returned error: %v", err)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(clients))
+	}
+	if clients[0].PrimaryEmail != "" {
+		t.Fatalf("expected empty primary_email, got %q", clients[0].PrimaryEmail)
+	}
+}
+
 func testClientColumns() []string {
 	cols := make([]string, 64)
 	for i := range cols {
