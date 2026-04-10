@@ -21,9 +21,9 @@ SELECT
 	c.id,
 	c.owner_id,
 	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
-	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, '')) AS display_name,
-	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, '')) AS primary_phone,
-	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, '')) AS primary_email,
+	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), '') AS display_name,
+	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, ''), '') AS primary_phone,
+	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, ''), '') AS primary_email,
 	COALESCE(c.address, '') AS address,
 	COALESCE(c.contact_info, '') AS contact_info,
 	c.created_at,
@@ -49,9 +49,9 @@ SELECT
 	c.id,
 	c.owner_id,
 	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
-	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, '')) AS display_name,
-	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, '')) AS primary_phone,
-	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, '')) AS primary_email,
+	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), '') AS display_name,
+	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, ''), '') AS primary_phone,
+	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, ''), '') AS primary_email,
 	COALESCE(c.address, '') AS address,
 	COALESCE(c.contact_info, '') AS contact_info,
 	c.created_at,
@@ -73,6 +73,7 @@ FROM clients c
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	c := &models.Client{}
 	var (
+		displayName, primaryPhone, primaryEmail sql.NullString
 		birthDate, passIssue, passExpire sql.NullTime
 		hasChildren                      sql.NullBool
 		height, weight                   sql.NullInt64
@@ -81,7 +82,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	ip := &models.ClientIndividualProfile{}
 	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
-		&c.ID, &c.OwnerID, &c.ClientType, &c.DisplayName, &c.PrimaryPhone, &c.PrimaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.OwnerID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber,
 		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
 		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire,
@@ -95,6 +96,15 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+	if displayName.Valid {
+		c.DisplayName = displayName.String
+	}
+	if primaryPhone.Valid {
+		c.PrimaryPhone = primaryPhone.String
+	}
+	if primaryEmail.Valid {
+		c.PrimaryEmail = primaryEmail.String
 	}
 	c.Name, c.Phone, c.Email = c.DisplayName, c.PrimaryPhone, c.PrimaryEmail
 	c.BinIin = lp.BIN

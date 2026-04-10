@@ -15,8 +15,9 @@ import (
 )
 
 type stubClientListMyService struct {
-	clients []*models.Client
-	err     error
+	clients         []*models.Client
+	err             error
+	lastClientType  string
 }
 
 func (s *stubClientListMyService) Create(*models.Client, int, int) (int64, error) { return 0, errors.New("not implemented") }
@@ -29,7 +30,8 @@ func (s *stubClientListMyService) GetByID(int, int, int) (*models.Client, error)
 func (s *stubClientListMyService) ListForRole(int, int, int, int, string) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListMine(int, int, int, string) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListMine(_ int, _ int, _ int, clientType string) ([]*models.Client, error) {
+	s.lastClientType = clientType
 	return s.clients, s.err
 }
 func (s *stubClientListMyService) ListIndividualsForRole(int, int, int, int, string) ([]*models.Client, error) {
@@ -118,5 +120,25 @@ func TestClientHandler_ListMy_SuccessScenarios(t *testing.T) {
 				t.Fatalf("expected %d clients, got %d", len(tc.clients), len(got))
 			}
 		})
+	}
+}
+
+func TestClientHandler_ListMy_ForwardsOptionalClientType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubClientListMyService{clients: []*models.Client{}}
+	h := &ClientHandler{Service: svc}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/clients/my?client_type=legal", nil)
+	c.Set("user_id", 101)
+	c.Set("role_id", 10)
+
+	h.ListMy(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if svc.lastClientType != "legal" {
+		t.Fatalf("expected client_type legal passed to service, got %q", svc.lastClientType)
 	}
 }
