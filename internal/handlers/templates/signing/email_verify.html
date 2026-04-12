@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Подписание документа</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; background:#f4f6fb; margin:0; padding:24px; color:#1a1f36; }
+    .card { max-width:720px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.08); padding:24px; }
+    h1 { margin:0 0 16px; font-size:24px; }
+    .muted { color:#6b7280; }
+    .row { margin-bottom:10px; }
+    .label { font-weight:600; display:inline-block; min-width:180px; }
+    .status { margin:14px 0; padding:10px 12px; border-radius:8px; background:#eef2ff; }
+    .error { background:#fef2f2; color:#991b1b; }
+    .ok { background:#ecfdf3; color:#166534; }
+    input { width:100%; box-sizing:border-box; padding:11px; border:1px solid #d1d5db; border-radius:8px; margin-top:6px; }
+    button { margin-top:12px; padding:11px 16px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer; }
+    button[disabled] { opacity:.55; cursor:not-allowed; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Подписание документа</h1>
+  <p class="muted">Пожалуйста, проверьте данные документа и завершите подписание.</p>
+
+  <div id="state" class="status">Загрузка данных ссылки…</div>
+
+  <div id="doc" class="hidden">
+    <div class="row"><span class="label">Документ:</span><span id="docTitle">—</span></div>
+    <div class="row"><span class="label">ID документа:</span><span id="docId">—</span></div>
+    <div class="row"><span class="label">Статус:</span><span id="docStatus">—</span></div>
+    <div class="row"><span class="label">Ссылка действует до:</span><span id="expiresAt">—</span></div>
+    <p class="muted">Предпросмотр файла в публичном режиме недоступен. Проверьте название и ID документа перед подписанием.</p>
+  </div>
+
+  <div id="confirmBox" class="hidden">
+    <label for="code">Код подтверждения из email</label>
+    <input id="code" type="text" maxlength="6" autocomplete="one-time-code" placeholder="Например, 123456" />
+    <button id="confirmBtn">Подтвердить код</button>
+  </div>
+
+  <div id="signBox" class="hidden">
+    <button id="signBtn">Подписать документ</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const initialToken = {{ printf "%q" .Token }};
+  const apiBase = {{ printf "%q" .APIBase }};
+  const state = document.getElementById('state');
+  const docBox = document.getElementById('doc');
+  const confirmBox = document.getElementById('confirmBox');
+  const signBox = document.getElementById('signBox');
+  const confirmBtn = document.getElementById('confirmBtn');
+  const signBtn = document.getElementById('signBtn');
+  const codeInput = document.getElementById('code');
+
+  let token = new URLSearchParams(window.location.search).get('token') || initialToken || '';
+  let docId = 0;
+  let sessionId = 0;
+  let sessionToken = '';
+
+  function setState(msg, type) {
+    state.className = 'status' + (type ? (' ' + type) : '');
+    state.textContent = msg;
+  }
+
+  function toLocal(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    return d.toLocaleString();
+  }
+
+  async function verify() {
+    if (!token) {
+      setState('Ссылка повреждена: не найден token.', 'error');
+      return;
+    }
+    setState('Проверяем ссылку…');
+    try {
+      const res = await fetch(`${apiBase}/sign/email/verify?token=${encodeURIComponent(token)}&format=json`, { headers: { 'Accept': 'application/json' } });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const code = payload.code || payload.error || 'UNKNOWN';
+        if (code === 'EXPIRED') setState('Ссылка истекла. Попросите отправить новую ссылку.', 'error');
+        else if (code === 'ALREADY_USED') setState('Ссылка уже использована.', 'error');
+        else setState('Ссылка недействительна или документ недоступен.', 'error');
+        return;
+      }
+      if (!payload.token_valid) {
+        setState('Ссылка недействительна.', 'error');
+        return;
+      }
+      docId = payload.document?.id || 0;
+      document.getElementById('docTitle').textContent = payload.document?.title || '—';
+      document.getElementById('docId').textContent = String(payload.document?.id || '—');
+      document.getElementById('docStatus').textContent = payload.document?.status || '—';
+      document.getElementById('expiresAt').textContent = toLocal(payload.confirmation?.expires_at);
+      docBox.classList.remove('hidden');
+      setState('Ссылка валидна. Подтвердите код из письма и подпишите документ.', 'ok');
+      if (payload.require_post_confirm !== false) {
+        confirmBox.classList.remove('hidden');
+      } else {
+        signBox.classList.remove('hidden');
+      }
+    } catch (e) {
+      setState('Ошибка сети при проверке ссылки. Попробуйте позже.', 'error');
+    }
+  }
+
+  confirmBtn.addEventListener('click', async () => {
+    const code = (codeInput.value || '').trim();
+    if (!docId) return setState('Документ не определен.', 'error');
+    if (!code) return setState('Введите код подтверждения.', 'error');
+
+    confirmBtn.disabled = true;
+    setState('Проверяем код…');
+    try {
+      const res = await fetch(`/documents/${docId}/sign/confirm/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ token, code })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const codeResp = payload.code || payload.error || 'UNKNOWN';
+        if (codeResp === 'INVALID_CODE') setState('Неверный код подтверждения.', 'error');
+        else if (codeResp === 'EXPIRED') setState('Срок действия ссылки истек.', 'error');
+        else if (codeResp === 'ALREADY_USED') setState('Ссылка уже использована.', 'error');
+        else setState('Не удалось подтвердить код. Попробуйте еще раз.', 'error');
+        return;
+      }
+      sessionId = payload.session_id;
+      sessionToken = payload.session_token;
+      if (!sessionId || !sessionToken) {
+        setState('Сервер не вернул данные сессии подписи.', 'error');
+        return;
+      }
+      confirmBox.classList.add('hidden');
+      signBox.classList.remove('hidden');
+      setState('Код подтвержден. Теперь подпишите документ.', 'ok');
+    } catch (e) {
+      setState('Ошибка сети при подтверждении кода.', 'error');
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  });
+
+  signBtn.addEventListener('click', async () => {
+    if (!sessionId || !sessionToken) return setState('Сессия подписи не найдена.', 'error');
+    signBtn.disabled = true;
+    setState('Подписываем документ…');
+    try {
+      const res = await fetch(`/api/v1/sign/sessions/id/${sessionId}/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ token: sessionToken, agree: true })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = payload.error || 'UNKNOWN';
+        if (err === 'Session expired') setState('Сессия подписи истекла. Запросите новую ссылку.', 'error');
+        else if (err === 'Session already signed') setState('Документ уже подписан.', 'error');
+        else setState('Не удалось завершить подпись. Попробуйте позже.', 'error');
+        return;
+      }
+      setState('Документ успешно подписан. Спасибо!', 'ok');
+      signBox.classList.add('hidden');
+    } catch (e) {
+      setState('Ошибка сети при подписании.', 'error');
+    } finally {
+      signBtn.disabled = false;
+    }
+  });
+
+  verify();
+})();
+</script>
+</body>
+</html>

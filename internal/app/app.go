@@ -274,6 +274,7 @@ func Run() {
 		signConfirmService,
 		documentService,
 		signSessionService,
+		cfg.SignEmailVerifyBaseURL,
 	)
 	telegramSignHandler := handlers.NewTelegramSignWebhookHandler(tgSvc, signConfirmService)
 
@@ -283,6 +284,10 @@ func Run() {
 	signHandler := handlers.NewSignSessionHandler(signSessionService)
 	publicSignHandler := handlers.NewPublicDocumentSigningHandler(publicSignService)
 	docPublicLinkHandler := handlers.NewDocumentPublicLinkHandler(publicSignService)
+	publicSigningUIHandler, err := handlers.NewPublicSigningUIHandler()
+	if err != nil {
+		log.Fatalf("[BOOT] failed to init public signing ui handler: %v", err)
+	}
 	reportHandler := handlers.NewReportHandler(reportService)
 	if cfg.Wazzup.Enable {
 		wazzupClient := wazzupintegration.NewHTTPClient(
@@ -356,6 +361,7 @@ func Run() {
 		chatHandler,
 		publicSignHandler,
 		docPublicLinkHandler,
+		publicSigningUIHandler,
 		wazzupHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)

@@ -27,17 +27,20 @@ type DocumentSigningConfirmationHandler struct {
 	Service            *services.DocumentSigningConfirmationService
 	DocumentSvc        *services.DocumentService
 	SignSessionService *services.SignSessionService
+	FrontendBaseURL    string
 }
 
 func NewDocumentSigningConfirmationHandler(
 	service *services.DocumentSigningConfirmationService,
 	documentSvc *services.DocumentService,
 	signSessionService *services.SignSessionService,
+	frontendBaseURL string,
 ) *DocumentSigningConfirmationHandler {
 	return &DocumentSigningConfirmationHandler{
 		Service:            service,
 		DocumentSvc:        documentSvc,
 		SignSessionService: signSessionService,
+		FrontendBaseURL:    strings.TrimRight(strings.TrimSpace(frontendBaseURL), "/"),
 	}
 }
 
@@ -251,6 +254,14 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 	normalized := services.NormalizeEmailConfirmTokenForLog(token)
 	tokenPrefix := redactPrefix(normalized, 8)
 	tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(normalized, h.Service.TokenPepperForLog()), 8)
+
+	if shouldRedirectSignVerifyToFrontend(c) {
+		if target, err := h.buildFrontendVerifyURL(token); err == nil && target != "" {
+			c.Redirect(http.StatusFound, target)
+			return
+		}
+	}
+
 	log.Printf("[sign][confirm][email][validate][request] token_prefix=%s token_hash_prefix=%s request_id=%s user=%d role=%d ip=%s ua=%q",
 		tokenPrefix, tokenHashPrefix, requestID, userID, roleID, ip, userAgent)
 
@@ -278,6 +289,32 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 	log.Printf("[sign][confirm][email][validate][success] doc=%d token_prefix=%s token_hash_prefix=%s status=%s request_id=%s user=%d role=%d ip=%s ua=%q",
 		payload.Document.ID, tokenPrefix, tokenHashPrefix, payload.Document.Status, requestID, userID, roleID, ip, userAgent)
 	c.JSON(http.StatusOK, payload)
+}
+
+func shouldRedirectSignVerifyToFrontend(c *gin.Context) bool {
+	if c == nil || c.Request == nil || strings.HasPrefix(c.FullPath(), "/api/") {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(c.Query("format")), "json") {
+		return false
+	}
+	accept := strings.ToLower(strings.TrimSpace(c.GetHeader("Accept")))
+	return strings.Contains(accept, "text/html") || accept == "" || accept == "*/*"
+}
+
+func (h *DocumentSigningConfirmationHandler) buildFrontendVerifyURL(token string) (string, error) {
+	if strings.TrimSpace(h.FrontendBaseURL) == "" {
+		return "", errors.New("frontend base url is empty")
+	}
+	base, err := url.Parse(h.FrontendBaseURL)
+	if err != nil {
+		return "", err
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/sign/email/verify"
+	query := base.Query()
+	query.Set("token", token)
+	base.RawQuery = query.Encode()
+	return base.String(), nil
 }
 
 func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {

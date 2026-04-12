@@ -30,6 +30,7 @@ func SetupRoutes(
 	chatHandler *handlers.ChatHandler,
 	publicSignHandler *handlers.PublicDocumentSigningHandler,
 	docPublicLinkHandler *handlers.DocumentPublicLinkHandler,
+	publicSigningUIHandler *handlers.PublicSigningUIHandler,
 	wazzupHandler *handlers.WazzupHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
@@ -65,7 +66,12 @@ func SetupRoutes(
 		}
 	}
 	if signConfirmHandler != nil {
-		r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+		if publicSigningUIHandler != nil {
+			r.GET("/sign/email/verify", publicSigningUIHandler.ServeEmailVerifyPage)
+		} else {
+			r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+		}
+		r.GET("/api/v1/sign/email/verify", signConfirmHandler.VerifyEmailToken)
 		r.POST("/documents/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
 	}
 	if telegramSignHandler != nil {
