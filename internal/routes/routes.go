@@ -43,6 +43,9 @@ func SetupRoutes(
 	r.GET("/healthz", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	auth := r.Group("/auth")
 	{

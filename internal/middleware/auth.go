@@ -23,6 +23,12 @@ func isPublicPath(path string) bool {
 		return true
 	case "/auth/forgot-password", "/auth/reset-password":
 		return true
+	case "/favicon.ico":
+		return true
+	}
+	if strings.HasPrefix(path, "/sign/email/verify") ||
+		strings.HasPrefix(path, "/api/v1/sign/email/verify") {
+		return true
 	}
 	if strings.HasPrefix(path, "/swagger") ||
 		strings.HasPrefix(path, "/docs") ||
