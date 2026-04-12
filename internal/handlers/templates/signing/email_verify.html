@@ -49,7 +49,6 @@
 <script>
 (() => {
   const initialToken = {{ printf "%q" .Token }};
-  const apiBase = {{ printf "%q" .APIBase }};
   const state = document.getElementById('state');
   const docBox = document.getElementById('doc');
   const confirmBox = document.getElementById('confirmBox');
@@ -82,7 +81,8 @@
     }
     setState('Проверяем ссылку…');
     try {
-      const res = await fetch(`${apiBase}/sign/email/verify?token=${encodeURIComponent(token)}&format=json`, { headers: { 'Accept': 'application/json' } });
+      const verifyURL = `/api/v1/sign/email/verify?token=${encodeURIComponent(token)}&format=json`;
+      const res = await fetch(verifyURL, { headers: { 'Accept': 'application/json' } });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const code = payload.code || payload.error || 'UNKNOWN';

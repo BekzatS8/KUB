@@ -33,7 +33,6 @@ func (h *PublicSigningUIHandler) ServeEmailVerifyPage(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(http.StatusOK)
 	_ = h.emailVerifyTemplate.Execute(c.Writer, map[string]any{
-		"Token":   token,
-		"APIBase": "/api/v1",
+		"Token": token,
 	})
 }
