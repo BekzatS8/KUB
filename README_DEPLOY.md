@@ -29,6 +29,7 @@
 - `TELEGRAM_ENABLE`, `TELEGRAM_BOT_TOKEN`/`TELEGRAM_APITOKEN`, `TELEGRAM_WEBHOOK_URL`
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`
 - `SIGN_EMAIL_TOKEN_PEPPER`, `SIGN_EMAIL_VERIFY_BASE_URL`, `SIGN_BASE_URL`
+- `FRONTEND_APP_URL`, `PUBLIC_BASE_URL` (должны указывать на frontend-домен, не localhost)
 
 ## 3) Домен и HTTPS (кратко)
 - Рекомендуется reverse proxy (Nginx/Caddy) перед `api`.

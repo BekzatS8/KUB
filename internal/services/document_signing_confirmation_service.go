@@ -441,7 +441,8 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 }
 
 type EmailTokenVerification struct {
-	Document struct {
+	TokenValid bool `json:"token_valid"`
+	Document   struct {
 		ID     int64  `json:"id"`
 		Title  string `json:"title"`
 		Status string `json:"status"`
@@ -509,6 +510,7 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 		return nil, ErrSignConfirmNotFound
 	}
 	response := &EmailTokenVerification{
+		TokenValid:         true,
 		RequirePostConfirm: true,
 	}
 	response.Document.ID = doc.ID

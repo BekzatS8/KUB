@@ -214,6 +214,18 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("invalid sign_confirm_policy: %s", cfg.SignConfirmPolicy)
 	}
 	if mode == "release" {
+		if err := validatePublicURL("frontend.host", cfg.Frontend.Host); err != nil {
+			return err
+		}
+		if err := validatePublicURL("public_base_url", cfg.PublicBaseURL); err != nil {
+			return err
+		}
+		if err := validatePublicURL("sign_base_url", cfg.SignBaseURL); err != nil {
+			return err
+		}
+		if err := validatePublicURL("sign_email_verify_base_url", cfg.SignEmailVerifyBaseURL); err != nil {
+			return err
+		}
 		if strings.TrimSpace(cfg.Security.JWTSecret) == "" {
 			return fmt.Errorf("security.jwt_secret is required in release mode")
 		}
@@ -308,7 +320,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.LibreOffice.Binary == "" {
 		cfg.LibreOffice.Binary = "libreoffice"
 	}
-	if cfg.Frontend.Host == "" {
+	if cfg.Frontend.Host == "" && configMode() != "release" {
 		cfg.Frontend.Host = "http://localhost:3000"
 	}
 	if strings.TrimSpace(cfg.Wazzup.APIBaseURL) == "" {
@@ -390,6 +402,11 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SIGN_BASE_URL"), &cfg.SignBaseURL)
 	setString(os.Getenv("PUBLIC_BASE_URL"), &cfg.PublicBaseURL)
 	setString(os.Getenv("SIGN_PUBLIC_BASE_URL"), &cfg.PublicBaseURL)
+	setString(os.Getenv("FRONTEND_HOST"), &cfg.Frontend.Host)
+	setString(os.Getenv("FRONTEND_APP_URL"), &cfg.Frontend.Host)
+	setString(os.Getenv("PUBLIC_APP_URL"), &cfg.Frontend.Host)
+	setString(os.Getenv("NEXT_PUBLIC_APP_URL"), &cfg.Frontend.Host)
+	setString(os.Getenv("VITE_APP_URL"), &cfg.Frontend.Host)
 	setString(os.Getenv("SIGN_CONFIRM_POLICY"), &cfg.SignConfirmPolicy)
 	setString(os.Getenv("EMAIL_FROM"), &cfg.Email.FromEmail)
 	setString(os.Getenv("SMTP_FROM"), &cfg.Email.FromEmail)
@@ -429,6 +446,22 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 	setInt(os.Getenv("SIGN_SESSION_TTL_MINUTES"), &cfg.SignSessionTTLMinutes)
+}
+
+func validatePublicURL(fieldName, raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fmt.Errorf("%s is required in release mode", fieldName)
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%s must be an absolute URL", fieldName)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return fmt.Errorf("%s cannot point to localhost in release mode", fieldName)
+	}
+	return nil
 }
 
 func parseBoolEnvValue(value string) bool {

@@ -61,11 +61,18 @@ func (r *fakeSignSessionRepo) Update(_ context.Context, s *models.SignSession) e
 }
 func (r *fakeSignSessionRepo) IncrementAttempts(context.Context, int64) (int, error) { return 1, nil }
 
-type fakeDocService struct{}
+type fakeDocService struct {
+	finalizeCalls         int
+	finalizeArtifactCalls int
+}
 
 func (f *fakeDocService) EnsureSigningAllowed(int64, int, int) error { return nil }
-func (f *fakeDocService) FinalizeSigning(int64) error                { return nil }
+func (f *fakeDocService) FinalizeSigning(int64) error {
+	f.finalizeCalls++
+	return nil
+}
 func (f *fakeDocService) FinalizeSignedArtifact(*models.SignSession) error {
+	f.finalizeArtifactCalls++
 	return nil
 }
 
@@ -229,5 +236,31 @@ func TestConfirmMetaKeepsDocHash(t *testing.T) {
 	raw, _ := json.Marshal(meta)
 	if extractSignerEmail(raw) != "" {
 		t.Fatalf("unexpected signer email")
+	}
+}
+
+func TestSignByIDRepeatedFinalizeIsStable(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	repo := &fakeSignSessionRepo{}
+	docSvc := &fakeDocService{}
+	svc := NewSignSessionService(repo, docSvc, nil, SignSessionConfig{SessionTTL: 30 * time.Minute, ServerTZ: time.UTC}, func() time.Time { return now })
+
+	token, session, err := svc.CreateEmailSession(context.Background(), 25, "client@example.com", "doc-hash")
+	if err != nil {
+		t.Fatalf("CreateEmailSession error: %v", err)
+	}
+	if _, err := svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua"); err != nil {
+		t.Fatalf("first SignByID failed: %v", err)
+	}
+	if docSvc.finalizeCalls != 1 || docSvc.finalizeArtifactCalls != 1 {
+		t.Fatalf("unexpected finalize calls after first sign: finalize=%d artifact=%d", docSvc.finalizeCalls, docSvc.finalizeArtifactCalls)
+	}
+
+	_, err = svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua")
+	if !errors.Is(err, ErrSignSessionAlreadySigned) {
+		t.Fatalf("expected ErrSignSessionAlreadySigned, got %v", err)
+	}
+	if docSvc.finalizeCalls != 1 || docSvc.finalizeArtifactCalls != 1 {
+		t.Fatalf("finalize should not repeat: finalize=%d artifact=%d", docSvc.finalizeCalls, docSvc.finalizeArtifactCalls)
 	}
 }

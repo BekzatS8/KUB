@@ -51,7 +51,7 @@ security:
   jwt_secret: "REPLACE_WITH_STRONG_32B_PLUS_SECRET"
 
 sign_base_url: "https://kubcrm.kz/sign"
-public_base_url: "https://api.kubcrm.kz"
+public_base_url: "https://kubcrm.kz"
 sign_confirm_policy: "ANY"
 sign_email_verify_base_url: "https://kubcrm.kz"
 sign_email_token_pepper: "REPLACE_SIGN_EMAIL_TOKEN_PEPPER"

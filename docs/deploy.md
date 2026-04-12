@@ -36,6 +36,7 @@ git pull
      root_dir: "/opt/turcompany/files"
 
    sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
+   public_base_url: "https://YOUR-DOMAIN.TLD"
    sign_confirm_policy: "ANY"
    sign_email_verify_base_url: "https://YOUR-DOMAIN.TLD"
 
@@ -59,6 +60,7 @@ git pull
    cp .env.prod.example .env.prod
    nano .env.prod
    ```
+   Для signing-flow используйте также пример `docs/deploy/.env.production.example`.
 
 ## 3) Optional: Nginx certs
 If you want HTTPS with the optional nginx container, place certs in:
