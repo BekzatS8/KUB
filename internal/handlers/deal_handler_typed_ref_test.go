@@ -28,10 +28,10 @@ func (s *stubDealService) GetByID(id int, userID, roleID int) (*models.Deals, er
 	return nil, nil
 }
 func (s *stubDealService) Delete(id, userID, roleID int) error { return nil }
-func (s *stubDealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
+func (s *stubDealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	return nil, nil
 }
-func (s *stubDealService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
+func (s *stubDealService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	return nil, nil
 }
 func (s *stubDealService) UpdateStatus(id int, to string, userID, roleID int) error { return nil }

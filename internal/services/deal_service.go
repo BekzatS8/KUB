@@ -255,26 +255,30 @@ func (s *DealService) Delete(id int, userID, roleID int) error {
 }
 
 func (s *DealService) ListAll(limit, offset int) ([]*models.Deals, error) {
-	return s.Repo.ListAllWithArchiveScope(limit, offset, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, repositories.DealListFilter{}, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *DealService) ListAllWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
-	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, repositories.DealListFilter{}, scope)
 }
 
 func (s *DealService) ListMy(ownerID, limit, offset int) ([]*models.Deals, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, repositories.DealListFilter{}, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *DealService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, scope)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, repositories.DealListFilter{}, scope)
 }
 
-func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
+func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+}
+
+func (s *DealService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 }
 
 func (s *DealService) GetByLeadID(leadID int) (*models.Deals, error) {
