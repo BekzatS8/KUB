@@ -13,9 +13,13 @@ type Document struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	SignedAt     *time.Time `json:"signed_at,omitempty"`
 	// Добавляем поля для юридической значимости
-	SignMethod    string `json:"sign_method,omitempty"`     // otp, manual, e-sign
-	SignIP        string `json:"sign_ip,omitempty"`         // IP адрес подписавшего
-	SignUserAgent string `json:"sign_user_agent,omitempty"` // User-Agent браузера
-	SignMetadata  string `json:"sign_metadata,omitempty"`   // JSON с метаданными подписи
-	SignedBy      string `json:"signed_by,omitempty"`
+	SignMethod    string     `json:"sign_method,omitempty"`     // otp, manual, e-sign
+	SignIP        string     `json:"sign_ip,omitempty"`         // IP адрес подписавшего
+	SignUserAgent string     `json:"sign_user_agent,omitempty"` // User-Agent браузера
+	SignMetadata  string     `json:"sign_metadata,omitempty"`   // JSON с метаданными подписи
+	SignedBy      string     `json:"signed_by,omitempty"`
+	IsArchived    bool       `json:"is_archived"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
+	ArchivedBy    *int       `json:"archived_by,omitempty"`
+	ArchiveReason string     `json:"archive_reason,omitempty"`
 }

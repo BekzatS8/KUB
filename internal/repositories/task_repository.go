@@ -11,9 +11,12 @@ import (
 type TaskRepository interface {
 	Store(ctx context.Context, task *models.Task) error
 	FindByID(ctx context.Context, id int64) (*models.Task, error)
+	FindByIDWithArchiveScope(ctx context.Context, id int64, scope ArchiveScope) (*models.Task, error)
 	FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error)
 	Update(ctx context.Context, task *models.Task) error
 	Delete(ctx context.Context, id int64) error
+	Archive(ctx context.Context, id int64, archivedBy int64, reason string) error
+	Unarchive(ctx context.Context, id int64) error
 
 	// NEW:
 	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) error
@@ -28,6 +31,17 @@ type taskRepository struct {
 
 func NewTaskRepository(db *sql.DB) TaskRepository {
 	return &taskRepository{db: db}
+}
+
+func taskArchiveWhere(scope ArchiveScope) string {
+	switch scope {
+	case ArchiveScopeArchivedOnly:
+		return "is_archived = TRUE"
+	case ArchiveScopeAll:
+		return "1=1"
+	default:
+		return "is_archived = FALSE"
+	}
 }
 
 func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
@@ -46,14 +60,18 @@ func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
 }
 
 func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, error) {
+	return r.FindByIDWithArchiveScope(ctx, id, ArchiveScopeActiveOnly)
+}
+
+func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64, scope ArchiveScope) (*models.Task, error) {
 	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
-       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at
-       FROM tasks WHERE id = $1`
+       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
+       FROM tasks WHERE id = $1 AND ` + taskArchiveWhere(scope)
 	task := &models.Task{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&task.ID, &task.CreatorID, &task.AssigneeID, &task.EntityID, &task.EntityType,
 		&task.Title, &task.Description, &task.DueDate, &task.ReminderAt, &task.LastRemindedAt,
-		&task.Priority, &task.Status, &task.CreatedAt, &task.UpdatedAt,
+		&task.Priority, &task.Status, &task.CreatedAt, &task.UpdatedAt, &task.IsArchived, &task.ArchivedAt, &task.ArchivedBy, &task.ArchiveReason,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -66,7 +84,7 @@ func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, 
 
 func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
 	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
-       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at FROM tasks`
+       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'') FROM tasks`
 
 	conditions := []string{}
 	args := []interface{}{}
@@ -97,6 +115,14 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 		args = append(args, *filter.Status)
 		argID++
 	}
+	scope := ArchiveScopeActiveOnly
+	switch strings.ToLower(strings.TrimSpace(filter.Archive)) {
+	case "archived":
+		scope = ArchiveScopeArchivedOnly
+	case "all":
+		scope = ArchiveScopeAll
+	}
+	conditions = append(conditions, taskArchiveWhere(scope))
 
 	if len(conditions) > 0 {
 		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
@@ -115,7 +141,7 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 		if err := rows.Scan(
 			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType,
 			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
-			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt,
+			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
 			return nil, err
 		}
@@ -142,6 +168,32 @@ func (r *taskRepository) Delete(ctx context.Context, id int64) error {
 	return err
 }
 
+func (r *taskRepository) Archive(ctx context.Context, id int64, archivedBy int64, reason string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = $2,
+		    archive_reason = $3,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, id, archivedBy, reason)
+	return err
+}
+
+func (r *taskRepository) Unarchive(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET is_archived = FALSE,
+		    archived_at = NULL,
+		    archived_by = NULL,
+		    archive_reason = NULL,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	return err
+}
+
 func (r *taskRepository) UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE tasks SET status=$1, updated_at=NOW() WHERE id=$2`, to, id)
@@ -157,9 +209,10 @@ func (r *taskRepository) UpdateAssignee(ctx context.Context, id int64, assigneeI
 func (r *taskRepository) ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error) {
 	q := `
 SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
-       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at
+       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
 FROM tasks
 WHERE reminder_at IS NOT NULL
+  AND is_archived = FALSE
   AND reminder_at <= NOW()
   AND (last_reminded_at IS NULL OR last_reminded_at < reminder_at)
   AND status NOT IN ('done','cancelled')
@@ -176,7 +229,7 @@ LIMIT $1`
 		var t models.Task
 		if err := rows.Scan(
 			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
-			&t.DueDate, &t.ReminderAt, &t.LastRemindedAt, &t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt,
+			&t.DueDate, &t.ReminderAt, &t.LastRemindedAt, &t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
 			return nil, err
 		}

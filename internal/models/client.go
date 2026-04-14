@@ -60,8 +60,12 @@ type Client struct {
 	DiseasesLast3Years      string          `json:"diseases_last3_years,omitempty"`
 	AdditionalInfo          string          `json:"additional_info,omitempty"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	IsArchived    bool       `json:"is_archived"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
+	ArchivedBy    *int       `json:"archived_by,omitempty"`
+	ArchiveReason string     `json:"archive_reason,omitempty"`
 
 	IndividualProfile *ClientIndividualProfile `json:"individual_profile,omitempty"`
 	LegalProfile      *ClientLegalProfile      `json:"legal_profile,omitempty"`

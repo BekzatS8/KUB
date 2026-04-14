@@ -29,14 +29,59 @@
 - `CanArchiveBusinessEntity` — бизнес-роли, кроме read-only, плюс `system_admin`.
 - `CanHardDeleteBusinessEntity` — только `system_admin` (`role_id=50`).
 
-## Целевая модель (поэтапный переход)
+## Этап 2 (реализовано для leads/deals)
 
-- Для бизнес-сущностей (`leads`, `deals`, `clients`, `documents`, `tasks`) целевое действие удаления — **archive**, а не hard delete.
-- **Hard delete бизнес-сущностей разрешён только `role_id=50`.**
-- Бизнес-роли работают через archive-модель в рамках своих прав.
-- Archive endpoints и полный перевод handlers/services на новую модель будут подключены **на следующем этапе**.
+- Для `leads` и `deals` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
+- Старый запрет вида «system admin cannot access business entity» для `leads`/`deals` снят.
+- Для `leads`/`deals` hard delete (`DELETE /leads/:id`, `DELETE /deals/:id`) доступен только `role_id=50`.
+- Для `leads`/`deals` archive/unarchive доступны бизнес-ролям с правом изменения и `role_id=50`.
+- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
+- Добавлены явные endpoints:
+  - `POST /leads/:id/archive`
+  - `POST /leads/:id/unarchive`
+  - `POST /deals/:id/archive`
+  - `POST /deals/:id/unarchive`
+- `DELETE` не превращается в archive: не-admin получают `403 Forbidden`.
+- Для list в `leads`/`deals` добавлен query-параметр `archive`:
+  - по умолчанию `active` (только активные),
+  - `archive=archived` (только архив),
+  - `archive=all` (все записи).
 
-## Важные границы этапа
+## Этап 3 (реализовано для clients/documents)
 
-- На текущем этапе archive-модель касается только бизнес-сущностей.
-- `users` и `roles` не входят в archive-модель этого этапа.
+- Для `clients` и `documents` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
+- Старые запреты для system_admin на business entities сняты именно для `clients`/`documents`.
+- `DELETE /clients/:id` и `DELETE /documents/:id` — только hard delete для `role_id=50`.
+- Для остальных business-ролей удаление переведено на явные действия archive/unarchive:
+  - `POST /clients/:id/archive`
+  - `POST /clients/:id/unarchive`
+  - `POST /documents/:id/archive`
+  - `POST /documents/:id/unarchive`
+- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
+- Для list endpoints поддержан `archive` filter:
+  - `archive=active` (или пусто) — только активные,
+  - `archive=archived` — только архивные,
+  - `archive=all` — все.
+
+## Границы после этапа 3
+
+- `users` и `roles` по-прежнему вне archive scope.
+- `tasks` остаются на следующий этап.
+
+## Этап 4 (реализовано для tasks)
+
+- Для `tasks` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
+- Убраны прежние self-only ограничения для `role_id=50`: это ограничение остаётся только для `sales` (`role_id=10`).
+- `DELETE /tasks/:id` — только hard delete для `role_id=50`; остальным ролям возвращается `403 Forbidden`.
+- Для soft lifecycle добавлены явные endpoints:
+  - `POST /tasks/:id/archive`
+  - `POST /tasks/:id/unarchive`
+- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
+- Для list endpoint `GET /tasks` поддержан query-параметр `archive`:
+  - `archive=active` (или пусто) — только активные,
+  - `archive=archived` — только архивные,
+  - `archive=all` — все.
+
+## Границы после этапа 4
+
+- `users` и `roles` по-прежнему вне archive scope.

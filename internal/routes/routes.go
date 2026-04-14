@@ -166,6 +166,8 @@ func SetupRoutes(
 		clients.PUT("/:id", clientHandler.Update)
 		clients.PATCH("/:id", clientHandler.Patch)
 		clients.DELETE("/:id", clientHandler.Delete)
+		clients.POST("/:id/archive", clientHandler.Archive)
+		clients.POST("/:id/unarchive", clientHandler.Unarchive)
 		clients.GET("/:id/completeness", clientHandler.GetCompleteness)
 		if clientProfileHandler != nil {
 			clients.GET("/:id/profile", clientProfileHandler.GetProfile)
@@ -197,6 +199,8 @@ func SetupRoutes(
 		leads.GET("/:id", leadHandler.GetByID)
 		leads.PUT("/:id", leadHandler.Update)
 		leads.DELETE("/:id", leadHandler.Delete)
+		leads.POST("/:id/archive", leadHandler.Archive)
+		leads.POST("/:id/unarchive", leadHandler.Unarchive)
 		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
 		leads.PUT("/:id/convert-with-client", leadHandler.ConvertToDealWithClient)
 		leads.GET("", leadHandler.List)
@@ -212,6 +216,8 @@ func SetupRoutes(
 		deals.GET("/:id", dealHandler.GetByID)
 		deals.PUT("/:id", dealHandler.Update)
 		deals.DELETE("/:id", dealHandler.Delete)
+		deals.POST("/:id/archive", dealHandler.Archive)
+		deals.POST("/:id/unarchive", dealHandler.Unarchive)
 		deals.GET("", dealHandler.List)
 		deals.GET("/my", dealHandler.ListMy)
 		deals.POST("/:id/status", dealHandler.UpdateStatus)
@@ -226,6 +232,8 @@ func SetupRoutes(
 		docs.POST("/upload", documentHandler.Upload)
 		docs.GET("/:id", documentHandler.GetDocument)
 		docs.DELETE("/:id", documentHandler.DeleteDocument)
+		docs.POST("/:id/archive", documentHandler.ArchiveDocument)
+		docs.POST("/:id/unarchive", documentHandler.UnarchiveDocument)
 		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
 		docs.POST("/create-from-client", documentHandler.CreateDocumentFromClient)
 		docs.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
@@ -285,10 +293,11 @@ func SetupRoutes(
 	tasks := r.Group("/tasks",
 		middleware.RequireRoles(
 			authz.RoleSales,
+			authz.RoleBackofficeStaff,
 			authz.RoleOperations,
 			authz.RoleControl,
 			authz.RoleManagement,
-			authz.RoleAdminStaff,
+			authz.RoleSystemAdmin,
 		),
 	)
 	{
@@ -301,6 +310,8 @@ func SetupRoutes(
 		tasks.POST("/:id/assign", taskHandler.Assign)
 		tasks.POST("/:id/complete", taskHandler.Complete)
 		tasks.POST("/:id/remind-later", taskHandler.RemindLater)
+		tasks.POST("/:id/archive", taskHandler.Archive)
+		tasks.POST("/:id/unarchive", taskHandler.Unarchive)
 	}
 
 	// REPORTS

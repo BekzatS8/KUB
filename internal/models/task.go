@@ -38,6 +38,10 @@ type Task struct {
 	Status         TaskStatus   `json:"status"`
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
+	IsArchived     bool         `json:"is_archived"`
+	ArchivedAt     *time.Time   `json:"archived_at,omitempty"`
+	ArchivedBy     *int64       `json:"archived_by,omitempty"`
+	ArchiveReason  string       `json:"archive_reason,omitempty"`
 }
 
 // TaskFilter defines the available parameters for filtering tasks.
@@ -47,4 +51,5 @@ type TaskFilter struct {
 	EntityID   *int64
 	EntityType *string
 	Status     *TaskStatus
+	Archive    string
 }

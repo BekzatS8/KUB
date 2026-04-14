@@ -142,7 +142,7 @@ func CanAccessMessengerOnly(roleID int) bool {
 
 func CanAccessTasks(roleID int) bool {
 	switch roleID {
-	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleBackofficeStaff:
+	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleBackofficeStaff, RoleSystemAdmin:
 		return true
 	default:
 		return false

@@ -42,6 +42,18 @@ This step uses safe two-phase compatibility:
 - Legacy top-level response fields still returned.
 - Added nested structures: `individual_profile` and `legal_profile`.
 
+## Archive/Delete policy (stage 3)
+- Для `clients` по умолчанию list/get работают с активными (`is_archived = false`) записями.
+- Для list endpoints поддержан `archive` query filter:
+  - empty/`active` — активные,
+  - `archived` — архивные,
+  - `all` — все.
+- Явные действия:
+  - `POST /clients/:id/archive`
+  - `POST /clients/:id/unarchive`
+- `DELETE /clients/:id` выполняет только hard delete и доступен только `role_id=50`.
+- Archive клиента не удаляет профили/связанные данные физически и не ломает typed references (`client_id + client_type`).
+
 ## Deprecated
 Legacy mixed columns in `clients` remain for compatibility and will be removed in a follow-up migration after consumers fully switch.
 

@@ -11,33 +11,49 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
 type stubClientListMyService struct {
-	clients         []*models.Client
-	err             error
-	lastClientType  string
+	clients        []*models.Client
+	err            error
+	lastClientType string
 }
 
-func (s *stubClientListMyService) Create(*models.Client, int, int) (int64, error) { return 0, errors.New("not implemented") }
-func (s *stubClientListMyService) Update(*models.Client, int, int) error          { return errors.New("not implemented") }
-func (s *stubClientListMyService) Delete(int, int, int) error                      { return errors.New("not implemented") }
+func (s *stubClientListMyService) Create(*models.Client, int, int) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+func (s *stubClientListMyService) Update(*models.Client, int, int) error {
+	return errors.New("not implemented")
+}
+func (s *stubClientListMyService) Delete(int, int, int) error { return errors.New("not implemented") }
+func (s *stubClientListMyService) ArchiveClient(int, int, int, string) error {
+	return errors.New("not implemented")
+}
+func (s *stubClientListMyService) UnarchiveClient(int, int, int) error {
+	return errors.New("not implemented")
+}
 func (s *stubClientListMyService) Patch(int, map[string]any, int, int) (*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) GetByID(int, int, int) (*models.Client, error) { return nil, errors.New("not implemented") }
-func (s *stubClientListMyService) ListForRole(int, int, int, int, string) ([]*models.Client, error) {
+func (s *stubClientListMyService) GetByID(int, int, int) (*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListMine(_ int, _ int, _ int, clientType string) ([]*models.Client, error) {
+func (s *stubClientListMyService) GetByIDWithArchiveScope(int, int, int, repositories.ArchiveScope) (*models.Client, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubClientListMyService) ListForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubClientListMyService) ListMineWithArchiveScope(_ int, _ int, _ int, clientType string, _ repositories.ArchiveScope) ([]*models.Client, error) {
 	s.lastClientType = clientType
 	return s.clients, s.err
 }
-func (s *stubClientListMyService) ListIndividualsForRole(int, int, int, int, string) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListIndividualsForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListCompaniesForRole(int, int, int, int, string) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListCompaniesForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
 func (s *stubClientListMyService) GetMissingYellow(_ context.Context, _, _, _ int) ([]string, error) {

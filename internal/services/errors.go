@@ -50,6 +50,8 @@ var (
 	ErrUnsupportedClientFileExtension = errors.New("unsupported client file extension")
 	ErrClientFilePathTraversal        = errors.New("invalid client file path")
 	ErrFileRequired                   = errors.New("file is required")
+	ErrAlreadyArchived                = errors.New("entity already archived")
+	ErrNotArchived                    = errors.New("entity is not archived")
 )
 
 type DealAlreadyExistsError struct {

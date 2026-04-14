@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/repositories"
 )
 
 // более устойчиво к типам (int / int64 / float64 / string)
@@ -35,4 +37,18 @@ func getUserAndRole(c *gin.Context) (userID, roleID int) {
 		roleID = id
 	}
 	return
+}
+
+func archiveScopeFromQuery(c *gin.Context) (repositories.ArchiveScope, bool) {
+	raw := strings.ToLower(strings.TrimSpace(c.Query("archive")))
+	switch raw {
+	case "", "active":
+		return repositories.ArchiveScopeActiveOnly, true
+	case "archived":
+		return repositories.ArchiveScopeArchivedOnly, true
+	case "all":
+		return repositories.ArchiveScopeAll, true
+	default:
+		return repositories.ArchiveScopeActiveOnly, false
+	}
 }

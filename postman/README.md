@@ -120,6 +120,72 @@
 5. `Chats / Mark Read`
 6. Проверить, что бизнес write endpoint (`POST /clients` или `PATCH /clients/:id`) остаётся запрещён для control.
 
+## Archive/RBAC модель (business entities)
+
+Новая модель покрывает только business entities:
+- `leads`
+- `deals`
+- `clients`
+- `documents`
+- `tasks`
+
+Ключевые правила:
+- `users` и `roles` **не** входят в archive scope;
+- hard delete (`DELETE`) для business entities — только для `role_id=50` (`system_admin`);
+- для business ролей обычный lifecycle: `archive/unarchive` через явные endpoints;
+- list endpoints по умолчанию должны работать как `archive=active`;
+- для smoke добавлены фильтры `archive=archived` и `archive=all`.
+
+## Что добавлено в коллекцию (archive model)
+
+### Archive / Unarchive endpoints
+- Leads: `POST /leads/:id/archive`, `POST /leads/:id/unarchive`
+- Deals: `POST /deals/:id/archive`, `POST /deals/:id/unarchive`
+- Clients: `POST /clients/:id/archive`, `POST /clients/:id/unarchive`
+- Documents: `POST /documents/:id/archive`, `POST /documents/:id/unarchive`
+- Tasks: `POST /tasks/:id/archive`, `POST /tasks/:id/unarchive`
+
+### Archive list/filter smoke requests
+- Leads: `GET /leads?archive=archived|all`, `GET /leads/my?archive=archived|all`
+- Deals: `GET /deals?archive=archived|all`, `GET /deals/my?archive=archived|all`
+- Clients:
+  - `GET /clients?archive=archived|all`
+  - `GET /clients/my?archive=archived|all`
+  - `GET /clients/individual?...&archive=archived|all`
+  - `GET /clients/company?...&archive=archived|all`
+- Documents:
+  - `GET /documents?archive=archived|all`
+  - `GET /documents/deal/:dealid?archive=archived|all`
+- Tasks: `GET /tasks?archive=archived|all`
+
+## Archive smoke flow (быстрый прогон)
+
+В коллекции добавлена папка **Archive Smoke / Business Entities** с цепочками:
+- Leads: create → list active → archive → list archived → list all → unarchive → delete as admin
+- Deals: create → list active → archive → list archived → list all → unarchive → delete as admin
+- Clients: create individual → create legal → archive → list archived → unarchive → delete as admin
+- Documents: create → archive → list archived → unarchive → delete as admin
+- Tasks: create → archive → list archived → unarchive → delete as admin
+
+## Negative RBAC checks
+
+Добавлена папка **RBAC / Negative checks**:
+- non-admin DELETE для `lead/deal/client/document/task` → ожидается `403`;
+- read-only (`control`) archive для `lead/deal/client/document/task` → ожидается `403`;
+- admin (`system_admin`) DELETE для `lead/deal/client/document/task` → success path (`200/204`).
+
+## Environment переменные для archive smoke
+
+Добавлены/используются:
+- `archivedLeadId`
+- `archivedDealId`
+- `archivedClientId`
+- `archivedDocumentId`
+- `archivedTaskId`
+
+Сохранены основные рабочие переменные:
+- `leadId`, `dealId`, `individualClientId`, `legalClientId`, `documentId`, `taskId`.
+
 ## Примеры payload
 
 ### Create Sales User (verified)
