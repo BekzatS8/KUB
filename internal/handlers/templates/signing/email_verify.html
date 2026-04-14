@@ -6,42 +6,67 @@
   <title>Подписание документа</title>
   <style>
     body { font-family: Inter, Arial, sans-serif; background:#f4f6fb; margin:0; padding:24px; color:#1a1f36; }
-    .card { max-width:720px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.08); padding:24px; }
-    h1 { margin:0 0 16px; font-size:24px; }
+    .card { max-width:820px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.08); padding:24px; }
+    h1 { margin:0 0 10px; font-size:24px; }
+    h2 { margin:18px 0 8px; font-size:18px; }
     .muted { color:#6b7280; }
-    .row { margin-bottom:10px; }
+    .row { margin-bottom:8px; }
     .label { font-weight:600; display:inline-block; min-width:180px; }
     .status { margin:14px 0; padding:10px 12px; border-radius:8px; background:#eef2ff; }
     .error { background:#fef2f2; color:#991b1b; }
     .ok { background:#ecfdf3; color:#166534; }
-    input { width:100%; box-sizing:border-box; padding:11px; border:1px solid #d1d5db; border-radius:8px; margin-top:6px; }
+    .hint { margin:8px 0; padding-left:18px; }
+    .section { margin-top:18px; border-top:1px solid #eef2ff; padding-top:14px; }
+    input[type="text"] { width:100%; box-sizing:border-box; padding:11px; border:1px solid #d1d5db; border-radius:8px; margin-top:6px; }
     button { margin-top:12px; padding:11px 16px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer; }
     button[disabled] { opacity:.55; cursor:not-allowed; }
     .hidden { display:none; }
+    .previewWrap { margin-top:10px; border:1px solid #dbe3ff; border-radius:8px; background:#f8faff; min-height:240px; overflow:hidden; }
+    .previewFrame { width:100%; height:440px; border:0; background:#fff; }
+    .checkboxRow { display:flex; gap:10px; align-items:flex-start; margin-top:8px; }
+    .checkboxRow input { margin-top:3px; }
+    .checkboxRow label { line-height:1.4; }
+    .linkBtn { display:inline-block; margin-top:10px; color:#1d4ed8; text-decoration:none; font-weight:600; }
   </style>
 </head>
 <body>
 <div class="card">
   <h1>Подписание документа</h1>
-  <p class="muted">Пожалуйста, проверьте данные документа и завершите подписание.</p>
+  <p class="muted">Порядок действий: 1) проверьте документ, 2) подтвердите согласие, 3) введите код из email, 4) завершите подпись.</p>
 
   <div id="state" class="status">Загрузка данных ссылки…</div>
 
-  <div id="doc" class="hidden">
+  <div id="doc" class="hidden section">
     <div class="row"><span class="label">Документ:</span><span id="docTitle">—</span></div>
     <div class="row"><span class="label">ID документа:</span><span id="docId">—</span></div>
     <div class="row"><span class="label">Статус:</span><span id="docStatus">—</span></div>
     <div class="row"><span class="label">Ссылка действует до:</span><span id="expiresAt">—</span></div>
-    <p class="muted">Предпросмотр файла в публичном режиме недоступен. Проверьте название и ID документа перед подписанием.</p>
+    <div class="row"><span class="label">Имя файла:</span><span id="fileName">—</span></div>
+    <div class="row"><span class="label">Content-Type:</span><span id="contentType">—</span></div>
   </div>
 
-  <div id="confirmBox" class="hidden">
+  <div id="previewSection" class="hidden section">
+    <h2>Предпросмотр документа</h2>
+    <div id="previewFallback" class="muted hidden">Не удалось подготовить предпросмотр документа. Проверьте файл документа и попробуйте позже.</div>
+    <a id="previewOpenLink" class="linkBtn hidden" href="#" target="_blank" rel="noopener noreferrer">Открыть документ</a>
+    <div id="previewWrap" class="previewWrap hidden"></div>
+  </div>
+
+  <div id="agreementSection" class="hidden section">
+    <h2 id="agreementTitle">Подтверждение ознакомления</h2>
+    <div class="checkboxRow">
+      <input id="agreementCheckbox" type="checkbox" />
+      <label for="agreementCheckbox" id="agreementLabel">Я ознакомился с документом, проверил данные и согласен с его условиями.</label>
+    </div>
+  </div>
+
+  <div id="confirmBox" class="hidden section">
     <label for="code">Код подтверждения из email</label>
     <input id="code" type="text" maxlength="6" autocomplete="one-time-code" placeholder="Например, 123456" />
     <button id="confirmBtn">Подтвердить код</button>
   </div>
 
-  <div id="signBox" class="hidden">
+  <div id="signBox" class="hidden section">
     <button id="signBtn">Подписать документ</button>
   </div>
 </div>
@@ -51,6 +76,14 @@
   const initialToken = {{ printf "%q" .Token }};
   const state = document.getElementById('state');
   const docBox = document.getElementById('doc');
+  const previewSection = document.getElementById('previewSection');
+  const previewWrap = document.getElementById('previewWrap');
+  const previewFallback = document.getElementById('previewFallback');
+  const previewOpenLink = document.getElementById('previewOpenLink');
+  const agreementSection = document.getElementById('agreementSection');
+  const agreementTitle = document.getElementById('agreementTitle');
+  const agreementLabel = document.getElementById('agreementLabel');
+  const agreementCheckbox = document.getElementById('agreementCheckbox');
   const confirmBox = document.getElementById('confirmBox');
   const signBox = document.getElementById('signBox');
   const confirmBtn = document.getElementById('confirmBtn');
@@ -61,6 +94,14 @@
   let docId = 0;
   let sessionId = 0;
   let sessionToken = '';
+  let previewURL = '';
+  let documentHashPreview = '';
+  let agreement = null;
+  let fileName = '';
+  let contentType = '';
+
+  const fallbackAgreementLabel = 'Я ознакомился с документом, проверил данные и согласен с его условиями.';
+  const fallbackAgreementVersionMismatchMessage = 'Текст согласия изменился. Пожалуйста, откройте документ заново перед подписанием.';
 
   function setState(msg, type) {
     state.className = 'status' + (type ? (' ' + type) : '');
@@ -72,6 +113,70 @@
     const d = new Date(ts);
     if (Number.isNaN(d.getTime())) return ts;
     return d.toLocaleString();
+  }
+
+  function renderPreview() {
+    previewSection.classList.remove('hidden');
+    previewWrap.classList.add('hidden');
+    previewFallback.classList.add('hidden');
+    previewOpenLink.classList.add('hidden');
+    previewWrap.innerHTML = '';
+
+    if (!previewURL) {
+      previewFallback.classList.remove('hidden');
+      return;
+    }
+
+    previewOpenLink.href = previewURL;
+    previewOpenLink.classList.remove('hidden');
+
+    const normalizedType = (contentType || '').toLowerCase();
+    if (normalizedType.includes('pdf')) {
+      const iframe = document.createElement('iframe');
+      iframe.className = 'previewFrame';
+      iframe.src = previewURL;
+      iframe.title = 'Предпросмотр документа';
+      previewWrap.appendChild(iframe);
+      previewWrap.classList.remove('hidden');
+      return;
+    }
+
+    previewFallback.textContent = 'Предпросмотр встраивается только для PDF. Откройте документ по ссылке выше.';
+    previewFallback.classList.remove('hidden');
+  }
+
+  function renderAgreement() {
+    agreementSection.classList.remove('hidden');
+    agreementTitle.textContent = agreement?.title || 'Подтверждение ознакомления';
+    agreementLabel.textContent = agreement?.checkbox_label || fallbackAgreementLabel;
+    confirmBtn.textContent = agreement?.confirm_button_label || 'Подтвердить код';
+  }
+
+  function mapConfirmError(payload) {
+    const codeResp = payload.code || payload.error || '';
+    const message = payload.message || '';
+
+    if (codeResp === 'INVALID_CODE') return 'Неверный код подтверждения.';
+    if (codeResp === 'EXPIRED') return 'Срок действия ссылки истек.';
+    if (codeResp === 'ALREADY_USED') return 'Ссылка уже использована.';
+
+    if (message.includes('Agreement text version mismatch')) {
+      return agreement?.version_mismatch_message || fallbackAgreementVersionMismatchMessage;
+    }
+    if (message.includes('Document version mismatch')) {
+      return 'Документ изменился после открытия. Пожалуйста, откройте его заново перед подписанием.';
+    }
+    if (message.includes('Document hash is required')) {
+      return 'Не удалось проверить версию документа. Откройте документ заново.';
+    }
+    if (message.includes('Agreement text version is required')) {
+      return 'Не удалось загрузить условия подтверждения. Обновите страницу.';
+    }
+    if (message.includes('Document review and agreement are required')) {
+      return 'Подтвердите, что вы ознакомились с документом и согласны с его условиями.';
+    }
+
+    return message || 'Не удалось подтвердить код. Попробуйте еще раз.';
   }
 
   async function verify() {
@@ -95,13 +200,26 @@
         setState('Ссылка недействительна.', 'error');
         return;
       }
+
       docId = payload.document?.id || 0;
+      previewURL = payload.document?.preview_url || '';
+      documentHashPreview = payload.document?.document_hash_preview || '';
+      agreement = payload.agreement || null;
+      fileName = payload.document?.file_name || '';
+      contentType = payload.document?.content_type || '';
+
       document.getElementById('docTitle').textContent = payload.document?.title || '—';
       document.getElementById('docId').textContent = String(payload.document?.id || '—');
       document.getElementById('docStatus').textContent = payload.document?.status || '—';
       document.getElementById('expiresAt').textContent = toLocal(payload.confirmation?.expires_at);
+      document.getElementById('fileName').textContent = fileName || '—';
+      document.getElementById('contentType').textContent = contentType || '—';
+
       docBox.classList.remove('hidden');
-      setState('Ссылка валидна. Подтвердите код из письма и подпишите документ.', 'ok');
+      renderPreview();
+      renderAgreement();
+
+      setState('Ссылка валидна. Проверьте документ, подтвердите согласие и введите код из письма.', 'ok');
       if (payload.require_post_confirm !== false) {
         confirmBox.classList.remove('hidden');
       } else {
@@ -114,8 +232,12 @@
 
   confirmBtn.addEventListener('click', async () => {
     const code = (codeInput.value || '').trim();
+    const isAgreed = !!agreementCheckbox.checked;
     if (!docId) return setState('Документ не определен.', 'error');
     if (!code) return setState('Введите код подтверждения.', 'error');
+    if (!isAgreed) return setState('Подтвердите, что вы ознакомились с документом и согласны с его условиями.', 'error');
+    if (!documentHashPreview) return setState('Не удалось проверить версию документа. Откройте документ заново.', 'error');
+    if (!(agreement?.version || '')) return setState('Не удалось загрузить условия подтверждения. Обновите страницу.', 'error');
 
     confirmBtn.disabled = true;
     setState('Проверяем код…');
@@ -123,15 +245,18 @@
       const res = await fetch(`/documents/${docId}/sign/confirm/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ token, code })
+        body: JSON.stringify({
+          token,
+          code,
+          agree_terms: isAgreed,
+          confirm_document_read: isAgreed,
+          agreement_text_version: agreement?.version || '',
+          document_hash_from_client: documentHashPreview
+        })
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const codeResp = payload.code || payload.error || 'UNKNOWN';
-        if (codeResp === 'INVALID_CODE') setState('Неверный код подтверждения.', 'error');
-        else if (codeResp === 'EXPIRED') setState('Срок действия ссылки истек.', 'error');
-        else if (codeResp === 'ALREADY_USED') setState('Ссылка уже использована.', 'error');
-        else setState('Не удалось подтвердить код. Попробуйте еще раз.', 'error');
+        setState(mapConfirmError(payload), 'error');
         return;
       }
       sessionId = payload.session_id;

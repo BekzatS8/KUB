@@ -22,7 +22,7 @@
 - `CanManageSystem` — только `system_admin`.
 - `CanAssignRoles` — только `system_admin`.
 - `CanAccessLogs` — только `system_admin`.
-- `CanManageIntegrations` — только `system_admin`.
+- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `backoffice_admin_staff`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
 - `CanViewLeadershipData` — `leadership`, `system_admin`.
 - `CanViewAllBusinessData` — `leadership`, `control`, `operations` (legacy-поведение сохранено).
 - `CanAccessAllBusinessDataIncludingAdmin` — `leadership`, `control`, `operations`, `system_admin`.

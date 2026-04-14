@@ -20,6 +20,23 @@ func TestSystemAdminCanManageSystem(t *testing.T) {
 	}
 }
 
+func TestCanManageIntegrationsForAllKnownRoles(t *testing.T) {
+	allowed := []int{
+		RoleSales,
+		RoleBackofficeStaff,
+		RoleOperations,
+		RoleControl,
+		RoleManagement,
+		RoleSystemAdmin,
+	}
+
+	for _, roleID := range allowed {
+		if !CanManageIntegrations(roleID) {
+			t.Fatalf("role %d must be allowed to manage integrations", roleID)
+		}
+	}
+}
+
 func TestControlRestrictions(t *testing.T) {
 	if !CanViewAllBusinessData(RoleControl) {
 		t.Fatalf("control must view broad business data")
@@ -105,7 +122,7 @@ func TestNegativeUnknownRole(t *testing.T) {
 	if IsKnownRole(unknown) {
 		t.Fatalf("unknown role should not be known")
 	}
-	if CanManageSystem(unknown) || CanViewAllBusinessData(unknown) || CanProcessDocuments(unknown) || CanWorkWithLeads(unknown) || CanArchiveBusinessEntity(unknown) || CanHardDeleteBusinessEntity(unknown) {
+	if CanManageSystem(unknown) || CanManageIntegrations(unknown) || CanViewAllBusinessData(unknown) || CanProcessDocuments(unknown) || CanWorkWithLeads(unknown) || CanArchiveBusinessEntity(unknown) || CanHardDeleteBusinessEntity(unknown) {
 		t.Fatalf("unknown role must have no permissions")
 	}
 }

@@ -14,8 +14,8 @@ This project includes a built-in public HTML signing UI served by backend.
 
 1. User gets email with signing link.
 2. User opens `/sign/email/verify?token=...`.
-3. Embedded UI calls `/api/v1/sign/email/verify?...&format=json`.
-4. User enters OTP code and submits to `/documents/:id/sign/confirm/email`.
+3. Embedded UI calls `/api/v1/sign/email/verify?...&format=json`, renders preview block (`preview_url`) and agreement block from backend payload.
+4. User checks document + agreement checkbox, enters OTP code and submits full confirm payload (`token`, `code`, `agree_terms`, `confirm_document_read`, `agreement_text_version`, `document_hash_from_client`) to `/documents/:id/sign/confirm/email`.
 5. UI receives `session_id` + `session_token` and calls `/api/v1/sign/sessions/id/:id/sign`.
 6. UI shows success state after final sign.
 

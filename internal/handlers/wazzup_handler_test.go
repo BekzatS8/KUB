@@ -60,7 +60,7 @@ func TestWazzupSetupAllowsEmptyWebhookBaseURL(t *testing.T) {
 	}
 }
 
-func TestWazzupSetupForbiddenForLeadership(t *testing.T) {
+func TestWazzupSetupAllowedForLeadership(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubWazzupService{}
 	h := NewWazzupHandler(svc)
@@ -77,15 +77,15 @@ func TestWazzupSetupForbiddenForLeadership(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
 	}
-	if svc.called {
-		t.Fatal("service setup must not be called for leadership role")
+	if !svc.called {
+		t.Fatal("expected service setup call for leadership role")
 	}
 }
 
-func TestWazzupSetupForbiddenForOrdinaryRole(t *testing.T) {
+func TestWazzupSetupAllowedForSalesRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubWazzupService{}
 	h := NewWazzupHandler(svc)
@@ -102,11 +102,36 @@ func TestWazzupSetupForbiddenForOrdinaryRole(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !svc.called {
+		t.Fatal("expected service setup call for sales role")
+	}
+}
+
+func TestWazzupSetupForbiddenForUnknownRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubWazzupService{}
+	h := NewWazzupHandler(svc)
+
+	r := gin.New()
+	r.POST("/setup", func(c *gin.Context) {
+		c.Set("user_id", 1)
+		c.Set("role_id", 999) // unknown
+		h.Setup(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
 	}
 	if svc.called {
-		t.Fatal("service setup must not be called for ordinary role")
+		t.Fatal("service setup must not be called for unknown role")
 	}
 }
 
