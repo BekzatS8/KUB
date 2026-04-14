@@ -13,6 +13,11 @@ type DealRepository struct {
 	db *sql.DB
 }
 
+type DealListFilter struct {
+	ClientID   int
+	ClientType string
+}
+
 func NewDealRepository(db *sql.DB) *DealRepository {
 	return &DealRepository{db: db}
 }
@@ -363,20 +368,35 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 }
 
 func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
-	return r.ListAllWithArchiveScope(limit, offset, ArchiveScopeActiveOnly)
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, DealListFilter{}, ArchiveScopeActiveOnly)
 }
 
 func (r *DealRepository) ListAllWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Deals, error) {
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, DealListFilter{}, scope)
+}
+
+func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
 		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE %s
+		WHERE %s%s
 		ORDER BY d.created_at DESC
-		LIMIT $1 OFFSET $2
+		LIMIT $%d OFFSET $%d
 	`
 
-	rows, err := r.db.Query(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), limit, offset)
+	extraWhere, args := buildDealClientFilterWhere(filter, 1)
+	args = append(args, limit, offset)
+	rows, err := r.db.Query(
+		fmt.Sprintf(
+			query,
+			dealArchiveWhere(scope, "d"),
+			extraWhere,
+			len(args)-1,
+			len(args),
+		),
+		args...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка запроса: %w", err)
 	}
@@ -431,20 +451,36 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 
 // Только сделки конкретного владельца
 func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deals, error) {
-	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, ArchiveScopeActiveOnly)
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, DealListFilter{}, ArchiveScopeActiveOnly)
 }
 
 func (r *DealRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, scope ArchiveScope) ([]*models.Deals, error) {
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, DealListFilter{}, scope)
+}
+
+func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
 		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.owner_id = $1 AND %s
+		WHERE d.owner_id = $1 AND %s%s
 		ORDER BY d.created_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT $%d OFFSET $%d
 	`
 
-	rows, err := r.db.Query(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), ownerID, limit, offset)
+	extraWhere, args := buildDealClientFilterWhere(filter, 2)
+	args = append([]interface{}{ownerID}, args...)
+	args = append(args, limit, offset)
+	rows, err := r.db.Query(
+		fmt.Sprintf(
+			query,
+			dealArchiveWhere(scope, "d"),
+			extraWhere,
+			len(args)-1,
+			len(args),
+		),
+		args...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +527,24 @@ func (r *DealRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 		deals = append(deals, &d)
 	}
 	return deals, nil
+}
+
+func buildDealClientFilterWhere(filter DealListFilter, startAt int) (string, []interface{}) {
+	where := ""
+	args := make([]interface{}, 0, 2)
+	idx := startAt
+
+	if filter.ClientID > 0 {
+		where += fmt.Sprintf(" AND d.client_id = $%d", idx)
+		args = append(args, filter.ClientID)
+		idx++
+	}
+	if filter.ClientType != "" {
+		where += fmt.Sprintf(" AND c.client_type = $%d", idx)
+		args = append(args, filter.ClientType)
+	}
+
+	return where, args
 }
 
 func (r *DealRepository) UpdateStatus(id int, status string) error {

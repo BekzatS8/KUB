@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,8 +26,8 @@ type dealService interface {
 	Update(deal *models.Deals, userID, roleID int) error
 	GetByID(id int, userID, roleID int) (*models.Deals, error)
 	Delete(id, userID, roleID int) error
-	ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error)
-	ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error)
+	ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error)
+	ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error)
 	UpdateStatus(id int, to string, userID, roleID int) error
 	ArchiveDeal(id, userID, roleID int, reason string) error
 	UnarchiveDeal(id, userID, roleID int) error
@@ -398,8 +399,13 @@ func (h *DealHandler) List(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
+	filter, ok := dealListFilterFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid client_id")
+		return
+	}
 
-	deals, err := h.Service.ListForRole(userID, roleID, size, offset, scope)
+	deals, err := h.Service.ListForRole(userID, roleID, size, offset, scope, filter)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -430,8 +436,13 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
+	filter, ok := dealListFilterFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid client_id")
+		return
+	}
 
-	deals, err := h.Service.ListMyWithArchiveScope(userID, size, offset, scope)
+	deals, err := h.Service.ListMyWithFilterAndArchiveScope(userID, size, offset, scope, filter)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -441,4 +452,18 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, deals)
+}
+
+func dealListFilterFromQuery(c *gin.Context) (repositories.DealListFilter, bool) {
+	filter := repositories.DealListFilter{}
+	clientIDRaw := strings.TrimSpace(c.Query("client_id"))
+	if clientIDRaw != "" {
+		clientID, err := strconv.Atoi(clientIDRaw)
+		if err != nil || clientID <= 0 {
+			return repositories.DealListFilter{}, false
+		}
+		filter.ClientID = clientID
+	}
+	filter.ClientType = strings.ToLower(strings.TrimSpace(c.Query("client_type")))
+	return filter, true
 }

@@ -63,18 +63,22 @@ func (s *leadHandlerStubService) ConvertLeadToDealWithClientData(leadID int, amo
 
 type dealHandlerStubService struct {
 	stubDealService
-	listScope   repositories.ArchiveScope
-	listMyScope repositories.ArchiveScope
-	archived    bool
-	deleteErr   error
+	listScope    repositories.ArchiveScope
+	listMyScope  repositories.ArchiveScope
+	listFilter   repositories.DealListFilter
+	listMyFilter repositories.DealListFilter
+	archived     bool
+	deleteErr    error
 }
 
-func (s *dealHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
+func (s *dealHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	s.listScope = scope
+	s.listFilter = filter
 	return []*models.Deals{}, nil
 }
-func (s *dealHandlerStubService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
+func (s *dealHandlerStubService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	s.listMyScope = scope
+	s.listMyFilter = filter
 	return []*models.Deals{}, nil
 }
 func (s *dealHandlerStubService) Delete(id, userID, roleID int) error { return s.deleteErr }
@@ -178,5 +182,73 @@ func TestDealArchive_SystemAdminAllowed(t *testing.T) {
 	h.Archive(c)
 	if w.Code != http.StatusOK || !s.archived {
 		t.Fatalf("expected 200 archived=true got code=%d archived=%v", w.Code, s.archived)
+	}
+}
+
+func TestDealList_AppliesClientFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals?client_id=42&client_type=individual", "", authz.RoleManagement)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals?client_id=42&client_type=individual", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleManagement)
+	h.List(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listFilter.ClientID != 42 || s.listFilter.ClientType != "individual" {
+		t.Fatalf("expected filter {42 individual}, got %+v", s.listFilter)
+	}
+}
+
+func TestDealListMy_AppliesClientIDWithoutType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals/my?client_id=42", "", authz.RoleSales)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals/my?client_id=42", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleSales)
+	h.ListMy(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listMyFilter.ClientID != 42 || s.listMyFilter.ClientType != "" {
+		t.Fatalf("expected filter {42 \"\"}, got %+v", s.listMyFilter)
+	}
+}
+
+func TestDealListMy_ArchiveAndClientFiltersWorkTogether(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals/my?archive=archived&client_id=42&client_type=individual", "", authz.RoleSales)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals/my?archive=archived&client_id=42&client_type=individual", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleSales)
+	h.ListMy(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listMyScope != repositories.ArchiveScopeArchivedOnly {
+		t.Fatalf("expected archived scope, got %s", s.listMyScope)
+	}
+	if s.listMyFilter.ClientID != 42 || s.listMyFilter.ClientType != "individual" {
+		t.Fatalf("expected filter {42 individual}, got %+v", s.listMyFilter)
+	}
+}
+
+func TestDealList_InvalidClientID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals?client_id=abc", "", authz.RoleManagement)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals?client_id=abc", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleManagement)
+	h.List(c)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }
