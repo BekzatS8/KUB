@@ -56,12 +56,56 @@ func TestBackwardCompatibilityForRole50(t *testing.T) {
 	}
 }
 
+func TestRole50StaysSystemRole(t *testing.T) {
+	meta, ok := Roles[RoleSystemAdmin]
+	if !ok {
+		t.Fatalf("role_id=50 must exist in role metadata")
+	}
+	if !meta.IsSystemRole {
+		t.Fatalf("role_id=50 must stay marked as system role")
+	}
+	if meta.IsBusinessRole {
+		t.Fatalf("role_id=50 must not be reclassified as business role")
+	}
+}
+
+func TestRole50CanAccessAllBusinessDataViaNewHelper(t *testing.T) {
+	if !CanAccessAllBusinessDataIncludingAdmin(RoleSystemAdmin) {
+		t.Fatalf("role_id=50 must have full business access via new helper")
+	}
+}
+
+func TestHardDeleteBusinessEntitiesOnlyForRole50(t *testing.T) {
+	allowed := []int{RoleSystemAdmin}
+	for _, roleID := range allowed {
+		if !CanHardDeleteBusinessEntity(roleID) {
+			t.Fatalf("role %d must be allowed for hard delete", roleID)
+		}
+	}
+
+	denied := []int{RoleSales, RoleBackofficeStaff, RoleOperations, RoleControl, RoleManagement}
+	for _, roleID := range denied {
+		if CanHardDeleteBusinessEntity(roleID) {
+			t.Fatalf("role %d must not be allowed for hard delete", roleID)
+		}
+	}
+}
+
+func TestReadOnlyRoleCannotArchiveOrHardDelete(t *testing.T) {
+	if CanArchiveBusinessEntity(RoleControl) {
+		t.Fatalf("read-only role must not archive business entities")
+	}
+	if CanHardDeleteBusinessEntity(RoleControl) {
+		t.Fatalf("read-only role must not hard delete business entities")
+	}
+}
+
 func TestNegativeUnknownRole(t *testing.T) {
 	unknown := 999
 	if IsKnownRole(unknown) {
 		t.Fatalf("unknown role should not be known")
 	}
-	if CanManageSystem(unknown) || CanViewAllBusinessData(unknown) || CanProcessDocuments(unknown) || CanWorkWithLeads(unknown) {
+	if CanManageSystem(unknown) || CanViewAllBusinessData(unknown) || CanProcessDocuments(unknown) || CanWorkWithLeads(unknown) || CanArchiveBusinessEntity(unknown) || CanHardDeleteBusinessEntity(unknown) {
 		t.Fatalf("unknown role must have no permissions")
 	}
 }

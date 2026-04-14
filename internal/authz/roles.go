@@ -102,6 +102,27 @@ func CanViewAllBusinessData(roleID int) bool {
 	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleOperations
 }
 
+func CanHardDeleteBusinessEntity(roleID int) bool {
+	return roleID == RoleSystemAdmin
+}
+
+func CanArchiveBusinessEntity(roleID int) bool {
+	if roleID == RoleSystemAdmin {
+		return true
+	}
+
+	role, ok := Roles[roleID]
+	if !ok {
+		return false
+	}
+
+	return role.IsBusinessRole && !role.ReadOnly
+}
+
+func CanAccessAllBusinessDataIncludingAdmin(roleID int) bool {
+	return CanViewAllBusinessData(roleID) || roleID == RoleSystemAdmin
+}
+
 func CanProcessDocuments(roleID int) bool {
 	return roleID == RoleOperations || roleID == RoleManagement
 }
