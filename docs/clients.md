@@ -41,6 +41,15 @@ This step uses safe two-phase compatibility:
 - Existing endpoints kept: `/clients`, `/clients/:id`, `/clients/individual`, `/clients/company`.
 - Legacy top-level response fields still returned.
 - Added nested structures: `individual_profile` and `legal_profile`.
+- Для individual clients добавлены optional questionnaire fields (и в flat compatibility, и в `individual_profile`):
+  - `specialty`
+  - `trusted_person_phone`
+  - `driver_license_number`
+  - `education_institution_name`
+  - `education_institution_address`
+  - `position`
+  - `visas_received`
+  - `visa_refusals`
 
 ## Archive/Delete policy (stage 3)
 - Для `clients` по умолчанию list/get работают с активными (`is_archived = false`) записями.

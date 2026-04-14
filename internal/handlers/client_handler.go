@@ -68,23 +68,31 @@ type createClientRequest struct {
 	PassportIssueDate  string `json:"passport_issue_date"`
 	PassportExpireDate string `json:"passport_expire_date"`
 
-	PreviousLastName        string          `json:"previous_last_name"`
-	SpouseName              string          `json:"spouse_name"`
-	SpouseContacts          string          `json:"spouse_contacts"`
-	HasChildren             *bool           `json:"has_children"`
-	ChildrenList            json.RawMessage `json:"children_list"`
-	Education               string          `json:"education"`
-	Job                     string          `json:"job"`
-	TripsLast5Years         string          `json:"trips_last5_years"`
-	RelativesInDestination  string          `json:"relatives_in_destination"`
-	TrustedPerson           string          `json:"trusted_person"`
-	Height                  *int16          `json:"height"`
-	Weight                  *int16          `json:"weight"`
-	DriverLicenseCategories json.RawMessage `json:"driver_license_categories"`
-	TherapistName           string          `json:"therapist_name"`
-	ClinicName              string          `json:"clinic_name"`
-	DiseasesLast3Years      string          `json:"diseases_last3_years"`
-	AdditionalInfo          string          `json:"additional_info"`
+	PreviousLastName            string          `json:"previous_last_name"`
+	SpouseName                  string          `json:"spouse_name"`
+	SpouseContacts              string          `json:"spouse_contacts"`
+	HasChildren                 *bool           `json:"has_children"`
+	ChildrenList                json.RawMessage `json:"children_list"`
+	Education                   string          `json:"education"`
+	Job                         string          `json:"job"`
+	TripsLast5Years             string          `json:"trips_last5_years"`
+	RelativesInDestination      string          `json:"relatives_in_destination"`
+	TrustedPerson               string          `json:"trusted_person"`
+	Specialty                   string          `json:"specialty"`
+	TrustedPersonPhone          string          `json:"trusted_person_phone"`
+	DriverLicenseNumber         string          `json:"driver_license_number"`
+	EducationInstitutionName    string          `json:"education_institution_name"`
+	EducationInstitutionAddress string          `json:"education_institution_address"`
+	Position                    string          `json:"position"`
+	VisasReceived               string          `json:"visas_received"`
+	VisaRefusals                string          `json:"visa_refusals"`
+	Height                      *int16          `json:"height"`
+	Weight                      *int16          `json:"weight"`
+	DriverLicenseCategories     json.RawMessage `json:"driver_license_categories"`
+	TherapistName               string          `json:"therapist_name"`
+	ClinicName                  string          `json:"clinic_name"`
+	DiseasesLast3Years          string          `json:"diseases_last3_years"`
+	AdditionalInfo              string          `json:"additional_info"`
 
 	ContactInfo       string                          `json:"contact_info"`
 	ClientType        string                          `json:"client_type"`
@@ -120,23 +128,31 @@ type updateClientRequest struct {
 	PassportIssueDate  string `json:"passport_issue_date"`
 	PassportExpireDate string `json:"passport_expire_date"`
 
-	PreviousLastName        *string          `json:"previous_last_name"`
-	SpouseName              *string          `json:"spouse_name"`
-	SpouseContacts          *string          `json:"spouse_contacts"`
-	HasChildren             *bool            `json:"has_children"`
-	ChildrenList            *json.RawMessage `json:"children_list"`
-	Education               *string          `json:"education"`
-	Job                     *string          `json:"job"`
-	TripsLast5Years         *string          `json:"trips_last5_years"`
-	RelativesInDestination  *string          `json:"relatives_in_destination"`
-	TrustedPerson           *string          `json:"trusted_person"`
-	Height                  *int16           `json:"height"`
-	Weight                  *int16           `json:"weight"`
-	DriverLicenseCategories *json.RawMessage `json:"driver_license_categories"`
-	TherapistName           *string          `json:"therapist_name"`
-	ClinicName              *string          `json:"clinic_name"`
-	DiseasesLast3Years      *string          `json:"diseases_last3_years"`
-	AdditionalInfo          *string          `json:"additional_info"`
+	PreviousLastName            *string          `json:"previous_last_name"`
+	SpouseName                  *string          `json:"spouse_name"`
+	SpouseContacts              *string          `json:"spouse_contacts"`
+	HasChildren                 *bool            `json:"has_children"`
+	ChildrenList                *json.RawMessage `json:"children_list"`
+	Education                   *string          `json:"education"`
+	Job                         *string          `json:"job"`
+	TripsLast5Years             *string          `json:"trips_last5_years"`
+	RelativesInDestination      *string          `json:"relatives_in_destination"`
+	TrustedPerson               *string          `json:"trusted_person"`
+	Specialty                   *string          `json:"specialty"`
+	TrustedPersonPhone          *string          `json:"trusted_person_phone"`
+	DriverLicenseNumber         *string          `json:"driver_license_number"`
+	EducationInstitutionName    *string          `json:"education_institution_name"`
+	EducationInstitutionAddress *string          `json:"education_institution_address"`
+	Position                    *string          `json:"position"`
+	VisasReceived               *string          `json:"visas_received"`
+	VisaRefusals                *string          `json:"visa_refusals"`
+	Height                      *int16           `json:"height"`
+	Weight                      *int16           `json:"weight"`
+	DriverLicenseCategories     *json.RawMessage `json:"driver_license_categories"`
+	TherapistName               *string          `json:"therapist_name"`
+	ClinicName                  *string          `json:"clinic_name"`
+	DiseasesLast3Years          *string          `json:"diseases_last3_years"`
+	AdditionalInfo              *string          `json:"additional_info"`
 
 	ContactInfo       string                          `json:"contact_info"`
 	ClientType        *string                         `json:"client_type"`
@@ -162,17 +178,25 @@ type patchClientRequest struct {
 	RegistrationAddress *string `json:"registration_address"`
 	ActualAddress       *string `json:"actual_address"`
 
-	Country            *string `json:"country"`
-	TripPurpose        *string `json:"trip_purpose"`
-	BirthDate          *string `json:"birth_date"`
-	BirthPlace         *string `json:"birth_place"`
-	Citizenship        *string `json:"citizenship"`
-	Sex                *string `json:"sex"`
-	MaritalStatus      *string `json:"marital_status"`
-	PassportIssueDate  *string `json:"passport_issue_date"`
-	PassportExpireDate *string `json:"passport_expire_date"`
-	ContactInfo        *string `json:"contact_info"`
-	ClientType         *string `json:"client_type"`
+	Country                     *string `json:"country"`
+	TripPurpose                 *string `json:"trip_purpose"`
+	BirthDate                   *string `json:"birth_date"`
+	BirthPlace                  *string `json:"birth_place"`
+	Citizenship                 *string `json:"citizenship"`
+	Sex                         *string `json:"sex"`
+	MaritalStatus               *string `json:"marital_status"`
+	Specialty                   *string `json:"specialty"`
+	TrustedPersonPhone          *string `json:"trusted_person_phone"`
+	DriverLicenseNumber         *string `json:"driver_license_number"`
+	EducationInstitutionName    *string `json:"education_institution_name"`
+	EducationInstitutionAddress *string `json:"education_institution_address"`
+	Position                    *string `json:"position"`
+	VisasReceived               *string `json:"visas_received"`
+	VisaRefusals                *string `json:"visa_refusals"`
+	PassportIssueDate           *string `json:"passport_issue_date"`
+	PassportExpireDate          *string `json:"passport_expire_date"`
+	ContactInfo                 *string `json:"contact_info"`
+	ClientType                  *string `json:"client_type"`
 }
 
 func NewClientHandler(service *services.ClientService) *ClientHandler {
@@ -254,7 +278,7 @@ func collectMissingRedFields(req createClientRequest) []string {
 }
 
 func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client {
-	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
 	client.IndividualProfile = req.IndividualProfile
 	client.LegalProfile = req.LegalProfile
 	return client
@@ -426,6 +450,30 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	}
 	if req.TrustedPerson != nil {
 		current.TrustedPerson = *req.TrustedPerson
+	}
+	if req.Specialty != nil {
+		current.Specialty = *req.Specialty
+	}
+	if req.TrustedPersonPhone != nil {
+		current.TrustedPersonPhone = *req.TrustedPersonPhone
+	}
+	if req.DriverLicenseNumber != nil {
+		current.DriverLicenseNumber = *req.DriverLicenseNumber
+	}
+	if req.EducationInstitutionName != nil {
+		current.EducationInstitutionName = *req.EducationInstitutionName
+	}
+	if req.EducationInstitutionAddress != nil {
+		current.EducationInstitutionAddress = *req.EducationInstitutionAddress
+	}
+	if req.Position != nil {
+		current.Position = *req.Position
+	}
+	if req.VisasReceived != nil {
+		current.VisasReceived = *req.VisasReceived
+	}
+	if req.VisaRefusals != nil {
+		current.VisaRefusals = *req.VisaRefusals
 	}
 	if req.Height != nil {
 		v := *req.Height
@@ -640,6 +688,14 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 	addS("citizenship", req.Citizenship)
 	addS("sex", req.Sex)
 	addS("marital_status", req.MaritalStatus)
+	addS("specialty", req.Specialty)
+	addS("trusted_person_phone", req.TrustedPersonPhone)
+	addS("driver_license_number", req.DriverLicenseNumber)
+	addS("education_institution_name", req.EducationInstitutionName)
+	addS("education_institution_address", req.EducationInstitutionAddress)
+	addS("position", req.Position)
+	addS("visas_received", req.VisasReceived)
+	addS("visa_refusals", req.VisaRefusals)
 	addS("contact_info", req.ContactInfo)
 	addS("client_type", req.ClientType)
 

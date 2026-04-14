@@ -2,6 +2,7 @@ package services
 
 import (
 	"testing"
+	"time"
 
 	"turcompany/internal/models"
 )
@@ -40,4 +41,44 @@ func TestNormalizeAndValidateLegalUsesNestedProfileAsSource(t *testing.T) {
 	if c.Phone != "77001112233" {
 		t.Fatalf("phone not normalized from nested profile, got %q", c.Phone)
 	}
+}
+
+func TestNormalizeAndValidateIndividualUsesNestedProfileForNewFields(t *testing.T) {
+	svc := &ClientService{}
+	c := &models.Client{
+		ClientType:  models.ClientTypeIndividual,
+		LastName:    "Doe",
+		FirstName:   "John",
+		Phone:       "77001112233",
+		Country:     "KZ",
+		TripPurpose: "tour",
+		BirthDate:   ptrTimeForClientProfileTest(),
+		IndividualProfile: &models.ClientIndividualProfile{
+			Specialty:                   "  Engineer ",
+			TrustedPersonPhone:          "+7 701 000 11 22",
+			DriverLicenseNumber:         " DL-77 ",
+			EducationInstitutionName:    "  KBTU ",
+			EducationInstitutionAddress: "  Almaty ",
+			Position:                    " Lead ",
+			VisasReceived:               " US ",
+			VisaRefusals:                " none ",
+		},
+	}
+	if err := svc.normalizeAndValidate(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Specialty != "Engineer" || c.Position != "Lead" {
+		t.Fatalf("expected nested profile values promoted, got specialty=%q position=%q", c.Specialty, c.Position)
+	}
+	if c.TrustedPersonPhone != "77010001122" {
+		t.Fatalf("expected phone normalized from nested profile, got %q", c.TrustedPersonPhone)
+	}
+	if c.VisaRefusals != "none" {
+		t.Fatalf("expected trimmed visa_refusals, got %q", c.VisaRefusals)
+	}
+}
+
+func ptrTimeForClientProfileTest() *time.Time {
+	v := time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC)
+	return &v
 }
