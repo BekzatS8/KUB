@@ -74,6 +74,7 @@ type createClientRequest struct {
 	HasChildren                 *bool           `json:"has_children"`
 	ChildrenList                json.RawMessage `json:"children_list"`
 	Education                   string          `json:"education"`
+	EducationLevel              string          `json:"education_level"`
 	Job                         string          `json:"job"`
 	TripsLast5Years             string          `json:"trips_last5_years"`
 	RelativesInDestination      string          `json:"relatives_in_destination"`
@@ -134,6 +135,7 @@ type updateClientRequest struct {
 	HasChildren                 *bool            `json:"has_children"`
 	ChildrenList                *json.RawMessage `json:"children_list"`
 	Education                   *string          `json:"education"`
+	EducationLevel              *string          `json:"education_level"`
 	Job                         *string          `json:"job"`
 	TripsLast5Years             *string          `json:"trips_last5_years"`
 	RelativesInDestination      *string          `json:"relatives_in_destination"`
@@ -179,6 +181,7 @@ type patchClientRequest struct {
 	ActualAddress       *string `json:"actual_address"`
 
 	Country                     *string `json:"country"`
+	EducationLevel              *string `json:"education_level"`
 	TripPurpose                 *string `json:"trip_purpose"`
 	BirthDate                   *string `json:"birth_date"`
 	BirthPlace                  *string `json:"birth_place"`
@@ -278,7 +281,7 @@ func collectMissingRedFields(req createClientRequest) []string {
 }
 
 func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client {
-	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, EducationLevel: req.EducationLevel, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
 	client.IndividualProfile = req.IndividualProfile
 	client.LegalProfile = req.LegalProfile
 	return client
@@ -355,6 +358,10 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
 			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEducationLevel) {
+			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
 			return
 		}
 		badRequest(c, "Failed to create client")
@@ -438,6 +445,9 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	}
 	if req.Education != nil {
 		current.Education = *req.Education
+	}
+	if req.EducationLevel != nil {
+		current.EducationLevel = *req.EducationLevel
 	}
 	if req.Job != nil {
 		current.Job = *req.Job
@@ -539,6 +549,10 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
 			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEducationLevel) {
+			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {
@@ -683,6 +697,7 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 	addS("registration_address", req.RegistrationAddress)
 	addS("actual_address", req.ActualAddress)
 	addS("country", req.Country)
+	addS("education_level", req.EducationLevel)
 	addS("trip_purpose", req.TripPurpose)
 	addS("birth_place", req.BirthPlace)
 	addS("citizenship", req.Citizenship)
@@ -731,6 +746,10 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
 			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidEducationLevel) {
+			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {

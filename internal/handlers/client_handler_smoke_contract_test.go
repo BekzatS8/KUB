@@ -44,6 +44,7 @@ func TestBuildClientFromCreateRequestIncludesNewIndividualFields(t *testing.T) {
 	req := createClientRequest{
 		Name:                        "John Doe",
 		ClientType:                  models.ClientTypeIndividual,
+		EducationLevel:              "higher",
 		Specialty:                   "QA",
 		TrustedPersonPhone:          "+77010000000",
 		DriverLicenseNumber:         "DL42",
@@ -54,7 +55,7 @@ func TestBuildClientFromCreateRequestIncludesNewIndividualFields(t *testing.T) {
 		VisaRefusals:                "None",
 	}
 	client := buildClientFromCreateRequest(req, 10, &birth, nil, nil)
-	if client.Specialty != "QA" || client.VisasReceived != "US" || client.VisaRefusals != "None" {
+	if client.EducationLevel != "higher" || client.Specialty != "QA" || client.VisasReceived != "US" || client.VisaRefusals != "None" {
 		t.Fatalf("expected new individual fields propagated, got %#v", client)
 	}
 	if client.EducationInstitutionAddress != "Almaty" || client.TrustedPersonPhone != "+77010000000" {
@@ -63,12 +64,12 @@ func TestBuildClientFromCreateRequestIncludesNewIndividualFields(t *testing.T) {
 }
 
 func TestUpdateClientRequestSupportsNewFieldsPointers(t *testing.T) {
-	raw := []byte(`{"specialty":"dev","trusted_person_phone":"+7701","driver_license_number":"AB","education_institution_name":"Uni","education_institution_address":"Addr","position":"Lead","visas_received":"US","visa_refusals":"No"}`)
+	raw := []byte(`{"education_level":"secondary","specialty":"dev","trusted_person_phone":"+7701","driver_license_number":"AB","education_institution_name":"Uni","education_institution_address":"Addr","position":"Lead","visas_received":"US","visa_refusals":"No"}`)
 	var req updateClientRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if req.Specialty == nil || req.VisaRefusals == nil || req.EducationInstitutionName == nil {
+	if req.EducationLevel == nil || req.Specialty == nil || req.VisaRefusals == nil || req.EducationInstitutionName == nil {
 		t.Fatalf("expected pointers for new fields to be set: %#v", req)
 	}
 }

@@ -18,6 +18,14 @@ type ClientService struct {
 	FileRepo *repositories.ClientFileRepository
 }
 
+var allowedEducationLevels = map[string]struct{}{
+	"higher":            {},
+	"secondary_special": {},
+	"secondary":         {},
+	"primary":           {},
+	"incomplete_higher": {},
+}
+
 func NewClientService(repo *repositories.ClientRepository, fileRepo ...*repositories.ClientFileRepository) *ClientService {
 	service := &ClientService{Repo: repo}
 	if len(fileRepo) > 0 {
@@ -115,6 +123,7 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.SpouseName = trim(c.SpouseName)
 	c.SpouseContacts = trim(c.SpouseContacts)
 	c.Education = trim(c.Education)
+	c.EducationLevel = trim(c.EducationLevel)
 	c.Job = trim(c.Job)
 	c.TripsLast5Years = trim(c.TripsLast5Years)
 	c.RelativesInDestination = trim(c.RelativesInDestination)
@@ -137,10 +146,16 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	}
 	c.ClientType = clientType
 	if c.ClientType == models.ClientTypeLegal {
+		c.EducationLevel = ""
 		normalizeLegalAliases(c)
 	}
 	if c.ClientType == models.ClientTypeIndividual {
 		normalizeIndividualAliases(c)
+		if c.EducationLevel != "" {
+			if _, ok := allowedEducationLevels[c.EducationLevel]; !ok {
+				return ErrInvalidEducationLevel
+			}
+		}
 	}
 
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
@@ -198,6 +213,7 @@ func normalizeIndividualAliases(c *models.Client) {
 	ip.SpouseName = trim(ip.SpouseName)
 	ip.SpouseContacts = trim(ip.SpouseContacts)
 	ip.Education = trim(ip.Education)
+	ip.EducationLevel = trim(ip.EducationLevel)
 	ip.Job = trim(ip.Job)
 	ip.TripsLast5Years = trim(ip.TripsLast5Years)
 	ip.RelativesInDestination = trim(ip.RelativesInDestination)
@@ -286,6 +302,9 @@ func normalizeIndividualAliases(c *models.Client) {
 	}
 	if ip.Education != "" {
 		c.Education = ip.Education
+	}
+	if ip.EducationLevel != "" {
+		c.EducationLevel = ip.EducationLevel
 	}
 	if ip.Job != "" {
 		c.Job = ip.Job

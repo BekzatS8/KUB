@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -54,6 +55,7 @@ func TestNormalizeAndValidateIndividualUsesNestedProfileForNewFields(t *testing.
 		TripPurpose: "tour",
 		BirthDate:   ptrTimeForClientProfileTest(),
 		IndividualProfile: &models.ClientIndividualProfile{
+			EducationLevel:              "  higher ",
 			Specialty:                   "  Engineer ",
 			TrustedPersonPhone:          "+7 701 000 11 22",
 			DriverLicenseNumber:         " DL-77 ",
@@ -70,11 +72,31 @@ func TestNormalizeAndValidateIndividualUsesNestedProfileForNewFields(t *testing.
 	if c.Specialty != "Engineer" || c.Position != "Lead" {
 		t.Fatalf("expected nested profile values promoted, got specialty=%q position=%q", c.Specialty, c.Position)
 	}
+	if c.EducationLevel != "higher" {
+		t.Fatalf("expected trimmed education_level, got %q", c.EducationLevel)
+	}
 	if c.TrustedPersonPhone != "77010001122" {
 		t.Fatalf("expected phone normalized from nested profile, got %q", c.TrustedPersonPhone)
 	}
 	if c.VisaRefusals != "none" {
 		t.Fatalf("expected trimmed visa_refusals, got %q", c.VisaRefusals)
+	}
+}
+
+func TestNormalizeAndValidateIndividualRejectsUnknownEducationLevel(t *testing.T) {
+	svc := &ClientService{}
+	c := &models.Client{
+		ClientType:     models.ClientTypeIndividual,
+		LastName:       "Doe",
+		FirstName:      "John",
+		Phone:          "77001112233",
+		Country:        "KZ",
+		TripPurpose:    "tour",
+		BirthDate:      ptrTimeForClientProfileTest(),
+		EducationLevel: "doctoral",
+	}
+	if err := svc.normalizeAndValidate(c); !errors.Is(err, ErrInvalidEducationLevel) {
+		t.Fatalf("expected ErrInvalidEducationLevel, got %v", err)
 	}
 }
 
