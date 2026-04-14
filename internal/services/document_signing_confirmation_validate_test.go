@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -159,7 +161,9 @@ func TestConfirmByEmailTokenDoesNotFinalizeDocument(t *testing.T) {
 		time.Now,
 	)
 
-	status, signerEmail, docHash, _, err := svc.ConfirmByEmailToken(context.Background(), 55, token, code, "127.0.0.1", "ua")
+	sum := sha256.Sum256([]byte("sample-pdf-content"))
+	clientHash := "sha256:" + hex.EncodeToString(sum[:])
+	status, signerEmail, docHash, _, err := svc.ConfirmByEmailToken(context.Background(), 55, token, code, clientHash, "v1", "127.0.0.1", "ua")
 	if err != nil {
 		t.Fatalf("ConfirmByEmailToken returned error: %v", err)
 	}
