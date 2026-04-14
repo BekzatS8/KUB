@@ -48,6 +48,7 @@ type Client struct {
 	HasChildren                 *bool           `json:"has_children,omitempty"`
 	ChildrenList                json.RawMessage `json:"children_list,omitempty"`
 	Education                   string          `json:"education,omitempty"`
+	EducationLevel              string          `json:"education_level,omitempty"`
 	Job                         string          `json:"job,omitempty"`
 	TripsLast5Years             string          `json:"trips_last5_years,omitempty"`
 	RelativesInDestination      string          `json:"relatives_in_destination,omitempty"`
@@ -121,6 +122,7 @@ type ClientIndividualProfile struct {
 	HasChildren                 *bool           `json:"has_children,omitempty"`
 	ChildrenList                json.RawMessage `json:"children_list,omitempty"`
 	Education                   string          `json:"education,omitempty"`
+	EducationLevel              string          `json:"education_level,omitempty"`
 	Job                         string          `json:"job,omitempty"`
 	TripsLast5Years             string          `json:"trips_last5_years,omitempty"`
 	RelativesInDestination      string          `json:"relatives_in_destination,omitempty"`

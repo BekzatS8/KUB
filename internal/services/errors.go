@@ -25,6 +25,7 @@ var (
 	ErrClientNotFound                   = errors.New("client not found")
 	ErrClientTypeRequired               = errors.New("client_type is required")
 	ErrInvalidClientType                = errors.New("invalid client_type")
+	ErrInvalidEducationLevel            = errors.New("invalid education_level")
 	ErrClientTypeMismatch               = errors.New("client_type does not match stored client type")
 	ErrClientTypeImmutable              = errors.New("client_type is immutable")
 	ErrClientRepoNotConfigured          = errors.New("client repository not configured")

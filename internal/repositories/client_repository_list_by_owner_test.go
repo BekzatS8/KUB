@@ -179,6 +179,9 @@ func TestListByOwnerSupportsMixedClientTypeRows(t *testing.T) {
 	if clients[0].Specialty != "Spec" || clients[0].TrustedPersonPhone != "+70000000009" {
 		t.Fatalf("expected new individual fields mapped, got specialty=%q trusted_person_phone=%q", clients[0].Specialty, clients[0].TrustedPersonPhone)
 	}
+	if clients[0].EducationLevel != "higher" {
+		t.Fatalf("expected education_level mapped, got %q", clients[0].EducationLevel)
+	}
 	if clients[0].IndividualProfile == nil || clients[0].IndividualProfile.VisaRefusals != "No" {
 		t.Fatalf("expected nested individual profile with new fields, got %#v", clients[0].IndividualProfile)
 	}
@@ -217,7 +220,7 @@ func TestListByOwnerHandlesNullPrimaryEmail(t *testing.T) {
 }
 
 func testClientColumns() []string {
-	cols := make([]string, 76)
+	cols := make([]string, 77)
 	for i := range cols {
 		cols[i] = "c" + strconv.Itoa(i+1)
 	}
@@ -233,7 +236,7 @@ func testClientRowValues(id int, ownerID int, clientType string) []driver.Value 
 		"Cit", "M", "Single", now, now,
 		"Prev", "Spouse", "SpousePhone", true, []byte(`["child"]`),
 		"Edu", "Job", "Trips", "Relatives", "Trusted",
-		"Spec", "+70000000009", "DL123", "Uni", "UniAddr", "Manager", "USA,DE", "No",
+		"higher", "Spec", "+70000000009", "DL123", "Uni", "UniAddr", "Manager", "USA,DE", "No",
 		int64(180), int64(80), []byte(`["B"]`), "Doctor", "Clinic", "Diseases", "AddInfo",
 		"Company", "123456789012", "LLP", "Director", "Contact",
 		"Position", "+70000000001", "corp@example.com", "LegalAddr",
