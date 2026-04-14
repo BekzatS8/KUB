@@ -119,6 +119,14 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.TripsLast5Years = trim(c.TripsLast5Years)
 	c.RelativesInDestination = trim(c.RelativesInDestination)
 	c.TrustedPerson = trim(c.TrustedPerson)
+	c.Specialty = trim(c.Specialty)
+	c.TrustedPersonPhone = normalizePhone(trim(c.TrustedPersonPhone))
+	c.DriverLicenseNumber = trim(c.DriverLicenseNumber)
+	c.EducationInstitutionName = trim(c.EducationInstitutionName)
+	c.EducationInstitutionAddress = trim(c.EducationInstitutionAddress)
+	c.Position = trim(c.Position)
+	c.VisasReceived = trim(c.VisasReceived)
+	c.VisaRefusals = trim(c.VisaRefusals)
 	c.TherapistName = trim(c.TherapistName)
 	c.ClinicName = trim(c.ClinicName)
 	c.DiseasesLast3Years = trim(c.DiseasesLast3Years)
@@ -130,6 +138,9 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.ClientType = clientType
 	if c.ClientType == models.ClientTypeLegal {
 		normalizeLegalAliases(c)
+	}
+	if c.ClientType == models.ClientTypeIndividual {
+		normalizeIndividualAliases(c)
 	}
 
 	// если Name пустой, но есть ФИО — собираем отображаемое имя
@@ -160,6 +171,179 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.PrimaryEmail = c.Email
 
 	return nil
+}
+
+func normalizeIndividualAliases(c *models.Client) {
+	trim := strings.TrimSpace
+	if c.IndividualProfile == nil {
+		return
+	}
+	ip := c.IndividualProfile
+	ip.LastName = trim(ip.LastName)
+	ip.FirstName = trim(ip.FirstName)
+	ip.MiddleName = trim(ip.MiddleName)
+	ip.IIN = trim(ip.IIN)
+	ip.IDNumber = trim(ip.IDNumber)
+	ip.PassportSeries = trim(ip.PassportSeries)
+	ip.PassportNumber = trim(ip.PassportNumber)
+	ip.RegistrationAddress = trim(ip.RegistrationAddress)
+	ip.ActualAddress = trim(ip.ActualAddress)
+	ip.Country = trim(ip.Country)
+	ip.TripPurpose = trim(ip.TripPurpose)
+	ip.BirthPlace = trim(ip.BirthPlace)
+	ip.Citizenship = trim(ip.Citizenship)
+	ip.Sex = trim(ip.Sex)
+	ip.MaritalStatus = trim(ip.MaritalStatus)
+	ip.PreviousLastName = trim(ip.PreviousLastName)
+	ip.SpouseName = trim(ip.SpouseName)
+	ip.SpouseContacts = trim(ip.SpouseContacts)
+	ip.Education = trim(ip.Education)
+	ip.Job = trim(ip.Job)
+	ip.TripsLast5Years = trim(ip.TripsLast5Years)
+	ip.RelativesInDestination = trim(ip.RelativesInDestination)
+	ip.TrustedPerson = trim(ip.TrustedPerson)
+	ip.Specialty = trim(ip.Specialty)
+	ip.TrustedPersonPhone = normalizePhone(trim(ip.TrustedPersonPhone))
+	ip.DriverLicenseNumber = trim(ip.DriverLicenseNumber)
+	ip.EducationInstitutionName = trim(ip.EducationInstitutionName)
+	ip.EducationInstitutionAddress = trim(ip.EducationInstitutionAddress)
+	ip.Position = trim(ip.Position)
+	ip.VisasReceived = trim(ip.VisasReceived)
+	ip.VisaRefusals = trim(ip.VisaRefusals)
+	ip.TherapistName = trim(ip.TherapistName)
+	ip.ClinicName = trim(ip.ClinicName)
+	ip.DiseasesLast3Years = trim(ip.DiseasesLast3Years)
+	ip.AdditionalInfo = trim(ip.AdditionalInfo)
+
+	if ip.LastName != "" {
+		c.LastName = ip.LastName
+	}
+	if ip.FirstName != "" {
+		c.FirstName = ip.FirstName
+	}
+	if ip.MiddleName != "" {
+		c.MiddleName = ip.MiddleName
+	}
+	if ip.IIN != "" {
+		c.IIN = ip.IIN
+	}
+	if ip.IDNumber != "" {
+		c.IDNumber = ip.IDNumber
+	}
+	if ip.PassportSeries != "" {
+		c.PassportSeries = ip.PassportSeries
+	}
+	if ip.PassportNumber != "" {
+		c.PassportNumber = ip.PassportNumber
+	}
+	if ip.RegistrationAddress != "" {
+		c.RegistrationAddress = ip.RegistrationAddress
+	}
+	if ip.ActualAddress != "" {
+		c.ActualAddress = ip.ActualAddress
+	}
+	if ip.Country != "" {
+		c.Country = ip.Country
+	}
+	if ip.TripPurpose != "" {
+		c.TripPurpose = ip.TripPurpose
+	}
+	if ip.BirthDate != nil {
+		c.BirthDate = ip.BirthDate
+	}
+	if ip.BirthPlace != "" {
+		c.BirthPlace = ip.BirthPlace
+	}
+	if ip.Citizenship != "" {
+		c.Citizenship = ip.Citizenship
+	}
+	if ip.Sex != "" {
+		c.Sex = ip.Sex
+	}
+	if ip.MaritalStatus != "" {
+		c.MaritalStatus = ip.MaritalStatus
+	}
+	if ip.PassportIssueDate != nil {
+		c.PassportIssueDate = ip.PassportIssueDate
+	}
+	if ip.PassportExpireDate != nil {
+		c.PassportExpireDate = ip.PassportExpireDate
+	}
+	if ip.PreviousLastName != "" {
+		c.PreviousLastName = ip.PreviousLastName
+	}
+	if ip.SpouseName != "" {
+		c.SpouseName = ip.SpouseName
+	}
+	if ip.SpouseContacts != "" {
+		c.SpouseContacts = ip.SpouseContacts
+	}
+	if ip.HasChildren != nil {
+		c.HasChildren = ip.HasChildren
+	}
+	if len(ip.ChildrenList) > 0 {
+		c.ChildrenList = ip.ChildrenList
+	}
+	if ip.Education != "" {
+		c.Education = ip.Education
+	}
+	if ip.Job != "" {
+		c.Job = ip.Job
+	}
+	if ip.TripsLast5Years != "" {
+		c.TripsLast5Years = ip.TripsLast5Years
+	}
+	if ip.RelativesInDestination != "" {
+		c.RelativesInDestination = ip.RelativesInDestination
+	}
+	if ip.TrustedPerson != "" {
+		c.TrustedPerson = ip.TrustedPerson
+	}
+	if ip.Specialty != "" {
+		c.Specialty = ip.Specialty
+	}
+	if ip.TrustedPersonPhone != "" {
+		c.TrustedPersonPhone = ip.TrustedPersonPhone
+	}
+	if ip.DriverLicenseNumber != "" {
+		c.DriverLicenseNumber = ip.DriverLicenseNumber
+	}
+	if ip.EducationInstitutionName != "" {
+		c.EducationInstitutionName = ip.EducationInstitutionName
+	}
+	if ip.EducationInstitutionAddress != "" {
+		c.EducationInstitutionAddress = ip.EducationInstitutionAddress
+	}
+	if ip.Position != "" {
+		c.Position = ip.Position
+	}
+	if ip.VisasReceived != "" {
+		c.VisasReceived = ip.VisasReceived
+	}
+	if ip.VisaRefusals != "" {
+		c.VisaRefusals = ip.VisaRefusals
+	}
+	if ip.Height != nil {
+		c.Height = ip.Height
+	}
+	if ip.Weight != nil {
+		c.Weight = ip.Weight
+	}
+	if len(ip.DriverLicenseCategories) > 0 {
+		c.DriverLicenseCategories = ip.DriverLicenseCategories
+	}
+	if ip.TherapistName != "" {
+		c.TherapistName = ip.TherapistName
+	}
+	if ip.ClinicName != "" {
+		c.ClinicName = ip.ClinicName
+	}
+	if ip.DiseasesLast3Years != "" {
+		c.DiseasesLast3Years = ip.DiseasesLast3Years
+	}
+	if ip.AdditionalInfo != "" {
+		c.AdditionalInfo = ip.AdditionalInfo
+	}
 }
 
 func normalizeLegalAliases(c *models.Client) {
