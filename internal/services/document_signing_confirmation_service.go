@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -34,14 +35,38 @@ const (
 )
 
 var (
-	ErrSignConfirmNotFound     = errors.New("sign confirmation not found")
-	ErrSignConfirmExpired      = errors.New("sign confirmation expired")
-	ErrSignConfirmInvalidCode  = errors.New("invalid sign confirmation code")
-	ErrSignConfirmTooManyTries = errors.New("too many sign confirmation attempts")
-	ErrSignConfirmInvalidToken = errors.New("invalid sign confirmation token")
-	ErrSignConfirmAlreadyUsed  = errors.New("sign confirmation already used")
-	emailOTPPattern            = regexp.MustCompile(`^\d{6}$`)
+	ErrSignConfirmNotFound                 = errors.New("sign confirmation not found")
+	ErrSignConfirmExpired                  = errors.New("sign confirmation expired")
+	ErrSignConfirmInvalidCode              = errors.New("invalid sign confirmation code")
+	ErrSignConfirmTooManyTries             = errors.New("too many sign confirmation attempts")
+	ErrSignConfirmInvalidToken             = errors.New("invalid sign confirmation token")
+	ErrSignConfirmAlreadyUsed              = errors.New("sign confirmation already used")
+	ErrSignConfirmHashRequired             = errors.New("sign confirmation document hash required")
+	ErrSignConfirmDocMismatch              = errors.New("sign confirmation document hash mismatch")
+	ErrSignConfirmAgreementVersionRequired = errors.New("sign confirmation agreement version required")
+	ErrSignConfirmAgreementVersionMismatch = errors.New("sign confirmation agreement version mismatch")
+	emailOTPPattern                        = regexp.MustCompile(`^\d{6}$`)
 )
+
+type EmailSigningAgreement struct {
+	Required               bool   `json:"required"`
+	Version                string `json:"version"`
+	Title                  string `json:"title"`
+	CheckboxLabel          string `json:"checkbox_label"`
+	ConfirmButtonLabel     string `json:"confirm_button_label"`
+	VersionMismatchMessage string `json:"version_mismatch_message"`
+}
+
+func CurrentEmailSigningAgreement() EmailSigningAgreement {
+	return EmailSigningAgreement{
+		Required:               true,
+		Version:                "v1",
+		Title:                  "Подтверждение ознакомления",
+		CheckboxLabel:          "Я ознакомился с документом, проверил данные и согласен с его условиями.",
+		ConfirmButtonLabel:     "Перейти к подписанию",
+		VersionMismatchMessage: "Текст согласия изменился. Пожалуйста, откройте документ заново перед подписанием.",
+	}
+}
 
 type SigningEmailSender interface {
 	SendSigningConfirm(email string, data SigningEmailData) error
@@ -356,7 +381,7 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	ctx context.Context,
 	documentID int64,
-	token, code, ip, userAgent string,
+	token, code, documentHashFromClient, agreementTextVersion, ip, userAgent string,
 ) (string, string, string, *models.SignatureConfirmation, error) {
 	ctx, cancel := withSignConfirmTimeout(ctx)
 	defer cancel()
@@ -421,12 +446,56 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	if err != nil {
 		return "", "", "", pending, fmt.Errorf("hash document content: %w", err)
 	}
+	clientHash := normalizeDocumentHash(documentHashFromClient)
+	currentHash := normalizeDocumentHash("sha256:" + documentHash)
+	if clientHash == "" {
+		return "", "", "", pending, ErrSignConfirmHashRequired
+	}
+	agreement := CurrentEmailSigningAgreement()
+	clientAgreementVersion := strings.TrimSpace(strings.ToLower(agreementTextVersion))
+	expectedAgreementVersion := strings.TrimSpace(strings.ToLower(agreement.Version))
+	if clientAgreementVersion == "" {
+		return "", "", "", pending, ErrSignConfirmAgreementVersionRequired
+	}
+	if clientAgreementVersion != expectedAgreementVersion {
+		agreementMeta := map[string]any{
+			"agreement_text_version":        strings.TrimSpace(agreementTextVersion),
+			"agreement_version_verified":    false,
+			"agreement_version_mismatch_at": s.now().UTC().Format(time.RFC3339Nano),
+		}
+		metaBytes, _ := json.Marshal(agreementMeta)
+		if _, updateErr := s.repo.UpdateMeta(ctx, pending.ID, metaBytes); updateErr != nil {
+			return "", "", "", pending, fmt.Errorf("update agreement mismatch meta: %w", updateErr)
+		}
+		return "", "", "", pending, ErrSignConfirmAgreementVersionMismatch
+	}
+	hashMeta := map[string]any{
+		"document_hash_from_client":     clientHash,
+		"document_hash_current":         currentHash,
+		"agreement_text_version":        agreement.Version,
+		"agreement_version_verified":    true,
+		"agreement_version_verified_at": s.now().UTC().Format(time.RFC3339Nano),
+	}
+	if clientHash != currentHash {
+		hashMeta["document_hash_verified"] = false
+		hashMeta["document_hash_mismatch_at"] = s.now().UTC().Format(time.RFC3339Nano)
+		metaBytes, _ := json.Marshal(hashMeta)
+		if _, updateErr := s.repo.UpdateMeta(ctx, pending.ID, metaBytes); updateErr != nil {
+			return "", "", "", pending, fmt.Errorf("update mismatch confirmation meta: %w", updateErr)
+		}
+		return "", "", "", pending, ErrSignConfirmDocMismatch
+	}
+	hashMeta["document_hash_verified"] = true
+	hashMeta["document_hash_verified_at"] = s.now().UTC().Format(time.RFC3339Nano)
 	signerEmail := extractSignerEmail(pending.Meta)
 	metaUpdate := map[string]any{
 		"ip":            ip,
 		"user_agent":    userAgent,
 		"method":        "email_magic_link",
-		"document_hash": documentHash,
+		"document_hash": currentHash,
+	}
+	for key, value := range hashMeta {
+		metaUpdate[key] = value
 	}
 	if signerEmail != "" {
 		metaUpdate["signer_email"] = signerEmail
@@ -440,17 +509,60 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	return "approved", signerEmail, documentHash, approved, nil
 }
 
+func normalizeDocumentHash(raw string) string {
+	hash := strings.TrimSpace(strings.ToLower(raw))
+	if hash == "" {
+		return ""
+	}
+	if strings.HasPrefix(hash, "sha256:") {
+		hash = strings.TrimPrefix(hash, "sha256:")
+	}
+	if len(hash) != 64 {
+		return ""
+	}
+	for _, ch := range hash {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return ""
+		}
+	}
+	return "sha256:" + hash
+}
+
+func (s *DocumentSigningConfirmationService) UpdateConfirmationMeta(ctx context.Context, confirmationID string, meta map[string]any) error {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil {
+		return errors.New("signature confirmation repo is nil")
+	}
+	if strings.TrimSpace(confirmationID) == "" || len(meta) == 0 {
+		return nil
+	}
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal confirmation meta update: %w", err)
+	}
+	if _, err := s.repo.UpdateMeta(ctx, confirmationID, metaBytes); err != nil {
+		return fmt.Errorf("update confirmation meta: %w", err)
+	}
+	return nil
+}
+
 type EmailTokenVerification struct {
 	TokenValid bool `json:"token_valid"`
 	Document   struct {
-		ID     int64  `json:"id"`
-		Title  string `json:"title"`
-		Status string `json:"status"`
+		ID                  int64  `json:"id"`
+		Title               string `json:"title"`
+		Status              string `json:"status"`
+		FileName            string `json:"file_name,omitempty"`
+		ContentType         string `json:"content_type,omitempty"`
+		PreviewURL          string `json:"preview_url,omitempty"`
+		DocumentHashPreview string `json:"document_hash_preview,omitempty"`
 	} `json:"document"`
 	Confirmation struct {
 		ExpiresAt time.Time `json:"expires_at"`
 	} `json:"confirmation"`
-	RequirePostConfirm bool `json:"require_post_confirm"`
+	Agreement          EmailSigningAgreement `json:"agreement"`
+	RequirePostConfirm bool                  `json:"require_post_confirm"`
 }
 
 func (s *DocumentSigningConfirmationService) ValidateEmailToken(
@@ -516,8 +628,170 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	response.Document.ID = doc.ID
 	response.Document.Title = doc.DocType
 	response.Document.Status = doc.Status
+	response.Document.FileName = documentFileName(doc)
+	response.Document.ContentType = documentContentType(response.Document.FileName)
+	if hash, hashErr := s.hashDocumentContent(pending.DocumentID); hashErr == nil && strings.TrimSpace(hash) != "" {
+		response.Document.DocumentHashPreview = "sha256:" + hash
+	}
 	response.Confirmation.ExpiresAt = pending.ExpiresAt
+	response.Agreement = CurrentEmailSigningAgreement()
 	return response, nil
+}
+
+type EmailDocumentPreview struct {
+	DocumentID       int64
+	ConfirmationID   string
+	FileName         string
+	ContentType      string
+	DocumentHash     string
+	AbsPath          string
+	ConfirmationMeta json.RawMessage
+}
+
+func (s *DocumentSigningConfirmationService) PrepareEmailDocumentPreview(
+	ctx context.Context,
+	token string,
+) (*EmailDocumentPreview, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil {
+		return nil, errors.New("signature confirmation repo is nil")
+	}
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	pending, err := s.repo.FindByTokenHash(ctx, "email", tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("find confirmation by token hash: %w", err)
+	}
+	if pending == nil {
+		return nil, ErrSignConfirmNotFound
+	}
+	if pending.TokenHash == nil || subtle.ConstantTimeCompare([]byte(*pending.TokenHash), []byte(tokenHash)) != 1 {
+		return nil, ErrSignConfirmInvalidToken
+	}
+	if pending.Status != "pending" {
+		if pending.Status == "approved" {
+			return nil, ErrSignConfirmAlreadyUsed
+		}
+		return nil, ErrSignConfirmExpired
+	}
+	if s.now().After(pending.ExpiresAt) {
+		_ = s.repo.Expire(ctx, pending.ID)
+		return nil, ErrSignConfirmExpired
+	}
+
+	doc, relPath, err := s.getDocumentAndPreviewPath(pending.DocumentID)
+	if err != nil {
+		return nil, err
+	}
+	root := strings.TrimSpace(s.filesRoot)
+	if root == "" {
+		return nil, errors.New("files root is required")
+	}
+	absPath := filepath.Join(root, relPath)
+	if _, err := os.Stat(absPath); err != nil {
+		return nil, fmt.Errorf("open document: %w", err)
+	}
+	fileName := documentFileName(doc)
+	documentHash := ""
+	if hash, hashErr := s.hashDocumentContent(doc.ID); hashErr == nil && strings.TrimSpace(hash) != "" {
+		documentHash = "sha256:" + hash
+	}
+	return &EmailDocumentPreview{
+		DocumentID:       doc.ID,
+		ConfirmationID:   pending.ID,
+		FileName:         fileName,
+		ContentType:      documentContentType(fileName),
+		DocumentHash:     documentHash,
+		AbsPath:          absPath,
+		ConfirmationMeta: pending.Meta,
+	}, nil
+}
+
+func (s *DocumentSigningConfirmationService) RecordEmailPreviewOpened(
+	ctx context.Context,
+	preview *EmailDocumentPreview,
+	ip, userAgent string,
+) error {
+	// Preview audit is intentionally independent from verify-open audit:
+	// verify tracks link opening, preview tracks actual file opening.
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil || preview == nil || strings.TrimSpace(preview.ConfirmationID) == "" {
+		return nil
+	}
+	existing := map[string]any{}
+	if len(preview.ConfirmationMeta) > 0 {
+		_ = json.Unmarshal(preview.ConfirmationMeta, &existing)
+	}
+	openCount := intFromAny(existing["preview_open_count"]) + 1
+	metaUpdate := map[string]any{
+		"preview_opened_at":         s.now().UTC().Format(time.RFC3339Nano),
+		"preview_open_count":        openCount,
+		"preview_opened_ip":         strings.TrimSpace(ip),
+		"preview_opened_user_agent": strings.TrimSpace(userAgent),
+	}
+	if val := strings.TrimSpace(preview.DocumentHash); val != "" {
+		metaUpdate["preview_document_hash"] = val
+	}
+	if val := strings.TrimSpace(preview.FileName); val != "" {
+		metaUpdate["preview_file_name"] = val
+	}
+	if val := strings.TrimSpace(preview.ContentType); val != "" {
+		metaUpdate["preview_content_type"] = val
+	}
+	metaBytes, _ := json.Marshal(metaUpdate)
+	if _, err := s.repo.UpdateMeta(ctx, preview.ConfirmationID, metaBytes); err != nil {
+		return fmt.Errorf("update preview meta: %w", err)
+	}
+	return nil
+}
+
+func (s *DocumentSigningConfirmationService) GetEmailConfirmationAudit(ctx context.Context, documentID, userID int64) (map[string]any, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil {
+		return nil, errors.New("signature confirmation repo is nil")
+	}
+	confirmation, err := s.repo.GetLatestByChannel(ctx, documentID, userID, "email")
+	if err != nil {
+		return nil, err
+	}
+	if confirmation == nil || len(confirmation.Meta) == 0 {
+		return nil, nil
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(confirmation.Meta, &meta); err != nil {
+		return nil, nil
+	}
+	audit := map[string]any{
+		"link_opened_at":                firstNonEmpty(meta["link_opened_at"], meta["opened_at"]),
+		"link_opened_ip":                firstNonEmpty(meta["opened_ip"]),
+		"link_opened_user_agent":        firstNonEmpty(meta["opened_user_agent"]),
+		"preview_opened_at":             firstNonEmpty(meta["preview_opened_at"]),
+		"preview_opened_ip":             firstNonEmpty(meta["preview_opened_ip"]),
+		"preview_opened_user_agent":     firstNonEmpty(meta["preview_opened_user_agent"]),
+		"preview_open_count":            intFromAny(meta["preview_open_count"]),
+		"preview_document_hash":         firstNonEmpty(meta["preview_document_hash"]),
+		"preview_file_name":             firstNonEmpty(meta["preview_file_name"]),
+		"preview_content_type":          firstNonEmpty(meta["preview_content_type"]),
+		"agreed_at":                     firstNonEmpty(meta["agreed_at"]),
+		"agreed_ip":                     firstNonEmpty(meta["agreed_ip"]),
+		"agreed_user_agent":             firstNonEmpty(meta["agreed_user_agent"]),
+		"agreement_text_version":        firstNonEmpty(meta["agreement_text_version"]),
+		"agreement_version_verified":    meta["agreement_version_verified"],
+		"agreement_version_verified_at": firstNonEmpty(meta["agreement_version_verified_at"]),
+		"agreement_version_mismatch_at": firstNonEmpty(meta["agreement_version_mismatch_at"]),
+		"document_hash_from_client":     firstNonEmpty(meta["document_hash_from_client"]),
+		"document_hash_current":         firstNonEmpty(meta["document_hash_current"]),
+		"document_hash_verified":        meta["document_hash_verified"],
+		"document_hash_verified_at":     firstNonEmpty(meta["document_hash_verified_at"]),
+		"document_hash_mismatch_at":     firstNonEmpty(meta["document_hash_mismatch_at"]),
+	}
+	return audit, nil
 }
 
 func (s *DocumentSigningConfirmationService) LookupEmailConfirmationByToken(
@@ -776,24 +1050,9 @@ func extractSignerEmail(meta json.RawMessage) string {
 }
 
 func (s *DocumentSigningConfirmationService) hashDocumentContent(documentID int64) (string, error) {
-	if s.docRepo == nil {
-		return "", errors.New("document repo is nil")
-	}
-	doc, err := s.docRepo.GetByID(documentID)
-	if err != nil || doc == nil {
-		return "", errors.New("document not found")
-	}
-	rel := strings.TrimSpace(doc.FilePathPdf)
-	if rel == "" {
-		rel = strings.TrimSpace(doc.FilePath)
-	}
-	rel = strings.ReplaceAll(rel, "\\", "/")
-	rel = strings.TrimPrefix(rel, "/")
-	if strings.HasPrefix(rel, "files/") {
-		rel = strings.TrimPrefix(rel, "files/")
-	}
-	if strings.Contains(rel, "..") || rel == "" || rel == "." {
-		return "", errors.New("bad filepath")
+	_, rel, err := s.getDocumentAndPreviewPath(documentID)
+	if err != nil {
+		return "", err
 	}
 	root := strings.TrimSpace(s.filesRoot)
 	if root == "" {
@@ -810,4 +1069,75 @@ func (s *DocumentSigningConfirmationService) hashDocumentContent(documentID int6
 		return "", fmt.Errorf("hash document: %w", err)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func (s *DocumentSigningConfirmationService) getDocumentAndPreviewPath(documentID int64) (*models.Document, string, error) {
+	if s.docRepo == nil {
+		return nil, "", errors.New("document repo is nil")
+	}
+	doc, err := s.docRepo.GetByID(documentID)
+	if err != nil || doc == nil {
+		return nil, "", errors.New("document not found")
+	}
+	rel := strings.TrimSpace(doc.FilePathPdf)
+	if rel == "" {
+		rel = strings.TrimSpace(doc.FilePath)
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	if strings.HasPrefix(rel, "files/") {
+		rel = strings.TrimPrefix(rel, "files/")
+	}
+	if strings.Contains(rel, "..") || rel == "" || rel == "." {
+		return nil, "", errors.New("bad filepath")
+	}
+	return doc, rel, nil
+}
+
+func documentFileName(doc *models.Document) string {
+	if doc == nil {
+		return ""
+	}
+	pathVal := strings.TrimSpace(doc.FilePathPdf)
+	if pathVal == "" {
+		pathVal = strings.TrimSpace(doc.FilePath)
+	}
+	name := strings.TrimSpace(filepath.Base(pathVal))
+	if name == "." || name == "/" {
+		return ""
+	}
+	return name
+}
+
+func documentContentType(fileName string) string {
+	ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(fileName)))
+	if strings.TrimSpace(ct) == "" {
+		return "application/octet-stream"
+	}
+	return ct
+}
+
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func firstNonEmpty(values ...any) any {
+	for _, value := range values {
+		if str, ok := value.(string); ok && strings.TrimSpace(str) != "" {
+			return strings.TrimSpace(str)
+		}
+	}
+	return nil
 }

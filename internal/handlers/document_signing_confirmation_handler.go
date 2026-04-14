@@ -114,8 +114,12 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 }
 
 type emailConfirmRequest struct {
-	Token string `json:"token" binding:"required"`
-	Code  string `json:"code" binding:"required"`
+	Token                  string `json:"token" binding:"required"`
+	Code                   string `json:"code" binding:"required"`
+	AgreeTerms             bool   `json:"agree_terms"`
+	ConfirmDocumentRead    bool   `json:"confirm_document_read"`
+	AgreementTextVersion   string `json:"agreement_text_version"`
+	DocumentHashFromClient string `json:"document_hash_from_client"`
 }
 
 func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) {
@@ -141,6 +145,18 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		badRequest(c, "Invalid request body")
 		return
 	}
+	if !body.AgreeTerms || !body.ConfirmDocumentRead {
+		badRequest(c, "Document review and agreement are required")
+		return
+	}
+	if strings.TrimSpace(body.AgreementTextVersion) == "" {
+		badRequest(c, "Agreement text version is required")
+		return
+	}
+	if strings.TrimSpace(body.DocumentHashFromClient) == "" {
+		badRequest(c, "Document hash is required")
+		return
+	}
 	token := services.NormalizeEmailConfirmTokenForLog(body.Token)
 	tokenPrefix := redactPrefix(token, 8)
 	tokenHashPrefix := redactPrefix(services.HashEmailConfirmTokenForLog(token, h.Service.TokenPepperForLog()), 8)
@@ -153,6 +169,8 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 		documentID,
 		body.Token,
 		body.Code,
+		body.DocumentHashFromClient,
+		body.AgreementTextVersion,
 		ip,
 		userAgent,
 	)
@@ -170,6 +188,22 @@ func (h *DocumentSigningConfirmationHandler) ConfirmByEmailCode(c *gin.Context) 
 			loggedDocID, tokenPrefix, tokenHashPrefix, codeLen, attempts, expiresAt.UTC().Format(time.RFC3339Nano), userID, roleID, requestID, ip, userAgent, wrapped)
 		handleSignConfirmError(c, err)
 		return
+	}
+	agreementMeta := map[string]any{
+		"agree_terms":            true,
+		"confirm_document_read":  true,
+		"agreement_text_version": strings.TrimSpace(body.AgreementTextVersion),
+		"agreed_at":              time.Now().UTC().Format(time.RFC3339Nano),
+		"agreed_ip":              ip,
+		"agreed_user_agent":      userAgent,
+	}
+	if confirmation != nil {
+		if err := h.Service.UpdateConfirmationMeta(c.Request.Context(), confirmation.ID, agreementMeta); err != nil {
+			log.Printf("[sign][confirm][email][meta_update][error] doc=%d token_prefix=%s token_hash_prefix=%s request_id=%s user=%d role=%d ip=%s ua=%q err=%v",
+				documentID, tokenPrefix, tokenHashPrefix, requestID, userID, roleID, ip, userAgent, fmt.Errorf("update agreement meta: %w", err))
+			internalError(c, "Failed to persist agreement")
+			return
+		}
 	}
 	if h.SignSessionService == nil {
 		internalError(c, "Service unavailable")
@@ -286,9 +320,41 @@ func (h *DocumentSigningConfirmationHandler) VerifyEmailToken(c *gin.Context) {
 		handleSignConfirmError(c, err)
 		return
 	}
+	payload.Document.PreviewURL = fmt.Sprintf("/api/v1/sign/email/preview?token=%s", url.QueryEscape(token))
 	log.Printf("[sign][confirm][email][validate][success] doc=%d token_prefix=%s token_hash_prefix=%s status=%s request_id=%s user=%d role=%d ip=%s ua=%q",
 		payload.Document.ID, tokenPrefix, tokenHashPrefix, payload.Document.Status, requestID, userID, roleID, ip, userAgent)
 	c.JSON(http.StatusOK, payload)
+}
+
+func (h *DocumentSigningConfirmationHandler) PreviewByEmailToken(c *gin.Context) {
+	if h.Service == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		badRequest(c, "Token required")
+		return
+	}
+	preview, err := h.Service.PrepareEmailDocumentPreview(c.Request.Context(), token)
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	if err := h.Service.RecordEmailPreviewOpened(c.Request.Context(), preview, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		log.Printf("[sign][confirm][email][preview][meta_update][warn] doc=%d err=%v", preview.DocumentID, fmt.Errorf("record preview open: %w", err))
+	}
+	contentType := strings.TrimSpace(preview.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	fileName := strings.TrimSpace(preview.FileName)
+	if fileName == "" {
+		fileName = "document"
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileName))
+	c.File(preview.AbsPath)
 }
 
 func shouldRedirectSignVerifyToFrontend(c *gin.Context) bool {
@@ -365,6 +431,22 @@ func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {
 		"expires_at":  expiresAtOrZero(emailStatus),
 		"approved_at": approvedAtOrNil(emailStatus),
 		"channels":    channels,
+		"email_confirmation_audit": func() any {
+			audit, auditErr := h.Service.GetEmailConfirmationAudit(c.Request.Context(), documentID, int64(userID))
+			if auditErr != nil || audit == nil {
+				return nil
+			}
+			if doc.SignedAt != nil {
+				audit["signed_at"] = doc.SignedAt.UTC().Format(time.RFC3339Nano)
+			}
+			if val := strings.TrimSpace(doc.SignIP); val != "" {
+				audit["signed_ip"] = val
+			}
+			if val := strings.TrimSpace(doc.SignUserAgent); val != "" {
+				audit["signed_user_agent"] = val
+			}
+			return audit
+		}(),
 	})
 }
 
@@ -406,6 +488,14 @@ func handleSignConfirmError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, SignConfirmAlreadyUsedCode, "Already used")
 	case errors.Is(err, services.ErrSignConfirmInvalidCode):
 		writeError(c, http.StatusBadRequest, SignConfirmInvalidCode, "Invalid code")
+	case errors.Is(err, services.ErrSignConfirmHashRequired):
+		writeError(c, http.StatusBadRequest, BadRequestCode, "Document hash is required")
+	case errors.Is(err, services.ErrSignConfirmAgreementVersionRequired):
+		writeError(c, http.StatusBadRequest, BadRequestCode, "Agreement text version is required")
+	case errors.Is(err, services.ErrSignConfirmAgreementVersionMismatch):
+		writeError(c, http.StatusConflict, ValidationFailed, "Agreement text version mismatch. Please reopen the document before signing")
+	case errors.Is(err, services.ErrSignConfirmDocMismatch):
+		writeError(c, http.StatusConflict, ValidationFailed, "Document version mismatch. Please reopen the document before signing")
 	case errors.Is(err, services.ErrSignConfirmInvalidToken):
 		writeError(c, http.StatusNotFound, SignConfirmNotFoundCode, "Not found")
 	case errors.Is(err, services.ErrSignConfirmNotFound):

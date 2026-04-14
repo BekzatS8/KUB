@@ -75,6 +75,7 @@ func SetupRoutes(
 			r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
 		}
 		r.GET("/api/v1/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+		r.GET("/api/v1/sign/email/preview", signConfirmHandler.PreviewByEmailToken)
 		r.POST("/documents/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
 	}
 	if telegramSignHandler != nil {

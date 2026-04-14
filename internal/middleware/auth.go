@@ -27,7 +27,8 @@ func isPublicPath(path string) bool {
 		return true
 	}
 	if strings.HasPrefix(path, "/sign/email/verify") ||
-		strings.HasPrefix(path, "/api/v1/sign/email/verify") {
+		strings.HasPrefix(path, "/api/v1/sign/email/verify") ||
+		strings.HasPrefix(path, "/api/v1/sign/email/preview") {
 		return true
 	}
 	if strings.HasPrefix(path, "/swagger") ||

@@ -104,6 +104,12 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 	if apiW.Code == http.StatusUnauthorized {
 		t.Fatalf("verify api should be public, got 401: body=%s", apiW.Body.String())
 	}
+	previewReq := httptest.NewRequest(http.MethodGet, "/api/v1/sign/email/preview?token=bad-token", nil)
+	previewW := httptest.NewRecorder()
+	r.ServeHTTP(previewW, previewReq)
+	if previewW.Code == http.StatusUnauthorized {
+		t.Fatalf("preview api should be public, got 401: body=%s", previewW.Body.String())
+	}
 
 	pageReq := httptest.NewRequest(http.MethodGet, "/sign/email/verify?token=abc123", nil)
 	pageW := httptest.NewRecorder()
