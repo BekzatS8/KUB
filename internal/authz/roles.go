@@ -91,7 +91,7 @@ func CanAccessLogs(roleID int) bool {
 }
 
 func CanManageIntegrations(roleID int) bool {
-	return roleID == RoleSystemAdmin
+	return IsKnownRole(roleID)
 }
 
 func CanViewLeadershipData(roleID int) bool {

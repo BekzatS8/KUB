@@ -70,7 +70,7 @@
 
 ## 8) Wazzup smoke
 1. Enable Wazzup env config (`WAZZUP_ENABLE=true`, token via `.env.local`).
-2. `POST /integrations/wazzup/setup` (JWT, `system_admin`).
+2. `POST /integrations/wazzup/setup` (JWT, any authenticated known role).
 3. `POST /integrations/wazzup/iframe` с пустым payload `{}` (global iframe, без `lead_id/client_id`).
 4. `POST /integrations/wazzup/send` with `chat_id` + `text`.
 5. Expected: setup/send return 200 or controlled 502 on provider issues, app stays healthy.
