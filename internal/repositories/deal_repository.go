@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/lib/pq"
 
 	"turcompany/internal/models"
 )
@@ -14,8 +17,16 @@ type DealRepository struct {
 }
 
 type DealListFilter struct {
-	ClientID   int
-	ClientType string
+	ClientID    int
+	ClientType  string
+	Query       string
+	Status      string
+	StatusGroup string
+	AmountMin   *float64
+	AmountMax   *float64
+	Currency    string
+	SortBy      string
+	Order       string
 }
 
 func NewDealRepository(db *sql.DB) *DealRepository {
@@ -381,17 +392,20 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE %s%s
-		ORDER BY d.created_at DESC
+		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
 	`
 
-	extraWhere, args := buildDealClientFilterWhere(filter, 1)
+	sortExpr, sortOrder := dealSortExpression(filter)
+	extraWhere, args := buildDealListWhere(filter, 1)
 	args = append(args, limit, offset)
 	rows, err := r.db.Query(
 		fmt.Sprintf(
 			query,
 			dealArchiveWhere(scope, "d"),
 			extraWhere,
+			sortExpr,
+			sortOrder,
 			len(args)-1,
 			len(args),
 		),
@@ -464,11 +478,12 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE d.owner_id = $1 AND %s%s
-		ORDER BY d.created_at DESC
+		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
 	`
 
-	extraWhere, args := buildDealClientFilterWhere(filter, 2)
+	sortExpr, sortOrder := dealSortExpression(filter)
+	extraWhere, args := buildDealListWhere(filter, 2)
 	args = append([]interface{}{ownerID}, args...)
 	args = append(args, limit, offset)
 	rows, err := r.db.Query(
@@ -476,6 +491,8 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 			query,
 			dealArchiveWhere(scope, "d"),
 			extraWhere,
+			sortExpr,
+			sortOrder,
 			len(args)-1,
 			len(args),
 		),
@@ -529,9 +546,9 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 	return deals, nil
 }
 
-func buildDealClientFilterWhere(filter DealListFilter, startAt int) (string, []interface{}) {
+func buildDealListWhere(filter DealListFilter, startAt int) (string, []interface{}) {
 	where := ""
-	args := make([]interface{}, 0, 2)
+	args := make([]interface{}, 0, 10)
 	idx := startAt
 
 	if filter.ClientID > 0 {
@@ -542,9 +559,79 @@ func buildDealClientFilterWhere(filter DealListFilter, startAt int) (string, []i
 	if filter.ClientType != "" {
 		where += fmt.Sprintf(" AND c.client_type = $%d", idx)
 		args = append(args, filter.ClientType)
+		idx++
+	}
+	if filter.Status != "" {
+		where += fmt.Sprintf(" AND COALESCE(d.status, 'new') = $%d", idx)
+		args = append(args, filter.Status)
+		idx++
+	} else {
+		statuses := dealStatusesFromGroup(filter.StatusGroup)
+		if len(statuses) > 0 {
+			where += fmt.Sprintf(" AND COALESCE(d.status, 'new') = ANY($%d)", idx)
+			args = append(args, pq.Array(statuses))
+			idx++
+		}
+	}
+	if filter.AmountMin != nil {
+		where += fmt.Sprintf(" AND d.amount >= $%d", idx)
+		args = append(args, *filter.AmountMin)
+		idx++
+	}
+	if filter.AmountMax != nil {
+		where += fmt.Sprintf(" AND d.amount <= $%d", idx)
+		args = append(args, *filter.AmountMax)
+		idx++
+	}
+	if filter.Currency != "" {
+		where += fmt.Sprintf(" AND UPPER(COALESCE(d.currency, '')) = $%d", idx)
+		args = append(args, strings.ToUpper(filter.Currency))
+		idx++
+	}
+	if filter.Query != "" {
+		likePattern := "%" + strings.ToLower(filter.Query) + "%"
+		where += fmt.Sprintf(` AND (
+			LOWER(COALESCE(c.display_name, c.name, '')) LIKE $%d OR
+			LOWER(COALESCE(c.bin_iin, '')) LIKE $%d OR
+			LOWER(COALESCE(c.primary_phone, c.phone, '')) LIKE $%d OR
+			LOWER(COALESCE(c.primary_email, c.email, '')) LIKE $%d OR
+			CAST(d.amount AS TEXT) LIKE $%d OR
+			LOWER(COALESCE(d.currency, '')) LIKE $%d
+		)`, idx, idx, idx, idx, idx, idx)
+		args = append(args, likePattern)
 	}
 
 	return where, args
+}
+
+func dealStatusesFromGroup(group string) []string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "active":
+		return []string{"new", "in_progress", "negotiation"}
+	case "completed":
+		return []string{"won"}
+	case "closed":
+		return []string{"lost", "cancelled"}
+	default:
+		return nil
+	}
+}
+
+func dealSortExpression(filter DealListFilter) (string, string) {
+	order := "DESC"
+	if strings.EqualFold(filter.Order, "asc") {
+		order = "ASC"
+	}
+	switch filter.SortBy {
+	case "amount":
+		return "d.amount", order
+	case "status":
+		return "COALESCE(d.status, 'new')", order
+	case "client_name":
+		return "LOWER(COALESCE(c.display_name, c.name, ''))", order
+	default:
+		return "d.created_at", order
+	}
 }
 
 func (r *DealRepository) UpdateStatus(id int, status string) error {

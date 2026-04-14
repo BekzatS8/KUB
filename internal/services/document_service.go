@@ -54,6 +54,11 @@ type DocumentRepo interface {
 	UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error
 }
 
+type documentFilterRepo interface {
+	ListDocumentsWithFilterAndArchiveScope(limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error)
+	ListDocumentsByDealWithFilterAndArchiveScope(dealID int64, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error)
+}
+
 type LeadRepo interface {
 	GetByID(id int) (*models.Leads, error)
 }
@@ -583,7 +588,18 @@ func (s *DocumentService) ListDocumentsWithArchiveScope(limit, offset int, scope
 	return s.DocRepo.ListDocumentsWithArchiveScope(limit, offset, scope)
 }
 
+func (s *DocumentService) ListDocumentsWithFilterAndArchiveScope(limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error) {
+	if repo, ok := s.DocRepo.(documentFilterRepo); ok {
+		return repo.ListDocumentsWithFilterAndArchiveScope(limit, offset, filter, scope)
+	}
+	return s.DocRepo.ListDocumentsWithArchiveScope(limit, offset, scope)
+}
+
 func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int, scope repositories.ArchiveScope) ([]*models.Document, error) {
+	return s.ListDocumentsByDealWithFilter(dealID, userID, roleID, repositories.DocumentListFilter{}, scope)
+}
+
+func (s *DocumentService) ListDocumentsByDealWithFilter(dealID int64, userID, roleID int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error) {
 	deal, err := s.DealRepo.GetByID(int(dealID))
 	if err != nil || deal == nil {
 		return nil, errors.New("not found")
@@ -591,6 +607,9 @@ func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int, 
 	// Sales — только свои сделки
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, errors.New("forbidden")
+	}
+	if repo, ok := s.DocRepo.(documentFilterRepo); ok {
+		return repo.ListDocumentsByDealWithFilterAndArchiveScope(dealID, filter, scope)
 	}
 	return s.DocRepo.ListDocumentsByDealWithArchiveScope(dealID, scope)
 }

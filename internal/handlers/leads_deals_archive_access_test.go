@@ -18,6 +18,8 @@ type leadHandlerStubService struct {
 	archiveCalled bool
 	listScope     repositories.ArchiveScope
 	listMyScope   repositories.ArchiveScope
+	listFilter    repositories.LeadListFilter
+	listMyFilter  repositories.LeadListFilter
 	deleteCalled  bool
 	archiveErr    error
 	deleteErr     error
@@ -37,12 +39,18 @@ func (s *leadHandlerStubService) Delete(id int, userID, roleID int) error {
 	s.deleteCalled = true
 	return s.deleteErr
 }
-func (s *leadHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
+func (s *leadHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
 	s.listScope = scope
+	s.listFilter = filter
 	return []*models.Leads{}, nil
 }
 func (s *leadHandlerStubService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
 	s.listMyScope = scope
+	return []*models.Leads{}, nil
+}
+func (s *leadHandlerStubService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
+	s.listMyScope = scope
+	s.listMyFilter = filter
 	return []*models.Leads{}, nil
 }
 func (s *leadHandlerStubService) AssignOwner(id, assigneeID, userID, roleID int) error { return nil }
@@ -150,6 +158,70 @@ func TestLeadList_SupportsArchivedFilter(t *testing.T) {
 	}
 }
 
+func TestLeadList_AppliesExtendedFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &leadHandlerStubService{}
+	h := &LeadHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/leads?q=Smoke&status_group=active&sort_by=title&order=asc", "", authz.RoleManagement)
+	c.Request = httptest.NewRequest(http.MethodGet, "/leads?q=Smoke&status_group=active&sort_by=title&order=asc", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleManagement)
+	h.List(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listFilter.Query != "Smoke" || s.listFilter.StatusGroup != "active" || s.listFilter.SortBy != "title" || s.listFilter.Order != "asc" {
+		t.Fatalf("unexpected lead filter: %+v", s.listFilter)
+	}
+}
+
+func TestLeadListMy_ForwardsFiltersAndKeepsOwnerScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &leadHandlerStubService{}
+	h := &LeadHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/leads/my?q=7701&status=converted&archive=all", "", authz.RoleSales)
+	c.Request = httptest.NewRequest(http.MethodGet, "/leads/my?q=7701&status=converted&archive=all", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleSales)
+	h.ListMy(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listMyScope != repositories.ArchiveScopeAll {
+		t.Fatalf("expected all scope, got %s", s.listMyScope)
+	}
+	if s.listMyFilter.Query != "7701" || s.listMyFilter.Status != "converted" {
+		t.Fatalf("unexpected my filter: %+v", s.listMyFilter)
+	}
+}
+
+func TestLeadList_InvalidFilterParams(t *testing.T) {
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{name: "invalid sort", url: "/leads?sort_by=amount"},
+		{name: "invalid order", url: "/leads?order=up"},
+		{name: "invalid status", url: "/leads?status=won"},
+		{name: "invalid status group", url: "/leads?status_group=completed"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			s := &leadHandlerStubService{}
+			h := &LeadHandler{Service: s}
+			c, w := ctx(http.MethodGet, tc.url, "", authz.RoleManagement)
+			c.Request = httptest.NewRequest(http.MethodGet, tc.url, nil)
+			c.Set("user_id", 100)
+			c.Set("role_id", authz.RoleManagement)
+			h.List(c)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestDealDelete_NonAdminForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &DealHandler{Service: &dealHandlerStubService{}}
@@ -250,5 +322,91 @@ func TestDealList_InvalidClientID(t *testing.T) {
 	h.List(c)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDealList_AppliesExtendedFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals?q=Марина&status_group=active&amount_min=50000&amount_max=300000&currency=kzt&sort_by=amount&order=desc", "", authz.RoleManagement)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals?q=Марина&status_group=active&amount_min=50000&amount_max=300000&currency=kzt&sort_by=amount&order=desc", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleManagement)
+	h.List(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listFilter.Query != "Марина" || s.listFilter.StatusGroup != "active" || s.listFilter.Currency != "KZT" || s.listFilter.SortBy != "amount" || s.listFilter.Order != "desc" {
+		t.Fatalf("unexpected filter fields: %+v", s.listFilter)
+	}
+	if s.listFilter.AmountMin == nil || *s.listFilter.AmountMin != 50000 {
+		t.Fatalf("expected amount_min=50000, got %+v", s.listFilter.AmountMin)
+	}
+	if s.listFilter.AmountMax == nil || *s.listFilter.AmountMax != 300000 {
+		t.Fatalf("expected amount_max=300000, got %+v", s.listFilter.AmountMax)
+	}
+}
+
+func TestDealList_StatusHasPriorityOverStatusGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals?status=won&status_group=active", "", authz.RoleManagement)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals?status=won&status_group=active", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleManagement)
+	h.List(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listFilter.Status != "won" || s.listFilter.StatusGroup != "active" {
+		t.Fatalf("unexpected filters: %+v", s.listFilter)
+	}
+}
+
+func TestDealListMy_ForwardsExtendedFiltersInOwnerScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &dealHandlerStubService{}
+	h := &DealHandler{Service: s}
+	c, w := ctx(http.MethodGet, "/deals/my?q=7701&status=won&currency=usd", "", authz.RoleSales)
+	c.Request = httptest.NewRequest(http.MethodGet, "/deals/my?q=7701&status=won&currency=usd", nil)
+	c.Set("user_id", 100)
+	c.Set("role_id", authz.RoleSales)
+	h.ListMy(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if s.listMyFilter.Query != "7701" || s.listMyFilter.Status != "won" || s.listMyFilter.Currency != "USD" {
+		t.Fatalf("unexpected listMy filter: %+v", s.listMyFilter)
+	}
+}
+
+func TestDealList_InvalidAmountAndSortFilters(t *testing.T) {
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{name: "invalid amount min", url: "/deals?amount_min=oops"},
+		{name: "invalid amount max", url: "/deals?amount_max=oops"},
+		{name: "invalid sort", url: "/deals?sort_by=random_field"},
+		{name: "invalid order", url: "/deals?order=up"},
+		{name: "invalid status", url: "/deals?status=converted"},
+		{name: "invalid status group", url: "/deals?status_group=unknown"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			s := &dealHandlerStubService{}
+			h := &DealHandler{Service: s}
+			c, w := ctx(http.MethodGet, tc.url, "", authz.RoleManagement)
+			c.Request = httptest.NewRequest(http.MethodGet, tc.url, nil)
+			c.Set("user_id", 100)
+			c.Set("role_id", authz.RoleManagement)
+			h.List(c)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

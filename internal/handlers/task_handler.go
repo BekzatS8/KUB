@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -164,38 +166,10 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	var filter models.TaskFilter
-	if v, ok := c.GetQuery("assignee_id"); ok {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filter.AssigneeID = &id
-		} else {
-			log.Printf("[task][list][warn] bad assignee_id=%q: %v", v, err)
-		}
-	}
-	if v, ok := c.GetQuery("creator_id"); ok {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filter.CreatorID = &id
-		} else {
-			log.Printf("[task][list][warn] bad creator_id=%q: %v", v, err)
-		}
-	}
-	if v, ok := c.GetQuery("entity_id"); ok {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filter.EntityID = &id
-		} else {
-			log.Printf("[task][list][warn] bad entity_id=%q: %v", v, err)
-		}
-	}
-	if v, ok := c.GetQuery("entity_type"); ok {
-		et := v
-		filter.EntityType = &et
-	}
-	if v, ok := c.GetQuery("status"); ok {
-		st := models.TaskStatus(v)
-		filter.Status = &st
-	}
-	if v, ok := c.GetQuery("archive"); ok {
-		filter.Archive = v
+	filter, err := taskFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
 	}
 
 	uid := int64(userID)
@@ -214,6 +188,57 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	}
 	log.Printf("[task][list][ok] count=%d", len(tasks))
 	c.JSON(http.StatusOK, tasks)
+}
+
+func taskFilterFromQuery(c *gin.Context) (models.TaskFilter, error) {
+	filter := models.TaskFilter{
+		Query:       strings.TrimSpace(c.Query("q")),
+		StatusGroup: strings.ToLower(strings.TrimSpace(c.Query("status_group"))),
+		SortBy:      strings.ToLower(strings.TrimSpace(c.Query("sort_by"))),
+		Order:       strings.ToLower(strings.TrimSpace(c.Query("order"))),
+		Archive:     strings.TrimSpace(c.Query("archive")),
+	}
+	if raw := strings.TrimSpace(c.Query("assignee_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return models.TaskFilter{}, errors.New("Invalid assignee_id")
+		}
+		filter.AssigneeID = &id
+	}
+	if raw := strings.TrimSpace(c.Query("creator_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return models.TaskFilter{}, errors.New("Invalid creator_id")
+		}
+		filter.CreatorID = &id
+	}
+	if raw := strings.TrimSpace(c.Query("entity_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return models.TaskFilter{}, errors.New("Invalid entity_id")
+		}
+		filter.EntityID = &id
+	}
+	if v := strings.TrimSpace(c.Query("entity_type")); v != "" {
+		filter.EntityType = &v
+	}
+	if v := strings.ToLower(strings.TrimSpace(c.Query("status"))); v != "" {
+		st := models.TaskStatus(v)
+		if !isAllowedTaskStatus(st) {
+			return models.TaskFilter{}, errors.New("Invalid status")
+		}
+		filter.Status = &st
+	}
+	if filter.StatusGroup != "" && filter.StatusGroup != "active" && filter.StatusGroup != "closed" && filter.StatusGroup != "all" {
+		return models.TaskFilter{}, errors.New("Invalid status_group")
+	}
+	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "due_date" && filter.SortBy != "priority" && filter.SortBy != "status" && filter.SortBy != "title" {
+		return models.TaskFilter{}, errors.New("Invalid sort_by")
+	}
+	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
+		return models.TaskFilter{}, errors.New("Invalid order")
+	}
+	return filter, nil
 }
 
 // PUT /tasks/:id

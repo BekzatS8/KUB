@@ -7,12 +7,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/models"
 )
 
 type ClientRepository struct{ db *sql.DB }
 
 func NewClientRepository(db *sql.DB) *ClientRepository { return &ClientRepository{db: db} }
+
+type ClientListFilter struct {
+	Query           string
+	ClientType      string
+	HasDeals        *bool
+	DealStatusGroup string
+	SortBy          string
+	Order           string
+}
 
 type clientRowScanner interface{ Scan(dest ...any) error }
 
@@ -395,57 +406,45 @@ func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
 }
 
 func (r *ClientRepository) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
-	return r.ListAllWithArchiveScope(limit, offset, clientType, ArchiveScopeActiveOnly)
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, ClientListFilter{ClientType: clientType}, ArchiveScopeActiveOnly)
 }
 
 func (r *ClientRepository) ListAllWithArchiveScope(limit, offset int, clientType string, scope ArchiveScope) ([]*models.Client, error) {
-	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND ($3='' OR c.client_type=$3) ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`
-	return r.queryMany(q, limit, offset, strings.TrimSpace(strings.ToLower(clientType)))
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, ClientListFilter{ClientType: clientType}, scope)
+}
+
+func (r *ClientRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter ClientListFilter, scope ArchiveScope) ([]*models.Client, error) {
+	return r.listWithFilterAndArchiveScope(nil, "", limit, offset, filter, scope)
 }
 func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
 	return r.ListAll(limit, offset, "")
 }
 func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
-	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, clientType, ArchiveScopeActiveOnly)
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, ClientListFilter{ClientType: clientType}, ArchiveScopeActiveOnly)
 }
 
 func (r *ClientRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, clientType string, scope ArchiveScope) ([]*models.Client, error) {
-	q := clientSelect + ` WHERE c.owner_id=$1 AND (` + clientArchiveWhere(scope) + `) AND ($4='' OR c.client_type=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	filter := strings.TrimSpace(strings.ToLower(clientType))
-	clients, err := r.queryMany(q, ownerID, limit, offset, filter)
-	if err == nil {
-		return clients, nil
-	}
-	err = fmt.Errorf("list clients by owner primary query: %w", err)
-	if !isProfileSplitTableMissing(err) {
-		return nil, err
-	}
-	legacyQ := clientSelectLegacy + ` WHERE c.owner_id=$1 AND (` + clientArchiveWhere(scope) + `) AND ($4='' OR COALESCE(c.client_type,'individual')=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	clients, err = r.queryMany(legacyQ, ownerID, limit, offset, filter)
-	if err != nil {
-		return nil, fmt.Errorf("list clients by owner legacy fallback: %w", err)
-	}
-	return clients, nil
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, ClientListFilter{ClientType: clientType}, scope)
+}
+
+func (r *ClientRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter ClientListFilter, scope ArchiveScope) ([]*models.Client, error) {
+	return r.listWithFilterAndArchiveScope(&ownerID, "", limit, offset, filter, scope)
 }
 func (r *ClientRepository) ListIndividuals(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
 	return r.ListIndividualsWithArchiveScope(ownerID, search, limit, offset, ArchiveScopeActiveOnly)
 }
 
 func (r *ClientRepository) ListIndividualsWithArchiveScope(ownerID int, search string, limit, offset int, scope ArchiveScope) ([]*models.Client, error) {
-	_ = ownerID
-	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND c.client_type='individual' AND ($1='' OR CONCAT_WS(' ', ip.last_name, ip.first_name, ip.middle_name) ILIKE $1 OR ip.iin ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	needle := like(search)
-	return r.queryMany(q, needle, limit, offset)
+	filter := ClientListFilter{Query: search}
+	return r.listWithFilterAndArchiveScope(nil, models.ClientTypeIndividual, limit, offset, filter, scope)
 }
 func (r *ClientRepository) ListCompanies(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
 	return r.ListCompaniesWithArchiveScope(ownerID, search, limit, offset, ArchiveScopeActiveOnly)
 }
 
 func (r *ClientRepository) ListCompaniesWithArchiveScope(ownerID int, search string, limit, offset int, scope ArchiveScope) ([]*models.Client, error) {
-	_ = ownerID
-	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND c.client_type='legal' AND ($1='' OR lp.company_name ILIKE $1 OR lp.bin ILIKE $1 OR lp.contact_person_name ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
-	needle := like(search)
-	return r.queryMany(q, needle, limit, offset)
+	filter := ClientListFilter{Query: search}
+	return r.listWithFilterAndArchiveScope(nil, models.ClientTypeLegal, limit, offset, filter, scope)
 }
 func (r *ClientRepository) FindByName(name string) ([]*models.Client, error) {
 	q := clientSelect + ` WHERE COALESCE(c.display_name,c.name) ILIKE $1 ORDER BY c.created_at DESC`
@@ -565,6 +564,120 @@ func like(v string) string {
 		return ""
 	}
 	return "%" + v + "%"
+}
+
+func (r *ClientRepository) listWithFilterAndArchiveScope(ownerID *int, forcedType string, limit, offset int, filter ClientListFilter, scope ArchiveScope) ([]*models.Client, error) {
+	sortExpr, sortOrder := clientSortExpression(filter)
+	where, args := buildClientListWhere(ownerID, forcedType, filter, scope, 1)
+	args = append(args, limit, offset)
+	query := clientSelect + fmt.Sprintf(` WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d`, where, sortExpr, sortOrder, len(args)-1, len(args))
+	clients, err := r.queryMany(query, args...)
+	if err == nil {
+		return clients, nil
+	}
+	primaryLabel := "list clients primary query"
+	fallbackLabel := "list clients legacy fallback"
+	if ownerID != nil {
+		primaryLabel = "list clients by owner primary query"
+		fallbackLabel = "list clients by owner legacy fallback"
+	}
+	err = fmt.Errorf("%s: %w", primaryLabel, err)
+	if !isProfileSplitTableMissing(err) {
+		return nil, err
+	}
+	legacyQuery := clientSelectLegacy + fmt.Sprintf(` WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d`, where, sortExpr, sortOrder, len(args)-1, len(args))
+	clients, err = r.queryMany(legacyQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fallbackLabel, err)
+	}
+	return clients, nil
+}
+
+func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilter, scope ArchiveScope, startAt int) (string, []any) {
+	conditions := []string{clientArchiveWhere(scope)}
+	args := make([]any, 0, 8)
+	idx := startAt
+
+	if ownerID != nil {
+		conditions = append(conditions, fmt.Sprintf("c.owner_id = $%d", idx))
+		args = append(args, *ownerID)
+		idx++
+	}
+
+	clientType := strings.ToLower(strings.TrimSpace(filter.ClientType))
+	if forcedType != "" {
+		clientType = forcedType
+	}
+	if clientType == "company" {
+		clientType = models.ClientTypeLegal
+	}
+	if clientType != "" {
+		conditions = append(conditions, fmt.Sprintf("COALESCE(c.client_type, 'individual') = $%d", idx))
+		args = append(args, clientType)
+		idx++
+	}
+
+	if filter.Query != "" {
+		conditions = append(conditions, fmt.Sprintf(`(
+			LOWER(COALESCE(c.name, '')) LIKE $%d OR
+			LOWER(COALESCE(c.display_name, '')) LIKE $%d OR
+			LOWER(CONCAT_WS(' ', COALESCE(ip.last_name, ''), COALESCE(ip.first_name, ''), COALESCE(ip.middle_name, ''))) LIKE $%d OR
+			LOWER(COALESCE(lp.company_name, '')) LIKE $%d OR
+			LOWER(COALESCE(c.bin_iin, lp.bin, '')) LIKE $%d OR
+			LOWER(COALESCE(ip.iin, '')) LIKE $%d OR
+			LOWER(COALESCE(c.primary_phone, c.phone, lp.contact_person_phone, '')) LIKE $%d OR
+			LOWER(COALESCE(c.primary_email, c.email, lp.contact_person_email, '')) LIKE $%d
+		)`, idx, idx, idx, idx, idx, idx, idx, idx))
+		args = append(args, "%"+strings.ToLower(filter.Query)+"%")
+		idx++
+	}
+
+	if filter.HasDeals != nil {
+		dealsClause := "d.client_id = c.id AND d.is_archived = FALSE"
+		if statuses := clientDealStatusesFromGroup(filter.DealStatusGroup); len(statuses) > 0 {
+			dealsClause += fmt.Sprintf(" AND COALESCE(d.status, 'new') = ANY($%d)", idx)
+			args = append(args, pq.Array(statuses))
+			idx++
+		}
+		existsExpr := fmt.Sprintf("EXISTS (SELECT 1 FROM deals d WHERE %s)", dealsClause)
+		if *filter.HasDeals {
+			conditions = append(conditions, existsExpr)
+		} else {
+			conditions = append(conditions, "NOT "+existsExpr)
+		}
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+func clientDealStatusesFromGroup(group string) []string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "active":
+		return []string{"new", "in_progress", "negotiation"}
+	case "completed":
+		return []string{"won"}
+	case "closed":
+		return []string{"lost", "cancelled"}
+	default:
+		return nil
+	}
+}
+
+func clientSortExpression(filter ClientListFilter) (string, string) {
+	order := "DESC"
+	if strings.EqualFold(filter.Order, "asc") {
+		order = "ASC"
+	}
+	switch filter.SortBy {
+	case "name":
+		return "LOWER(COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), ''))", order
+	case "display_name":
+		return "LOWER(COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), ''))", order
+	case "client_type":
+		return "COALESCE(c.client_type, 'individual')", order
+	default:
+		return "c.created_at", order
+	}
 }
 
 func isProfileSplitTableMissing(err error) bool {

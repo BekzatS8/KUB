@@ -28,10 +28,10 @@ type clientService interface {
 	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
 	GetByID(id int, userID, roleID int) (*models.Client, error)
 	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Client, error)
-	ListForRole(userID, roleID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error)
-	ListMineWithArchiveScope(userID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error)
-	ListIndividualsForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error)
-	ListCompaniesForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListMineWithArchiveScope(userID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error)
 	GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error)
 	GetProfile(ctx context.Context, clientID, userID, roleID int) (*services.ClientProfilePayload, error)
 }
@@ -813,22 +813,25 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	if offset < 0 {
 		offset = 0
 	}
-	q := strings.TrimSpace(c.Query("q"))
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
+	filter, err := clientListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 
 	var (
 		clients []*models.Client
-		err     error
 	)
 	switch kind {
 	case "individual":
-		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, q, scope)
+		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, filter, scope)
 	case "company":
-		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, q, scope)
+		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, filter, scope)
 	default:
 		badRequest(c, "invalid client list type")
 		return
@@ -859,15 +862,19 @@ func (h *ClientHandler) List(c *gin.Context) {
 		size = 100
 	}
 	offset := (page - 1) * size
-	clientType := strings.TrimSpace(c.Query("client_type"))
+	filter, err := clientListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType, scope)
+	clients, err := h.Service.ListForRole(userID, roleID, size, offset, filter, scope)
 	if err != nil {
-		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
+		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
 			return
@@ -893,15 +900,19 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 		size = 100
 	}
 	offset := (page - 1) * size
-	clientType := strings.TrimSpace(c.Query("client_type"))
+	filter, err := clientListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-	clients, err := h.Service.ListMineWithArchiveScope(userID, size, offset, clientType, scope)
+	clients, err := h.Service.ListMineWithArchiveScope(userID, size, offset, filter, scope)
 	if err != nil {
-		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
+		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
 			return
@@ -914,6 +925,36 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, clients)
+}
+
+func clientListFilterFromQuery(c *gin.Context) (repositories.ClientListFilter, error) {
+	filter := repositories.ClientListFilter{
+		Query:      strings.TrimSpace(c.Query("q")),
+		ClientType: strings.ToLower(strings.TrimSpace(c.Query("client_type"))),
+		SortBy:     strings.ToLower(strings.TrimSpace(c.Query("sort_by"))),
+		Order:      strings.ToLower(strings.TrimSpace(c.Query("order"))),
+	}
+	if filter.ClientType != "" && filter.ClientType != models.ClientTypeIndividual && filter.ClientType != models.ClientTypeLegal {
+		return repositories.ClientListFilter{}, errors.New("invalid client_type: allowed values are individual, legal")
+	}
+	if raw := strings.TrimSpace(c.Query("has_deals")); raw != "" {
+		hasDeals, err := strconv.ParseBool(raw)
+		if err != nil {
+			return repositories.ClientListFilter{}, errors.New("Invalid has_deals")
+		}
+		filter.HasDeals = &hasDeals
+	}
+	filter.DealStatusGroup = strings.ToLower(strings.TrimSpace(c.Query("deal_status_group")))
+	if filter.DealStatusGroup != "" && filter.DealStatusGroup != "active" && filter.DealStatusGroup != "completed" && filter.DealStatusGroup != "closed" && filter.DealStatusGroup != "all" {
+		return repositories.ClientListFilter{}, errors.New("Invalid deal_status_group")
+	}
+	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "name" && filter.SortBy != "display_name" && filter.SortBy != "client_type" {
+		return repositories.ClientListFilter{}, errors.New("Invalid sort_by")
+	}
+	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
+		return repositories.ClientListFilter{}, errors.New("Invalid order")
+	}
+	return filter, nil
 }
 
 func (h *ClientHandler) GetCompleteness(c *gin.Context) {

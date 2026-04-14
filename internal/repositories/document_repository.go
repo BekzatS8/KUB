@@ -3,6 +3,7 @@ package repositories
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"turcompany/internal/models"
@@ -11,6 +12,17 @@ import (
 type DocumentRepository struct{ db *sql.DB }
 
 func NewDocumentRepository(db *sql.DB) *DocumentRepository { return &DocumentRepository{db: db} }
+
+type DocumentListFilter struct {
+	Query      string
+	Status     string
+	DocType    string
+	DealID     *int64
+	ClientID   *int64
+	ClientType string
+	SortBy     string
+	Order      string
+}
 
 func documentArchiveWhere(scope ArchiveScope) string {
 	switch scope {
@@ -21,6 +33,40 @@ func documentArchiveWhere(scope ArchiveScope) string {
 	default:
 		return "is_archived = FALSE"
 	}
+}
+
+const documentBaseSelect = `
+	SELECT dcm.id, dcm.deal_id, dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
+	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
+	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
+	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,'')
+	FROM documents dcm
+	LEFT JOIN deals d ON d.id = dcm.deal_id
+	LEFT JOIN clients c ON c.id = d.client_id
+`
+
+func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Document, error) {
+	var d models.Document
+	var signedAt, createdAt, archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	if err := scanner.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
+		return nil, err
+	}
+	if signedAt.Valid {
+		d.SignedAt = &signedAt.Time
+	}
+	if createdAt.Valid {
+		d.CreatedAt = createdAt.Time
+	}
+	if archivedAt.Valid {
+		t := archivedAt.Time
+		d.ArchivedAt = &t
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		d.ArchivedBy = &by
+	}
+	return &d, nil
 }
 
 func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
@@ -131,40 +177,27 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 }
 
 func (r *DocumentRepository) ListDocumentsByDealWithArchiveScope(dealID int64, scope ArchiveScope) ([]*models.Document, error) {
-	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
-		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
-		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
-		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
-		FROM documents WHERE deal_id = $1 AND %s ORDER BY id DESC`
-	rows, err := r.db.Query(fmt.Sprintf(q, documentArchiveWhere(scope)), dealID)
+	filter := DocumentListFilter{DealID: &dealID}
+	return r.ListDocumentsByDealWithFilterAndArchiveScope(dealID, filter, scope)
+}
+
+func (r *DocumentRepository) ListDocumentsByDealWithFilterAndArchiveScope(dealID int64, filter DocumentListFilter, scope ArchiveScope) ([]*models.Document, error) {
+	filter.DealID = &dealID
+	where, args := buildDocumentListWhere(filter, scope, 1)
+	sortExpr, sortOrder := documentSortExpression(filter)
+	query := documentBaseSelect + fmt.Sprintf(" WHERE %s ORDER BY %s %s", where, sortExpr, sortOrder)
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list by deal: %w", err)
 	}
 	defer rows.Close()
 	var res []*models.Document
 	for rows.Next() {
-		var d models.Document
-		var signedAt, createdAt, archivedAt sql.NullTime
-		var archivedBy sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
+		d, err := scanDocument(rows)
+		if err != nil {
 			return nil, err
 		}
-		if signedAt.Valid {
-			d.SignedAt = &signedAt.Time
-		}
-		if createdAt.Valid {
-			d.CreatedAt = createdAt.Time
-		}
-		if archivedAt.Valid {
-			t := archivedAt.Time
-			d.ArchivedAt = &t
-		}
-		if archivedBy.Valid {
-			by := int(archivedBy.Int64)
-			d.ArchivedBy = &by
-		}
-		res = append(res, &d)
+		res = append(res, d)
 	}
 	return res, rows.Err()
 }
@@ -194,42 +227,90 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 }
 
 func (r *DocumentRepository) ListDocumentsWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Document, error) {
-	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
-		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
-		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
-		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
-		FROM documents WHERE %s ORDER BY id DESC LIMIT $1 OFFSET $2`
-	rows, err := r.db.Query(fmt.Sprintf(q, documentArchiveWhere(scope)), limit, offset)
+	return r.ListDocumentsWithFilterAndArchiveScope(limit, offset, DocumentListFilter{}, scope)
+}
+
+func (r *DocumentRepository) ListDocumentsWithFilterAndArchiveScope(limit, offset int, filter DocumentListFilter, scope ArchiveScope) ([]*models.Document, error) {
+	where, args := buildDocumentListWhere(filter, scope, 1)
+	sortExpr, sortOrder := documentSortExpression(filter)
+	args = append(args, limit, offset)
+	query := documentBaseSelect + fmt.Sprintf(" WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d", where, sortExpr, sortOrder, len(args)-1, len(args))
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
 	}
 	defer rows.Close()
 	var res []*models.Document
 	for rows.Next() {
-		var d models.Document
-		var signedAt, createdAt, archivedAt sql.NullTime
-		var archivedBy sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
+		d, err := scanDocument(rows)
+		if err != nil {
 			return nil, err
 		}
-		if signedAt.Valid {
-			d.SignedAt = &signedAt.Time
-		}
-		if createdAt.Valid {
-			d.CreatedAt = createdAt.Time
-		}
-		if archivedAt.Valid {
-			t := archivedAt.Time
-			d.ArchivedAt = &t
-		}
-		if archivedBy.Valid {
-			by := int(archivedBy.Int64)
-			d.ArchivedBy = &by
-		}
-		res = append(res, &d)
+		res = append(res, d)
 	}
 	return res, rows.Err()
+}
+
+func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, startAt int) (string, []any) {
+	conditions := []string{strings.ReplaceAll(documentArchiveWhere(scope), "is_archived", "dcm.is_archived")}
+	args := make([]any, 0, 8)
+	idx := startAt
+
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("dcm.status = $%d", idx))
+		args = append(args, filter.Status)
+		idx++
+	}
+	if filter.DocType != "" {
+		conditions = append(conditions, fmt.Sprintf("dcm.doc_type = $%d", idx))
+		args = append(args, filter.DocType)
+		idx++
+	}
+	if filter.DealID != nil {
+		conditions = append(conditions, fmt.Sprintf("dcm.deal_id = $%d", idx))
+		args = append(args, *filter.DealID)
+		idx++
+	}
+	if filter.ClientID != nil {
+		conditions = append(conditions, fmt.Sprintf("d.client_id = $%d", idx))
+		args = append(args, *filter.ClientID)
+		idx++
+	}
+	if filter.ClientType != "" {
+		conditions = append(conditions, fmt.Sprintf("c.client_type = $%d", idx))
+		args = append(args, filter.ClientType)
+		idx++
+	}
+	if filter.Query != "" {
+		conditions = append(conditions, fmt.Sprintf(`(
+			LOWER(COALESCE(dcm.doc_type, '')) LIKE $%d OR
+			LOWER(COALESCE(dcm.file_path_docx, dcm.file_path_pdf, dcm.file_path, '')) LIKE $%d OR
+			CAST(dcm.deal_id AS TEXT) LIKE $%d OR
+			LOWER(COALESCE(c.display_name, c.name, '')) LIKE $%d
+		)`, idx, idx, idx, idx))
+		args = append(args, "%"+strings.ToLower(filter.Query)+"%")
+	}
+
+	return strings.Join(conditions, " AND "), args
+}
+
+func documentSortExpression(filter DocumentListFilter) (string, string) {
+	order := "DESC"
+	if strings.EqualFold(filter.Order, "asc") {
+		order = "ASC"
+	}
+	switch filter.SortBy {
+	case "created_at":
+		return "dcm.created_at", order
+	case "status":
+		return "dcm.status", order
+	case "doc_type":
+		return "dcm.doc_type", order
+	case "name":
+		return "LOWER(COALESCE(dcm.file_path_docx, dcm.file_path_pdf, dcm.file_path, ''))", order
+	default:
+		return "dcm.id", order
+	}
 }
 
 func (r *DocumentRepository) UpdateSigningMeta(id int64, signMethod, signIP, signUserAgent, signMetadata string) error {

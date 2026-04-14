@@ -186,7 +186,12 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-	docs, err := h.Service.ListDocumentsByDeal(dealID, userID, roleID, scope)
+	filter, err := documentListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	docs, err := h.Service.ListDocumentsByDealWithFilter(dealID, userID, roleID, filter, scope)
 	if err != nil {
 		if err.Error() == "forbidden" {
 			forbidden(c, "Forbidden")
@@ -251,13 +256,64 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-
-	docs, err := h.Service.ListDocumentsWithArchiveScope(size, offset, scope)
+	filter, err := documentListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	docs, err := h.Service.ListDocumentsWithFilterAndArchiveScope(size, offset, filter, scope)
 	if err != nil {
 		internalError(c, "Could not fetch documents")
 		return
 	}
 	c.JSON(http.StatusOK, docs)
+}
+
+func documentListFilterFromQuery(c *gin.Context) (repositories.DocumentListFilter, error) {
+	filter := repositories.DocumentListFilter{
+		Query:      strings.TrimSpace(c.Query("q")),
+		Status:     strings.ToLower(strings.TrimSpace(c.Query("status"))),
+		DocType:    strings.ToLower(strings.TrimSpace(c.Query("doc_type"))),
+		ClientType: strings.ToLower(strings.TrimSpace(c.Query("client_type"))),
+		SortBy:     strings.ToLower(strings.TrimSpace(c.Query("sort_by"))),
+		Order:      strings.ToLower(strings.TrimSpace(c.Query("order"))),
+	}
+	if filter.Status != "" && !isAllowedDocumentStatus(filter.Status) {
+		return repositories.DocumentListFilter{}, errors.New("Invalid status")
+	}
+	if raw := strings.TrimSpace(c.Query("deal_id")); raw != "" {
+		dealID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || dealID <= 0 {
+			return repositories.DocumentListFilter{}, errors.New("Invalid deal_id")
+		}
+		filter.DealID = &dealID
+	}
+	if raw := strings.TrimSpace(c.Query("client_id")); raw != "" {
+		clientID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || clientID <= 0 {
+			return repositories.DocumentListFilter{}, errors.New("Invalid client_id")
+		}
+		filter.ClientID = &clientID
+	}
+	if filter.ClientType != "" && filter.ClientType != models.ClientTypeIndividual && filter.ClientType != models.ClientTypeLegal {
+		return repositories.DocumentListFilter{}, errors.New("Invalid client_type")
+	}
+	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "status" && filter.SortBy != "doc_type" && filter.SortBy != "name" {
+		return repositories.DocumentListFilter{}, errors.New("Invalid sort_by")
+	}
+	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
+		return repositories.DocumentListFilter{}, errors.New("Invalid order")
+	}
+	return filter, nil
+}
+
+func isAllowedDocumentStatus(status string) bool {
+	switch status {
+	case "draft", "under_review", "approved", "returned", "sent_for_signature", "signed", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 // ===== Специальный сценарий =====
