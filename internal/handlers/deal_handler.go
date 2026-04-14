@@ -399,9 +399,9 @@ func (h *DealHandler) List(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-	filter, ok := dealListFilterFromQuery(c)
-	if !ok {
-		badRequest(c, "Invalid client_id")
+	filter, err := dealListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -436,9 +436,9 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
-	filter, ok := dealListFilterFromQuery(c)
-	if !ok {
-		badRequest(c, "Invalid client_id")
+	filter, err := dealListFilterFromQuery(c)
+	if err != nil {
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -454,16 +454,59 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 	c.JSON(http.StatusOK, deals)
 }
 
-func dealListFilterFromQuery(c *gin.Context) (repositories.DealListFilter, bool) {
+func dealListFilterFromQuery(c *gin.Context) (repositories.DealListFilter, error) {
 	filter := repositories.DealListFilter{}
 	clientIDRaw := strings.TrimSpace(c.Query("client_id"))
 	if clientIDRaw != "" {
 		clientID, err := strconv.Atoi(clientIDRaw)
 		if err != nil || clientID <= 0 {
-			return repositories.DealListFilter{}, false
+			return repositories.DealListFilter{}, errors.New("Invalid client_id")
 		}
 		filter.ClientID = clientID
 	}
 	filter.ClientType = strings.ToLower(strings.TrimSpace(c.Query("client_type")))
-	return filter, true
+	filter.Query = strings.TrimSpace(c.Query("q"))
+	filter.Status = strings.ToLower(strings.TrimSpace(c.Query("status")))
+	if filter.Status != "" && !isAllowedDealStatus(filter.Status) {
+		return repositories.DealListFilter{}, errors.New("Invalid status")
+	}
+	filter.StatusGroup = strings.ToLower(strings.TrimSpace(c.Query("status_group")))
+	if filter.StatusGroup != "" && filter.StatusGroup != "active" && filter.StatusGroup != "completed" && filter.StatusGroup != "closed" && filter.StatusGroup != "all" {
+		return repositories.DealListFilter{}, errors.New("Invalid status_group")
+	}
+	amountMinRaw := strings.TrimSpace(c.Query("amount_min"))
+	if amountMinRaw != "" {
+		amountMin, err := strconv.ParseFloat(amountMinRaw, 64)
+		if err != nil {
+			return repositories.DealListFilter{}, errors.New("Invalid amount_min")
+		}
+		filter.AmountMin = &amountMin
+	}
+	amountMaxRaw := strings.TrimSpace(c.Query("amount_max"))
+	if amountMaxRaw != "" {
+		amountMax, err := strconv.ParseFloat(amountMaxRaw, 64)
+		if err != nil {
+			return repositories.DealListFilter{}, errors.New("Invalid amount_max")
+		}
+		filter.AmountMax = &amountMax
+	}
+	filter.Currency = strings.ToUpper(strings.TrimSpace(c.Query("currency")))
+	filter.SortBy = strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "amount" && filter.SortBy != "status" && filter.SortBy != "client_name" {
+		return repositories.DealListFilter{}, errors.New("Invalid sort_by")
+	}
+	filter.Order = strings.ToLower(strings.TrimSpace(c.Query("order")))
+	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
+		return repositories.DealListFilter{}, errors.New("Invalid order")
+	}
+	return filter, nil
+}
+
+func isAllowedDealStatus(status string) bool {
+	switch status {
+	case "new", "in_progress", "negotiation", "won", "lost", "cancelled":
+		return true
+	default:
+		return false
+	}
 }

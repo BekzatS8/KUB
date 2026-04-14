@@ -93,26 +93,30 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 }
 
 func (s *LeadService) ListAll(limit, offset int) ([]*models.Leads, error) {
-	return s.Repo.ListAllWithArchiveScope(limit, offset, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, repositories.LeadListFilter{}, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *LeadService) ListAllWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
-	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, repositories.LeadListFilter{}, scope)
 }
 
 func (s *LeadService) ListMy(ownerID, limit, offset int) ([]*models.Leads, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, repositories.LeadListFilter{}, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *LeadService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, scope)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, repositories.LeadListFilter{}, scope)
 }
 
-func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
+func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+}
+
+func (s *LeadService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 }
 
 func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error) {

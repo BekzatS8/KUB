@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"turcompany/internal/models"
+
+	"github.com/lib/pq"
 )
 
 type TaskRepository interface {
@@ -114,6 +116,18 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 		conditions = append(conditions, fmt.Sprintf("status = $%d", argID))
 		args = append(args, *filter.Status)
 		argID++
+	} else {
+		statuses := taskStatusesFromGroup(filter.StatusGroup)
+		if len(statuses) > 0 {
+			conditions = append(conditions, fmt.Sprintf("status = ANY($%d)", argID))
+			args = append(args, pq.Array(statuses))
+			argID++
+		}
+	}
+	if strings.TrimSpace(filter.Query) != "" {
+		conditions = append(conditions, fmt.Sprintf("(LOWER(COALESCE(title,'')) LIKE $%d OR LOWER(COALESCE(description,'')) LIKE $%d)", argID, argID))
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(filter.Query))+"%")
+		argID++
 	}
 	scope := ArchiveScopeActiveOnly
 	switch strings.ToLower(strings.TrimSpace(filter.Archive)) {
@@ -127,7 +141,8 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	if len(conditions) > 0 {
 		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	baseQuery += " ORDER BY created_at DESC"
+	sortExpr, sortOrder := taskSortExpression(filter.SortBy, filter.Order)
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortExpr, sortOrder)
 
 	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
 	if err != nil {
@@ -148,6 +163,36 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+func taskStatusesFromGroup(group string) []string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "active":
+		return []string{string(models.StatusNew), string(models.StatusInProgress)}
+	case "closed":
+		return []string{string(models.StatusDone), string(models.StatusCancelled)}
+	default:
+		return nil
+	}
+}
+
+func taskSortExpression(sortBy, order string) (string, string) {
+	sortOrder := "DESC"
+	if strings.EqualFold(order, "asc") {
+		sortOrder = "ASC"
+	}
+	switch sortBy {
+	case "due_date":
+		return "due_date", sortOrder
+	case "priority":
+		return "priority", sortOrder
+	case "status":
+		return "status", sortOrder
+	case "title":
+		return "LOWER(COALESCE(title,''))", sortOrder
+	default:
+		return "created_at", sortOrder
+	}
 }
 
 func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {

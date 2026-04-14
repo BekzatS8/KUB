@@ -796,41 +796,61 @@ func mapClientDBError(err error) error {
 }
 
 func (s *ClientService) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
-	return s.Repo.ListAllWithArchiveScope(limit, offset, clientType, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, repositories.ClientListFilter{ClientType: clientType}, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *ClientService) ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(userID, limit, offset, clientType, repositories.ArchiveScopeActiveOnly)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, repositories.ClientListFilter{ClientType: clientType}, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListIndividualsWithArchiveScope(userID, q, limit, offset, scope)
+	if err := s.validateClientListFilter(&filter); err != nil {
+		return nil, err
+	}
+	return s.Repo.ListIndividualsWithArchiveScope(userID, filter.Query, limit, offset, scope)
 }
 
-func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListCompaniesWithArchiveScope(userID, q, limit, offset, scope)
+	if err := s.validateClientListFilter(&filter); err != nil {
+		return nil, err
+	}
+	return s.Repo.ListCompaniesWithArchiveScope(userID, filter.Query, limit, offset, scope)
 }
 
-func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	if strings.TrimSpace(clientType) != "" {
-		if _, err := normalizeClientType(clientType); err != nil {
-			return nil, err
+	if err := s.validateClientListFilter(&filter); err != nil {
+		return nil, err
+	}
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+}
+
+func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
+	if err := s.validateClientListFilter(&filter); err != nil {
+		return nil, err
+	}
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, filter, scope)
+}
+
+func (s *ClientService) validateClientListFilter(filter *repositories.ClientListFilter) error {
+	if filter == nil {
+		return nil
+	}
+	filter.ClientType = strings.ToLower(strings.TrimSpace(filter.ClientType))
+	if filter.ClientType != "" {
+		if _, err := normalizeClientType(filter.ClientType); err != nil {
+			return err
 		}
 	}
-	return s.Repo.ListAllWithArchiveScope(limit, offset, clientType, scope)
-}
-
-func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error) {
-	return s.Repo.ListByOwnerWithArchiveScope(userID, limit, offset, clientType, scope)
+	return nil
 }
 
 func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) error {

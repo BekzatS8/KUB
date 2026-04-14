@@ -46,10 +46,14 @@ type Task struct {
 
 // TaskFilter defines the available parameters for filtering tasks.
 type TaskFilter struct {
-	AssigneeID *int64
-	CreatorID  *int64
-	EntityID   *int64
-	EntityType *string
-	Status     *TaskStatus
-	Archive    string
+	AssigneeID  *int64
+	CreatorID   *int64
+	EntityID    *int64
+	EntityType  *string
+	Status      *TaskStatus
+	StatusGroup string
+	Query       string
+	SortBy      string
+	Order       string
+	Archive     string
 }

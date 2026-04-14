@@ -16,9 +16,9 @@ import (
 )
 
 type stubClientListMyService struct {
-	clients        []*models.Client
-	err            error
-	lastClientType string
+	clients    []*models.Client
+	err        error
+	lastFilter repositories.ClientListFilter
 }
 
 func (s *stubClientListMyService) Create(*models.Client, int, int) (int64, error) {
@@ -43,17 +43,17 @@ func (s *stubClientListMyService) GetByID(int, int, int) (*models.Client, error)
 func (s *stubClientListMyService) GetByIDWithArchiveScope(int, int, int, repositories.ArchiveScope) (*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListForRole(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListMineWithArchiveScope(_ int, _ int, _ int, clientType string, _ repositories.ArchiveScope) ([]*models.Client, error) {
-	s.lastClientType = clientType
+func (s *stubClientListMyService) ListMineWithArchiveScope(_ int, _ int, _ int, filter repositories.ClientListFilter, _ repositories.ArchiveScope) ([]*models.Client, error) {
+	s.lastFilter = filter
 	return s.clients, s.err
 }
-func (s *stubClientListMyService) ListIndividualsForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListIndividualsForRole(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *stubClientListMyService) ListCompaniesForRole(int, int, int, int, string, repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *stubClientListMyService) ListCompaniesForRole(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, error) {
 	return nil, errors.New("not implemented")
 }
 func (s *stubClientListMyService) GetMissingYellow(_ context.Context, _, _, _ int) ([]string, error) {
@@ -154,7 +154,30 @@ func TestClientHandler_ListMy_ForwardsOptionalClientType(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if svc.lastClientType != "legal" {
-		t.Fatalf("expected client_type legal passed to service, got %q", svc.lastClientType)
+	if svc.lastFilter.ClientType != "legal" {
+		t.Fatalf("expected client_type legal passed to service, got %q", svc.lastFilter.ClientType)
+	}
+}
+
+func TestClientHandler_ListMy_ForwardsDealsAndSortFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubClientListMyService{clients: []*models.Client{}}
+	h := &ClientHandler{Service: svc}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/clients/my?has_deals=true&deal_status_group=active&sort_by=client_type&order=desc", nil)
+	c.Set("user_id", 101)
+	c.Set("role_id", 10)
+
+	h.ListMy(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if svc.lastFilter.HasDeals == nil || !*svc.lastFilter.HasDeals {
+		t.Fatalf("expected has_deals=true, got %+v", svc.lastFilter.HasDeals)
+	}
+	if svc.lastFilter.DealStatusGroup != "active" || svc.lastFilter.SortBy != "client_type" || svc.lastFilter.Order != "desc" {
+		t.Fatalf("unexpected filter: %+v", svc.lastFilter)
 	}
 }

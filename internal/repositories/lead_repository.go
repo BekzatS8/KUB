@@ -9,11 +9,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/models"
 )
 
 type LeadRepository struct {
 	db *sql.DB
+}
+
+type LeadListFilter struct {
+	Query       string
+	Status      string
+	StatusGroup string
+	SortBy      string
+	Order       string
 }
 
 type ArchiveScope string
@@ -252,18 +262,36 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 }
 
 func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
-	return r.ListAllWithArchiveScope(limit, offset, ArchiveScopeActiveOnly)
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, LeadListFilter{}, ArchiveScopeActiveOnly)
 }
 
 func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Leads, error) {
+	return r.ListAllWithFilterAndArchiveScope(limit, offset, LeadListFilter{}, scope)
+}
+
+func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
 		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
-		WHERE %s
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		WHERE %s%s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d
 	`
-	rows, err := r.db.Query(fmt.Sprintf(query, leadArchiveWhere(scope)), limit, offset)
+	sortExpr, sortOrder := leadSortExpression(filter)
+	extraWhere, args := buildLeadListWhere(filter, 1)
+	args = append(args, limit, offset)
+	rows, err := r.db.Query(
+		fmt.Sprintf(
+			query,
+			leadArchiveWhere(scope),
+			extraWhere,
+			sortExpr,
+			sortOrder,
+			len(args)-1,
+			len(args),
+		),
+		args...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -286,18 +314,37 @@ func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, erro
 
 // «Только мои» лиды
 func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Leads, error) {
-	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, ArchiveScopeActiveOnly)
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, LeadListFilter{}, ArchiveScopeActiveOnly)
 }
 
 func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, scope ArchiveScope) ([]*models.Leads, error) {
+	return r.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, LeadListFilter{}, scope)
+}
+
+func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
 		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
-		WHERE owner_id = $1 AND %s
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
+		WHERE owner_id = $1 AND %s%s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d
 	`
-	rows, err := r.db.Query(fmt.Sprintf(query, leadArchiveWhere(scope)), ownerID, limit, offset)
+	sortExpr, sortOrder := leadSortExpression(filter)
+	extraWhere, args := buildLeadListWhere(filter, 2)
+	args = append([]interface{}{ownerID}, args...)
+	args = append(args, limit, offset)
+	rows, err := r.db.Query(
+		fmt.Sprintf(
+			query,
+			leadArchiveWhere(scope),
+			extraWhere,
+			sortExpr,
+			sortOrder,
+			len(args)-1,
+			len(args),
+		),
+		args...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +359,62 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 		out = append(out, l)
 	}
 	return out, nil
+}
+
+func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface{}) {
+	where := ""
+	args := make([]interface{}, 0, 4)
+	idx := startAt
+
+	if filter.Status != "" {
+		where += fmt.Sprintf(" AND COALESCE(status, 'new') = $%d", idx)
+		args = append(args, filter.Status)
+		idx++
+	} else {
+		statuses := leadStatusesFromGroup(filter.StatusGroup)
+		if len(statuses) > 0 {
+			where += fmt.Sprintf(" AND COALESCE(status, 'new') = ANY($%d)", idx)
+			args = append(args, pq.Array(statuses))
+			idx++
+		}
+	}
+	if filter.Query != "" {
+		likePattern := "%" + strings.ToLower(filter.Query) + "%"
+		where += fmt.Sprintf(` AND (
+			LOWER(COALESCE(title, '')) LIKE $%d OR
+			LOWER(COALESCE(description, '')) LIKE $%d OR
+			LOWER(COALESCE(phone, '')) LIKE $%d
+		)`, idx, idx, idx)
+		args = append(args, likePattern)
+	}
+
+	return where, args
+}
+
+func leadStatusesFromGroup(group string) []string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "active":
+		return []string{"new", "in_progress", "confirmed"}
+	case "closed":
+		return []string{"converted", "cancelled"}
+	default:
+		return nil
+	}
+}
+
+func leadSortExpression(filter LeadListFilter) (string, string) {
+	order := "DESC"
+	if strings.EqualFold(filter.Order, "asc") {
+		order = "ASC"
+	}
+	switch filter.SortBy {
+	case "status":
+		return "COALESCE(status, 'new')", order
+	case "title":
+		return "LOWER(COALESCE(title, ''))", order
+	default:
+		return "created_at", order
+	}
 }
 
 func (r *LeadRepository) UpdateStatus(id int, status string) error {
