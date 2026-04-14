@@ -66,7 +66,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		req.AssigneeID = uid
 	}
 
-	if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && req.AssigneeID != uid {
+	if roleID == authz.RoleSales && req.AssigneeID != uid {
 		log.Printf("[task][create][deny] staff=%d tried assign to %d", uid, req.AssigneeID)
 		forbidden(c, "Staff can assign only to self")
 		return
@@ -194,12 +194,15 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 		st := models.TaskStatus(v)
 		filter.Status = &st
 	}
+	if v, ok := c.GetQuery("archive"); ok {
+		filter.Archive = v
+	}
 
 	uid := int64(userID)
 	switch roleID {
-	case authz.RoleSales, authz.RoleAdminStaff:
+	case authz.RoleSales:
 		filter.AssigneeID = &uid
-	case authz.RoleControl, authz.RoleOperations, authz.RoleManagement:
+	case authz.RoleControl, authz.RoleOperations, authz.RoleManagement, authz.RoleSystemAdmin:
 		// full or supervisory visibility — keep requested filter
 	}
 
@@ -268,7 +271,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	update := *current
 
 	if req.AssigneeID != nil {
-		if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && *req.AssigneeID != uid {
+		if roleID == authz.RoleSales && *req.AssigneeID != uid {
 			log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, *req.AssigneeID)
 			forbidden(c, "Staff can assign only to self")
 			return
@@ -372,7 +375,17 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		log.Printf("[task][delete][deny] hard-delete forbidden uid=%d role=%d", uid, roleID)
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	if err := h.service.Delete(c.Request.Context(), id, uid, roleID); err != nil {
+		if err == services.ErrForbidden {
+			forbidden(c, "Forbidden")
+			return
+		}
 		log.Printf("[task][delete][err] id=%d: %v", id, err)
 		internalError(c, "Failed to delete task")
 		return
@@ -384,6 +397,94 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	h.notifyAssignee(c, current, "🗑️ Задача удалена")
 
 	c.Status(http.StatusNoContent)
+}
+
+type archiveTaskRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *TaskHandler) Archive(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+	current, err := h.service.GetByIDWithArchiveScope(c.Request.Context(), id, repositories.ArchiveScopeAll)
+	if err != nil {
+		internalError(c, "Failed to get task")
+		return
+	}
+	if current == nil {
+		notFound(c, ValidationFailed, "Task not found")
+		return
+	}
+	uid := int64(userID)
+	if !canModifyTask(roleID, uid, current) {
+		forbidden(c, "Forbidden")
+		return
+	}
+
+	var req archiveTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	updated, err := h.service.ArchiveTask(c.Request.Context(), id, uid, roleID, req.Reason)
+	if err != nil {
+		if err == services.ErrForbidden || err == services.ErrReadOnly {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to archive task")
+		return
+	}
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *TaskHandler) Unarchive(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+	current, err := h.service.GetByIDWithArchiveScope(c.Request.Context(), id, repositories.ArchiveScopeAll)
+	if err != nil {
+		internalError(c, "Failed to get task")
+		return
+	}
+	if current == nil {
+		notFound(c, ValidationFailed, "Task not found")
+		return
+	}
+	uid := int64(userID)
+	if !canModifyTask(roleID, uid, current) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	updated, err := h.service.UnarchiveTask(c.Request.Context(), id, uid, roleID)
+	if err != nil {
+		if err == services.ErrForbidden || err == services.ErrReadOnly {
+			forbidden(c, "Forbidden")
+			return
+		}
+		if err == services.ErrNotArchived {
+			badRequest(c, "Task is not archived")
+			return
+		}
+		internalError(c, "Failed to unarchive task")
+		return
+	}
+	c.JSON(http.StatusOK, updated)
 }
 
 // POST /tasks/:id/status { "to": "in_progress", "comment": "..." }
@@ -622,7 +723,7 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 		forbidden(c, "Forbidden")
 		return
 	}
-	if (roleID == authz.RoleSales || roleID == authz.RoleAdminStaff) && body.AssigneeID != uid {
+	if roleID == authz.RoleSales && body.AssigneeID != uid {
 		log.Printf("[task][assign][deny] staff uid=%d -> %d", uid, body.AssigneeID)
 		forbidden(c, "Staff can assign only to self")
 		return
@@ -667,9 +768,9 @@ func isTransitionAllowed(from, to models.TaskStatus) bool {
 
 func canViewTask(roleID int, uid int64, t *models.Task) bool {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleOperations, authz.RoleControl:
+	case authz.RoleManagement, authz.RoleOperations, authz.RoleControl, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales, authz.RoleAdminStaff:
+	case authz.RoleSales:
 		return isOwnTask(uid, t)
 	default:
 		return false
@@ -681,9 +782,9 @@ func canModifyTask(roleID int, uid int64, t *models.Task) bool {
 		return false
 	}
 	switch roleID {
-	case authz.RoleManagement, authz.RoleOperations:
+	case authz.RoleManagement, authz.RoleOperations, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales, authz.RoleAdminStaff:
+	case authz.RoleSales:
 		return isOwnTask(uid, t)
 	default:
 		return false

@@ -12,6 +12,17 @@ type DocumentRepository struct{ db *sql.DB }
 
 func NewDocumentRepository(db *sql.DB) *DocumentRepository { return &DocumentRepository{db: db} }
 
+func documentArchiveWhere(scope ArchiveScope) string {
+	switch scope {
+	case ArchiveScopeArchivedOnly:
+		return "is_archived = TRUE"
+	case ArchiveScopeAll:
+		return "1=1"
+	default:
+		return "is_archived = FALSE"
+	}
+}
+
 func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 	const q = `
 		INSERT INTO documents (deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status)
@@ -30,15 +41,21 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 }
 
 func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
+	return r.GetByIDWithArchiveScope(id, ArchiveScopeActiveOnly)
+}
+
+func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScope) (*models.Document, error) {
 	const q = `
 		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
-		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,'')
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
+		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
 		FROM documents
-		WHERE id = $1`
+		WHERE id = $1 AND %s`
 	var d models.Document
-	var signedAt, createdAt sql.NullTime
-	err := r.db.QueryRow(q, id).Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy)
+	var signedAt, createdAt, archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -50,6 +67,14 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 	}
 	if createdAt.Valid {
 		d.CreatedAt = createdAt.Time
+	}
+	if archivedAt.Valid {
+		t := archivedAt.Time
+		d.ArchivedAt = &t
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		d.ArchivedBy = &by
 	}
 	return &d, nil
 }
@@ -71,13 +96,48 @@ func (r *DocumentRepository) Delete(id int64) error {
 	return nil
 }
 
+func (r *DocumentRepository) Archive(id int64, archivedBy int, reason string) error {
+	_, err := r.db.Exec(`
+		UPDATE documents
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = $2,
+		    archive_reason = $3
+		WHERE id = $1
+	`, id, archivedBy, reason)
+	if err != nil {
+		return fmt.Errorf("archive document: %w", err)
+	}
+	return nil
+}
+
+func (r *DocumentRepository) Unarchive(id int64) error {
+	_, err := r.db.Exec(`
+		UPDATE documents
+		SET is_archived = FALSE,
+		    archived_at = NULL,
+		    archived_by = NULL,
+		    archive_reason = NULL
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("unarchive document: %w", err)
+	}
+	return nil
+}
+
 func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
+	return r.ListDocumentsByDealWithArchiveScope(dealID, ArchiveScopeActiveOnly)
+}
+
+func (r *DocumentRepository) ListDocumentsByDealWithArchiveScope(dealID int64, scope ArchiveScope) ([]*models.Document, error) {
 	const q = `
 		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
-		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,'')
-		FROM documents WHERE deal_id = $1 ORDER BY id DESC`
-	rows, err := r.db.Query(q, dealID)
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
+		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
+		FROM documents WHERE deal_id = $1 AND %s ORDER BY id DESC`
+	rows, err := r.db.Query(fmt.Sprintf(q, documentArchiveWhere(scope)), dealID)
 	if err != nil {
 		return nil, fmt.Errorf("list by deal: %w", err)
 	}
@@ -85,8 +145,9 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 	var res []*models.Document
 	for rows.Next() {
 		var d models.Document
-		var signedAt, createdAt sql.NullTime
-		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy); err != nil {
+		var signedAt, createdAt, archivedAt sql.NullTime
+		var archivedBy sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
 			return nil, err
 		}
 		if signedAt.Valid {
@@ -94,6 +155,14 @@ func (r *DocumentRepository) ListDocumentsByDeal(dealID int64) ([]*models.Docume
 		}
 		if createdAt.Valid {
 			d.CreatedAt = createdAt.Time
+		}
+		if archivedAt.Valid {
+			t := archivedAt.Time
+			d.ArchivedAt = &t
+		}
+		if archivedBy.Valid {
+			by := int(archivedBy.Int64)
+			d.ArchivedBy = &by
 		}
 		res = append(res, &d)
 	}
@@ -121,12 +190,17 @@ func (r *DocumentRepository) MarkSigned(id int64, signedBy string, signedAt time
 }
 
 func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Document, error) {
+	return r.ListDocumentsWithArchiveScope(limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *DocumentRepository) ListDocumentsWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Document, error) {
 	const q = `
 		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
-		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,'')
-		FROM documents ORDER BY id DESC LIMIT $1 OFFSET $2`
-	rows, err := r.db.Query(q, limit, offset)
+		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
+		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
+		FROM documents WHERE %s ORDER BY id DESC LIMIT $1 OFFSET $2`
+	rows, err := r.db.Query(fmt.Sprintf(q, documentArchiveWhere(scope)), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
 	}
@@ -134,8 +208,9 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 	var res []*models.Document
 	for rows.Next() {
 		var d models.Document
-		var signedAt, createdAt sql.NullTime
-		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy); err != nil {
+		var signedAt, createdAt, archivedAt sql.NullTime
+		var archivedBy sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
 			return nil, err
 		}
 		if signedAt.Valid {
@@ -143,6 +218,14 @@ func (r *DocumentRepository) ListDocuments(limit, offset int) ([]*models.Documen
 		}
 		if createdAt.Valid {
 			d.CreatedAt = createdAt.Time
+		}
+		if archivedAt.Valid {
+			t := archivedAt.Time
+			d.ArchivedAt = &t
+		}
+		if archivedBy.Valid {
+			by := int(archivedBy.Int64)
+			d.ArchivedBy = &by
 		}
 		res = append(res, &d)
 	}

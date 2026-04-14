@@ -40,9 +40,14 @@ var (
 type DocumentRepo interface {
 	Create(doc *models.Document) (int64, error)
 	GetByID(id int64) (*models.Document, error)
+	GetByIDWithArchiveScope(id int64, scope repositories.ArchiveScope) (*models.Document, error)
 	ListDocuments(limit, offset int) ([]*models.Document, error)
+	ListDocumentsWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Document, error)
 	ListDocumentsByDeal(dealID int64) ([]*models.Document, error)
+	ListDocumentsByDealWithArchiveScope(dealID int64, scope repositories.ArchiveScope) ([]*models.Document, error)
 	Delete(id int64) error
+	Archive(id int64, archivedBy int, reason string) error
+	Unarchive(id int64) error
 	UpdateStatus(id int64, status string) error
 	MarkSigned(id int64, signedBy string, signedAt time.Time) error
 	Update(doc *models.Document) error
@@ -353,9 +358,6 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	if authz.IsReadOnly(roleID) {
 		return 0, errors.New("read-only role")
 	}
-	if authz.CanManageSystem(roleID) {
-		return 0, errors.New("forbidden")
-	}
 
 	if doc.DealID == 0 {
 		return 0, errors.New("deal not found")
@@ -471,6 +473,23 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	return doc, nil
 }
 
+func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID int, scope repositories.ArchiveScope) (*models.Document, error) {
+	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, scope)
+	if err != nil || doc == nil {
+		return nil, err
+	}
+	if roleID == authz.RoleSales {
+		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		if derr != nil || deal == nil {
+			return nil, errors.New("not found")
+		}
+		if deal.OwnerID != userID {
+			return nil, errors.New("forbidden")
+		}
+	}
+	return doc, nil
+}
+
 func (s *DocumentService) ResolveSignerEmail(id int64, userID, roleID int, fallbackEmail string) (string, error) {
 	resolved, err := s.ResolveSigner(id, userID, roleID, SignerOverrides{Email: fallbackEmail})
 	if err != nil {
@@ -557,10 +576,14 @@ func (s *DocumentService) ResolveSigner(id int64, userID, roleID int, overrides 
 }
 
 func (s *DocumentService) ListDocuments(limit, offset int) ([]*models.Document, error) {
-	return s.DocRepo.ListDocuments(limit, offset)
+	return s.DocRepo.ListDocumentsWithArchiveScope(limit, offset, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int) ([]*models.Document, error) {
+func (s *DocumentService) ListDocumentsWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Document, error) {
+	return s.DocRepo.ListDocumentsWithArchiveScope(limit, offset, scope)
+}
+
+func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int, scope repositories.ArchiveScope) ([]*models.Document, error) {
 	deal, err := s.DealRepo.GetByID(int(dealID))
 	if err != nil || deal == nil {
 		return nil, errors.New("not found")
@@ -569,14 +592,14 @@ func (s *DocumentService) ListDocumentsByDeal(dealID int64, userID, roleID int) 
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, errors.New("forbidden")
 	}
-	return s.DocRepo.ListDocumentsByDeal(dealID)
+	return s.DocRepo.ListDocumentsByDealWithArchiveScope(dealID, scope)
 }
 
 func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
-	if authz.IsReadOnly(roleID) {
-		return errors.New("read-only role")
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return errors.New("forbidden")
 	}
-	doc, err := s.DocRepo.GetByID(id)
+	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
@@ -591,6 +614,48 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 		return err
 	}
 	return s.DocRepo.Delete(id)
+}
+
+func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason string) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	if doc.IsArchived {
+		return nil
+	}
+	return s.DocRepo.Archive(id, userID, reason)
+}
+
+func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil || doc == nil {
+		return errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	if !doc.IsArchived {
+		return errors.New("not archived")
+	}
+	return s.DocRepo.Unarchive(id)
 }
 
 // ================== Статусы ==================

@@ -16,6 +16,14 @@ type LeadRepository struct {
 	db *sql.DB
 }
 
+type ArchiveScope string
+
+const (
+	ArchiveScopeActiveOnly   ArchiveScope = "active"
+	ArchiveScopeArchivedOnly ArchiveScope = "archived"
+	ArchiveScopeAll          ArchiveScope = "all"
+)
+
 type leadRowScanner interface {
 	Scan(dest ...any) error
 }
@@ -40,6 +48,10 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var phone sql.NullString
 	var source sql.NullString
 	var status sql.NullString
+	var isArchived bool
+	var archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	var archiveReason sql.NullString
 
 	if err := scanner.Scan(
 		&lead.ID,
@@ -50,6 +62,10 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&lead.CreatedAt,
 		&lead.OwnerID,
 		&status,
+		&isArchived,
+		&archivedAt,
+		&archivedBy,
+		&archiveReason,
 	); err != nil {
 		return nil, err
 	}
@@ -58,7 +74,28 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	lead.Phone = stringFromNull(phone)
 	lead.Source = stringFromNull(source)
 	lead.Status = normalizeLeadStatus(status)
+	lead.IsArchived = isArchived
+	if archivedAt.Valid {
+		archived := archivedAt.Time
+		lead.ArchivedAt = &archived
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		lead.ArchivedBy = &by
+	}
+	lead.ArchiveReason = stringFromNull(archiveReason)
 	return lead, nil
+}
+
+func leadArchiveWhere(scope ArchiveScope) string {
+	switch scope {
+	case ArchiveScopeArchivedOnly:
+		return "is_archived = TRUE"
+	case ArchiveScopeAll:
+		return "1=1"
+	default:
+		return "is_archived = FALSE"
+	}
 }
 
 // Создание лида с возвратом ID + created_at из БД
@@ -109,12 +146,16 @@ func (r *LeadRepository) Update(lead *models.Leads) error {
 
 // GetByID: корректно обрабатывает отсутствие строки
 func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
+	return r.GetByIDWithArchiveScope(id, ArchiveScopeActiveOnly)
+}
+
+func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
-		WHERE id = $1
+		WHERE id = $1 AND %s
 	`
-	row := r.db.QueryRow(query, id)
+	row := r.db.QueryRow(fmt.Sprintf(query, leadArchiveWhere(scope)), id)
 	lead, err := scanLead(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -131,9 +172,35 @@ func (r *LeadRepository) Delete(id int) error {
 	return err
 }
 
+func (r *LeadRepository) Archive(id, archivedBy int, reason string) error {
+	const query = `
+		UPDATE leads
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = $2,
+		    archive_reason = $3
+		WHERE id = $1
+	`
+	_, err := r.db.Exec(query, id, archivedBy, reason)
+	return err
+}
+
+func (r *LeadRepository) Unarchive(id int) error {
+	const query = `
+		UPDATE leads
+		SET is_archived = FALSE,
+		    archived_at = NULL,
+		    archived_by = NULL,
+		    archive_reason = NULL
+		WHERE id = $1
+	`
+	_, err := r.db.Exec(query, id)
+	return err
+}
+
 func (r *LeadRepository) CountLeads() (int, error) {
 	var count int
-	err := r.db.QueryRow(`SELECT COUNT(*) FROM leads`).Scan(&count)
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM leads WHERE is_archived = FALSE`).Scan(&count)
 	return count, err
 }
 
@@ -149,7 +216,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT id, title, description, phone, source, created_at, owner_id, status FROM leads WHERE 1=1"
+	query := "SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason FROM leads WHERE is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -185,13 +252,18 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 }
 
 func (r *LeadRepository) ListAll(limit, offset int) ([]*models.Leads, error) {
+	return r.ListAllWithArchiveScope(limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
+		WHERE %s
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.db.Query(query, limit, offset)
+	rows, err := r.db.Query(fmt.Sprintf(query, leadArchiveWhere(scope)), limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -214,14 +286,18 @@ func (r *LeadRepository) ListPaginated(limit, offset int) ([]*models.Leads, erro
 
 // «Только мои» лиды
 func (r *LeadRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Leads, error) {
+	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
-		WHERE owner_id = $1
+		WHERE owner_id = $1 AND %s
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.db.Query(query, ownerID, limit, offset)
+	rows, err := r.db.Query(fmt.Sprintf(query, leadArchiveWhere(scope)), ownerID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

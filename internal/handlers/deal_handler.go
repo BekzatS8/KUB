@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
@@ -23,9 +25,12 @@ type dealService interface {
 	Update(deal *models.Deals, userID, roleID int) error
 	GetByID(id int, userID, roleID int) (*models.Deals, error)
 	Delete(id, userID, roleID int) error
-	ListForRole(userID, roleID, limit, offset int) ([]*models.Deals, error)
-	ListMy(ownerID, limit, offset int) ([]*models.Deals, error)
+	ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error)
+	ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error)
 	UpdateStatus(id int, to string, userID, roleID int) error
+	ArchiveDeal(id, userID, roleID int, reason string) error
+	UnarchiveDeal(id, userID, roleID int) error
+	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Deals, error)
 }
 
 func NewDealHandler(service *services.DealService) *DealHandler {
@@ -40,10 +45,6 @@ func (h *DealHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -133,10 +134,6 @@ func (h *DealHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -227,10 +224,6 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	deal, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || deal == nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -250,16 +243,12 @@ func (h *DealHandler) Delete(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
-	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
-		return
-	}
 
-	deal, err := h.Service.GetByID(id, userID, roleID)
+	deal, err := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
 	if err != nil || deal == nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -278,6 +267,65 @@ func (h *DealHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+type archiveDealRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *DealHandler) Archive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var req archiveDealRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.ArchiveDeal(id, userID, roleID, req.Reason); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrDealNotFound) {
+			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		}
+		internalError(c, "Failed to archive deal")
+		return
+	}
+	updated, _ := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *DealHandler) Unarchive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.UnarchiveDeal(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrDealNotFound) {
+			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		}
+		if errors.Is(err, services.ErrNotArchived) {
+			badRequest(c, "Deal is not archived")
+			return
+		}
+		internalError(c, "Failed to unarchive deal")
+		return
+	}
+	updated, _ := h.Service.GetByID(id, userID, roleID)
+	c.JSON(http.StatusOK, updated)
 }
 
 // --- UpdateStatus ---
@@ -300,10 +348,6 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -334,10 +378,6 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 
 func (h *DealHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if roleID == authz.RoleSales {
 		forbidden(c, "sales cannot access full list")
 		return
@@ -353,7 +393,13 @@ func (h *DealHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	deals, err := h.Service.ListForRole(userID, roleID, size, offset)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+
+	deals, err := h.Service.ListForRole(userID, roleID, size, offset, scope)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -367,11 +413,7 @@ func (h *DealHandler) List(c *gin.Context) {
 
 // GET /deals/my?page=&size=
 func (h *DealHandler) ListMy(c *gin.Context) {
-	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
+	userID, _ := getUserAndRole(c)
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
@@ -383,7 +425,13 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	deals, err := h.Service.ListMy(userID, size, offset)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+
+	deals, err := h.Service.ListMyWithArchiveScope(userID, size, offset, scope)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")

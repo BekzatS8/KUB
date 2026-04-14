@@ -3,9 +3,11 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -14,9 +16,12 @@ import (
 type TaskService interface {
 	Create(ctx context.Context, task *models.Task) (*models.Task, error)
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
+	GetByIDWithArchiveScope(ctx context.Context, id int64, scope repositories.ArchiveScope) (*models.Task, error)
 	GetAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error)
 	Update(ctx context.Context, id int64, updateData *models.Task) (*models.Task, error)
-	Delete(ctx context.Context, id int64) error
+	Delete(ctx context.Context, id int64, userID int64, roleID int) error
+	ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error)
+	UnarchiveTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error)
 
 	// NEW:
 	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error)
@@ -60,6 +65,10 @@ func (s *taskService) GetByID(ctx context.Context, id int64) (*models.Task, erro
 	return s.repo.FindByID(ctx, id)
 }
 
+func (s *taskService) GetByIDWithArchiveScope(ctx context.Context, id int64, scope repositories.ArchiveScope) (*models.Task, error) {
+	return s.repo.FindByIDWithArchiveScope(ctx, id, scope)
+}
+
 func (s *taskService) GetAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
 	return s.repo.FindAll(ctx, filter)
 }
@@ -90,8 +99,58 @@ func (s *taskService) Update(ctx context.Context, id int64, updateData *models.T
 	return existingTask, nil
 }
 
-func (s *taskService) Delete(ctx context.Context, id int64) error {
+func (s *taskService) Delete(ctx context.Context, id int64, userID int64, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return err
+	}
+	if task == nil {
+		return errors.New("task not found")
+	}
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *taskService) ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error) {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return nil, ErrForbidden
+	}
+	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, errors.New("task not found")
+	}
+	if task.IsArchived {
+		return task, nil
+	}
+	if err := s.repo.Archive(ctx, id, userID, reason); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
+}
+
+func (s *taskService) UnarchiveTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error) {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return nil, ErrForbidden
+	}
+	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, errors.New("task not found")
+	}
+	if !task.IsArchived {
+		return nil, ErrNotArchived
+	}
+	if err := s.repo.Unarchive(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(ctx, id)
 }
 
 func (s *taskService) UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error) {

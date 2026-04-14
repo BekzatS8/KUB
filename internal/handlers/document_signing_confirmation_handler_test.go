@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
@@ -98,11 +99,22 @@ func (s *statusDocRepoStub) GetByID(id int64) (*models.Document, error) {
 	}
 	return nil, nil
 }
+func (s *statusDocRepoStub) GetByIDWithArchiveScope(id int64, scope repositories.ArchiveScope) (*models.Document, error) {
+	return s.GetByID(id)
+}
 func (s *statusDocRepoStub) ListDocuments(int, int) ([]*models.Document, error) { return nil, nil }
+func (s *statusDocRepoStub) ListDocumentsWithArchiveScope(int, int, repositories.ArchiveScope) ([]*models.Document, error) {
+	return nil, nil
+}
 func (s *statusDocRepoStub) ListDocumentsByDeal(int64) ([]*models.Document, error) {
 	return nil, nil
 }
+func (s *statusDocRepoStub) ListDocumentsByDealWithArchiveScope(int64, repositories.ArchiveScope) ([]*models.Document, error) {
+	return nil, nil
+}
 func (s *statusDocRepoStub) Delete(int64) error                        { return nil }
+func (s *statusDocRepoStub) Archive(int64, int, string) error          { return nil }
+func (s *statusDocRepoStub) Unarchive(int64) error                     { return nil }
 func (s *statusDocRepoStub) UpdateStatus(int64, string) error          { return nil }
 func (s *statusDocRepoStub) MarkSigned(int64, string, time.Time) error { return nil }
 func (s *statusDocRepoStub) Update(*models.Document) error             { return nil }

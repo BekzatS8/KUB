@@ -28,6 +28,10 @@ SELECT
 	COALESCE(c.contact_info, '') AS contact_info,
 	c.created_at,
 	COALESCE(c.updated_at, c.created_at) AS updated_at,
+	c.is_archived,
+	c.archived_at,
+	c.archived_by,
+	COALESCE(c.archive_reason, '') AS archive_reason,
 	COALESCE(ip.last_name, c.last_name, ''), COALESCE(ip.first_name, c.first_name, ''), COALESCE(ip.middle_name, c.middle_name, ''), COALESCE(ip.iin, c.iin, ''), COALESCE(ip.id_number, c.id_number, ''), COALESCE(ip.passport_series, c.passport_series, ''), COALESCE(ip.passport_number, c.passport_number, ''),
 	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''), COALESCE(ip.country, c.country, ''), COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
 	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date),
@@ -56,6 +60,10 @@ SELECT
 	COALESCE(c.contact_info, '') AS contact_info,
 	c.created_at,
 	COALESCE(c.updated_at, c.created_at) AS updated_at,
+	c.is_archived,
+	c.archived_at,
+	c.archived_by,
+	COALESCE(c.archive_reason, '') AS archive_reason,
 	COALESCE(c.last_name, ''), COALESCE(c.first_name, ''), COALESCE(c.middle_name, ''), COALESCE(c.iin, ''), COALESCE(c.id_number, ''), COALESCE(c.passport_series, ''), COALESCE(c.passport_number, ''),
 	COALESCE(c.registration_address, ''), COALESCE(c.actual_address, ''), COALESCE(c.country, ''), COALESCE(c.trip_purpose, ''), c.birth_date, COALESCE(c.birth_place, ''),
 	COALESCE(c.citizenship, ''), COALESCE(c.sex, ''), COALESCE(c.marital_status, ''), c.passport_issue_date, c.passport_expire_date,
@@ -74,15 +82,19 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	c := &models.Client{}
 	var (
 		displayName, primaryPhone, primaryEmail sql.NullString
-		birthDate, passIssue, passExpire sql.NullTime
-		hasChildren                      sql.NullBool
-		height, weight                   sql.NullInt64
-		children, drivers                []byte
+		birthDate, passIssue, passExpire        sql.NullTime
+		hasChildren                             sql.NullBool
+		height, weight                          sql.NullInt64
+		children, drivers                       []byte
+		archivedAt                              sql.NullTime
+		archivedBy                              sql.NullInt64
+		archiveReason                           sql.NullString
 	)
 	ip := &models.ClientIndividualProfile{}
 	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
 		&c.ID, &c.OwnerID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
+		&c.IsArchived, &archivedAt, &archivedBy, &archiveReason,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber,
 		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
 		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire,
@@ -107,6 +119,17 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 		c.PrimaryEmail = primaryEmail.String
 	}
 	c.Name, c.Phone, c.Email = c.DisplayName, c.PrimaryPhone, c.PrimaryEmail
+	if archivedAt.Valid {
+		v := archivedAt.Time
+		c.ArchivedAt = &v
+	}
+	if archivedBy.Valid {
+		v := int(archivedBy.Int64)
+		c.ArchivedBy = &v
+	}
+	if archiveReason.Valid {
+		c.ArchiveReason = archiveReason.String
+	}
 	c.BinIin = lp.BIN
 	if c.ClientType == models.ClientTypeIndividual {
 		if birthDate.Valid {
@@ -281,8 +304,47 @@ func (r *ClientRepository) Delete(id int) error {
 	return err
 }
 
+func clientArchiveWhere(scope ArchiveScope) string {
+	switch scope {
+	case ArchiveScopeArchivedOnly:
+		return "c.is_archived = TRUE"
+	case ArchiveScopeAll:
+		return "1=1"
+	default:
+		return "c.is_archived = FALSE"
+	}
+}
+
+func (r *ClientRepository) Archive(id, archivedBy int, reason string) error {
+	_, err := r.db.Exec(`
+		UPDATE clients
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = $2,
+		    archive_reason = $3
+		WHERE id = $1
+	`, id, archivedBy, reason)
+	return err
+}
+
+func (r *ClientRepository) Unarchive(id int) error {
+	_, err := r.db.Exec(`
+		UPDATE clients
+		SET is_archived = FALSE,
+		    archived_at = NULL,
+		    archived_by = NULL,
+		    archive_reason = NULL
+		WHERE id = $1
+	`, id)
+	return err
+}
+
 func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
-	row := r.db.QueryRow(clientSelect+` WHERE c.id=$1`, id)
+	return r.GetByIDWithArchiveScope(id, ArchiveScopeActiveOnly)
+}
+
+func (r *ClientRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Client, error) {
+	row := r.db.QueryRow(clientSelect+` WHERE c.id=$1 AND `+clientArchiveWhere(scope), id)
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -327,14 +389,22 @@ func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
 }
 
 func (r *ClientRepository) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
-	q := clientSelect + ` WHERE ($3='' OR c.client_type=$3) ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`
+	return r.ListAllWithArchiveScope(limit, offset, clientType, ArchiveScopeActiveOnly)
+}
+
+func (r *ClientRepository) ListAllWithArchiveScope(limit, offset int, clientType string, scope ArchiveScope) ([]*models.Client, error) {
+	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND ($3='' OR c.client_type=$3) ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`
 	return r.queryMany(q, limit, offset, strings.TrimSpace(strings.ToLower(clientType)))
 }
 func (r *ClientRepository) List(limit, offset int) ([]*models.Client, error) {
 	return r.ListAll(limit, offset, "")
 }
 func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType string) ([]*models.Client, error) {
-	q := clientSelect + ` WHERE c.owner_id=$1 AND ($4='' OR c.client_type=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, clientType, ArchiveScopeActiveOnly)
+}
+
+func (r *ClientRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, clientType string, scope ArchiveScope) ([]*models.Client, error) {
+	q := clientSelect + ` WHERE c.owner_id=$1 AND (` + clientArchiveWhere(scope) + `) AND ($4='' OR c.client_type=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
 	filter := strings.TrimSpace(strings.ToLower(clientType))
 	clients, err := r.queryMany(q, ownerID, limit, offset, filter)
 	if err == nil {
@@ -344,7 +414,7 @@ func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType st
 	if !isProfileSplitTableMissing(err) {
 		return nil, err
 	}
-	legacyQ := clientSelectLegacy + ` WHERE c.owner_id=$1 AND ($4='' OR COALESCE(c.client_type,'individual')=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	legacyQ := clientSelectLegacy + ` WHERE c.owner_id=$1 AND (` + clientArchiveWhere(scope) + `) AND ($4='' OR COALESCE(c.client_type,'individual')=$4) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
 	clients, err = r.queryMany(legacyQ, ownerID, limit, offset, filter)
 	if err != nil {
 		return nil, fmt.Errorf("list clients by owner legacy fallback: %w", err)
@@ -352,14 +422,22 @@ func (r *ClientRepository) ListByOwner(ownerID, limit, offset int, clientType st
 	return clients, nil
 }
 func (r *ClientRepository) ListIndividuals(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
+	return r.ListIndividualsWithArchiveScope(ownerID, search, limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *ClientRepository) ListIndividualsWithArchiveScope(ownerID int, search string, limit, offset int, scope ArchiveScope) ([]*models.Client, error) {
 	_ = ownerID
-	q := clientSelect + ` WHERE c.client_type='individual' AND ($1='' OR CONCAT_WS(' ', ip.last_name, ip.first_name, ip.middle_name) ILIKE $1 OR ip.iin ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND c.client_type='individual' AND ($1='' OR CONCAT_WS(' ', ip.last_name, ip.first_name, ip.middle_name) ILIKE $1 OR ip.iin ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
 	needle := like(search)
 	return r.queryMany(q, needle, limit, offset)
 }
 func (r *ClientRepository) ListCompanies(ownerID int, search string, limit, offset int) ([]*models.Client, error) {
+	return r.ListCompaniesWithArchiveScope(ownerID, search, limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *ClientRepository) ListCompaniesWithArchiveScope(ownerID int, search string, limit, offset int, scope ArchiveScope) ([]*models.Client, error) {
 	_ = ownerID
-	q := clientSelect + ` WHERE c.client_type='legal' AND ($1='' OR lp.company_name ILIKE $1 OR lp.bin ILIKE $1 OR lp.contact_person_name ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
+	q := clientSelect + ` WHERE (` + clientArchiveWhere(scope) + `) AND c.client_type='legal' AND ($1='' OR lp.company_name ILIKE $1 OR lp.bin ILIKE $1 OR lp.contact_person_name ILIKE $1 OR COALESCE(c.primary_phone,c.phone) ILIKE $1 OR COALESCE(c.primary_email,c.email) ILIKE $1) ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`
 	needle := like(search)
 	return r.queryMany(q, needle, limit, offset)
 }

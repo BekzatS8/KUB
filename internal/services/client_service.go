@@ -87,9 +87,6 @@ func ensureClientTypeImmutable(storedType, requestedType string) (string, error)
 }
 
 func (s *ClientService) authorizeWrite(roleID int) error {
-	if roleID == authz.RoleAdminStaff {
-		return ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
@@ -458,9 +455,6 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 }
 
 func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, error) {
-	if roleID == authz.RoleAdminStaff {
-		return nil, ErrForbidden
-	}
 	client, err := s.Repo.GetByID(id)
 	if err != nil || client == nil {
 		return client, err
@@ -471,11 +465,22 @@ func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, err
 	return client, nil
 }
 
-func (s *ClientService) Delete(id int, userID, roleID int) error {
-	if err := s.authorizeWrite(roleID); err != nil {
-		return err
+func (s *ClientService) GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Client, error) {
+	client, err := s.Repo.GetByIDWithArchiveScope(id, scope)
+	if err != nil || client == nil {
+		return client, err
 	}
-	current, err := s.Repo.GetByID(id)
+	if roleID == authz.RoleSales && client.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	return client, nil
+}
+
+func (s *ClientService) Delete(id int, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	current, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
 	if err != nil {
 		return err
 	}
@@ -588,31 +593,28 @@ func mapClientDBError(err error) error {
 }
 
 func (s *ClientService) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {
-	return s.Repo.ListAll(limit, offset, clientType)
+	return s.Repo.ListAllWithArchiveScope(limit, offset, clientType, repositories.ArchiveScopeActiveOnly)
 }
 
 func (s *ClientService) ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error) {
-	return s.Repo.ListByOwner(userID, limit, offset, clientType)
+	return s.Repo.ListByOwnerWithArchiveScope(userID, limit, offset, clientType, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error) {
-	if roleID == authz.RoleAdminStaff || roleID == authz.RoleSales {
+func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListIndividuals(userID, q, limit, offset)
+	return s.Repo.ListIndividualsWithArchiveScope(userID, q, limit, offset, scope)
 }
 
-func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error) {
-	if roleID == authz.RoleAdminStaff || roleID == authz.RoleSales {
+func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.Repo.ListCompanies(userID, q, limit, offset)
+	return s.Repo.ListCompaniesWithArchiveScope(userID, q, limit, offset, scope)
 }
 
-func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error) {
-	if roleID == authz.RoleAdminStaff {
-		return nil, ErrForbidden
-	}
+func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
@@ -621,7 +623,51 @@ func (s *ClientService) ListForRole(userID, roleID, limit, offset int, clientTyp
 			return nil, err
 		}
 	}
-	return s.Repo.ListAll(limit, offset, clientType)
+	return s.Repo.ListAllWithArchiveScope(limit, offset, clientType, scope)
+}
+
+func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error) {
+	return s.Repo.ListByOwnerWithArchiveScope(userID, limit, offset, clientType, scope)
+}
+
+func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	client, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return err
+	}
+	if client == nil {
+		return ErrClientNotFound
+	}
+	if roleID == authz.RoleSales && client.OwnerID != userID {
+		return ErrForbidden
+	}
+	if client.IsArchived {
+		return nil
+	}
+	return s.Repo.Archive(id, userID, reason)
+}
+
+func (s *ClientService) UnarchiveClient(id, userID, roleID int) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	client, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return err
+	}
+	if client == nil {
+		return ErrClientNotFound
+	}
+	if roleID == authz.RoleSales && client.OwnerID != userID {
+		return ErrForbidden
+	}
+	if !client.IsArchived {
+		return ErrNotArchived
+	}
+	return s.Repo.Unarchive(id)
 }
 
 func (s *ClientService) GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error) {

@@ -12,6 +12,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
@@ -27,13 +28,18 @@ func (s *stubDealService) GetByID(id int, userID, roleID int) (*models.Deals, er
 	return nil, nil
 }
 func (s *stubDealService) Delete(id, userID, roleID int) error { return nil }
-func (s *stubDealService) ListForRole(userID, roleID, limit, offset int) ([]*models.Deals, error) {
+func (s *stubDealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
 	return nil, nil
 }
-func (s *stubDealService) ListMy(ownerID, limit, offset int) ([]*models.Deals, error) {
+func (s *stubDealService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Deals, error) {
 	return nil, nil
 }
 func (s *stubDealService) UpdateStatus(id int, to string, userID, roleID int) error { return nil }
+func (s *stubDealService) ArchiveDeal(id, userID, roleID int, reason string) error  { return nil }
+func (s *stubDealService) UnarchiveDeal(id, userID, roleID int) error               { return nil }
+func (s *stubDealService) GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Deals, error) {
+	return nil, nil
+}
 
 func performCreate(t *testing.T, h *DealHandler, body string) *httptest.ResponseRecorder {
 	t.Helper()

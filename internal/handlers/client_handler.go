@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
@@ -21,12 +23,15 @@ type clientService interface {
 	Create(c *models.Client, userID, roleID int) (int64, error)
 	Update(c *models.Client, userID, roleID int) error
 	Delete(id int, userID, roleID int) error
+	ArchiveClient(id, userID, roleID int, reason string) error
+	UnarchiveClient(id, userID, roleID int) error
 	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
 	GetByID(id int, userID, roleID int) (*models.Client, error)
-	ListForRole(userID, roleID, limit, offset int, clientType string) ([]*models.Client, error)
-	ListMine(userID, limit, offset int, clientType string) ([]*models.Client, error)
-	ListIndividualsForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
-	ListCompaniesForRole(userID, roleID, limit, offset int, q string) ([]*models.Client, error)
+	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Client, error)
+	ListForRole(userID, roleID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListMineWithArchiveScope(userID, limit, offset int, clientType string, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListIndividualsForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error)
+	ListCompaniesForRole(userID, roleID, limit, offset int, q string, scope repositories.ArchiveScope) ([]*models.Client, error)
 	GetMissingYellow(ctx context.Context, clientID, userID, roleID int) ([]string, error)
 	GetProfile(ctx context.Context, clientID, userID, roleID int) (*services.ClientProfilePayload, error)
 }
@@ -258,10 +263,6 @@ func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate
 // POST /clients
 func (h *ClientHandler) Create(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -342,10 +343,6 @@ func (h *ClientHandler) Create(c *gin.Context) {
 // PUT /clients/:id
 func (h *ClientHandler) Update(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -515,12 +512,8 @@ func (h *ClientHandler) Delete(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
 		forbidden(c, "Forbidden")
-		return
-	}
-	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
 		return
 	}
 
@@ -545,13 +538,68 @@ func (h *ClientHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+type archiveClientRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *ClientHandler) Archive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var req archiveClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.ArchiveClient(id, userID, roleID, req.Reason); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		internalError(c, "Failed to archive client")
+		return
+	}
+	client, _ := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
+	c.JSON(http.StatusOK, client)
+}
+
+func (h *ClientHandler) Unarchive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.UnarchiveClient(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrClientNotFound) {
+			notFound(c, ClientNotFoundCode, "Client not found")
+			return
+		}
+		if errors.Is(err, services.ErrNotArchived) {
+			badRequest(c, "Client is not archived")
+			return
+		}
+		internalError(c, "Failed to unarchive client")
+		return
+	}
+	client, _ := h.Service.GetByID(id, userID, roleID)
+	c.JSON(http.StatusOK, client)
+}
+
 // PATCH /clients/:id
 func (h *ClientHandler) Patch(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -656,10 +704,6 @@ func (h *ClientHandler) GetByID(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	client, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || client == nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -682,10 +726,6 @@ func (h *ClientHandler) ListCompanies(c *gin.Context) {
 
 func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if roleID == authz.RoleSales {
 		forbidden(c, "sales cannot access full list")
 		return
@@ -699,6 +739,11 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 		offset = 0
 	}
 	q := strings.TrimSpace(c.Query("q"))
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
 
 	var (
 		clients []*models.Client
@@ -706,9 +751,9 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	)
 	switch kind {
 	case "individual":
-		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, q)
+		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, q, scope)
 	case "company":
-		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, q)
+		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, q, scope)
 	default:
 		badRequest(c, "invalid client list type")
 		return
@@ -726,10 +771,6 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 
 func (h *ClientHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if roleID == authz.RoleSales {
 		forbidden(c, "sales cannot access full list")
 		return
@@ -744,7 +785,12 @@ func (h *ClientHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 	clientType := strings.TrimSpace(c.Query("client_type"))
-	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+	clients, err := h.Service.ListForRole(userID, roleID, size, offset, clientType, scope)
 	if err != nil {
 		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
 		if errors.Is(err, services.ErrForbidden) {
@@ -763,10 +809,6 @@ func (h *ClientHandler) List(c *gin.Context) {
 
 func (h *ClientHandler) ListMy(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
 	if page < 1 {
@@ -777,7 +819,12 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 	clientType := strings.TrimSpace(c.Query("client_type"))
-	clients, err := h.Service.ListMine(userID, size, offset, clientType)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+	clients, err := h.Service.ListMineWithArchiveScope(userID, size, offset, clientType, scope)
 	if err != nil {
 		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d client_type=%q err=%v", userID, roleID, page, size, clientType, err)
 		if errors.Is(err, services.ErrForbidden) {
@@ -801,10 +848,6 @@ func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleAdminStaff {
-		forbidden(c, "Forbidden")
-		return
-	}
 	profile, err := h.Service.GetProfile(c.Request.Context(), id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {

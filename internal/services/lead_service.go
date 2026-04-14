@@ -27,9 +27,6 @@ func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositorie
 
 // Create: возвращаем ID созданного лида
 func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, error) {
-	if authz.CanManageSystem(roleID) {
-		return 0, ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return 0, ErrReadOnly
 	}
@@ -50,9 +47,6 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 }
 
 func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
-	if authz.CanManageSystem(roleID) {
-		return ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
@@ -99,27 +93,29 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 }
 
 func (s *LeadService) ListAll(limit, offset int) ([]*models.Leads, error) {
-	return s.Repo.ListAll(limit, offset)
+	return s.Repo.ListAllWithArchiveScope(limit, offset, repositories.ArchiveScopeActiveOnly)
+}
+
+func (s *LeadService) ListAllWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
+	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
 }
 
 func (s *LeadService) ListMy(ownerID, limit, offset int) ([]*models.Leads, error) {
-	return s.Repo.ListByOwner(ownerID, limit, offset)
+	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *LeadService) ListForRole(userID, roleID, limit, offset int) ([]*models.Leads, error) {
-	if authz.CanManageSystem(roleID) {
-		return nil, ErrForbidden
-	}
+func (s *LeadService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
+	return s.Repo.ListByOwnerWithArchiveScope(ownerID, limit, offset, scope)
+}
+
+func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	return s.ListAll(limit, offset)
+	return s.Repo.ListAllWithArchiveScope(limit, offset, scope)
 }
 
 func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error) {
-	if authz.CanManageSystem(roleID) {
-		return nil, ErrForbidden
-	}
 	lead, err := s.Repo.GetByID(id)
 	if err != nil || lead == nil {
 		return lead, err
@@ -130,25 +126,27 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 	return lead, nil
 }
 
+func (s *LeadService) GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Leads, error) {
+	lead, err := s.Repo.GetByIDWithArchiveScope(id, scope)
+	if err != nil || lead == nil {
+		return lead, err
+	}
+	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	return lead, nil
+}
+
 func (s *LeadService) Delete(id int, userID, roleID int) error {
-	if authz.CanManageSystem(roleID) {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
 		return ErrForbidden
 	}
-	if authz.IsReadOnly(roleID) {
-		return ErrReadOnly
-	}
-	if roleID == authz.RoleOperations {
-		return ErrForbidden
-	}
-	lead, err := s.Repo.GetByID(id)
+	lead, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
 	if err != nil {
 		return err
 	}
 	if lead == nil {
 		return errors.New("lead not found")
-	}
-	if roleID == authz.RoleSales && lead.OwnerID != userID {
-		return ErrForbidden
 	}
 	return s.Repo.Delete(id)
 }
@@ -156,9 +154,6 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 // ConvertLeadToDeal оставляем как у тебя, только напомню,
 // что он требует lead.Status == "confirmed"
 func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int, clientType string) (*models.Deals, error) {
-	if authz.CanManageSystem(roleID) {
-		return nil, ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return nil, ErrReadOnly
 	}
@@ -219,9 +214,6 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 }
 
 func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error) {
-	if authz.CanManageSystem(roleID) {
-		return nil, ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return nil, ErrReadOnly
 	}
@@ -257,9 +249,6 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 }
 
 func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error {
-	if authz.CanManageSystem(roleID) {
-		return ErrForbidden
-	}
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
@@ -281,6 +270,46 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 	}
 
 	return s.Repo.UpdateStatus(id, to)
+}
+
+func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	lead, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return err
+	}
+	if lead == nil {
+		return ErrLeadNotFound
+	}
+	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return ErrForbidden
+	}
+	if lead.IsArchived {
+		return nil
+	}
+	return s.Repo.Archive(id, userID, reason)
+}
+
+func (s *LeadService) UnarchiveLead(id, userID, roleID int) error {
+	if !authz.CanArchiveBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	lead, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
+	if err != nil {
+		return err
+	}
+	if lead == nil {
+		return ErrLeadNotFound
+	}
+	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return ErrForbidden
+	}
+	if !lead.IsArchived {
+		return ErrNotArchived
+	}
+	return s.Repo.Unarchive(id)
 }
 
 func (s *LeadService) AssignOwner(id, assigneeID, userID, roleID int) error {

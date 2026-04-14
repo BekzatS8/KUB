@@ -18,6 +18,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
@@ -91,10 +92,6 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	id, err := h.Service.CreateDocument(&doc, userID, roleID)
 	if err != nil {
 		switch err.Error() {
@@ -123,10 +120,6 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 // POST /documents/upload
 func (h *DocumentHandler) Upload(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	dealID, err := strconv.ParseInt(c.PostForm("deal_id"), 10, 64)
 	if err != nil {
 		badRequest(c, "Invalid deal id")
@@ -168,10 +161,6 @@ func (h *DocumentHandler) GetDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	doc, err := h.Service.GetDocument(id, userID, roleID)
 	if err != nil || doc == nil {
 		if err != nil && err.Error() == "forbidden" {
@@ -192,11 +181,12 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
 		return
 	}
-	docs, err := h.Service.ListDocumentsByDeal(dealID, userID, roleID)
+	docs, err := h.Service.ListDocumentsByDeal(dealID, userID, roleID, scope)
 	if err != nil {
 		if err.Error() == "forbidden" {
 			forbidden(c, "Forbidden")
@@ -216,7 +206,7 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -256,7 +246,13 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		return
 	}
 
-	docs, err := h.Service.ListDocuments(size, offset)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+
+	docs, err := h.Service.ListDocumentsWithArchiveScope(size, offset, scope)
 	if err != nil {
 		internalError(c, "Could not fetch documents")
 		return
@@ -473,10 +469,6 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	var signedAt *time.Time
 	if strings.TrimSpace(body.SignedAt) != "" {
 		t, perr := time.Parse(time.RFC3339, body.SignedAt)
@@ -502,6 +494,64 @@ func (h *DocumentHandler) Sign(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+type archiveDocumentRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *DocumentHandler) ArchiveDocument(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var req archiveDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.ArchiveDocument(id, userID, roleID, req.Reason); err != nil {
+		switch err.Error() {
+		case "forbidden", "read-only role":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		}
+		internalError(c, "Failed to archive document")
+		return
+	}
+	doc, _ := h.Service.GetDocumentWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
+	c.JSON(http.StatusOK, doc)
+}
+
+func (h *DocumentHandler) UnarchiveDocument(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.UnarchiveDocument(id, userID, roleID); err != nil {
+		switch err.Error() {
+		case "forbidden", "read-only role":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		case "not archived":
+			badRequest(c, "Document is not archived")
+			return
+		}
+		internalError(c, "Failed to unarchive document")
+		return
+	}
+	doc, _ := h.Service.GetDocument(id, userID, roleID)
+	c.JSON(http.StatusOK, doc)
 }
 
 // POST /documents/:id/send-for-signature

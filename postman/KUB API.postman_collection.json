@@ -234,6 +234,86 @@
           "response": []
         },
         {
+          "name": "Login as Management",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{bossEmail}}\",\n  \"password\": \"{{bossPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r=pm.response.json();",
+                  "const t = r.access_token || r.token || r.jwt;",
+                  "if (t) { pm.environment.set('accessToken', t); pm.environment.set('jwt', t); pm.environment.set('token', t); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Backoffice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{backofficeEmail}}\",\n  \"password\": \"{{backofficePassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r=pm.response.json();",
+                  "const t = r.access_token || r.token || r.jwt;",
+                  "if (t) { pm.environment.set('accessToken', t); pm.environment.set('jwt', t); pm.environment.set('token', t); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Refresh Token",
           "event": [
             {
@@ -909,6 +989,96 @@
           "response": []
         },
         {
+          "name": "List Clients (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Clients (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Individual Clients",
           "request": {
             "method": "GET",
@@ -941,6 +1111,106 @@
           "response": []
         },
         {
+          "name": "List Individual Clients (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/individual?limit=20&offset=0&q=&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "individual"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Individual Clients (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/individual?limit=20&offset=0&q=&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "individual"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List My Clients",
           "request": {
             "method": "GET",
@@ -957,6 +1227,82 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List My Clients (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/my?archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List My Clients (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/my?archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Client",
@@ -1002,6 +1348,105 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Archive Client",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{individualClientId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.environment.set('archivedClientId', pm.environment.get('individualClientId')); "
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unarchive Client",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{archivedClientId}}/unarchive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{archivedClientId}}",
+                "unarchive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Client (admin hard delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{individualClientId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204, 202, 403]); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Individual Completeness",
@@ -1265,6 +1710,106 @@
           "response": []
         },
         {
+          "name": "List Company Clients (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/company?limit=20&offset=0&q=&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "company"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Company Clients (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/company?limit=20&offset=0&q=&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "company"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "q",
+                  "value": ""
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Clients (legal)",
           "request": {
             "method": "GET",
@@ -1309,6 +1854,104 @@
                   "    list.forEach(c => { pm.expect(c).to.have.property(\"client_type\"); pm.expect(c.client_type).to.eql(\"legal\"); });",
                   "  });",
                   "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Clients (legal, archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?client_type=legal&page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "legal"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Clients (legal, all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients?client_type=legal&page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "legal"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
                 ]
               }
             }
@@ -1800,6 +2443,96 @@
           "response": []
         },
         {
+          "name": "List Leads (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Leads (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List My Leads",
           "request": {
             "method": "GET",
@@ -1826,6 +2559,98 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List My Leads (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/my?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List My Leads (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/my?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Lead",
@@ -1888,7 +2713,80 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204, 403]); });",
+                  "pm.test('delete is not archive fallback', function(){ pm.expect(pm.response.code).to.not.eql(202); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Archive Lead",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/{{leadId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "{{leadId}}",
+                "archive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.environment.set('archivedLeadId', pm.environment.get('leadId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unarchive Lead",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/{{archivedLeadId}}/unarchive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "{{archivedLeadId}}",
+                "unarchive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Assign Lead",
@@ -2149,6 +3047,96 @@
           "response": []
         },
         {
+          "name": "List Deals (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Deals (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List My Deals",
           "request": {
             "method": "GET",
@@ -2175,6 +3163,98 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List My Deals (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/my?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List My Deals (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/my?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Deal",
@@ -2237,7 +3317,79 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204, 403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Archive Deal",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{dealId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{dealId}}",
+                "archive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.environment.set('archivedDealId', pm.environment.get('dealId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unarchive Deal",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{archivedDealId}}/unarchive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{archivedDealId}}",
+                "unarchive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Update Deal Status",
@@ -3095,6 +4247,105 @@
           "response": []
         },
         {
+          "name": "Archive Document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/{{documentId}}/archive",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.environment.set('archivedDocumentId', pm.environment.get('documentId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unarchive Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{archivedDocumentId}}/unarchive",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{archivedDocumentId}}",
+                "unarchive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Document (admin hard delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{documentId}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204, 202, 403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Documents",
           "request": {
             "method": "GET",
@@ -3110,6 +4361,96 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List Documents (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents?page=1&limit=20&archive=archived",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Documents (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents?page=1&limit=20&archive=all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List Documents By Deal",
@@ -3129,6 +4470,84 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "List Documents By Deal (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/deal/{{dealId}}?archive=archived",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "deal",
+                "{{dealId}}"
+              ],
+              "query": [
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Documents By Deal (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/deal/{{dealId}}?archive=all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "deal",
+                "{{dealId}}"
+              ],
+              "query": [
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Download PDF by doc_id",
@@ -5462,6 +6881,96 @@
           "response": []
         },
         {
+          "name": "List Tasks (archived)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks?page=1&limit=20&archive=archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "archived"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Tasks (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks?page=1&limit=20&archive=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "archive",
+                  "value": "all"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                  "let data=[];",
+                  "try { data=pm.response.json(); } catch(e) {}",
+                  "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Get Task",
           "request": {
             "method": "GET",
@@ -5522,7 +7031,88 @@
               ]
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204, 403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Archive Task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.environment.set('archivedTaskId', pm.environment.get('taskId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unarchive Task",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{archivedTaskId}}/unarchive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{archivedTaskId}}",
+                "unarchive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Change Status",
@@ -6244,6 +7834,1746 @@
             }
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Archive Smoke / Business Entities",
+      "item": [
+        {
+          "name": "Leads Archive Smoke",
+          "item": [
+            {
+              "name": "Create Lead (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/leads",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"{{leadTitle}}\",\n  \"description\": \"{{leadDescription}}\",\n  \"status\": \"new\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('leadId', id); }",
+                      "pm.environment.set('lead_id', pm.environment.get('leadId')); ",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Active Leads (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Archive Lead (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads/{{leadId}}/archive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads",
+                    "{{leadId}}",
+                    "archive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                      "pm.environment.set('archivedLeadId', pm.environment.get('leadId'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Archived Leads (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads?page=1&limit=20&archive=archived",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "archived"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List All Leads (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads?page=1&limit=20&archive=all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "all"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Unarchive Lead (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads/{{archivedLeadId}}/unarchive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads",
+                    "{{archivedLeadId}}",
+                    "unarchive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Lead as Admin (smoke)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/leads/{{leadId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "leads",
+                    "{{leadId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Deals Archive Smoke",
+          "item": [
+            {
+              "name": "Create Deal (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/deals",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"lead_id\": {{leadId}},\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"amount\": {{dealAmount}},\n  \"currency\": \"{{dealCurrency}}\",\n  \"status\": \"{{dealStatus}}\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('dealId', id); }",
+                      "pm.environment.set('deal_id', pm.environment.get('dealId')); ",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Active Deals (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Archive Deal (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals/{{dealId}}/archive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals",
+                    "{{dealId}}",
+                    "archive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                      "pm.environment.set('archivedDealId', pm.environment.get('dealId'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Archived Deals (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals?page=1&limit=20&archive=archived",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "archived"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List All Deals (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals?page=1&limit=20&archive=all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "all"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Unarchive Deal (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals/{{archivedDealId}}/unarchive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals",
+                    "{{archivedDealId}}",
+                    "unarchive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Deal as Admin (smoke)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/deals/{{dealId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "deals",
+                    "{{dealId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Clients Archive Smoke",
+          "item": [
+            {
+              "name": "Create Individual Client (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/clients",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"client_type\": \"individual\",\n  \"name\": \"{{clientName}}\",\n  \"bin_iin\": \"{{clientIin}}\",\n  \"phone\": \"{{clientPhone}}\",\n  \"email\": \"{{clientEmail}}\",\n  \"address\": \"{{clientAddress}}\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('individualClientId', id); }",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create Legal Client (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/clients",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"client_type\": \"legal\",\n  \"name\": \"{{companyName}}\",\n  \"bin_iin\": \"{{binIin}}\",\n  \"phone\": \"{{clientPhone}}\",\n  \"email\": \"{{clientEmail}}\",\n  \"address\": \"{{clientAddress}}\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('legalClientId', id); }",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Archive Client (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/clients/{{individualClientId}}/archive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients",
+                    "{{individualClientId}}",
+                    "archive"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                      "pm.environment.set('archivedClientId', pm.environment.get('individualClientId'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Archived Clients (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/clients?page=1&limit=20&archive=archived",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "archived"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Unarchive Client (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/clients/{{archivedClientId}}/unarchive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients",
+                    "{{archivedClientId}}",
+                    "unarchive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Client as Admin (smoke)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/clients/{{individualClientId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "clients",
+                    "{{individualClientId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Documents Archive Smoke",
+          "item": [
+            {
+              "name": "Create Document (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/documents/create-from-client",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "create-from-client"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"client_id\": {{individualClientId}},\n  \"client_type\": \"individual\",\n  \"deal_id\": {{dealId}},\n  \"doc_type\": \"contract_free_ru\",\n  \"extra\": {}\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('documentId', id); }",
+                      "pm.environment.set('doc_id', pm.environment.get('documentId')); ",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Archive Document (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/documents/{{documentId}}/archive",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "{{documentId}}",
+                    "archive"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                      "pm.environment.set('archivedDocumentId', pm.environment.get('documentId'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Archived Documents (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/documents?page=1&limit=20&archive=archived",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "documents"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "archived"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Unarchive Document (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/documents/{{archivedDocumentId}}/unarchive",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "{{archivedDocumentId}}",
+                    "unarchive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Document as Admin (smoke)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/documents/{{documentId}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "{{documentId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Tasks Archive Smoke",
+          "item": [
+            {
+              "name": "Create Task (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/tasks",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "tasks"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"{{taskTitle}}\",\n  \"description\": \"{{taskDescription}}\",\n  \"assignee_id\": {{assigneeId}},\n  \"entity_id\": {{entityId}},\n  \"entity_type\": \"{{entityType}}\",\n  \"priority\": \"{{taskPriority}}\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "let data={};",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "const id = data?.id || data?.data?.id || data?.value?.id || data?.deal?.id || data?.document?.id;",
+                      "if (id) { pm.environment.set('taskId', id); }",
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 201]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Archive Task (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/tasks/{{taskId}}/archive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "tasks",
+                    "{{taskId}}",
+                    "archive"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"postman smoke archive\"\n}"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                      "pm.environment.set('archivedTaskId', pm.environment.get('taskId'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Archived Tasks (smoke)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/tasks?page=1&limit=20&archive=archived",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "tasks"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "archive",
+                      "value": "archived"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('status is success', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });",
+                      "let data=[];",
+                      "try { data=pm.response.json(); } catch(e) {}",
+                      "pm.test('response is array-like', function(){ pm.expect(Array.isArray(data) || Array.isArray(data?.data) || typeof data==='object').to.eql(true); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Unarchive Task (smoke)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/tasks/{{archivedTaskId}}/unarchive",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "tasks",
+                    "{{archivedTaskId}}",
+                    "unarchive"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Task as Admin (smoke)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/tasks/{{taskId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "tasks",
+                    "{{taskId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RBAC / Negative checks",
+      "item": [
+        {
+          "name": "Login as Sales (RBAC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{salesEmail}}\",\n  \"password\": \"{{salesPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r=pm.response.json(); const t=r.access_token||r.token||r.jwt; if (t){pm.environment.set('accessToken', t); pm.environment.set('jwt', t); pm.environment.set('token', t);} "
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-admin DELETE Lead -> 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/{{leadId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "{{leadId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-admin DELETE Deal -> 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{dealId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{dealId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-admin DELETE Client -> 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{individualClientId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-admin DELETE Document -> 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{documentId}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-admin DELETE Task -> 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Control (read-only RBAC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{controlEmail}}\",\n  \"password\": \"{{controlPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r=pm.response.json(); const t=r.access_token||r.token||r.jwt; if (t){pm.environment.set('accessToken', t); pm.environment.set('jwt', t); pm.environment.set('token', t);} "
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only archive Lead -> 403",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/{{leadId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "{{leadId}}",
+                "archive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only archive Deal -> 403",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{dealId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{dealId}}",
+                "archive"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only archive Client -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{individualClientId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"rbac negative\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only archive Document -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/documents/{{documentId}}/archive",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"rbac negative\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read-only archive Task -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/archive",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "archive"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"rbac negative\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([403]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Admin (RBAC)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r=pm.response.json(); const t=r.access_token||r.token||r.jwt; if (t){pm.environment.set('accessToken', t); pm.environment.set('jwt', t); pm.environment.set('token', t);} "
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin DELETE Lead -> success",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/leads/{{leadId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads",
+                "{{leadId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin DELETE Deal -> success",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{dealId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{dealId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin DELETE Client -> success",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/clients/{{individualClientId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "clients",
+                "{{individualClientId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin DELETE Document -> success",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/documents/{{documentId}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin DELETE Task -> success",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expected status', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

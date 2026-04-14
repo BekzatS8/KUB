@@ -24,6 +24,21 @@ func normalizeDealStatus(status sql.NullString) string {
 	return "new"
 }
 
+func dealArchiveWhere(scope ArchiveScope, alias string) string {
+	column := "is_archived"
+	if alias != "" {
+		column = alias + ".is_archived"
+	}
+	switch scope {
+	case ArchiveScopeArchivedOnly:
+		return column + " = TRUE"
+	case ArchiveScopeAll:
+		return "1=1"
+	default:
+		return column + " = FALSE"
+	}
+}
+
 // Создание сделки — возвращает ID новой записи
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
@@ -51,11 +66,15 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 
 // Получение сделки по lead_id (последняя по времени)
 func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
+	return r.GetByLeadIDWithArchiveScope(leadID, ArchiveScopeActiveOnly)
+}
+
+func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.lead_id = $1
+		WHERE d.lead_id = $1 AND %s
 		ORDER BY d.created_at DESC
 		LIMIT 1
 	`
@@ -63,7 +82,12 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	deal := &models.Deals{}
 	var status sql.NullString
 
-	err := r.db.QueryRow(query, leadID).Scan(
+	var isArchived bool
+	var archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	var archiveReason sql.NullString
+
+	err := r.db.QueryRow(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), leadID).Scan(
 		&deal.ID,
 		&deal.LeadID,
 		&deal.ClientID,
@@ -73,6 +97,10 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 		&deal.Currency,
 		&status,
 		&deal.CreatedAt,
+		&isArchived,
+		&archivedAt,
+		&archivedBy,
+		&archiveReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -83,6 +111,16 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 	}
 
 	deal.Status = normalizeDealStatus(status)
+	deal.IsArchived = isArchived
+	if archivedAt.Valid {
+		archived := archivedAt.Time
+		deal.ArchivedAt = &archived
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		deal.ArchivedBy = &by
+	}
+	deal.ArchiveReason = stringFromNull(archiveReason)
 	return deal, nil
 }
 
@@ -110,17 +148,26 @@ func (r *DealRepository) Update(deal *models.Deals) error {
 
 // Получение по ID
 func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
+	return r.GetByIDWithArchiveScope(id, ArchiveScopeActiveOnly)
+}
+
+func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.id=$1
+		WHERE d.id=$1 AND %s
 	`
 
 	deal := &models.Deals{}
 	var status sql.NullString
 
-	err := r.db.QueryRow(query, id).Scan(
+	var isArchived bool
+	var archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	var archiveReason sql.NullString
+
+	err := r.db.QueryRow(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), id).Scan(
 		&deal.ID,
 		&deal.LeadID,
 		&deal.ClientID,
@@ -130,6 +177,10 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 		&deal.Currency,
 		&status,
 		&deal.CreatedAt,
+		&isArchived,
+		&archivedAt,
+		&archivedBy,
+		&archiveReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -140,6 +191,16 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 	}
 
 	deal.Status = normalizeDealStatus(status)
+	deal.IsArchived = isArchived
+	if archivedAt.Valid {
+		archived := archivedAt.Time
+		deal.ArchivedAt = &archived
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		deal.ArchivedBy = &by
+	}
+	deal.ArchiveReason = stringFromNull(archiveReason)
 	return deal, nil
 }
 
@@ -160,10 +221,36 @@ func (r *DealRepository) Delete(id int) error {
 	return nil
 }
 
+func (r *DealRepository) Archive(id, archivedBy int, reason string) error {
+	query := `
+		UPDATE deals
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = $2,
+		    archive_reason = $3
+		WHERE id=$1
+	`
+	_, err := r.db.Exec(query, id, archivedBy, reason)
+	return err
+}
+
+func (r *DealRepository) Unarchive(id int) error {
+	query := `
+		UPDATE deals
+		SET is_archived = FALSE,
+		    archived_at = NULL,
+		    archived_by = NULL,
+		    archive_reason = NULL
+		WHERE id=$1
+	`
+	_, err := r.db.Exec(query, id)
+	return err
+}
+
 // Подсчёт сделок
 func (r *DealRepository) CountDeals() (int, error) {
 	var count int
-	query := "SELECT COUNT(*) FROM deals"
+	query := "SELECT COUNT(*) FROM deals WHERE is_archived = FALSE"
 	err := r.db.QueryRow(query).Scan(&count)
 	return count, err
 }
@@ -188,7 +275,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		sortExpr = "d.created_at"
 	}
 
-	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE 1=1"
+	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE d.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -236,6 +323,10 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 	for rows.Next() {
 		var deal models.Deals
 		var status sql.NullString
+		var isArchived bool
+		var archivedAt sql.NullTime
+		var archivedBy sql.NullInt64
+		var archiveReason sql.NullString
 
 		if err := rows.Scan(
 			&deal.ID,
@@ -247,26 +338,45 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 			&deal.Currency,
 			&status,
 			&deal.CreatedAt,
+			&isArchived,
+			&archivedAt,
+			&archivedBy,
+			&archiveReason,
 		); err != nil {
 			return nil, err
 		}
 
 		deal.Status = normalizeDealStatus(status)
+		deal.IsArchived = isArchived
+		if archivedAt.Valid {
+			archived := archivedAt.Time
+			deal.ArchivedAt = &archived
+		}
+		if archivedBy.Valid {
+			by := int(archivedBy.Int64)
+			deal.ArchivedBy = &by
+		}
+		deal.ArchiveReason = stringFromNull(archiveReason)
 		deals = append(deals, deal)
 	}
 	return deals, nil
 }
 
 func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
+	return r.ListAllWithArchiveScope(limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *DealRepository) ListAllWithArchiveScope(limit, offset int, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
+		WHERE %s
 		ORDER BY d.created_at DESC
 		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := r.db.Query(query, limit, offset)
+	rows, err := r.db.Query(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка запроса: %w", err)
 	}
@@ -276,6 +386,10 @@ func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 	for rows.Next() {
 		var d models.Deals
 		var status sql.NullString
+		var isArchived bool
+		var archivedAt sql.NullTime
+		var archivedBy sql.NullInt64
+		var archiveReason sql.NullString
 
 		if err := rows.Scan(
 			&d.ID,
@@ -287,11 +401,25 @@ func (r *DealRepository) ListAll(limit, offset int) ([]*models.Deals, error) {
 			&d.Currency,
 			&status,
 			&d.CreatedAt,
+			&isArchived,
+			&archivedAt,
+			&archivedBy,
+			&archiveReason,
 		); err != nil {
 			return nil, fmt.Errorf("ошибка чтения: %w", err)
 		}
 
 		d.Status = normalizeDealStatus(status)
+		d.IsArchived = isArchived
+		if archivedAt.Valid {
+			archived := archivedAt.Time
+			d.ArchivedAt = &archived
+		}
+		if archivedBy.Valid {
+			by := int(archivedBy.Int64)
+			d.ArchivedBy = &by
+		}
+		d.ArchiveReason = stringFromNull(archiveReason)
 		deals = append(deals, &d)
 	}
 	return deals, nil
@@ -303,16 +431,20 @@ func (r *DealRepository) ListPaginated(limit, offset int) ([]*models.Deals, erro
 
 // Только сделки конкретного владельца
 func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deals, error) {
+	return r.ListByOwnerWithArchiveScope(ownerID, limit, offset, ArchiveScopeActiveOnly)
+}
+
+func (r *DealRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.owner_id = $1
+		WHERE d.owner_id = $1 AND %s
 		ORDER BY d.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.Query(query, ownerID, limit, offset)
+	rows, err := r.db.Query(fmt.Sprintf(query, dealArchiveWhere(scope, "d")), ownerID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +454,10 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 	for rows.Next() {
 		var d models.Deals
 		var status sql.NullString
+		var isArchived bool
+		var archivedAt sql.NullTime
+		var archivedBy sql.NullInt64
+		var archiveReason sql.NullString
 
 		if err := rows.Scan(
 			&d.ID,
@@ -333,11 +469,25 @@ func (r *DealRepository) ListByOwner(ownerID, limit, offset int) ([]*models.Deal
 			&d.Currency,
 			&status,
 			&d.CreatedAt,
+			&isArchived,
+			&archivedAt,
+			&archivedBy,
+			&archiveReason,
 		); err != nil {
 			return nil, err
 		}
 
 		d.Status = normalizeDealStatus(status)
+		d.IsArchived = isArchived
+		if archivedAt.Valid {
+			archived := archivedAt.Time
+			d.ArchivedAt = &archived
+		}
+		if archivedBy.Valid {
+			by := int(archivedBy.Int64)
+			d.ArchivedBy = &by
+		}
+		d.ArchiveReason = stringFromNull(archiveReason)
 		deals = append(deals, &d)
 	}
 	return deals, nil
@@ -352,16 +502,20 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
-		WHERE d.client_id = $1
+		WHERE d.client_id = $1 AND d.is_archived = FALSE
 		ORDER BY d.created_at DESC
 		LIMIT 1
 	`
 
 	deal := &models.Deals{}
 	var status sql.NullString
+	var isArchived bool
+	var archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	var archiveReason sql.NullString
 
 	err := r.db.QueryRow(query, clientID).Scan(
 		&deal.ID,
@@ -373,6 +527,10 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		&deal.Currency,
 		&status,
 		&deal.CreatedAt,
+		&isArchived,
+		&archivedAt,
+		&archivedBy,
+		&archiveReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -383,22 +541,36 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 	}
 
 	deal.Status = normalizeDealStatus(status)
+	deal.IsArchived = isArchived
+	if archivedAt.Valid {
+		archived := archivedAt.Time
+		deal.ArchivedAt = &archived
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		deal.ArchivedBy = &by
+	}
+	deal.ArchiveReason = stringFromNull(archiveReason)
 	return deal, nil
 }
 
 // GetLatestByClientRef возвращает последнюю сделку по точной typed ссылке клиента.
 func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id
-		WHERE d.client_id = $1 AND c.client_type = $2
+		WHERE d.client_id = $1 AND c.client_type = $2 AND d.is_archived = FALSE
 		ORDER BY d.created_at DESC
 		LIMIT 1
 	`
 
 	deal := &models.Deals{}
 	var status sql.NullString
+	var isArchived bool
+	var archivedAt sql.NullTime
+	var archivedBy sql.NullInt64
+	var archiveReason sql.NullString
 
 	err := r.db.QueryRow(query, clientID, clientType).Scan(
 		&deal.ID,
@@ -410,6 +582,10 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 		&deal.Currency,
 		&status,
 		&deal.CreatedAt,
+		&isArchived,
+		&archivedAt,
+		&archivedBy,
+		&archiveReason,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -418,6 +594,16 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 		return nil, fmt.Errorf("get latest deal by typed client ref: %w", err)
 	}
 	deal.Status = normalizeDealStatus(status)
+	deal.IsArchived = isArchived
+	if archivedAt.Valid {
+		archived := archivedAt.Time
+		deal.ArchivedAt = &archived
+	}
+	if archivedBy.Valid {
+		by := int(archivedBy.Int64)
+		deal.ArchivedBy = &by
+	}
+	deal.ArchiveReason = stringFromNull(archiveReason)
 	return deal, nil
 }
 

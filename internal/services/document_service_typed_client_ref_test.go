@@ -7,6 +7,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 )
 
 type testDocumentRepo struct {
@@ -19,14 +20,25 @@ func (r *testDocumentRepo) Create(doc *models.Document) (int64, error) {
 	return doc.ID, nil
 }
 func (r *testDocumentRepo) GetByID(id int64) (*models.Document, error) { return nil, nil }
+func (r *testDocumentRepo) GetByIDWithArchiveScope(id int64, scope repositories.ArchiveScope) (*models.Document, error) {
+	return nil, nil
+}
 func (r *testDocumentRepo) ListDocuments(limit, offset int) ([]*models.Document, error) {
+	return nil, nil
+}
+func (r *testDocumentRepo) ListDocumentsWithArchiveScope(limit, offset int, scope repositories.ArchiveScope) ([]*models.Document, error) {
 	return nil, nil
 }
 func (r *testDocumentRepo) ListDocumentsByDeal(dealID int64) ([]*models.Document, error) {
 	return nil, nil
 }
-func (r *testDocumentRepo) Delete(id int64) error                      { return nil }
-func (r *testDocumentRepo) UpdateStatus(id int64, status string) error { return nil }
+func (r *testDocumentRepo) ListDocumentsByDealWithArchiveScope(dealID int64, scope repositories.ArchiveScope) ([]*models.Document, error) {
+	return nil, nil
+}
+func (r *testDocumentRepo) Delete(id int64) error                                 { return nil }
+func (r *testDocumentRepo) Archive(id int64, archivedBy int, reason string) error { return nil }
+func (r *testDocumentRepo) Unarchive(id int64) error                              { return nil }
+func (r *testDocumentRepo) UpdateStatus(id int64, status string) error            { return nil }
 func (r *testDocumentRepo) MarkSigned(id int64, signedBy string, signedAt time.Time) error {
 	return nil
 }

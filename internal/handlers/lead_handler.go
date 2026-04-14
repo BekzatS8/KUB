@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,11 +12,28 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
 type LeadHandler struct {
-	Service *services.LeadService
+	Service leadService
+}
+
+type leadService interface {
+	Create(lead *models.Leads, userID, roleID int) (int64, error)
+	Update(lead *models.Leads, userID, roleID int) error
+	GetByID(id int, userID, roleID int) (*models.Leads, error)
+	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Leads, error)
+	Delete(id int, userID, roleID int) error
+	ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error)
+	ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error)
+	AssignOwner(id, assigneeID, userID, roleID int) error
+	UpdateStatus(id int, to string, userID, roleID int) error
+	ArchiveLead(id, userID, roleID int, reason string) error
+	UnarchiveLead(id, userID, roleID int) error
+	ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int, clientType string) (*models.Deals, error)
+	ConvertLeadToDealWithClientData(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error)
 }
 
 func NewLeadHandler(service *services.LeadService) *LeadHandler {
@@ -30,10 +48,6 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -65,10 +79,6 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -110,10 +120,6 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	lead, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || lead == nil {
 		if errors.Is(err, services.ErrForbidden) {
@@ -134,16 +140,12 @@ func (h *LeadHandler) Delete(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
-	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
-		return
-	}
 
-	lead, err := h.Service.GetByID(id, userID, roleID)
+	lead, err := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
 	if err != nil || lead == nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -162,6 +164,65 @@ func (h *LeadHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+}
+
+type archiveLeadRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *LeadHandler) Archive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var req archiveLeadRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.ArchiveLead(id, userID, roleID, req.Reason); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrLeadNotFound) {
+			notFound(c, LeadNotFoundCode, "Lead not found")
+			return
+		}
+		internalError(c, "Failed to archive lead")
+		return
+	}
+	updated, _ := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *LeadHandler) Unarchive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.UnarchiveLead(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrLeadNotFound) {
+			notFound(c, LeadNotFoundCode, "Lead not found")
+			return
+		}
+		if errors.Is(err, services.ErrNotArchived) {
+			badRequest(c, "Lead is not archived")
+			return
+		}
+		internalError(c, "Failed to unarchive lead")
+		return
+	}
+	updated, _ := h.Service.GetByID(id, userID, roleID)
+	c.JSON(http.StatusOK, updated)
 }
 
 // --- Assign ---
@@ -184,10 +245,6 @@ func (h *LeadHandler) Assign(c *gin.Context) {
 	}
 
 	actorID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -235,10 +292,6 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -307,10 +360,6 @@ func (h *LeadHandler) ConvertToDeal(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -367,10 +416,6 @@ func (h *LeadHandler) ConvertToDealWithClient(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if authz.IsReadOnly(roleID) {
 		forbidden(c, "Read-only role")
 		return
@@ -480,10 +525,6 @@ func buildClientFromConvertWithClientRequest(req ConvertLeadWithClientRequest) (
 
 func (h *LeadHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
 	if roleID == authz.RoleSales {
 		forbidden(c, "sales cannot access full list")
 		return
@@ -499,7 +540,13 @@ func (h *LeadHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	leads, err := h.Service.ListForRole(userID, roleID, size, offset)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+
+	leads, err := h.Service.ListForRole(userID, roleID, size, offset, scope)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
@@ -513,11 +560,7 @@ func (h *LeadHandler) List(c *gin.Context) {
 
 // GET /leads/my?page=&size=
 func (h *LeadHandler) ListMy(c *gin.Context) {
-	userID, roleID := getUserAndRole(c)
-	if authz.CanManageSystem(roleID) {
-		forbidden(c, "Forbidden")
-		return
-	}
+	userID, _ := getUserAndRole(c)
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
@@ -529,7 +572,13 @@ func (h *LeadHandler) ListMy(c *gin.Context) {
 	}
 	offset := (page - 1) * size
 
-	leads, err := h.Service.ListMy(userID, size, offset)
+	scope, ok := archiveScopeFromQuery(c)
+	if !ok {
+		badRequest(c, "Invalid archive filter")
+		return
+	}
+
+	leads, err := h.Service.ListMyWithArchiveScope(userID, size, offset, scope)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "Forbidden")
