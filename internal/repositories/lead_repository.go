@@ -405,6 +405,7 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 	if filter.BranchID != nil {
 		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
 		args = append(args, *filter.BranchID)
+		idx++
 	}
 
 	return where, args
