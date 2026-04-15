@@ -27,6 +27,8 @@ type Task struct {
 	ID             int64        `json:"id"`
 	CreatorID      int64        `json:"creator_id"`
 	AssigneeID     int64        `json:"assignee_id"`
+	BranchID       *int64       `json:"branch_id,omitempty"`
+	BranchName     string       `json:"branch_name,omitempty"`
 	EntityID       int64        `json:"entity_id"`
 	EntityType     string       `json:"entity_type"`
 	Title          string       `json:"title"`
@@ -56,4 +58,5 @@ type TaskFilter struct {
 	SortBy      string
 	Order       string
 	Archive     string
+	BranchID    *int64
 }

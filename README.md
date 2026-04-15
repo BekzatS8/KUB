@@ -34,6 +34,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 
 ## Возможности
 
+- ✅ Single-company CRM: одна компания, 5 филиалов (`branches`), branch-based data scope
 - ✅ Регистрация пользователя с верификацией телефона
 - ✅ Троттлинг и защита от брутфорса для кода подтверждения
 - ✅ Безопасное хранение кода (bcrypt-хэш), TTL, попытки, resend-лимиты
@@ -124,7 +125,7 @@ make local-down      # остановка локального стека
 ```bash
 curl -X POST http://localhost:4000/register \
   -H "Content-Type: application/json" \
-  -d '{"company_name":"Dev Co","bin_iin":"123456789012","email":"first@local.dev","password":"Passw0rd!","phone":"+77000000000"}'
+  -d '{"first_name":"Dev","last_name":"User","branch_id":1,"company_name":"Dev Co","bin_iin":"123456789012","email":"first@local.dev","password":"Passw0rd!","phone":"+77000000000"}'
 ```
 
 2. Получи verification code из логов API (dev-лог):
@@ -282,8 +283,29 @@ TTL access-токена настраивается через переменну
 - `POST /users` (system_admin) — создать пользователя любой роли; опционально `is_verified=true` для мгновенной верификации (если поле не передано, поведение прежнее: `is_verified=false`)  
 - `GET /users` (leadership/system_admin/control) — список  
 - `GET /users/:id` (leadership/system_admin/control; обычный юзер — только себя)  
-- `PUT /users/:id` — обновить (обычный юзер — только себя; поля верификации/роль — только system_admin)  
+- `PUT /users/:id` — обновить (обычный юзер — только себя; поля верификации/роль — только system_admin) 
 - `DELETE /users/:id` (system_admin)
+- `GET /users/me` — enriched human profile: `first_name/last_name/middle_name/full_name`, `role`, `position`, `branch`, `telegram`, `legacy`
+- create/update payload дополнен полями: `first_name`, `last_name`, `middle_name`, `position`, `branch_id`, `is_active`
+
+### Branches (single-company model)
+
+- `GET /branches` — список филиалов (все аутентифицированные роли)
+- `GET /branches/:id` — детали филиала (`system_admin/leadership` любой; остальные — только свой)
+- `POST /branches` — создать филиал (`system_admin`)
+- `PUT /branches/:id` — обновить филиал (`system_admin`)
+- `DELETE /branches/:id` — удалить филиал (`system_admin`)
+
+### Branch-based data scope
+
+- `branch_id` добавлен в ключевые сущности: `leads`, `deals`, `tasks`, `documents`, `chats`.
+- Наследование:
+  - `lead.branch_id` = филиал текущего пользователя
+  - `deal.branch_id` наследуется из лида
+  - `task.branch_id` наследуется из автора (fallback)
+  - `document.branch_id` наследуется из сделки
+  - `chat.branch_id` наследуется из создателя чата
+- Elevated роли (`control`, `leadership`, `system_admin`) могут использовать list-фильтр `branch_id`.
 
 **Roles** (system_admin)
 - CRUD + счётчики
@@ -492,7 +514,7 @@ DOCS_DEBUG_SCHEMA=1
 
 1) **Регистрация (sales)**
 ```bash
-curl -X POST http://localhost:4000/register   -H "Content-Type: application/json"   -d '{"company_name":"Acme","bin_iin":"123","email":"sales1@example.com","password":"sales12345","phone":"+77000000000"}'
+curl -X POST http://localhost:4000/register   -H "Content-Type: application/json"   -d '{"first_name":"Sales","last_name":"One","branch_id":1,"company_name":"Acme","bin_iin":"123","email":"sales1@example.com","password":"sales12345","phone":"+77000000000"}'
 ```
 
 2) **Подтверждение**

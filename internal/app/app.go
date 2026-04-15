@@ -108,6 +108,7 @@ func Run() {
 	// === Repos ===
 	roleRepo := repositories.NewRoleRepository(db)
 	userRepo := repositories.NewUserRepository(db)
+	branchRepo := repositories.NewBranchRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
 	clientRepo := repositories.NewClientRepository(db)
@@ -163,10 +164,12 @@ func Run() {
 
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
+	branchService := services.NewBranchService(branchRepo)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
-	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
+	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
 	dealService := services.NewDealService(dealRepo, clientRepo)
+	dealService.SetScopeDeps(leadRepo, userRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
 
@@ -253,7 +256,7 @@ func Run() {
 	)
 
 	// Reports
-	reportService := services.NewReportService(leadRepo, dealRepo)
+	reportService := services.NewReportService(leadRepo, dealRepo, userRepo)
 
 	chatHub := realtime.NewChatHub(chatRepo)
 	go chatHub.Run()
@@ -262,7 +265,8 @@ func Run() {
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	userHandler := handlers.NewUserHandler(userService, userVerificationService)
+	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService)
+	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
 	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService)
 	clientProfileHandler := handlers.NewClientProfileHandler(clientService)
@@ -343,6 +347,7 @@ func Run() {
 	routes.SetupRoutes(
 		router,
 		userHandler,
+		branchHandler,
 		clientHandler,
 		clientFilesHandler,
 		clientProfileHandler,

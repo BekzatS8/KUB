@@ -5,6 +5,8 @@ import "time"
 type Document struct {
 	ID           int64      `json:"id"`
 	DealID       int64      `json:"deal_id"`
+	BranchID     *int64     `json:"branch_id,omitempty"`
+	BranchName   string     `json:"branch_name,omitempty"`
 	DocType      string     `json:"doc_type"`
 	Status       string     `json:"status"` // draft, under_review, approved, sent_for_signature, signed, cancelled
 	FilePath     string     `json:"file_path"`

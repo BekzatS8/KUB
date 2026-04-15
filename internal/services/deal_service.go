@@ -12,6 +12,8 @@ import (
 type DealService struct {
 	Repo       *repositories.DealRepository
 	ClientRepo *repositories.ClientRepository
+	LeadRepo   *repositories.LeadRepository
+	UserRepo   repositories.UserRepository
 }
 
 func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
@@ -20,6 +22,11 @@ func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositori
 		service.ClientRepo = clientRepo[0]
 	}
 	return service
+}
+
+func (s *DealService) SetScopeDeps(leadRepo *repositories.LeadRepository, userRepo repositories.UserRepository) {
+	s.LeadRepo = leadRepo
+	s.UserRepo = userRepo
 }
 
 func normalizeRequiredDealClientType(value string) (string, error) {
@@ -89,6 +96,16 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 		// Sales can create deals only for themselves
 		if deal.OwnerID != userID {
 			return 0, ErrForbidden
+		}
+	}
+	if s.LeadRepo != nil {
+		if lead, err := s.LeadRepo.GetByID(deal.LeadID); err == nil && lead != nil {
+			deal.BranchID = lead.BranchID
+		}
+	}
+	if deal.BranchID == nil && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil {
+			deal.BranchID = u.BranchID
 		}
 	}
 
@@ -226,6 +243,11 @@ func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error)
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, ErrForbidden
 	}
+	if roleID == authz.RoleOperations && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil && deal.BranchID != nil && *u.BranchID != *deal.BranchID {
+			return nil, ErrForbidden
+		}
+	}
 	return deal, nil
 }
 
@@ -273,6 +295,11 @@ func (s *DealService) ListMyWithArchiveScope(ownerID, limit, offset int, scope r
 func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
+	}
+	if roleID == authz.RoleOperations && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
+			filter.BranchID = u.BranchID
+		}
 	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
 }

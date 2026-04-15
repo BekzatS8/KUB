@@ -24,6 +24,7 @@ type LeadListFilter struct {
 	StatusGroup string
 	SortBy      string
 	Order       string
+	BranchID    *int
 }
 
 type ArchiveScope string
@@ -57,6 +58,8 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var description sql.NullString
 	var phone sql.NullString
 	var source sql.NullString
+	var branchID sql.NullInt64
+	var branchName sql.NullString
 	var status sql.NullString
 	var isArchived bool
 	var archivedAt sql.NullTime
@@ -71,6 +74,8 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&source,
 		&lead.CreatedAt,
 		&lead.OwnerID,
+		&branchID,
+		&branchName,
 		&status,
 		&isArchived,
 		&archivedAt,
@@ -83,6 +88,13 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	lead.Description = stringFromNull(description)
 	lead.Phone = stringFromNull(phone)
 	lead.Source = stringFromNull(source)
+	if branchID.Valid {
+		v := int(branchID.Int64)
+		lead.BranchID = &v
+	}
+	if branchName.Valid {
+		lead.BranchName = branchName.String
+	}
 	lead.Status = normalizeLeadStatus(status)
 	lead.IsArchived = isArchived
 	if archivedAt.Valid {
@@ -111,8 +123,8 @@ func leadArchiveWhere(scope ArchiveScope) string {
 // Создание лида с возвратом ID + created_at из БД
 func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, owner_id, status)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO leads (title, description, owner_id, branch_id, status)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
 
@@ -122,6 +134,7 @@ func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 		lead.Title,
 		lead.Description,
 		lead.OwnerID,
+		lead.BranchID,
 		lead.Status,
 	).Scan(&id, &lead.CreatedAt)
 	if err != nil {
@@ -137,14 +150,16 @@ func (r *LeadRepository) Update(lead *models.Leads) error {
 		SET title = $1,
 		    description = $2,
 		    owner_id = $3,
-		    status = $4
-		WHERE id = $5
+		    branch_id = $4,
+		    status = $5
+		WHERE id = $6
 	`
 	_, err := r.db.Exec(
 		query,
 		lead.Title,
 		lead.Description,
 		lead.OwnerID,
+		lead.BranchID,
 		lead.Status,
 		lead.ID,
 	)
@@ -161,9 +176,8 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 
 func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
-		FROM leads
-		WHERE id = $1 AND %s
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
+		WHERE l.id = $1 AND %s
 	`
 	row := r.db.QueryRow(fmt.Sprintf(query, leadArchiveWhere(scope)), id)
 	lead, err := scanLead(row)
@@ -226,7 +240,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason FROM leads WHERE is_archived = FALSE"
+	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id FROM leads WHERE is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -271,8 +285,8 @@ func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
-		FROM leads
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE %s%s
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
@@ -323,8 +337,8 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
-		FROM leads
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE owner_id = $1 AND %s%s
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
@@ -387,6 +401,10 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		)`, idx, idx, idx)
 		args = append(args, likePattern)
 	}
+	if filter.BranchID != nil {
+		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
+		args = append(args, *filter.BranchID)
+	}
 
 	return where, args
 }
@@ -430,13 +448,19 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 }
 
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
-func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.LeadSummaryRow, error) {
+func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int, branchID *int) ([]models.LeadSummaryRow, error) {
 	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
+	idx := 3
 
 	if ownerID != nil {
-		query += " AND owner_id = $3"
+		query += fmt.Sprintf(" AND owner_id = $%d", idx)
 		args = append(args, *ownerID)
+		idx++
+	}
+	if branchID != nil {
+		query += fmt.Sprintf(" AND branch_id = $%d", idx)
+		args = append(args, *branchID)
 	}
 
 	query += " GROUP BY status ORDER BY status"

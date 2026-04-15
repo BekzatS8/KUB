@@ -387,6 +387,10 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	if strings.TrimSpace(doc.Status) == "" {
 		doc.Status = "draft"
 	}
+	if deal.BranchID != nil {
+		v := int64(*deal.BranchID)
+		doc.BranchID = &v
+	}
 
 	// просто нормализуем путь, НИЧЕГО не генерируем
 	doc.FilePath = filepath.Base(strings.TrimSpace(doc.FilePath))
@@ -448,9 +452,14 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 
 	doc := &models.Document{
 		DealID:   dealID,
+		BranchID: nil,
 		DocType:  docType,
 		FilePath: finalName,
 		Status:   "draft",
+	}
+	if deal.BranchID != nil {
+		v := int64(*deal.BranchID)
+		doc.BranchID = &v
 	}
 	id, err := s.DocRepo.Create(doc)
 	if err != nil {

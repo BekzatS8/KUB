@@ -52,6 +52,12 @@ func (s *taskService) Create(ctx context.Context, task *models.Task) (*models.Ta
 	if task.AssigneeID == 0 {
 		task.AssigneeID = task.CreatorID
 	}
+	if task.BranchID == nil && s.users != nil {
+		if u, err := s.users.GetByID(int(task.CreatorID)); err == nil && u != nil && u.BranchID != nil {
+			b := int64(*u.BranchID)
+			task.BranchID = &b
+		}
+	}
 
 	if err := s.repo.Store(ctx, task); err != nil {
 		return nil, err
