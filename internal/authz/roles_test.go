@@ -23,7 +23,6 @@ func TestSystemAdminCanManageSystem(t *testing.T) {
 func TestCanManageIntegrationsForAllKnownRoles(t *testing.T) {
 	allowed := []int{
 		RoleSales,
-		RoleBackofficeStaff,
 		RoleOperations,
 		RoleControl,
 		RoleManagement,
@@ -100,7 +99,7 @@ func TestHardDeleteBusinessEntitiesOnlyForRole50(t *testing.T) {
 		}
 	}
 
-	denied := []int{RoleSales, RoleBackofficeStaff, RoleOperations, RoleControl, RoleManagement}
+	denied := []int{RoleSales, RoleOperations, RoleControl, RoleManagement}
 	for _, roleID := range denied {
 		if CanHardDeleteBusinessEntity(roleID) {
 			t.Fatalf("role %d must not be allowed for hard delete", roleID)

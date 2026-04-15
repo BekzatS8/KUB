@@ -9,7 +9,6 @@
 | role_id | Канонический code         | Legacy name | Назначение |
 |--------:|---------------------------|-------------|------------|
 | 10      | `sales`                   | `sales`     | Лиды/сделки/договоры в своей зоне |
-| 15      | `backoffice_admin_staff`  | `staff`     | Административный персонал (задачи/мессенджер) |
 | 20      | `operations`              | `operations`| Проверка и операционный документооборот |
 | 30      | `control`                 | `audit`     | Глобальный read-only по бизнес-данным, без leadership данных |
 | 40      | `leadership`              | `management`| Полный доступ к бизнес-данным |
@@ -22,7 +21,7 @@
 - `CanManageSystem` — только `system_admin`.
 - `CanAssignRoles` — только `system_admin`.
 - `CanAccessLogs` — только `system_admin`.
-- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `backoffice_admin_staff`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
+- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
 - `CanViewLeadershipData` — `leadership`, `system_admin`.
 - `CanViewAllBusinessData` — `leadership`, `control`, `operations` (legacy-поведение сохранено).
 - `CanAccessAllBusinessDataIncludingAdmin` — `leadership`, `control`, `operations`, `system_admin`.

@@ -58,6 +58,9 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	if lead.Status == "" {
 		lead.Status = "new"
 	}
+	if companyID, ok := GetActiveCompanyID(c); ok {
+		lead.CompanyID = companyID
+	}
 
 	id, err := h.Service.Create(&lead, userID, roleID)
 	if err != nil {
@@ -127,6 +130,10 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
+		notFound(c, LeadNotFoundCode, "Lead not found")
+		return
+	}
+	if companyID, ok := GetActiveCompanyID(c); ok && lead.CompanyID != companyID {
 		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
