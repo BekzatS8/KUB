@@ -285,6 +285,12 @@ func normalizeIndividualAliases(c *models.Client) {
 	if ip.PassportExpireDate != nil {
 		c.PassportExpireDate = ip.PassportExpireDate
 	}
+	if ip.DriverLicenseIssueDate != nil {
+		c.DriverLicenseIssueDate = ip.DriverLicenseIssueDate
+	}
+	if ip.DriverLicenseExpireDate != nil {
+		c.DriverLicenseExpireDate = ip.DriverLicenseExpireDate
+	}
 	if ip.PreviousLastName != "" {
 		c.PreviousLastName = ip.PreviousLastName
 	}

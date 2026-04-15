@@ -28,19 +28,21 @@ type Client struct {
 	PassportSeries string `json:"passport_series"` // Серия паспорта
 	PassportNumber string `json:"passport_number"` // № паспорта
 
-	Phone               string     `json:"phone"`
-	Email               string     `json:"email"`
-	RegistrationAddress string     `json:"registration_address"`
-	ActualAddress       string     `json:"actual_address"`
-	Country             string     `json:"country,omitempty"`
-	TripPurpose         string     `json:"trip_purpose,omitempty"`
-	BirthDate           *time.Time `json:"birth_date,omitempty"`
-	BirthPlace          string     `json:"birth_place,omitempty"`
-	Citizenship         string     `json:"citizenship,omitempty"`
-	Sex                 string     `json:"sex,omitempty"`
-	MaritalStatus       string     `json:"marital_status,omitempty"`
-	PassportIssueDate   *time.Time `json:"passport_issue_date,omitempty"`
-	PassportExpireDate  *time.Time `json:"passport_expire_date,omitempty"`
+	Phone                   string     `json:"phone"`
+	Email                   string     `json:"email"`
+	RegistrationAddress     string     `json:"registration_address"`
+	ActualAddress           string     `json:"actual_address"`
+	Country                 string     `json:"country,omitempty"`
+	TripPurpose             string     `json:"trip_purpose,omitempty"`
+	BirthDate               *time.Time `json:"birth_date,omitempty"`
+	BirthPlace              string     `json:"birth_place,omitempty"`
+	Citizenship             string     `json:"citizenship,omitempty"`
+	Sex                     string     `json:"sex,omitempty"`
+	MaritalStatus           string     `json:"marital_status,omitempty"`
+	PassportIssueDate       *time.Time `json:"passport_issue_date,omitempty"`
+	PassportExpireDate      *time.Time `json:"passport_expire_date,omitempty"`
+	DriverLicenseIssueDate  *time.Time `json:"driver_license_issue_date,omitempty"`
+	DriverLicenseExpireDate *time.Time `json:"driver_license_expire_date,omitempty"`
 
 	PreviousLastName            string          `json:"previous_last_name,omitempty"`
 	SpouseName                  string          `json:"spouse_name,omitempty"`
@@ -116,6 +118,8 @@ type ClientIndividualProfile struct {
 	MaritalStatus               string          `json:"marital_status,omitempty"`
 	PassportIssueDate           *time.Time      `json:"passport_issue_date,omitempty"`
 	PassportExpireDate          *time.Time      `json:"passport_expire_date,omitempty"`
+	DriverLicenseIssueDate      *time.Time      `json:"driver_license_issue_date,omitempty"`
+	DriverLicenseExpireDate     *time.Time      `json:"driver_license_expire_date,omitempty"`
 	PreviousLastName            string          `json:"previous_last_name,omitempty"`
 	SpouseName                  string          `json:"spouse_name,omitempty"`
 	SpouseContacts              string          `json:"spouse_contacts,omitempty"`

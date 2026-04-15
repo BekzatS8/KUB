@@ -54,7 +54,7 @@ func TestBuildClientFromCreateRequestIncludesNewIndividualFields(t *testing.T) {
 		VisasReceived:               "US",
 		VisaRefusals:                "None",
 	}
-	client := buildClientFromCreateRequest(req, 10, &birth, nil, nil)
+	client := buildClientFromCreateRequest(req, 10, &birth, nil, nil, nil, nil)
 	if client.EducationLevel != "higher" || client.Specialty != "QA" || client.VisasReceived != "US" || client.VisaRefusals != "None" {
 		t.Fatalf("expected new individual fields propagated, got %#v", client)
 	}
@@ -64,12 +64,15 @@ func TestBuildClientFromCreateRequestIncludesNewIndividualFields(t *testing.T) {
 }
 
 func TestUpdateClientRequestSupportsNewFieldsPointers(t *testing.T) {
-	raw := []byte(`{"education_level":"secondary","specialty":"dev","trusted_person_phone":"+7701","driver_license_number":"AB","education_institution_name":"Uni","education_institution_address":"Addr","position":"Lead","visas_received":"US","visa_refusals":"No"}`)
+	raw := []byte(`{"education_level":"secondary","specialty":"dev","trusted_person_phone":"+7701","driver_license_number":"AB","education_institution_name":"Uni","education_institution_address":"Addr","position":"Lead","visas_received":"US","visa_refusals":"No","driver_license_issue_date":"2024-01-01","driver_license_expire_date":"2034-01-01"}`)
 	var req updateClientRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if req.EducationLevel == nil || req.Specialty == nil || req.VisaRefusals == nil || req.EducationInstitutionName == nil {
 		t.Fatalf("expected pointers for new fields to be set: %#v", req)
+	}
+	if req.DriverLicenseIssueDate != "2024-01-01" || req.DriverLicenseExpireDate != "2034-01-01" {
+		t.Fatalf("expected driver license date json fields to be set, got %#v", req)
 	}
 }

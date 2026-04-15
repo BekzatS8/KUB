@@ -58,15 +58,17 @@ type createClientRequest struct {
 	RegistrationAddress string `json:"registration_address"`
 	ActualAddress       string `json:"actual_address"`
 
-	Country            string `json:"country"`
-	TripPurpose        string `json:"trip_purpose"`
-	BirthDate          string `json:"birth_date"`
-	BirthPlace         string `json:"birth_place"`
-	Citizenship        string `json:"citizenship"`
-	Sex                string `json:"sex"`
-	MaritalStatus      string `json:"marital_status"`
-	PassportIssueDate  string `json:"passport_issue_date"`
-	PassportExpireDate string `json:"passport_expire_date"`
+	Country                 string `json:"country"`
+	TripPurpose             string `json:"trip_purpose"`
+	BirthDate               string `json:"birth_date"`
+	BirthPlace              string `json:"birth_place"`
+	Citizenship             string `json:"citizenship"`
+	Sex                     string `json:"sex"`
+	MaritalStatus           string `json:"marital_status"`
+	PassportIssueDate       string `json:"passport_issue_date"`
+	PassportExpireDate      string `json:"passport_expire_date"`
+	DriverLicenseIssueDate  string `json:"driver_license_issue_date"`
+	DriverLicenseExpireDate string `json:"driver_license_expire_date"`
 
 	PreviousLastName            string          `json:"previous_last_name"`
 	SpouseName                  string          `json:"spouse_name"`
@@ -119,15 +121,17 @@ type updateClientRequest struct {
 	RegistrationAddress string `json:"registration_address"`
 	ActualAddress       string `json:"actual_address"`
 
-	Country            string `json:"country"`
-	TripPurpose        string `json:"trip_purpose"`
-	BirthDate          string `json:"birth_date"`
-	BirthPlace         string `json:"birth_place"`
-	Citizenship        string `json:"citizenship"`
-	Sex                string `json:"sex"`
-	MaritalStatus      string `json:"marital_status"`
-	PassportIssueDate  string `json:"passport_issue_date"`
-	PassportExpireDate string `json:"passport_expire_date"`
+	Country                 string `json:"country"`
+	TripPurpose             string `json:"trip_purpose"`
+	BirthDate               string `json:"birth_date"`
+	BirthPlace              string `json:"birth_place"`
+	Citizenship             string `json:"citizenship"`
+	Sex                     string `json:"sex"`
+	MaritalStatus           string `json:"marital_status"`
+	PassportIssueDate       string `json:"passport_issue_date"`
+	PassportExpireDate      string `json:"passport_expire_date"`
+	DriverLicenseIssueDate  string `json:"driver_license_issue_date"`
+	DriverLicenseExpireDate string `json:"driver_license_expire_date"`
 
 	PreviousLastName            *string          `json:"previous_last_name"`
 	SpouseName                  *string          `json:"spouse_name"`
@@ -198,6 +202,8 @@ type patchClientRequest struct {
 	VisaRefusals                *string `json:"visa_refusals"`
 	PassportIssueDate           *string `json:"passport_issue_date"`
 	PassportExpireDate          *string `json:"passport_expire_date"`
+	DriverLicenseIssueDate      *string `json:"driver_license_issue_date"`
+	DriverLicenseExpireDate     *string `json:"driver_license_expire_date"`
 	ContactInfo                 *string `json:"contact_info"`
 	ClientType                  *string `json:"client_type"`
 }
@@ -280,8 +286,8 @@ func collectMissingRedFields(req createClientRequest) []string {
 	return missing
 }
 
-func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate *time.Time) *models.Client {
-	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, EducationLevel: req.EducationLevel, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate, driverLicenseIssueDate, driverLicenseExpireDate *time.Time) *models.Client {
+	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, DriverLicenseIssueDate: driverLicenseIssueDate, DriverLicenseExpireDate: driverLicenseExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, EducationLevel: req.EducationLevel, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
 	client.IndividualProfile = req.IndividualProfile
 	client.LegalProfile = req.LegalProfile
 	return client
@@ -323,8 +329,18 @@ func (h *ClientHandler) Create(c *gin.Context) {
 		writeDateError(c, err)
 		return
 	}
+	driverLicenseIssueDate, err := parseDateField("driver_license_issue_date", req.DriverLicenseIssueDate, false)
+	if err != nil {
+		writeDateError(c, err)
+		return
+	}
+	driverLicenseExpireDate, err := parseDateField("driver_license_expire_date", req.DriverLicenseExpireDate, false)
+	if err != nil {
+		writeDateError(c, err)
+		return
+	}
 
-	client := buildClientFromCreateRequest(req, userID, birthDate, passportIssueDate, passportExpireDate)
+	client := buildClientFromCreateRequest(req, userID, birthDate, passportIssueDate, passportExpireDate, driverLicenseIssueDate, driverLicenseExpireDate)
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrClientAlreadyExists) {
@@ -412,6 +428,16 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		writeDateError(c, err)
 		return
 	}
+	driverLicenseIssueDate, err := parseDateField("driver_license_issue_date", req.DriverLicenseIssueDate, false)
+	if err != nil {
+		writeDateError(c, err)
+		return
+	}
+	driverLicenseExpireDate, err := parseDateField("driver_license_expire_date", req.DriverLicenseExpireDate, false)
+	if err != nil {
+		writeDateError(c, err)
+		return
+	}
 	current.Name, current.BinIin, current.Address, current.ContactInfo = req.Name, req.BinIin, req.Address, req.ContactInfo
 	if req.ClientType != nil {
 		current.ClientType = *req.ClientType
@@ -423,6 +449,7 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	current.Country, current.TripPurpose, current.BirthDate = req.Country, req.TripPurpose, birthDate
 	current.BirthPlace, current.Citizenship, current.Sex, current.MaritalStatus = req.BirthPlace, req.Citizenship, req.Sex, req.MaritalStatus
 	current.PassportIssueDate, current.PassportExpireDate = passportIssueDate, passportExpireDate
+	current.DriverLicenseIssueDate, current.DriverLicenseExpireDate = driverLicenseIssueDate, driverLicenseExpireDate
 	if req.PreviousLastName != nil {
 		current.PreviousLastName = *req.PreviousLastName
 	}
@@ -714,7 +741,7 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 	addS("contact_info", req.ContactInfo)
 	addS("client_type", req.ClientType)
 
-	dateFields := map[string]*string{"birth_date": req.BirthDate, "passport_issue_date": req.PassportIssueDate, "passport_expire_date": req.PassportExpireDate}
+	dateFields := map[string]*string{"birth_date": req.BirthDate, "passport_issue_date": req.PassportIssueDate, "passport_expire_date": req.PassportExpireDate, "driver_license_issue_date": req.DriverLicenseIssueDate, "driver_license_expire_date": req.DriverLicenseExpireDate}
 	for field, ptr := range dateFields {
 		if ptr == nil {
 			continue

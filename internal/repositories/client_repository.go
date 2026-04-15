@@ -45,7 +45,7 @@ SELECT
 	COALESCE(c.archive_reason, '') AS archive_reason,
 	COALESCE(ip.last_name, c.last_name, ''), COALESCE(ip.first_name, c.first_name, ''), COALESCE(ip.middle_name, c.middle_name, ''), COALESCE(ip.iin, c.iin, ''), COALESCE(ip.id_number, c.id_number, ''), COALESCE(ip.passport_series, c.passport_series, ''), COALESCE(ip.passport_number, c.passport_number, ''),
 	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''), COALESCE(ip.country, c.country, ''), COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
-	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date),
+	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date), ip.driver_license_issue_date, ip.driver_license_expire_date,
 	COALESCE(ip.previous_last_name, c.previous_last_name, ''), COALESCE(ip.spouse_name, c.spouse_name, ''), COALESCE(ip.spouse_contacts, c.spouse_contacts, ''), COALESCE(ip.has_children, c.has_children), COALESCE(ip.children_list, c.children_list),
 	COALESCE(ip.education, c.education, ''), COALESCE(ip.job, c.job, ''), COALESCE(ip.trips_last5_years, c.trips_last5_years, ''), COALESCE(ip.relatives_in_destination, c.relatives_in_destination, ''), COALESCE(ip.trusted_person, c.trusted_person, ''),
 	COALESCE(ip.education_level, ''), COALESCE(ip.specialty, ''), COALESCE(ip.trusted_person_phone, ''), COALESCE(ip.driver_license_number, ''), COALESCE(ip.education_institution_name, ''), COALESCE(ip.education_institution_address, ''), COALESCE(ip.position, ''), COALESCE(ip.visas_received, ''), COALESCE(ip.visa_refusals, ''),
@@ -78,7 +78,7 @@ SELECT
 	COALESCE(c.archive_reason, '') AS archive_reason,
 	COALESCE(c.last_name, ''), COALESCE(c.first_name, ''), COALESCE(c.middle_name, ''), COALESCE(c.iin, ''), COALESCE(c.id_number, ''), COALESCE(c.passport_series, ''), COALESCE(c.passport_number, ''),
 	COALESCE(c.registration_address, ''), COALESCE(c.actual_address, ''), COALESCE(c.country, ''), COALESCE(c.trip_purpose, ''), c.birth_date, COALESCE(c.birth_place, ''),
-	COALESCE(c.citizenship, ''), COALESCE(c.sex, ''), COALESCE(c.marital_status, ''), c.passport_issue_date, c.passport_expire_date,
+	COALESCE(c.citizenship, ''), COALESCE(c.sex, ''), COALESCE(c.marital_status, ''), c.passport_issue_date, c.passport_expire_date, NULL::DATE AS driver_license_issue_date, NULL::DATE AS driver_license_expire_date,
 	COALESCE(c.previous_last_name, ''), COALESCE(c.spouse_name, ''), COALESCE(c.spouse_contacts, ''), c.has_children, c.children_list,
 	COALESCE(c.education, ''), COALESCE(c.job, ''), COALESCE(c.trips_last5_years, ''), COALESCE(c.relatives_in_destination, ''), COALESCE(c.trusted_person, ''),
 	'' AS education_level, '' AS specialty, '' AS trusted_person_phone, '' AS driver_license_number, '' AS education_institution_name, '' AS education_institution_address, '' AS position, '' AS visas_received, '' AS visa_refusals,
@@ -96,6 +96,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	var (
 		displayName, primaryPhone, primaryEmail sql.NullString
 		birthDate, passIssue, passExpire        sql.NullTime
+		driverIssue, driverExpire               sql.NullTime
 		hasChildren                             sql.NullBool
 		height, weight                          sql.NullInt64
 		children, drivers                       []byte
@@ -110,7 +111,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 		&c.IsArchived, &archivedAt, &archivedBy, &archiveReason,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber,
 		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
-		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire,
+		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire, &driverIssue, &driverExpire,
 		&ip.PreviousLastName, &ip.SpouseName, &ip.SpouseContacts, &hasChildren, &children,
 		&ip.Education, &ip.Job, &ip.TripsLast5Years, &ip.RelativesInDestination, &ip.TrustedPerson,
 		&ip.EducationLevel, &ip.Specialty, &ip.TrustedPersonPhone, &ip.DriverLicenseNumber, &ip.EducationInstitutionName, &ip.EducationInstitutionAddress, &ip.Position, &ip.VisasReceived, &ip.VisaRefusals,
@@ -160,6 +161,16 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 			t := passExpire.Time
 			ip.PassportExpireDate = &t
 			c.PassportExpireDate = &t
+		}
+		if driverIssue.Valid {
+			t := driverIssue.Time
+			ip.DriverLicenseIssueDate = &t
+			c.DriverLicenseIssueDate = &t
+		}
+		if driverExpire.Valid {
+			t := driverExpire.Time
+			ip.DriverLicenseExpireDate = &t
+			c.DriverLicenseExpireDate = &t
 		}
 		if hasChildren.Valid {
 			v := hasChildren.Bool
@@ -247,13 +258,13 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`
 
 func upsertProfilesTx(tx *sql.Tx, c *models.Client) error {
 	if c.ClientType == models.ClientTypeIndividual {
-		_, err := tx.Exec(`INSERT INTO client_individual_profiles (client_id,last_name,first_name,middle_name,iin,id_number,passport_series,passport_number,registration_address,actual_address,country,trip_purpose,birth_date,birth_place,citizenship,sex,marital_status,passport_issue_date,passport_expire_date,previous_last_name,spouse_name,spouse_contacts,has_children,children_list,education,education_level,job,trips_last5_years,relatives_in_destination,trusted_person,specialty,trusted_person_phone,driver_license_number,education_institution_name,education_institution_address,position,visas_received,visa_refusals,height,weight,driver_license_categories,therapist_name,clinic_name,diseases_last3_years,additional_info,updated_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,NOW())
+		_, err := tx.Exec(`INSERT INTO client_individual_profiles (client_id,last_name,first_name,middle_name,iin,id_number,passport_series,passport_number,registration_address,actual_address,country,trip_purpose,birth_date,birth_place,citizenship,sex,marital_status,passport_issue_date,passport_expire_date,driver_license_issue_date,driver_license_expire_date,previous_last_name,spouse_name,spouse_contacts,has_children,children_list,education,education_level,job,trips_last5_years,relatives_in_destination,trusted_person,specialty,trusted_person_phone,driver_license_number,education_institution_name,education_institution_address,position,visas_received,visa_refusals,height,weight,driver_license_categories,therapist_name,clinic_name,diseases_last3_years,additional_info,updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,NOW())
 ON CONFLICT (client_id) DO UPDATE SET
-last_name=EXCLUDED.last_name,first_name=EXCLUDED.first_name,middle_name=EXCLUDED.middle_name,iin=EXCLUDED.iin,id_number=EXCLUDED.id_number,passport_series=EXCLUDED.passport_series,passport_number=EXCLUDED.passport_number,registration_address=EXCLUDED.registration_address,actual_address=EXCLUDED.actual_address,country=EXCLUDED.country,trip_purpose=EXCLUDED.trip_purpose,birth_date=EXCLUDED.birth_date,birth_place=EXCLUDED.birth_place,citizenship=EXCLUDED.citizenship,sex=EXCLUDED.sex,marital_status=EXCLUDED.marital_status,passport_issue_date=EXCLUDED.passport_issue_date,passport_expire_date=EXCLUDED.passport_expire_date,previous_last_name=EXCLUDED.previous_last_name,spouse_name=EXCLUDED.spouse_name,spouse_contacts=EXCLUDED.spouse_contacts,has_children=EXCLUDED.has_children,children_list=EXCLUDED.children_list,education=EXCLUDED.education,education_level=EXCLUDED.education_level,job=EXCLUDED.job,trips_last5_years=EXCLUDED.trips_last5_years,relatives_in_destination=EXCLUDED.relatives_in_destination,trusted_person=EXCLUDED.trusted_person,specialty=EXCLUDED.specialty,trusted_person_phone=EXCLUDED.trusted_person_phone,driver_license_number=EXCLUDED.driver_license_number,education_institution_name=EXCLUDED.education_institution_name,education_institution_address=EXCLUDED.education_institution_address,position=EXCLUDED.position,visas_received=EXCLUDED.visas_received,visa_refusals=EXCLUDED.visa_refusals,height=EXCLUDED.height,weight=EXCLUDED.weight,driver_license_categories=EXCLUDED.driver_license_categories,therapist_name=EXCLUDED.therapist_name,clinic_name=EXCLUDED.clinic_name,diseases_last3_years=EXCLUDED.diseases_last3_years,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
+last_name=EXCLUDED.last_name,first_name=EXCLUDED.first_name,middle_name=EXCLUDED.middle_name,iin=EXCLUDED.iin,id_number=EXCLUDED.id_number,passport_series=EXCLUDED.passport_series,passport_number=EXCLUDED.passport_number,registration_address=EXCLUDED.registration_address,actual_address=EXCLUDED.actual_address,country=EXCLUDED.country,trip_purpose=EXCLUDED.trip_purpose,birth_date=EXCLUDED.birth_date,birth_place=EXCLUDED.birth_place,citizenship=EXCLUDED.citizenship,sex=EXCLUDED.sex,marital_status=EXCLUDED.marital_status,passport_issue_date=EXCLUDED.passport_issue_date,passport_expire_date=EXCLUDED.passport_expire_date,driver_license_issue_date=EXCLUDED.driver_license_issue_date,driver_license_expire_date=EXCLUDED.driver_license_expire_date,previous_last_name=EXCLUDED.previous_last_name,spouse_name=EXCLUDED.spouse_name,spouse_contacts=EXCLUDED.spouse_contacts,has_children=EXCLUDED.has_children,children_list=EXCLUDED.children_list,education=EXCLUDED.education,education_level=EXCLUDED.education_level,job=EXCLUDED.job,trips_last5_years=EXCLUDED.trips_last5_years,relatives_in_destination=EXCLUDED.relatives_in_destination,trusted_person=EXCLUDED.trusted_person,specialty=EXCLUDED.specialty,trusted_person_phone=EXCLUDED.trusted_person_phone,driver_license_number=EXCLUDED.driver_license_number,education_institution_name=EXCLUDED.education_institution_name,education_institution_address=EXCLUDED.education_institution_address,position=EXCLUDED.position,visas_received=EXCLUDED.visas_received,visa_refusals=EXCLUDED.visa_refusals,height=EXCLUDED.height,weight=EXCLUDED.weight,driver_license_categories=EXCLUDED.driver_license_categories,therapist_name=EXCLUDED.therapist_name,clinic_name=EXCLUDED.clinic_name,diseases_last3_years=EXCLUDED.diseases_last3_years,additional_info=EXCLUDED.additional_info,updated_at=NOW()`,
 			c.ID, c.LastName, c.FirstName, c.MiddleName, nullString(c.IIN), nullString(c.IDNumber), nullString(c.PassportSeries), nullString(c.PassportNumber),
 			nullString(c.RegistrationAddress), nullString(c.ActualAddress), nullString(c.Country), nullString(c.TripPurpose), c.BirthDate, nullString(c.BirthPlace), nullString(c.Citizenship), nullString(c.Sex), nullString(c.MaritalStatus), c.PassportIssueDate, c.PassportExpireDate,
-			nullString(c.PreviousLastName), nullString(c.SpouseName), nullString(c.SpouseContacts), c.HasChildren, nullRaw(c.ChildrenList), nullString(c.Education), nullString(c.EducationLevel), nullString(c.Job), nullString(c.TripsLast5Years), nullString(c.RelativesInDestination), nullString(c.TrustedPerson), nullString(c.Specialty), nullString(c.TrustedPersonPhone), nullString(c.DriverLicenseNumber), nullString(c.EducationInstitutionName), nullString(c.EducationInstitutionAddress), nullString(c.Position), nullString(c.VisasReceived), nullString(c.VisaRefusals), nullInt16(c.Height), nullInt16(c.Weight), nullRaw(c.DriverLicenseCategories), nullString(c.TherapistName), nullString(c.ClinicName), nullString(c.DiseasesLast3Years), nullString(c.AdditionalInfo))
+			c.DriverLicenseIssueDate, c.DriverLicenseExpireDate, nullString(c.PreviousLastName), nullString(c.SpouseName), nullString(c.SpouseContacts), c.HasChildren, nullRaw(c.ChildrenList), nullString(c.Education), nullString(c.EducationLevel), nullString(c.Job), nullString(c.TripsLast5Years), nullString(c.RelativesInDestination), nullString(c.TrustedPerson), nullString(c.Specialty), nullString(c.TrustedPersonPhone), nullString(c.DriverLicenseNumber), nullString(c.EducationInstitutionName), nullString(c.EducationInstitutionAddress), nullString(c.Position), nullString(c.VisasReceived), nullString(c.VisaRefusals), nullInt16(c.Height), nullInt16(c.Weight), nullRaw(c.DriverLicenseCategories), nullString(c.TherapistName), nullString(c.ClinicName), nullString(c.DiseasesLast3Years), nullString(c.AdditionalInfo))
 		if err != nil {
 			return fmt.Errorf("upsert individual profile: %w", err)
 		}
@@ -525,7 +536,7 @@ func (r *ClientRepository) UpdatePartial(id int, updates map[string]any) error {
 			current.VisasReceived = s
 		case "visa_refusals":
 			current.VisaRefusals = s
-		case "birth_date", "passport_issue_date", "passport_expire_date":
+		case "birth_date", "passport_issue_date", "passport_expire_date", "driver_license_issue_date", "driver_license_expire_date":
 			if t, ok := v.(*time.Time); ok {
 				switch k {
 				case "birth_date":
@@ -534,6 +545,10 @@ func (r *ClientRepository) UpdatePartial(id int, updates map[string]any) error {
 					current.PassportIssueDate = t
 				case "passport_expire_date":
 					current.PassportExpireDate = t
+				case "driver_license_issue_date":
+					current.DriverLicenseIssueDate = t
+				case "driver_license_expire_date":
+					current.DriverLicenseExpireDate = t
 				}
 			}
 		}

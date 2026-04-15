@@ -21,6 +21,50 @@ func TestBuildLeadListWhere_SearchAcrossTitleDescriptionPhone(t *testing.T) {
 	}
 }
 
+func TestBuildLeadListWhere_QueryAndBranchIDUseDifferentPlaceholders(t *testing.T) {
+	branchID := 12
+	where, args := buildLeadListWhere(LeadListFilter{Query: "7701", BranchID: &branchID}, 1)
+	if !strings.Contains(where, "LIKE $1") {
+		t.Fatalf("expected query placeholder at $1, got where=%s", where)
+	}
+	if !strings.Contains(where, "l.branch_id = $2") {
+		t.Fatalf("expected branch placeholder at $2, got where=%s", where)
+	}
+	if len(args) != 2 || args[0] != "%7701%" || args[1] != branchID {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestBuildLeadListWhere_StatusGroupQueryAndBranchID(t *testing.T) {
+	branchID := 17
+	where, args := buildLeadListWhere(LeadListFilter{StatusGroup: "active", Query: "ana", BranchID: &branchID}, 1)
+	for _, expected := range []string{"ANY($1)", "LIKE $2", "l.branch_id = $3"} {
+		if !strings.Contains(where, expected) {
+			t.Fatalf("expected %q in where, got %s", expected, where)
+		}
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %#v", args)
+	}
+	if args[1] != "%ana%" || args[2] != branchID {
+		t.Fatalf("unexpected args ordering: %#v", args)
+	}
+}
+
+func TestBuildLeadListWhere_OwnerScopeQueryAndBranchIDStartAt2(t *testing.T) {
+	branchID := 99
+	where, args := buildLeadListWhere(LeadListFilter{Query: "silk", BranchID: &branchID}, 2)
+	if !strings.Contains(where, "LIKE $2") {
+		t.Fatalf("expected query placeholder at $2, got where=%s", where)
+	}
+	if !strings.Contains(where, "l.branch_id = $3") {
+		t.Fatalf("expected branch placeholder at $3, got where=%s", where)
+	}
+	if len(args) != 2 || args[0] != "%silk%" || args[1] != branchID {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
 func TestBuildLeadListWhere_StatusPriorityOverStatusGroup(t *testing.T) {
 	whereGroup, _ := buildLeadListWhere(LeadListFilter{StatusGroup: "active"}, 3)
 	if !strings.Contains(whereGroup, "= ANY($3)") {
