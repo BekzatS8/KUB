@@ -240,7 +240,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id FROM leads WHERE is_archived = FALSE"
+	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -400,6 +400,7 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 			LOWER(COALESCE(phone, '')) LIKE $%d
 		)`, idx, idx, idx)
 		args = append(args, likePattern)
+		idx++
 	}
 	if filter.BranchID != nil {
 		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)

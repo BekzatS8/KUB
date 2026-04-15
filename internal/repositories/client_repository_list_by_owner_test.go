@@ -182,8 +182,14 @@ func TestListByOwnerSupportsMixedClientTypeRows(t *testing.T) {
 	if clients[0].EducationLevel != "higher" {
 		t.Fatalf("expected education_level mapped, got %q", clients[0].EducationLevel)
 	}
+	if clients[0].DriverLicenseIssueDate == nil || clients[0].DriverLicenseExpireDate == nil {
+		t.Fatalf("expected driver license issue/expire dates mapped on flat client, got %#v", clients[0])
+	}
 	if clients[0].IndividualProfile == nil || clients[0].IndividualProfile.VisaRefusals != "No" {
 		t.Fatalf("expected nested individual profile with new fields, got %#v", clients[0].IndividualProfile)
+	}
+	if clients[0].IndividualProfile.DriverLicenseIssueDate == nil || clients[0].IndividualProfile.DriverLicenseExpireDate == nil {
+		t.Fatalf("expected driver license issue/expire dates mapped on nested profile, got %#v", clients[0].IndividualProfile)
 	}
 }
 
@@ -220,7 +226,7 @@ func TestListByOwnerHandlesNullPrimaryEmail(t *testing.T) {
 }
 
 func testClientColumns() []string {
-	cols := make([]string, 77)
+	cols := make([]string, 79)
 	for i := range cols {
 		cols[i] = "c" + strconv.Itoa(i+1)
 	}
@@ -233,7 +239,7 @@ func testClientRowValues(id int, ownerID int, clientType string) []driver.Value 
 		id, ownerID, clientType, "Display", "+70000000000", "x@example.com", "addr", "contact", now, now, false, nil, nil, "",
 		"Last", "First", "Middle", "123456789012", "ID1", "PS", "PN",
 		"Reg", "Act", "KZ", "Trip", now, "BirthPlace",
-		"Cit", "M", "Single", now, now,
+		"Cit", "M", "Single", now, now, now, now,
 		"Prev", "Spouse", "SpousePhone", true, []byte(`["child"]`),
 		"Edu", "Job", "Trips", "Relatives", "Trusted",
 		"higher", "Spec", "+70000000009", "DL123", "Uni", "UniAddr", "Manager", "USA,DE", "No",

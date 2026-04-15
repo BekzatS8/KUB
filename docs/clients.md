@@ -45,6 +45,8 @@ This step uses safe two-phase compatibility:
   - `specialty`
   - `trusted_person_phone`
   - `driver_license_number`
+  - `driver_license_issue_date`
+  - `driver_license_expire_date`
   - `education_institution_name`
   - `education_institution_address`
   - `position`

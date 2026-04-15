@@ -59,6 +59,8 @@ func TestNormalizeAndValidateIndividualUsesNestedProfileForNewFields(t *testing.
 			Specialty:                   "  Engineer ",
 			TrustedPersonPhone:          "+7 701 000 11 22",
 			DriverLicenseNumber:         " DL-77 ",
+			DriverLicenseIssueDate:      ptrTimeForClientProfileTest(),
+			DriverLicenseExpireDate:     ptrTimeForClientProfileTest(),
 			EducationInstitutionName:    "  KBTU ",
 			EducationInstitutionAddress: "  Almaty ",
 			Position:                    " Lead ",
@@ -80,6 +82,9 @@ func TestNormalizeAndValidateIndividualUsesNestedProfileForNewFields(t *testing.
 	}
 	if c.VisaRefusals != "none" {
 		t.Fatalf("expected trimmed visa_refusals, got %q", c.VisaRefusals)
+	}
+	if c.DriverLicenseIssueDate == nil || c.DriverLicenseExpireDate == nil {
+		t.Fatalf("expected driver license dates promoted from nested profile")
 	}
 }
 
