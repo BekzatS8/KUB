@@ -9,7 +9,6 @@
 | role_id | Канонический code         | Legacy name | Назначение |
 |--------:|---------------------------|-------------|------------|
 | 10      | `sales`                   | `sales`     | Лиды/сделки/договоры в своей зоне |
-| 15      | `backoffice_admin_staff`  | `staff`     | Административный персонал (задачи/мессенджер) |
 | 20      | `operations`              | `operations`| Проверка и операционный документооборот |
 | 30      | `control`                 | `audit`     | Глобальный read-only по бизнес-данным, без leadership данных |
 | 40      | `leadership`              | `management`| Полный доступ к бизнес-данным |
@@ -22,7 +21,7 @@
 - `CanManageSystem` — только `system_admin`.
 - `CanAssignRoles` — только `system_admin`.
 - `CanAccessLogs` — только `system_admin`.
-- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `backoffice_admin_staff`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
+- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
 - `CanViewLeadershipData` — `leadership`, `system_admin`.
 - `CanViewAllBusinessData` — `leadership`, `control`, `operations` (legacy-поведение сохранено).
 - `CanAccessAllBusinessDataIncludingAdmin` — `leadership`, `control`, `operations`, `system_admin`.
@@ -113,3 +112,11 @@
 | `system_admin` | Полный доступ по всем филиалам |
 
 Дополнительно для elevated (`control`, `leadership`, `system_admin`) поддержан `branch_id` фильтр в list endpoints.
+
+### Reports branch filter
+
+- `GET /reports/funnel`, `GET /reports/leads`, `GET /reports/revenue`, `GET /reports/revenue/export` принимают optional `branch_id`.
+- `control` / `leadership` / `system_admin` могут использовать `branch_id` как фильтр по нужному филиалу.
+- `sales` и `operations` не могут выбирать произвольный филиал через query:
+  - `sales`: всегда `owner_id=self` + `branch_id=users.branch_id`;
+  - `operations`: всегда `branch_id=users.branch_id`.

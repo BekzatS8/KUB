@@ -25,21 +25,23 @@ func NewReportService(leadRepo *repositories.LeadRepository, dealRepo *repositor
 func (s *ReportService) resolveFilters(userID, roleID int, requestedBranchID *int) (ownerID *int, branchID *int, err error) {
 	switch roleID {
 	case authz.RoleSales:
-		if s.UserRepo != nil {
-			u, e := s.UserRepo.GetByID(userID)
-			if e == nil && u != nil {
-				return &userID, u.BranchID, nil
-			}
+		if s.UserRepo == nil {
+			return nil, nil, ErrForbidden
 		}
-		return &userID, nil, nil
+		u, e := s.UserRepo.GetByID(userID)
+		if e != nil || u == nil || u.BranchID == nil {
+			return nil, nil, ErrForbidden
+		}
+		return &userID, u.BranchID, nil
 	case authz.RoleOperations:
-		if s.UserRepo != nil {
-			u, e := s.UserRepo.GetByID(userID)
-			if e == nil && u != nil {
-				return nil, u.BranchID, nil
-			}
+		if s.UserRepo == nil {
+			return nil, nil, ErrForbidden
 		}
-		return nil, nil, nil
+		u, e := s.UserRepo.GetByID(userID)
+		if e != nil || u == nil || u.BranchID == nil {
+			return nil, nil, ErrForbidden
+		}
+		return nil, u.BranchID, nil
 	case authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin:
 		return nil, requestedBranchID, nil
 	default:
@@ -57,8 +59,8 @@ type SalesFunnelReport struct {
 	Items []SalesFunnelItem `json:"items"`
 }
 
-func (s *ReportService) GetSalesFunnel(ctx context.Context, from, to time.Time, userID, roleID int) (*SalesFunnelReport, error) {
-	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
+func (s *ReportService) GetSalesFunnel(ctx context.Context, from, to time.Time, userID, roleID int, requestedBranchID *int) (*SalesFunnelReport, error) {
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, requestedBranchID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +86,8 @@ type LeadsSummaryReport struct {
 	Items []LeadsSummaryItem `json:"items"`
 }
 
-func (s *ReportService) GetLeadsSummary(ctx context.Context, from, to time.Time, userID, roleID int) (*LeadsSummaryReport, error) {
-	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
+func (s *ReportService) GetLeadsSummary(ctx context.Context, from, to time.Time, userID, roleID int, requestedBranchID *int) (*LeadsSummaryReport, error) {
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, requestedBranchID)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +122,8 @@ type RevenueReport struct {
 	TopClients []TopClientItem `json:"top_clients"`
 }
 
-func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time, userID, roleID int, period string) (*RevenueReport, error) {
-	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
+func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time, userID, roleID int, period string, requestedBranchID *int) (*RevenueReport, error) {
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, requestedBranchID)
 	if err != nil {
 		return nil, err
 	}
