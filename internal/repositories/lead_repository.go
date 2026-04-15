@@ -71,7 +71,6 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&source,
 		&lead.CreatedAt,
 		&lead.OwnerID,
-		&lead.CompanyID,
 		&status,
 		&isArchived,
 		&archivedAt,
@@ -112,8 +111,8 @@ func leadArchiveWhere(scope ArchiveScope) string {
 // Создание лида с возвратом ID + created_at из БД
 func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, owner_id, company_id, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO leads (title, description, owner_id, status)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at
 	`
 
@@ -123,7 +122,6 @@ func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 		lead.Title,
 		lead.Description,
 		lead.OwnerID,
-		lead.CompanyID,
 		lead.Status,
 	).Scan(&id, &lead.CreatedAt)
 	if err != nil {
@@ -139,16 +137,14 @@ func (r *LeadRepository) Update(lead *models.Leads) error {
 		SET title = $1,
 		    description = $2,
 		    owner_id = $3,
-		    company_id = $4,
-		    status = $5
-		WHERE id = $6
+		    status = $4
+		WHERE id = $5
 	`
 	_, err := r.db.Exec(
 		query,
 		lead.Title,
 		lead.Description,
 		lead.OwnerID,
-		lead.CompanyID,
 		lead.Status,
 		lead.ID,
 	)
@@ -165,7 +161,7 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 
 func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, company_id, status, is_archived, archived_at, archived_by, archive_reason
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
 		WHERE id = $1 AND %s
 	`
@@ -230,7 +226,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT id, title, description, phone, source, created_at, owner_id, company_id, status, is_archived, archived_at, archived_by, archive_reason FROM leads WHERE is_archived = FALSE"
+	query := "SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason FROM leads WHERE is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -275,7 +271,7 @@ func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, company_id, status, is_archived, archived_at, archived_by, archive_reason
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
 		WHERE %s%s
 		ORDER BY %s %s
@@ -327,7 +323,7 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT id, title, description, phone, source, created_at, owner_id, company_id, status, is_archived, archived_at, archived_by, archive_reason
+		SELECT id, title, description, phone, source, created_at, owner_id, status, is_archived, archived_at, archived_by, archive_reason
 		FROM leads
 		WHERE owner_id = $1 AND %s%s
 		ORDER BY %s %s
@@ -434,12 +430,12 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 }
 
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
-func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int, companyID int) ([]models.LeadSummaryRow, error) {
-	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2 AND company_id = $3`
-	args := []interface{}{from, to, companyID}
+func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.LeadSummaryRow, error) {
+	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
+	args := []interface{}{from, to}
 
 	if ownerID != nil {
-		query += " AND owner_id = $4"
+		query += " AND owner_id = $3"
 		args = append(args, *ownerID)
 	}
 
@@ -475,8 +471,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	}()
 
 	var leadStatus sql.NullString
-	var leadCompanyID int
-	if err = tx.QueryRow(`SELECT status, company_id FROM leads WHERE id = $1 FOR UPDATE`, leadID).Scan(&leadStatus, &leadCompanyID); err != nil {
+	if err = tx.QueryRow(`SELECT status FROM leads WHERE id = $1 FOR UPDATE`, leadID).Scan(&leadStatus); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("lead not found")
 		}
@@ -498,7 +493,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		existing := &models.Deals{}
 		var status sql.NullString
 		err := tx.QueryRow(`
-			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at
+			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.amount, d.currency, d.status, d.created_at
 			FROM deals d
 			WHERE d.lead_id = $1
 			ORDER BY d.created_at DESC
@@ -509,7 +504,6 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 			&existing.LeadID,
 			&existing.ClientID,
 			&existing.OwnerID,
-			&existing.CompanyID,
 			&existing.Amount,
 			&existing.Currency,
 			&status,
@@ -567,18 +561,16 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		return nil, errors.New("client_type does not match stored client type")
 	}
 	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
-	deal.CompanyID = leadCompanyID
 
 	err = tx.QueryRow(`
-		INSERT INTO deals (lead_id, client_id, owner_id, company_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (lead_id) DO NOTHING
 		RETURNING id
 	`,
 		deal.LeadID,
 		deal.ClientID,
 		deal.OwnerID,
-		leadCompanyID,
 		deal.Amount,
 		deal.Currency,
 		deal.Status,

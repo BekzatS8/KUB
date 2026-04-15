@@ -44,13 +44,13 @@ type SalesFunnelReport struct {
 	Items []SalesFunnelItem `json:"items"`
 }
 
-func (s *ReportService) GetSalesFunnel(ctx context.Context, from, to time.Time, userID, roleID, companyID int) (*SalesFunnelReport, error) {
+func (s *ReportService) GetSalesFunnel(ctx context.Context, from, to time.Time, userID, roleID int) (*SalesFunnelReport, error) {
 	ownerID, err := s.resolveOwnerFilter(userID, roleID)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID, companyID)
+	rows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,13 +79,13 @@ type LeadsSummaryReport struct {
 	Items []LeadsSummaryItem `json:"items"`
 }
 
-func (s *ReportService) GetLeadsSummary(ctx context.Context, from, to time.Time, userID, roleID, companyID int) (*LeadsSummaryReport, error) {
+func (s *ReportService) GetLeadsSummary(ctx context.Context, from, to time.Time, userID, roleID int) (*LeadsSummaryReport, error) {
 	ownerID, err := s.resolveOwnerFilter(userID, roleID)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := s.LeadRepo.GetLeadsSummaryStats(ctx, from, to, ownerID, companyID)
+	rows, err := s.LeadRepo.GetLeadsSummaryStats(ctx, from, to, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,13 +124,13 @@ type RevenueReport struct {
 	TopClients []TopClientItem `json:"top_clients"`
 }
 
-func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time, userID, roleID, companyID int, period string) (*RevenueReport, error) {
+func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time, userID, roleID int, period string) (*RevenueReport, error) {
 	ownerID, err := s.resolveOwnerFilter(userID, roleID)
 	if err != nil {
 		return nil, err
 	}
 
-	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID, companyID)
+	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time,
 		items = append(items, RevenueItem{Period: row.Period, TotalAmount: row.TotalAmount, Currency: row.Currency})
 	}
 
-	topRows, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, companyID, 10)
+	topRows, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, 10)
 	if err != nil {
 		return nil, err
 	}
@@ -181,23 +181,23 @@ type DashboardKPIReport struct {
 	Items []DashboardKPI `json:"items"`
 }
 
-func (s *ReportService) GetDashboardKPI(ctx context.Context, from, to time.Time, userID, roleID, companyID int) (*DashboardKPIReport, error) {
+func (s *ReportService) GetDashboardKPI(ctx context.Context, from, to time.Time, userID, roleID int) (*DashboardKPIReport, error) {
 	ownerID, err := s.resolveOwnerFilter(userID, roleID)
 	if err != nil {
 		return nil, err
 	}
 
-	funnelRows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID, companyID)
+	funnelRows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID)
 	if err != nil {
 		return nil, err
 	}
 
-	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID, companyID)
+	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID)
 	if err != nil {
 		return nil, err
 	}
 
-	topClients, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, companyID, 0)
+	topClients, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, 0)
 	if err != nil {
 		return nil, err
 	}

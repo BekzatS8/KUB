@@ -11,7 +11,6 @@ const (
 type Chat struct {
 	ID                  int                   `json:"id"`
 	CreatorID           int                   `json:"creator_id"`
-	CompanyID           int                   `json:"company_id"`
 	Name                string                `json:"name"`
 	IsGroup             bool                  `json:"is_group"`
 	Members             []int                 `json:"members"`

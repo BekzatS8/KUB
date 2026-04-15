@@ -182,7 +182,6 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
-	deal.CompanyID = current.CompanyID
 
 	// 5) Логика owner
 	if roleID != authz.RoleManagement {

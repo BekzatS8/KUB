@@ -12,7 +12,6 @@ type Leads struct {
 	Source        string     `json:"source"`
 	CreatedAt     time.Time  `json:"created_at"`
 	OwnerID       int        `json:"owner_id"`
-	CompanyID     int        `json:"company_id"`
 	Status        string     `json:"status"`
 	IsArchived    bool       `json:"is_archived"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`

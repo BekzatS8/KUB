@@ -38,7 +38,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - ✅ Троттлинг и защита от брутфорса для кода подтверждения
 - ✅ Безопасное хранение кода (bcrypt-хэш), TTL, попытки, resend-лимиты
 - ✅ JWT-аутентификация + ротация refresh-токена
-- ✅ RBAC: sales / operations / control / leadership / system_admin
+- ✅ RBAC: sales / backoffice staff / operations / control / leadership / system_admin
 - ✅ Лиды, сделки, задачи, сообщения; документы с подтверждением подписи кодом
 - ✅ Отчёты и фильтры
 - ✅ Скачивание/просмотр PDF из защищённого стора
@@ -229,7 +229,7 @@ TTL access-токена настраивается через переменну
 - `leads`, `deals`, `documents`, `messages`, `tasks`
 - `user_verifications` (для регистрации/логина по телефону): `code_hash`, `expires_at`, `attempts`, `confirmed`
 - Индексы для производительности и уникальности
-- Сиды для ролей (10/20/30/40/50)
+- Сиды для ролей (10/15/20/30/40/50)
 
 > Готовый SQL у тебя уже есть в репозитории (последняя версия с `user_verifications` и `code_hash`).
 
@@ -238,23 +238,6 @@ TTL access-токена настраивается через переменну
 ## Аутентификация и безопасность
 
 - **Пароли пользователей**: bcrypt.  
-
-### Multi-company active-company contract (frontend)
-
-- `POST /auth/login` возвращает:
-  - `available_companies`, `primary_company_id`, `active_company_id`
-  - `access_token`, `refresh_token`
-  - `tokens.access_token`, `tokens.refresh_token` (backward compatibility)
-- `POST /auth/select-company` и `PATCH/POST /users/me/active-company`:
-  - обновляют `users.active_company_id`
-  - возвращают `active_company_id` и новый `access_token` (`tokens.access_token` alias)
-- `GET /users/me` содержит canonical multi-company блок: `companies`, `primary_company_id`, `active_company_id`.
-- `GET /users/me/companies` возвращает список membership-компаний текущего пользователя.
-- `GET /companies` — membership-scoped список.
-- `GET /companies/:id` — `404`, если нет membership.
-- `/companies/:id/integrations`:
-  - manage только `leadership`/`system_admin`,
-  - membership обязателен.
 - **Коды подтверждения для регистрации**: **НЕ храним** в открытом виде — только `bcrypt`-хэш.  
 - **TTL кода**: 5 минут (по умолчанию, настраивается в сервисе).  
 - **Лимит попыток подтверждения**: max **5** (после этого код инвалидируется, нужен resend).  
@@ -272,6 +255,7 @@ TTL access-токена настраивается через переменну
 | Роль (ID)   | Описание                                         |
 |-------------|---------------------------------------------------|
 | 10 `sales`  | Лиды/сделки свои, документы — отправка на ревью   |
+| 15 `backoffice_staff`  | Административный персонал (задачи/мессенджер) |
 | 20 `operations`    | Операционный доступ к бизнес-сущностям и документам |
 | 30 `control`  | Широкий read-only доступ к бизнес-данным |
 | 40 `leadership` | Полный доступ к бизнес-сущностям + подпись документов |
@@ -319,7 +303,7 @@ TTL access-токена настраивается через переменну
 - `POST /documents/:id/review` — ревью (operations/leadership)  
 - `POST /documents/:id/sign` — подпись (leadership)
 
-**Tasks** (sales/operations/control/leadership/system_admin)
+**Tasks** (sales/backoffice/operations/control/leadership/system_admin)
 - CRUD
 
 **Messages** (roles with chat access; см. `docs/rbac.md`)

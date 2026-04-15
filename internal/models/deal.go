@@ -10,7 +10,6 @@ type Deals struct {
 	ClientID      int        `json:"client_id"`
 	ClientType    string     `json:"client_type"`
 	OwnerID       int        `json:"owner_id"`
-	CompanyID     int        `json:"company_id"`
 	Amount        float64    `json:"amount"`
 	Currency      string     `json:"currency"`
 	Status        string     `json:"status"`

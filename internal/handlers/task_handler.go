@@ -109,9 +109,6 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		ReminderAt:  rem,
 		Priority:    req.Priority,
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok {
-		task.CompanyID = int64(companyID)
-	}
 
 	createdTask, err := h.service.Create(c.Request.Context(), task)
 	if err != nil {
@@ -147,10 +144,6 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 	if task == nil {
 		log.Printf("[task][getByID][404] id=%d", id)
 		notFound(c, ValidationFailed, "Task not found")
-		return
-	}
-	if companyID, ok := GetActiveCompanyID(c); ok && int(task.CompanyID) != companyID {
-		notFound(c, "task_not_found", "Task not found")
 		return
 	}
 	if !canViewTask(roleID, int64(userID), task) {

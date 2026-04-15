@@ -12,8 +12,6 @@ import (
 func SetupRoutes(
 	r *gin.Engine,
 	userHandler *handlers.UserHandler,
-	companyHandler *handlers.CompanyHandler,
-	companyIntegrationHandler *handlers.CompanyIntegrationHandler,
 	clientHandler *handlers.ClientHandler,
 	clientFilesHandler *handlers.ClientFilesHandler,
 	clientProfileHandler *handlers.ClientProfileHandler,
@@ -34,12 +32,8 @@ func SetupRoutes(
 	docPublicLinkHandler *handlers.DocumentPublicLinkHandler,
 	publicSigningUIHandler *handlers.PublicSigningUIHandler,
 	wazzupHandler *handlers.WazzupHandler,
-	companyContextMiddleware gin.HandlerFunc,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
-	if companyContextMiddleware == nil {
-		companyContextMiddleware = func(c *gin.Context) { c.Next() }
-	}
 
 	// =====================
 	// PUBLIC (no JWT)
@@ -112,11 +106,6 @@ func SetupRoutes(
 	r.Use(authMiddleware)
 	r.Use(middleware.ReadOnlyGuard())
 
-	authProtected := r.Group("/auth")
-	{
-		authProtected.POST("/select-company", authHandler.SelectCompany)
-	}
-
 	if signHandler != nil {
 		signProtected := r.Group("/api/v1/sign/sessions")
 		{
@@ -158,15 +147,6 @@ func SetupRoutes(
 	{
 		users.POST("", userHandler.CreateUser)
 		users.GET("/me", userHandler.GetMyProfile)
-		if companyHandler != nil {
-			users.GET("/me/companies", companyHandler.GetMyCompanies)
-			users.PATCH("/me/active-company", authHandler.SelectCompany)
-			users.POST("/me/active-company", authHandler.SelectCompany)
-		}
-		if companyHandler != nil {
-			users.GET("/:id/companies", companyHandler.GetUserCompanies)
-			users.PUT("/:id/companies", middleware.RequireRoles(authz.RoleSystemAdmin), companyHandler.PutUserCompanies)
-		}
 		users.GET("/count", userHandler.GetUserCount)
 		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
 		users.GET("", userHandler.ListUsers)
@@ -213,7 +193,7 @@ func SetupRoutes(
 	}
 
 	// LEADS
-	leads := r.Group("/leads", companyContextMiddleware)
+	leads := r.Group("/leads")
 	{
 		leads.POST("", leadHandler.Create)
 		leads.GET("/:id", leadHandler.GetByID)
@@ -230,7 +210,7 @@ func SetupRoutes(
 	}
 
 	// DEALS
-	deals := r.Group("/deals", companyContextMiddleware)
+	deals := r.Group("/deals")
 	{
 		deals.POST("", dealHandler.Create)
 		deals.GET("/:id", dealHandler.GetByID)
@@ -244,7 +224,7 @@ func SetupRoutes(
 	}
 
 	// DOCUMENTS
-	docs := r.Group("/documents", companyContextMiddleware)
+	docs := r.Group("/documents")
 	{
 		docs.GET("", documentHandler.ListDocuments)
 		docs.GET("/types", documentHandler.ListDocumentTypes)
@@ -273,7 +253,7 @@ func SetupRoutes(
 	}
 
 	// CHATS
-	chats := r.Group("/chats", companyContextMiddleware)
+	chats := r.Group("/chats")
 	{
 		chats.GET("/users", chatHandler.ListChatDirectoryUsers)
 		chats.GET("", chatHandler.ListChats)
@@ -310,9 +290,10 @@ func SetupRoutes(
 	}
 
 	// TASKS
-	tasks := r.Group("/tasks", companyContextMiddleware,
+	tasks := r.Group("/tasks",
 		middleware.RequireRoles(
 			authz.RoleSales,
+			authz.RoleBackofficeStaff,
 			authz.RoleOperations,
 			authz.RoleControl,
 			authz.RoleManagement,
@@ -335,13 +316,12 @@ func SetupRoutes(
 
 	// REPORTS
 	reports := r.Group("/reports",
-		companyContextMiddleware,
 		middleware.RequireRoles(
 			authz.RoleSales,
 			authz.RoleOperations,
 			authz.RoleManagement,
 			authz.RoleControl,
-			authz.RoleSystemAdmin,
+			authz.RoleAdminStaff,
 		),
 	)
 	{
@@ -349,23 +329,6 @@ func SetupRoutes(
 		reports.GET("/leads", reportHandler.GetLeadsSummary)
 		reports.GET("/revenue", reportHandler.GetRevenue)
 		reports.GET("/revenue/export", reportHandler.ExportRevenue)
-	}
-
-	if companyHandler != nil {
-		companies := r.Group("/companies")
-		{
-			companies.GET("", companyHandler.List)
-			companies.GET("/:id", companyHandler.GetByID)
-			if companyIntegrationHandler != nil {
-				integrations := companies.Group("/:id/integrations",
-					middleware.RequireRoles(authz.RoleManagement, authz.RoleSystemAdmin),
-				)
-				integrations.GET("", companyIntegrationHandler.List)
-				integrations.POST("", companyIntegrationHandler.Create)
-				integrations.PUT("/:integration_id", companyIntegrationHandler.Update)
-				integrations.DELETE("/:integration_id", companyIntegrationHandler.Delete)
-			}
-		}
 	}
 
 	return r

@@ -3,13 +3,12 @@ package models
 import "time"
 
 type User struct {
-	ID              int    `json:"id"`
-	CompanyName     string `json:"company_name"`
-	BinIin          string `json:"bin_iin"`
-	ActiveCompanyID *int   `json:"active_company_id,omitempty"`
-	Email           string `json:"email"`
-	PasswordHash    string `json:"-"` // не отдаём
-	RoleID          int    `json:"role_id"`
+	ID           int    `json:"id"`
+	CompanyName  string `json:"company_name"`
+	BinIin       string `json:"bin_iin"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"` // не отдаём
+	RoleID       int    `json:"role_id"`
 	// новое:
 	Phone               string     `json:"phone"`
 	IsVerified          bool       `json:"is_verified"`

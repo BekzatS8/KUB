@@ -58,9 +58,6 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	if lead.Status == "" {
 		lead.Status = "new"
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok {
-		lead.CompanyID = companyID
-	}
 
 	id, err := h.Service.Create(&lead, userID, roleID)
 	if err != nil {
@@ -130,10 +127,6 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
-		notFound(c, LeadNotFoundCode, "Lead not found")
-		return
-	}
-	if companyID, ok := GetActiveCompanyID(c); ok && lead.CompanyID != companyID {
 		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}
@@ -568,9 +561,6 @@ func (h *LeadHandler) List(c *gin.Context) {
 		internalError(c, "Failed to list leads")
 		return
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok {
-		leads = filterLeadsByCompany(leads, companyID)
-	}
 	c.JSON(http.StatusOK, leads)
 }
 
@@ -608,24 +598,7 @@ func (h *LeadHandler) ListMy(c *gin.Context) {
 		internalError(c, "Failed to list leads")
 		return
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok {
-		leads = filterLeadsByCompany(leads, companyID)
-	}
 	c.JSON(http.StatusOK, leads)
-}
-
-func filterLeadsByCompany(items []*models.Leads, companyID int) []*models.Leads {
-	if len(items) == 0 {
-		return items
-	}
-	out := make([]*models.Leads, 0, len(items))
-	for _, item := range items {
-		if item == nil || item.CompanyID != companyID {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
 }
 
 func leadListFilterFromQuery(c *gin.Context) (repositories.LeadListFilter, error) {

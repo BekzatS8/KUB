@@ -274,7 +274,7 @@
           ]
         },
         {
-          "name": "Login as Operations",
+          "name": "Login as Backoffice",
           "request": {
             "method": "POST",
             "header": [
@@ -295,7 +295,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{operationsEmail}}\",\n  \"password\": \"{{operationsPassword}}\"\n}"
+              "raw": "{\n  \"email\": \"{{backofficeEmail}}\",\n  \"password\": \"{{backofficePassword}}\"\n}"
             }
           },
           "response": [],

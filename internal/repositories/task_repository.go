@@ -49,13 +49,13 @@ func taskArchiveWhere(scope ArchiveScope) string {
 func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
 	query := `
 		INSERT INTO tasks (
-			creator_id, assignee_id, company_id, entity_id, entity_type, title, description,
+			creator_id, assignee_id, entity_id, entity_type, title, description,
 			due_date, reminder_at, priority, status, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING id, created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
-		task.CreatorID, task.AssigneeID, task.CompanyID, task.EntityID, task.EntityType,
+		task.CreatorID, task.AssigneeID, task.EntityID, task.EntityType,
 		task.Title, task.Description, task.DueDate, task.ReminderAt, task.Priority, task.Status,
 		task.CreatedAt, task.UpdatedAt,
 	).Scan(&task.ID, &task.CreatedAt, &task.UpdatedAt)
@@ -66,12 +66,12 @@ func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, 
 }
 
 func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64, scope ArchiveScope) (*models.Task, error) {
-	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), COALESCE(company_id, 0), entity_id, entity_type, title, description,
+	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
        FROM tasks WHERE id = $1 AND ` + taskArchiveWhere(scope)
 	task := &models.Task{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&task.ID, &task.CreatorID, &task.AssigneeID, &task.CompanyID, &task.EntityID, &task.EntityType,
+		&task.ID, &task.CreatorID, &task.AssigneeID, &task.EntityID, &task.EntityType,
 		&task.Title, &task.Description, &task.DueDate, &task.ReminderAt, &task.LastRemindedAt,
 		&task.Priority, &task.Status, &task.CreatedAt, &task.UpdatedAt, &task.IsArchived, &task.ArchivedAt, &task.ArchivedBy, &task.ArchiveReason,
 	)
@@ -85,7 +85,7 @@ func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64,
 }
 
 func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
-	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), COALESCE(company_id, 0), entity_id, entity_type, title, description,
+	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'') FROM tasks`
 
 	conditions := []string{}
@@ -154,7 +154,7 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	for rows.Next() {
 		var t models.Task
 		if err := rows.Scan(
-			&t.ID, &t.CreatorID, &t.AssigneeID, &t.CompanyID, &t.EntityID, &t.EntityType,
+			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType,
 			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
 			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
@@ -198,11 +198,11 @@ func taskSortExpression(sortBy, order string) (string, string) {
 func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {
 	query := `
 		UPDATE tasks SET
-			assignee_id=$1, company_id=$2, title=$3, description=$4, due_date=$5,
-			reminder_at=$6, priority=$7, status=$8, updated_at=$9
-		WHERE id=$10`
+			assignee_id=$1, title=$2, description=$3, due_date=$4,
+			reminder_at=$5, priority=$6, status=$7, updated_at=$8
+		WHERE id=$9`
 	_, err := r.db.ExecContext(ctx, query,
-		task.AssigneeID, task.CompanyID, task.Title, task.Description, task.DueDate,
+		task.AssigneeID, task.Title, task.Description, task.DueDate,
 		task.ReminderAt, task.Priority, task.Status, task.UpdatedAt, task.ID,
 	)
 	return err
@@ -253,7 +253,7 @@ func (r *taskRepository) UpdateAssignee(ctx context.Context, id int64, assigneeI
 
 func (r *taskRepository) ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error) {
 	q := `
-SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), COALESCE(company_id, 0), entity_id, entity_type, title, description,
+SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
 FROM tasks
 WHERE reminder_at IS NOT NULL
@@ -273,7 +273,7 @@ LIMIT $1`
 	for rows.Next() {
 		var t models.Task
 		if err := rows.Scan(
-			&t.ID, &t.CreatorID, &t.AssigneeID, &t.CompanyID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
+			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
 			&t.DueDate, &t.ReminderAt, &t.LastRemindedAt, &t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
 			return nil, err
