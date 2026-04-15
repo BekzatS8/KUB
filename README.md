@@ -238,6 +238,23 @@ TTL access-токена настраивается через переменну
 ## Аутентификация и безопасность
 
 - **Пароли пользователей**: bcrypt.  
+
+### Multi-company active-company contract (frontend)
+
+- `POST /auth/login` возвращает:
+  - `available_companies`, `primary_company_id`, `active_company_id`
+  - `access_token`, `refresh_token`
+  - `tokens.access_token`, `tokens.refresh_token` (backward compatibility)
+- `POST /auth/select-company` и `PATCH/POST /users/me/active-company`:
+  - обновляют `users.active_company_id`
+  - возвращают `active_company_id` и новый `access_token` (`tokens.access_token` alias)
+- `GET /users/me` содержит canonical multi-company блок: `companies`, `primary_company_id`, `active_company_id`.
+- `GET /users/me/companies` возвращает список membership-компаний текущего пользователя.
+- `GET /companies` — membership-scoped список.
+- `GET /companies/:id` — `404`, если нет membership.
+- `/companies/:id/integrations`:
+  - manage только `leadership`/`system_admin`,
+  - membership обязателен.
 - **Коды подтверждения для регистрации**: **НЕ храним** в открытом виде — только `bcrypt`-хэш.  
 - **TTL кода**: 5 минут (по умолчанию, настраивается в сервисе).  
 - **Лимит попыток подтверждения**: max **5** (после этого код инвалидируется, нужен resend).  

@@ -43,6 +43,19 @@ func TestBuildDealListWhere_StatusGroupAndStatusPriority(t *testing.T) {
 	}
 }
 
+func TestBuildDealListWhere_ClientIDUsesSingleArg(t *testing.T) {
+	where, args := buildDealListWhere(DealListFilter{ClientID: 42}, 1)
+	if !contains(where, "d.client_id = $1") {
+		t.Fatalf("expected client_id clause, got: %s", where)
+	}
+	if len(args) != 1 {
+		t.Fatalf("expected exactly one arg for client_id filter, got %d", len(args))
+	}
+	if got, ok := args[0].(int); !ok || got != 42 {
+		t.Fatalf("unexpected client_id arg: %#v", args[0])
+	}
+}
+
 func TestDealStatusesFromGroup(t *testing.T) {
 	tests := []struct {
 		group string

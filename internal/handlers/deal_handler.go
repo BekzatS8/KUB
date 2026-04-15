@@ -429,6 +429,9 @@ func (h *DealHandler) List(c *gin.Context) {
 		internalError(c, "Failed to retrieve deals")
 		return
 	}
+	if companyID, ok := GetActiveCompanyID(c); ok {
+		deals = filterDealsByCompany(deals, companyID)
+	}
 	c.JSON(http.StatusOK, deals)
 }
 
@@ -466,7 +469,24 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		internalError(c, "Failed to retrieve deals")
 		return
 	}
+	if companyID, ok := GetActiveCompanyID(c); ok {
+		deals = filterDealsByCompany(deals, companyID)
+	}
 	c.JSON(http.StatusOK, deals)
+}
+
+func filterDealsByCompany(items []*models.Deals, companyID int) []*models.Deals {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]*models.Deals, 0, len(items))
+	for _, item := range items {
+		if item == nil || item.CompanyID != companyID {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func dealListFilterFromQuery(c *gin.Context) (repositories.DealListFilter, error) {

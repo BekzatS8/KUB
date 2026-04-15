@@ -434,12 +434,12 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 }
 
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
-func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.LeadSummaryRow, error) {
-	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
-	args := []interface{}{from, to}
+func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int, companyID int) ([]models.LeadSummaryRow, error) {
+	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2 AND company_id = $3`
+	args := []interface{}{from, to, companyID}
 
 	if ownerID != nil {
-		query += " AND owner_id = $3"
+		query += " AND owner_id = $4"
 		args = append(args, *ownerID)
 	}
 
@@ -475,7 +475,8 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	}()
 
 	var leadStatus sql.NullString
-	if err = tx.QueryRow(`SELECT status FROM leads WHERE id = $1 FOR UPDATE`, leadID).Scan(&leadStatus); err != nil {
+	var leadCompanyID int
+	if err = tx.QueryRow(`SELECT status, company_id FROM leads WHERE id = $1 FOR UPDATE`, leadID).Scan(&leadStatus, &leadCompanyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("lead not found")
 		}
@@ -497,7 +498,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		existing := &models.Deals{}
 		var status sql.NullString
 		err := tx.QueryRow(`
-			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.amount, d.currency, d.status, d.created_at
+			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at
 			FROM deals d
 			WHERE d.lead_id = $1
 			ORDER BY d.created_at DESC
@@ -508,6 +509,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 			&existing.LeadID,
 			&existing.ClientID,
 			&existing.OwnerID,
+			&existing.CompanyID,
 			&existing.Amount,
 			&existing.Currency,
 			&status,
@@ -565,16 +567,18 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		return nil, errors.New("client_type does not match stored client type")
 	}
 	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
+	deal.CompanyID = leadCompanyID
 
 	err = tx.QueryRow(`
-		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO deals (lead_id, client_id, owner_id, company_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (lead_id) DO NOTHING
 		RETURNING id
 	`,
 		deal.LeadID,
 		deal.ClientID,
 		deal.OwnerID,
+		leadCompanyID,
 		deal.Amount,
 		deal.Currency,
 		deal.Status,

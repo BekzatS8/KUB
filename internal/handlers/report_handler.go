@@ -47,7 +47,12 @@ func (h *ReportHandler) GetFunnel(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetSalesFunnel(c.Request.Context(), from, to, userID, roleID)
+	companyID, ok := GetActiveCompanyID(c)
+	if !ok || companyID <= 0 {
+		badRequest(c, "active company is required")
+		return
+	}
+	report, err := h.Service.GetSalesFunnel(c.Request.Context(), from, to, userID, roleID, companyID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -72,7 +77,12 @@ func (h *ReportHandler) GetLeadsSummary(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetLeadsSummary(c.Request.Context(), from, to, userID, roleID)
+	companyID, ok := GetActiveCompanyID(c)
+	if !ok || companyID <= 0 {
+		badRequest(c, "active company is required")
+		return
+	}
+	report, err := h.Service.GetLeadsSummary(c.Request.Context(), from, to, userID, roleID, companyID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -105,7 +115,12 @@ func (h *ReportHandler) GetRevenue(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period)
+	companyID, ok := GetActiveCompanyID(c)
+	if !ok || companyID <= 0 {
+		badRequest(c, "active company is required")
+		return
+	}
+	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, companyID, period)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -138,7 +153,12 @@ func (h *ReportHandler) ExportRevenue(c *gin.Context) {
 	_, _ = c.GetQuery("format")
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period)
+	companyID, ok := GetActiveCompanyID(c)
+	if !ok || companyID <= 0 {
+		badRequest(c, "active company is required")
+		return
+	}
+	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, companyID, period)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")

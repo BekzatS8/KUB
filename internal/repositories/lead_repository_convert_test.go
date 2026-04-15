@@ -207,22 +207,22 @@ func TestLeadRepository_ConvertToDeal_ExistingDealDoesNotUseOuterJoinForUpdate(t
 	mockDriver := &scriptedDriver{
 		steps: []scriptedStep{
 			{kind: "begin"},
-			{
-				kind:    "query",
-				query:   "SELECT status FROM leads WHERE id = $1 FOR UPDATE",
-				args:    []any{int64(42)},
-				columns: []string{"status"},
-				rows:    [][]driver.Value{{"confirmed"}},
-			},
+				{
+					kind:    "query",
+					query:   "SELECT status, company_id FROM leads WHERE id = $1 FOR UPDATE",
+					args:    []any{int64(42)},
+					columns: []string{"status", "company_id"},
+					rows:    [][]driver.Value{{"confirmed", int64(11)}},
+				},
 			{
 				kind:  "query",
 				query: "FROM deals d WHERE d.lead_id = $1 ORDER BY d.created_at DESC LIMIT 1 FOR UPDATE",
 				args:  []any{int64(42)},
-				columns: []string{
-					"id", "lead_id", "client_id", "owner_id", "amount", "currency", "status", "created_at",
+					columns: []string{
+						"id", "lead_id", "client_id", "owner_id", "company_id", "amount", "currency", "status", "created_at",
+					},
+					rows: [][]driver.Value{{int64(77), int64(42), int64(105), int64(9), int64(11), float64(1234.56), "USD", "new", time.Date(2026, time.April, 9, 10, 0, 0, 0, time.UTC)}},
 				},
-				rows: [][]driver.Value{{int64(77), int64(42), int64(105), int64(9), float64(1234.56), "USD", "new", time.Date(2026, time.April, 9, 10, 0, 0, 0, time.UTC)}},
-			},
 			{
 				kind:    "query",
 				query:   "SELECT client_type FROM clients WHERE id = $1",

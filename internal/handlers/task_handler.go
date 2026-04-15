@@ -144,13 +144,13 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 		internalError(c, "Failed to get task")
 		return
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok && int(task.CompanyID) != companyID {
-		notFound(c, "task_not_found", "Task not found")
-		return
-	}
 	if task == nil {
 		log.Printf("[task][getByID][404] id=%d", id)
 		notFound(c, ValidationFailed, "Task not found")
+		return
+	}
+	if companyID, ok := GetActiveCompanyID(c); ok && int(task.CompanyID) != companyID {
+		notFound(c, "task_not_found", "Task not found")
 		return
 	}
 	if !canViewTask(roleID, int64(userID), task) {

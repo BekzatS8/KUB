@@ -84,3 +84,14 @@
 ## Границы после этапа 4
 
 - `users` и `roles` по-прежнему вне archive scope.
+
+## Multi-company ACL (финальная политика)
+
+### `/companies`
+- `GET /companies` — любой аутентифицированный пользователь, но только membership-scoped список (компании из `user_companies` текущего пользователя).
+- `GET /companies/:id` — доступ только при membership в этой компании; иначе `404 company_not_found`.
+
+### `/companies/:id/integrations`
+- `GET/POST/PUT/DELETE` — только `leadership` (`role_id=40`) и `system_admin` (`role_id=50`).
+- membership к `:id` обязателен.
+- Для всех остальных ролей — `403 Forbidden`.
