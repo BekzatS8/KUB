@@ -303,7 +303,6 @@ func SetupRoutes(
 	tasks := r.Group("/tasks",
 		middleware.RequireRoles(
 			authz.RoleSales,
-			authz.RoleBackofficeStaff,
 			authz.RoleOperations,
 			authz.RoleControl,
 			authz.RoleManagement,

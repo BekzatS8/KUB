@@ -587,14 +587,15 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
 
 	err = tx.QueryRow(`
-		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (lead_id) DO NOTHING
 		RETURNING id
 	`,
 		deal.LeadID,
 		deal.ClientID,
 		deal.OwnerID,
+		deal.BranchID,
 		deal.Amount,
 		deal.Currency,
 		deal.Status,

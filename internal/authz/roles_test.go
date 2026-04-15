@@ -23,7 +23,6 @@ func TestSystemAdminCanManageSystem(t *testing.T) {
 func TestCanManageIntegrationsForAllKnownRoles(t *testing.T) {
 	allowed := []int{
 		RoleSales,
-		RoleBackofficeStaff,
 		RoleOperations,
 		RoleControl,
 		RoleManagement,
@@ -100,11 +99,20 @@ func TestHardDeleteBusinessEntitiesOnlyForRole50(t *testing.T) {
 		}
 	}
 
-	denied := []int{RoleSales, RoleBackofficeStaff, RoleOperations, RoleControl, RoleManagement}
+	denied := []int{RoleSales, RoleOperations, RoleControl, RoleManagement}
 	for _, roleID := range denied {
 		if CanHardDeleteBusinessEntity(roleID) {
 			t.Fatalf("role %d must not be allowed for hard delete", roleID)
 		}
+	}
+}
+
+func TestRole15IsNotCanonicalAndDenied(t *testing.T) {
+	if IsKnownRole(15) {
+		t.Fatalf("role_id=15 must not be part of canonical roles")
+	}
+	if CanAccessTasks(15) || CanUseChat(15) || CanManageIntegrations(15) {
+		t.Fatalf("role_id=15 must be denied by policy helpers")
 	}
 }
 

@@ -60,7 +60,7 @@ func dealArchiveWhere(scope ArchiveScope, alias string) string {
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
 		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
 	`
 	var id int64

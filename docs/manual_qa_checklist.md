@@ -123,9 +123,10 @@
 ## 13) Reports by branch
 1. Сгенерировать данные минимум в двух филиалах.
 2. Проверить:
-   - `sales` -> отчёты только по своему филиалу;
-   - `operations` -> отчёты своего филиала;
-   - `control/leadership/system_admin` -> отчёты по всем филиалам.
+   - `sales` -> отчёты только по своему филиалу и только по своим сделкам (owner=self), даже если передан `?branch_id=other`;
+   - `operations` -> отчёты только своего филиала, даже если передан `?branch_id=other`;
+   - `control/leadership/system_admin` -> отчёты по всем филиалам;
+   - для elevated ролей `?branch_id=<id>` должен сужать отчёт до выбранного филиала.
 
 ## 9) Migrations from zero
 1. Start clean DB volume.

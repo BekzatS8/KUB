@@ -39,7 +39,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - ✅ Троттлинг и защита от брутфорса для кода подтверждения
 - ✅ Безопасное хранение кода (bcrypt-хэш), TTL, попытки, resend-лимиты
 - ✅ JWT-аутентификация + ротация refresh-токена
-- ✅ RBAC: sales / backoffice staff / operations / control / leadership / system_admin
+- ✅ RBAC: sales / operations / control / leadership / system_admin
 - ✅ Лиды, сделки, задачи, сообщения; документы с подтверждением подписи кодом
 - ✅ Отчёты и фильтры
 - ✅ Скачивание/просмотр PDF из защищённого стора
@@ -230,7 +230,7 @@ TTL access-токена настраивается через переменну
 - `leads`, `deals`, `documents`, `messages`, `tasks`
 - `user_verifications` (для регистрации/логина по телефону): `code_hash`, `expires_at`, `attempts`, `confirmed`
 - Индексы для производительности и уникальности
-- Сиды для ролей (10/15/20/30/40/50)
+- Сиды для ролей (10/20/30/40/50)
 
 > Готовый SQL у тебя уже есть в репозитории (последняя версия с `user_verifications` и `code_hash`).
 
@@ -256,7 +256,6 @@ TTL access-токена настраивается через переменну
 | Роль (ID)   | Описание                                         |
 |-------------|---------------------------------------------------|
 | 10 `sales`  | Лиды/сделки свои, документы — отправка на ревью   |
-| 15 `backoffice_staff`  | Административный персонал (задачи/мессенджер) |
 | 20 `operations`    | Операционный доступ к бизнес-сущностям и документам |
 | 30 `control`  | Широкий read-only доступ к бизнес-данным |
 | 40 `leadership` | Полный доступ к бизнес-сущностям + подпись документов |
@@ -325,7 +324,7 @@ TTL access-токена настраивается через переменну
 - `POST /documents/:id/review` — ревью (operations/leadership)  
 - `POST /documents/:id/sign` — подпись (leadership)
 
-**Tasks** (sales/backoffice/operations/control/leadership/system_admin)
+**Tasks** (sales/operations/control/leadership/system_admin)
 - CRUD
 
 **Messages** (roles with chat access; см. `docs/rbac.md`)
@@ -343,6 +342,10 @@ TTL access-токена настраивается через переменну
 
 **Reports** (sales/operations/control/leadership/system_admin)
 - `/reports/funnel`, `/reports/leads`, `/reports/revenue`, `/reports/revenue/export`
+- `branch_id` query filter:
+  - `control` / `leadership` / `system_admin` могут фильтровать отчёты по любому филиалу;
+  - `sales` всегда получает отчёты только по `owner_id=self` и своему `branch_id`;
+  - `operations` всегда получает отчёты своего `branch_id`.
 
 ---
 

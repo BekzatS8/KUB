@@ -3,6 +3,8 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +37,19 @@ func parseDateParam(c *gin.Context, key string) (time.Time, bool) {
 	return t, true
 }
 
+func parseOptionalBranchID(c *gin.Context) (*int, bool) {
+	raw := strings.TrimSpace(c.Query("branch_id"))
+	if raw == "" {
+		return nil, true
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		badRequest(c, "invalid branch_id")
+		return nil, false
+	}
+	return &v, true
+}
+
 func (h *ReportHandler) GetFunnel(c *gin.Context) {
 	from, ok := parseDateParam(c, "from")
 	if !ok {
@@ -47,7 +62,11 @@ func (h *ReportHandler) GetFunnel(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetSalesFunnel(c.Request.Context(), from, to, userID, roleID)
+	requestedBranchID, ok := parseOptionalBranchID(c)
+	if !ok {
+		return
+	}
+	report, err := h.Service.GetSalesFunnel(c.Request.Context(), from, to, userID, roleID, requestedBranchID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -72,7 +91,11 @@ func (h *ReportHandler) GetLeadsSummary(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetLeadsSummary(c.Request.Context(), from, to, userID, roleID)
+	requestedBranchID, ok := parseOptionalBranchID(c)
+	if !ok {
+		return
+	}
+	report, err := h.Service.GetLeadsSummary(c.Request.Context(), from, to, userID, roleID, requestedBranchID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -105,7 +128,11 @@ func (h *ReportHandler) GetRevenue(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period)
+	requestedBranchID, ok := parseOptionalBranchID(c)
+	if !ok {
+		return
+	}
+	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period, requestedBranchID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
@@ -138,7 +165,11 @@ func (h *ReportHandler) ExportRevenue(c *gin.Context) {
 	_, _ = c.GetQuery("format")
 
 	userID, roleID := getUserAndRole(c)
-	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period)
+	requestedBranchID, ok := parseOptionalBranchID(c)
+	if !ok {
+		return
+	}
+	report, err := h.Service.GetRevenueStats(c.Request.Context(), from, to, userID, roleID, period, requestedBranchID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
 			forbidden(c, "forbidden")
