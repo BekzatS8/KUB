@@ -15,7 +15,7 @@ func TestGenerateAccessToken_DefaultTTLIsAboutTwoHours(t *testing.T) {
 		return fixedNow
 	})
 
-	token, exp, err := svc.GenerateAccessToken(10, 20)
+	token, exp, err := svc.GenerateAccessToken(10, 20, nil)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken returned error: %v", err)
 	}

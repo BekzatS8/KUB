@@ -49,3 +49,9 @@ func TestDocumentSortExpressionWhitelist(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentBaseSelect_IncludesCompanyID(t *testing.T) {
+	if !strings.Contains(documentBaseSelect, "dcm.company_id") {
+		t.Fatalf("documentBaseSelect must include dcm.company_id, got: %s", documentBaseSelect)
+	}
+}

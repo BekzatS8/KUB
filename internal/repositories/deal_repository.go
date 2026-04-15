@@ -145,8 +145,8 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 func (r *DealRepository) Update(deal *models.Deals) error {
 	query := `
 		UPDATE deals
-		SET lead_id=$1, client_id=$2, owner_id=$3, amount=$4, currency=$5, status=$6
-		WHERE id=$7
+		SET lead_id=$1, client_id=$2, owner_id=$3, company_id=$4, amount=$5, currency=$6, status=$7
+		WHERE id=$8
 	`
 	_, err := r.db.Exec(query,
 		deal.LeadID,    // $1
@@ -354,6 +354,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 			&deal.ClientID,
 			&deal.ClientType,
 			&deal.OwnerID,
+			&deal.CompanyID,
 			&deal.Amount,
 			&deal.Currency,
 			&status,
@@ -435,6 +436,7 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 			&d.ClientID,
 			&d.ClientType,
 			&d.OwnerID,
+			&d.CompanyID,
 			&d.Amount,
 			&d.Currency,
 			&status,
@@ -522,6 +524,7 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 			&d.ClientID,
 			&d.ClientType,
 			&d.OwnerID,
+			&d.CompanyID,
 			&d.Amount,
 			&d.Currency,
 			&status,
@@ -755,12 +758,12 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 }
 
 // GetDealsFunnelStats возвращает количество сделок по статусам за указанный период.
-func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.FunnelRow, error) {
-	query := `SELECT COALESCE(status, 'new') AS status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2`
-	args := []interface{}{from, to}
+func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.Time, ownerID *int, companyID int) ([]models.FunnelRow, error) {
+	query := `SELECT COALESCE(status, 'new') AS status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2 AND company_id = $3`
+	args := []interface{}{from, to, companyID}
 
 	if ownerID != nil {
-		query += " AND owner_id = $3"
+		query += " AND owner_id = $4"
 		args = append(args, *ownerID)
 	}
 
@@ -785,18 +788,18 @@ func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.
 }
 
 // GetDealsRevenueStats возвращает суммы выигранных сделок по месяцам за период.
-func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time.Time, ownerID *int) ([]models.RevenueRow, error) {
+func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time.Time, ownerID *int, companyID int) ([]models.RevenueRow, error) {
 	query := `
 		SELECT
 			TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS period,
 			SUM(amount) AS total_amount,
 			currency
 		FROM deals
-		WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
-	args := []interface{}{from, to}
+		WHERE status = 'won' AND created_at BETWEEN $1 AND $2 AND company_id = $3`
+	args := []interface{}{from, to, companyID}
 
 	if ownerID != nil {
-		query += " AND owner_id = $3"
+		query += " AND owner_id = $4"
 		args = append(args, *ownerID)
 	}
 
@@ -821,7 +824,7 @@ func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time
 }
 
 // GetTopClientsByRevenue возвращает топ клиентов по сумме выигранных сделок.
-func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to time.Time, ownerID *int, limit int) ([]models.TopClientRow, error) {
+func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to time.Time, ownerID *int, companyID int, limit int) ([]models.TopClientRow, error) {
 	query := `
 		SELECT
 			d.client_id,
@@ -831,11 +834,11 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 			d.currency
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id
-		WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
-	args := []interface{}{from, to}
+		WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2 AND d.company_id = $3`
+	args := []interface{}{from, to, companyID}
 
 	if ownerID != nil {
-		query += " AND d.owner_id = $3"
+		query += " AND d.owner_id = $4"
 		args = append(args, *ownerID)
 	}
 

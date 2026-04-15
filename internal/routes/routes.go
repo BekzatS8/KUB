@@ -159,6 +159,11 @@ func SetupRoutes(
 		users.POST("", userHandler.CreateUser)
 		users.GET("/me", userHandler.GetMyProfile)
 		if companyHandler != nil {
+			users.GET("/me/companies", companyHandler.GetMyCompanies)
+			users.PATCH("/me/active-company", authHandler.SelectCompany)
+			users.POST("/me/active-company", authHandler.SelectCompany)
+		}
+		if companyHandler != nil {
 			users.GET("/:id/companies", companyHandler.GetUserCompanies)
 			users.PUT("/:id/companies", middleware.RequireRoles(authz.RoleSystemAdmin), companyHandler.PutUserCompanies)
 		}
@@ -330,12 +335,13 @@ func SetupRoutes(
 
 	// REPORTS
 	reports := r.Group("/reports",
+		companyContextMiddleware,
 		middleware.RequireRoles(
 			authz.RoleSales,
 			authz.RoleOperations,
 			authz.RoleManagement,
 			authz.RoleControl,
-			authz.RoleAdminStaff,
+			authz.RoleSystemAdmin,
 		),
 	)
 	{
@@ -351,10 +357,13 @@ func SetupRoutes(
 			companies.GET("", companyHandler.List)
 			companies.GET("/:id", companyHandler.GetByID)
 			if companyIntegrationHandler != nil {
-				companies.GET("/:id/integrations", companyIntegrationHandler.List)
-				companies.POST("/:id/integrations", companyIntegrationHandler.Create)
-				companies.PUT("/:id/integrations/:integration_id", companyIntegrationHandler.Update)
-				companies.DELETE("/:id/integrations/:integration_id", companyIntegrationHandler.Delete)
+				integrations := companies.Group("/:id/integrations",
+					middleware.RequireRoles(authz.RoleManagement, authz.RoleSystemAdmin),
+				)
+				integrations.GET("", companyIntegrationHandler.List)
+				integrations.POST("", companyIntegrationHandler.Create)
+				integrations.PUT("/:integration_id", companyIntegrationHandler.Update)
+				integrations.DELETE("/:integration_id", companyIntegrationHandler.Delete)
 			}
 		}
 	}

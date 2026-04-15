@@ -53,13 +53,24 @@ func RequireCompanyAccess(resolver CompanyAccessResolver) gin.HandlerFunc {
 		}
 
 		var requestedCompanyID *int
-		if raw := strings.TrimSpace(c.GetHeader("X-Company-ID")); raw != "" {
-			if id, err := strconv.Atoi(raw); err == nil && id > 0 {
-				requestedCompanyID = &id
-			} else {
+		if activeFromClaims, ok := GetActiveCompanyID(c); ok && activeFromClaims > 0 {
+			requestedCompanyID = &activeFromClaims
+		}
+
+		overrideRaw := strings.TrimSpace(c.GetHeader("X-Company-ID"))
+		overrideEnabled := strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Company-Override")), "true") ||
+			strings.TrimSpace(c.GetHeader("X-Company-Override")) == "1"
+		if overrideRaw != "" {
+			id, err := strconv.Atoi(overrideRaw)
+			if err != nil || id <= 0 {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid X-Company-ID header"})
 				return
 			}
+			if requestedCompanyID != nil && *requestedCompanyID != id && !overrideEnabled {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "X-Company-ID override requires X-Company-Override: true"})
+				return
+			}
+			requestedCompanyID = &id
 		}
 
 		if requestedCompanyID == nil {

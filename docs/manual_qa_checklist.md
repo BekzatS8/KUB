@@ -89,3 +89,47 @@
    - `client_individual_profiles`
    - `client_legal_profiles`
 4. Expected: no migration conflicts, app starts.
+
+## 11) Multi-company strictness (JWT + reports + companies ACL)
+1. Login as a user that has access to at least 2 companies.
+2. Verify `POST /auth/login` response returns `active_company_id`.
+3. Decode returned access token and verify claim `active_company_id` is present.
+4. Call `POST /auth/select-company` with another company id.
+5. Expected:
+   - response contains `active_company_id`,
+   - response returns a **new** `access_token`,
+   - new token contains updated `active_company_id`.
+6. Call `/reports/funnel`, `/reports/leads`, `/reports/revenue`:
+   - without active company context => 400,
+   - with active company context => 200 and company-scoped data.
+7. Call `/companies` and `/companies/:id`:
+   - any authenticated user gets membership-scoped list on `/companies`,
+   - `/companies/:id` returns `200` for membership company and `404` otherwise.
+8. Call `GET /users/me/companies` and verify response includes:
+   - `companies`
+   - `primary_company_id`
+   - `active_company_id`
+9. Switch company via `PATCH /users/me/active-company` and verify response includes:
+   - `active_company_id`
+   - fresh `access_token` (`tokens.access_token` alias also present).
+10. Verify `/companies` ACL:
+   - list returns only membership companies for current user.
+11. Verify `/companies/:id` ACL:
+   - existing membership => 200
+   - no membership => 404.
+12. Verify `/companies/:id/integrations` ACL:
+   - `leadership/system_admin` + membership => allowed,
+   - other roles => 403,
+   - leadership/system_admin without membership => denied.
+
+## 12) Repository SQL consistency (company_id wiring)
+1. Create lead/deal/document/task in active company A.
+2. Switch active company to B and create the same entity types again.
+3. Verify list responses for each module do not mix `company_id` values and every item has expected `company_id`:
+   - `/leads`, `/deals`, `/documents`, `/tasks`, `/chats`.
+4. Update a deal and a document, then re-read:
+   - ensure no SQL/scan errors,
+   - ensure `company_id` remains stable (cannot be tampered via payload).
+5. Convert lead to deal:
+   - ensure created deal inherits lead company (`company_id`),
+   - ensure no insert/scan mismatch errors.

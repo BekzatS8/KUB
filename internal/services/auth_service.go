@@ -14,7 +14,7 @@ import (
 type AuthService interface {
 	VerifyPassword(hash, password string) bool
 	HashPassword(password string) (string, error)
-	GenerateAccessToken(userID, roleID int) (string, time.Time, error)
+	GenerateAccessToken(userID, roleID int, activeCompanyID *int) (string, time.Time, error)
 	GenerateRefreshToken() (string, time.Time, error)
 }
 
@@ -57,12 +57,13 @@ func (s *authService) HashPassword(password string) (string, error) {
 	return string(hash), err
 }
 
-func (s *authService) GenerateAccessToken(userID, roleID int) (string, time.Time, error) {
+func (s *authService) GenerateAccessToken(userID, roleID int, activeCompanyID *int) (string, time.Time, error) {
 	nowUTC := s.now().UTC()
 	expiresAt := nowUTC.Add(s.AccessTTL)
 	accessClaims := &middleware.Claims{
-		UserID: userID,
-		RoleID: roleID,
+		UserID:          userID,
+		RoleID:          roleID,
+		ActiveCompanyID: activeCompanyID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(nowUTC),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
