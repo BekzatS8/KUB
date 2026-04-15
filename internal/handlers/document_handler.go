@@ -92,6 +92,9 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if companyID, ok := GetActiveCompanyID(c); ok {
+		doc.CompanyID = int64(companyID)
+	}
 	id, err := h.Service.CreateDocument(&doc, userID, roleID)
 	if err != nil {
 		switch err.Error() {
@@ -168,6 +171,10 @@ func (h *DocumentHandler) GetDocument(c *gin.Context) {
 			return
 		}
 		notFound(c, DocumentNotFound, "Document not found")
+		return
+	}
+	if companyID, ok := GetActiveCompanyID(c); ok && int(doc.CompanyID) != companyID {
+		notFound(c, "document_not_found", "Document not found")
 		return
 	}
 	c.JSON(http.StatusOK, doc)

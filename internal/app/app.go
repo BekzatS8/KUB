@@ -108,6 +108,10 @@ func Run() {
 	// === Repos ===
 	roleRepo := repositories.NewRoleRepository(db)
 	userRepo := repositories.NewUserRepository(db)
+	userActiveCompanyRepo := repositories.NewUserActiveCompanyRepository(db)
+	companyRepo := repositories.NewCompanyRepository(db)
+	userCompanyRepo := repositories.NewUserCompanyRepository(db)
+	companyIntegrationRepo := repositories.NewCompanyIntegrationRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
 	clientRepo := repositories.NewClientRepository(db)
@@ -163,6 +167,8 @@ func Run() {
 
 	roleService := services.NewRoleService(roleRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
+	companyService := services.NewCompanyService(companyRepo, userCompanyRepo, userActiveCompanyRepo)
+	companyIntegrationService := services.NewCompanyIntegrationService(companyIntegrationRepo, companyService)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo)
@@ -260,9 +266,11 @@ func Run() {
 	defer chatHub.Stop()
 
 	// === Handlers ===
-	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
+	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService, companyService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	userHandler := handlers.NewUserHandler(userService, userVerificationService)
+	userHandler := handlers.NewUserHandler(userService, userVerificationService, companyService)
+	companyHandler := handlers.NewCompanyHandler(companyService)
+	companyIntegrationHandler := handlers.NewCompanyIntegrationHandler(companyIntegrationService)
 	clientHandler := handlers.NewClientHandler(clientService)
 	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService)
 	clientProfileHandler := handlers.NewClientProfileHandler(clientService)
@@ -343,6 +351,8 @@ func Run() {
 	routes.SetupRoutes(
 		router,
 		userHandler,
+		companyHandler,
+		companyIntegrationHandler,
 		clientHandler,
 		clientFilesHandler,
 		clientProfileHandler,
@@ -363,6 +373,7 @@ func Run() {
 		docPublicLinkHandler,
 		publicSigningUIHandler,
 		wazzupHandler,
+		middleware.RequireCompanyAccess(companyService),
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

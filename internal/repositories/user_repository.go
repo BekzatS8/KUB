@@ -48,17 +48,18 @@ func NewUserRepository(db *sql.DB) UserRepository {
 func (r *userRepository) Create(user *models.User) error {
 	const q = `
 		INSERT INTO users (
-			company_name, bin_iin, email, password_hash, role_id,
+			company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			phone, is_verified, verified_at,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			telegram_chat_id, notify_tasks_telegram
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,FALSE,NULL,DEFAULT)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,NULL,FALSE,NULL,DEFAULT)
 		RETURNING id
 	`
 	return r.DB.QueryRow(q,
 		user.CompanyName,
 		user.BinIin,
+		user.ActiveCompanyID,
 		user.Email,
 		user.PasswordHash,
 		user.RoleID,
@@ -71,7 +72,7 @@ func (r *userRepository) Create(user *models.User) error {
 func (r *userRepository) GetByID(id int) (*models.User, error) {
 	const q = `
 		SELECT
-			id, company_name, bin_iin, email, password_hash, role_id,
+			id, company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -80,18 +81,19 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 	`
 	u := &models.User{}
 	var (
-		roleID     sql.NullInt64
-		rt         sql.NullString
-		rte        sql.NullTime
-		rr         sql.NullBool
-		phone      sql.NullString
-		isVerified sql.NullBool
-		verifiedAt sql.NullTime
-		tgChatID   sql.NullInt64
-		tgNotify   sql.NullBool
+		roleID          sql.NullInt64
+		activeCompanyID sql.NullInt64
+		rt              sql.NullString
+		rte             sql.NullTime
+		rr              sql.NullBool
+		phone           sql.NullString
+		isVerified      sql.NullBool
+		verifiedAt      sql.NullTime
+		tgChatID        sql.NullInt64
+		tgNotify        sql.NullBool
 	)
 	err := r.DB.QueryRow(q, id).Scan(
-		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
+		&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &u.PasswordHash, &roleID,
 		&rt, &rte, &rr,
 		&phone, &isVerified, &verifiedAt,
 		&tgChatID, &tgNotify,
@@ -101,6 +103,10 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 	}
 	if roleID.Valid {
 		u.RoleID = int(roleID.Int64)
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
 	}
 	if rt.Valid {
 		s := rt.String
@@ -138,17 +144,19 @@ func (r *userRepository) Update(user *models.User) error {
 		SET
 			company_name=$1,
 			bin_iin=$2,
-			email=$3,
-			password_hash=$4,
-			role_id=$5,
-			phone=$6,
-			is_verified=$7,
-			verified_at=$8
-		WHERE id=$9
+			active_company_id=$3,
+			email=$4,
+			password_hash=$5,
+			role_id=$6,
+			phone=$7,
+			is_verified=$8,
+			verified_at=$9
+		WHERE id=$10
 	`
 	_, err := r.DB.Exec(q,
 		user.CompanyName,
 		user.BinIin,
+		user.ActiveCompanyID,
 		user.Email,
 		user.PasswordHash,
 		user.RoleID,
@@ -181,7 +189,7 @@ func (r *userRepository) UpdatePassword(userID int, passwordHash string) error {
 func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 	const q = `
 		SELECT
-			id, company_name, bin_iin, email, role_id,
+			id, company_name, bin_iin, active_company_id, email, role_id,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
@@ -198,15 +206,16 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 	for rows.Next() {
 		u := &models.User{}
 		var (
-			roleID     sql.NullInt64
-			phone      sql.NullString
-			isVerified sql.NullBool
-			verifiedAt sql.NullTime
-			tgChatID   sql.NullInt64
-			tgNotify   sql.NullBool
+			roleID          sql.NullInt64
+			activeCompanyID sql.NullInt64
+			phone           sql.NullString
+			isVerified      sql.NullBool
+			verifiedAt      sql.NullTime
+			tgChatID        sql.NullInt64
+			tgNotify        sql.NullBool
 		)
 		if err := rows.Scan(
-			&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &roleID,
+			&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &roleID,
 			&phone, &isVerified, &verifiedAt,
 			&tgChatID, &tgNotify,
 		); err != nil {
@@ -239,7 +248,7 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 	const q = `
 		SELECT
-			id, company_name, bin_iin, email, password_hash, role_id,
+			id, company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -248,18 +257,19 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 	`
 	u := &models.User{}
 	var (
-		roleID     sql.NullInt64
-		rt         sql.NullString
-		rte        sql.NullTime
-		rr         sql.NullBool
-		phone      sql.NullString
-		isVerified sql.NullBool
-		verifiedAt sql.NullTime
-		tgChatID   sql.NullInt64
-		tgNotify   sql.NullBool
+		roleID          sql.NullInt64
+		activeCompanyID sql.NullInt64
+		rt              sql.NullString
+		rte             sql.NullTime
+		rr              sql.NullBool
+		phone           sql.NullString
+		isVerified      sql.NullBool
+		verifiedAt      sql.NullTime
+		tgChatID        sql.NullInt64
+		tgNotify        sql.NullBool
 	)
 	err := r.DB.QueryRow(q, email).Scan(
-		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
+		&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &u.PasswordHash, &roleID,
 		&rt, &rte, &rr,
 		&phone, &isVerified, &verifiedAt,
 		&tgChatID, &tgNotify,
@@ -269,6 +279,10 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 	}
 	if roleID.Valid {
 		u.RoleID = int(roleID.Int64)
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
 	}
 	if rt.Valid {
 		s := rt.String
@@ -312,6 +326,24 @@ func (r *userRepository) GetCountByRole(roleID int) (int, error) {
 	return c, err
 }
 
+func (r *userRepository) SetActiveCompanyID(userID int, companyID *int) error {
+	_, err := r.DB.Exec(`UPDATE users SET active_company_id = $1 WHERE id = $2`, companyID, userID)
+	return err
+}
+
+func (r *userRepository) GetActiveCompanyID(userID int) (*int, error) {
+	var v sql.NullInt64
+	err := r.DB.QueryRow(`SELECT active_company_id FROM users WHERE id = $1`, userID).Scan(&v)
+	if err != nil {
+		return nil, err
+	}
+	if !v.Valid {
+		return nil, nil
+	}
+	id := int(v.Int64)
+	return &id, nil
+}
+
 // ===== refresh helpers =====
 
 func (r *userRepository) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
@@ -340,20 +372,21 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 		SET refresh_token=$1, refresh_expires_at=$2, refresh_revoked=FALSE
 		WHERE refresh_token=$3 OR refresh_token=$4
 		RETURNING
-			id, company_name, bin_iin, email, password_hash, role_id,
+			id, company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 	`
 	u := &models.User{}
 	var (
-		roleID     sql.NullInt64
-		phone      sql.NullString
-		verifiedAt sql.NullTime
-		tgChatID   sql.NullInt64
-		tgNotify   sql.NullBool
+		roleID          sql.NullInt64
+		activeCompanyID sql.NullInt64
+		phone           sql.NullString
+		verifiedAt      sql.NullTime
+		tgChatID        sql.NullInt64
+		tgNotify        sql.NullBool
 	)
 	err := r.DB.QueryRow(q, newStored, newExpiresAt, oldRaw, oldHashed).Scan(
-		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
+		&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &u.PasswordHash, &roleID,
 		&phone, &u.IsVerified, &verifiedAt,
 		&tgChatID, &tgNotify,
 	)
@@ -362,6 +395,14 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 	}
 	if roleID.Valid {
 		u.RoleID = int(roleID.Int64)
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
 	}
 	if phone.Valid {
 		u.Phone = phone.String
@@ -393,7 +434,7 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 	hashed := hashRefreshToken(token)
 	const q = `
 		SELECT
-			id, company_name, bin_iin, email, password_hash, role_id,
+			id, company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -402,18 +443,19 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 	`
 	u := &models.User{}
 	var (
-		roleID     sql.NullInt64
-		rt         sql.NullString
-		rte        sql.NullTime
-		rr         sql.NullBool
-		phone      sql.NullString
-		isVerified sql.NullBool
-		verifiedAt sql.NullTime
-		tgChatID   sql.NullInt64
-		tgNotify   sql.NullBool
+		roleID          sql.NullInt64
+		activeCompanyID sql.NullInt64
+		rt              sql.NullString
+		rte             sql.NullTime
+		rr              sql.NullBool
+		phone           sql.NullString
+		isVerified      sql.NullBool
+		verifiedAt      sql.NullTime
+		tgChatID        sql.NullInt64
+		tgNotify        sql.NullBool
 	)
 	err := r.DB.QueryRow(q, normalized, hashed).Scan(
-		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
+		&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &u.PasswordHash, &roleID,
 		&rt, &rte, &rr,
 		&phone, &isVerified, &verifiedAt,
 		&tgChatID, &tgNotify,
@@ -423,6 +465,10 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 	}
 	if roleID.Valid {
 		u.RoleID = int(roleID.Int64)
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
 	}
 	if rt.Valid {
 		s := rt.String
@@ -555,7 +601,7 @@ func (r *userRepository) GetTelegramSettings(ctx context.Context, userID int64) 
 func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models.User, error) {
 	const q = `
 		SELECT
-			id, company_name, bin_iin, email, password_hash, role_id,
+			id, company_name, bin_iin, active_company_id, email, password_hash, role_id,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -565,18 +611,19 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 	`
 	u := &models.User{}
 	var (
-		roleID     sql.NullInt64
-		rt         sql.NullString
-		rte        sql.NullTime
-		rr         sql.NullBool
-		phone      sql.NullString
-		isVerified sql.NullBool
-		verifiedAt sql.NullTime
-		tgChatID   sql.NullInt64
-		tgNotify   sql.NullBool
+		roleID          sql.NullInt64
+		activeCompanyID sql.NullInt64
+		rt              sql.NullString
+		rte             sql.NullTime
+		rr              sql.NullBool
+		phone           sql.NullString
+		isVerified      sql.NullBool
+		verifiedAt      sql.NullTime
+		tgChatID        sql.NullInt64
+		tgNotify        sql.NullBool
 	)
 	err := r.DB.QueryRowContext(ctx, q, chatID).Scan(
-		&u.ID, &u.CompanyName, &u.BinIin, &u.Email, &u.PasswordHash, &roleID,
+		&u.ID, &u.CompanyName, &u.BinIin, &activeCompanyID, &u.Email, &u.PasswordHash, &roleID,
 		&rt, &rte, &rr,
 		&phone, &isVerified, &verifiedAt,
 		&tgChatID, &tgNotify, // ПРИМ: тут без пробелов - это tgChatID/tgNotify как в остальных методах
@@ -586,6 +633,10 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 	}
 	if roleID.Valid {
 		u.RoleID = int(roleID.Int64)
+	}
+	if activeCompanyID.Valid {
+		v := int(activeCompanyID.Int64)
+		u.ActiveCompanyID = &v
 	}
 	if rt.Valid {
 		s := rt.String

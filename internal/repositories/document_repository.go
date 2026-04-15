@@ -49,7 +49,7 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
 	var archivedBy sql.NullInt64
-	if err := scanner.Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
+	if err := scanner.Scan(&d.ID, &d.DealID, &d.CompanyID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason); err != nil {
 		return nil, err
 	}
 	if signedAt.Valid {
@@ -71,12 +71,12 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 
 func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 	const q = `
-		INSERT INTO documents (deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO documents (deal_id, company_id, doc_type, file_path, file_path_docx, file_path_pdf, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at`
 	var id int64
 	var createdAt sql.NullTime
-	if err := r.db.QueryRow(q, doc.DealID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status).Scan(&id, &createdAt); err != nil {
+	if err := r.db.QueryRow(q, doc.DealID, doc.CompanyID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status).Scan(&id, &createdAt); err != nil {
 		return 0, fmt.Errorf("create document: %w", err)
 	}
 	doc.ID = id
@@ -92,7 +92,7 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 
 func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScope) (*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		SELECT id, deal_id, company_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
 		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
 		       is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
@@ -101,7 +101,7 @@ func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScop
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
 	var archivedBy sql.NullInt64
-	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason)
+	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &d.CompanyID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -129,7 +129,7 @@ func (r *DocumentRepository) Update(doc *models.Document) error {
 	const q = `
 		UPDATE documents SET deal_id=$1, doc_type=$2, file_path=$3, file_path_docx=$4, file_path_pdf=$5, status=$6
 		WHERE id = $7`
-	if _, err := r.db.Exec(q, doc.DealID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.ID); err != nil {
+	if _, err := r.db.Exec(q, doc.DealID, doc.CompanyID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.ID); err != nil {
 		return fmt.Errorf("update document: %w", err)
 	}
 	return nil

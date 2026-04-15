@@ -59,6 +59,7 @@ func NewChatRepository(db *sql.DB) ChatRepository {
 func (r *chatRepository) ListUserChats(userID int) ([]*models.Chat, error) {
 	const q = `
 SELECT c.id,
+       COALESCE(c.company_id,0) AS company_id,
        c.name,
        c.is_group,
        c.created_at,
@@ -92,7 +93,7 @@ LEFT JOIN LATERAL (
     WHERE m.chat_id = c.id AND m.id > COALESCE(crs.last_read_message_id, 0)
 ) unread ON true
 WHERE c.id IN (SELECT chat_id FROM chat_members WHERE user_id = $1)
-GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, us.online, us.last_seen, unread.unread_count
+GROUP BY c.id, c.company_id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, us.online, us.last_seen, unread.unread_count
 ORDER BY c.id
 `
 	rows, err := r.DB.Query(q, userID)
@@ -115,6 +116,7 @@ ORDER BY c.id
 
 		if err := rows.Scan(
 			&chat.ID,
+			&chat.CompanyID,
 			&chat.Name,
 			&chat.IsGroup,
 			&chat.CreatedAt,
@@ -222,12 +224,12 @@ func (r *chatRepository) CreateChat(name string, isGroup bool, creatorID int, me
 	defer func() { _ = tx.Rollback() }()
 
 	const insertChat = `
-INSERT INTO chats (name, creator_id, is_group)
-VALUES ($1, $2, $3)
-RETURNING id, creator_id, created_at
+INSERT INTO chats (name, creator_id, is_group, company_id)
+VALUES ($1, $2, $3, (SELECT active_company_id FROM users WHERE id = $2))
+RETURNING id, creator_id, COALESCE(company_id,0), created_at
 `
 	chat := &models.Chat{IsGroup: isGroup, Name: name}
-	if err := tx.QueryRow(insertChat, name, creatorID, isGroup).Scan(&chat.ID, &chat.CreatorID, &chat.CreatedAt); err != nil {
+	if err := tx.QueryRow(insertChat, name, creatorID, isGroup).Scan(&chat.ID, &chat.CreatorID, &chat.CompanyID, &chat.CreatedAt); err != nil {
 		return nil, err
 	}
 
@@ -682,7 +684,7 @@ func (r *chatRepository) GetOnlineStatus(userID int) (bool, time.Time, error) {
 
 func (r *chatRepository) GetChatByID(chatID int) (*models.Chat, error) {
 	const q = `
-SELECT c.id, c.name, c.is_group, c.created_at,
+SELECT c.id, COALESCE(c.company_id,0), c.name, c.is_group, c.created_at,
        COALESCE(array_agg(cm.user_id ORDER BY cm.user_id), '{}') AS members,
        lm.text AS last_message_text,
        lm.created_at AS last_message_at
@@ -696,7 +698,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) lm ON true
 WHERE c.id = $1
-GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at
+GROUP BY c.id, c.company_id, c.name, c.is_group, c.created_at, lm.text, lm.created_at
 `
 	var (
 		chat    models.Chat
@@ -705,7 +707,7 @@ GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at
 		lastAt  sql.NullTime
 	)
 
-	err := r.DB.QueryRow(q, chatID).Scan(&chat.ID, &chat.Name, &chat.IsGroup, &chat.CreatedAt, &members, &last, &lastAt)
+	err := r.DB.QueryRow(q, chatID).Scan(&chat.ID, &chat.CompanyID, &chat.Name, &chat.IsGroup, &chat.CreatedAt, &members, &last, &lastAt)
 	if err != nil {
 		return nil, err
 	}
@@ -807,6 +809,7 @@ func (r *chatRepository) SearchChats(userID int, query string) ([]*models.Chat, 
 
 	const q = `
 SELECT c.id,
+       COALESCE(c.company_id,0) AS company_id,
        c.name,
        c.is_group,
        c.created_at,
@@ -870,7 +873,7 @@ WHERE c.id IN (SELECT chat_id FROM chat_members WHERE user_id = $1)
       OR COALESCE(cp.display_name, '') ILIKE $2
       OR COALESCE(cp.email, '') ILIKE $2
   )
-GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, cp.display_name, cp.email, us.online, us.last_seen, unread.unread_count, prefix_rank, contains_rank
+GROUP BY c.id, c.company_id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, cp.display_name, cp.email, us.online, us.last_seen, unread.unread_count, prefix_rank, contains_rank
 ORDER BY c.is_group ASC, prefix_rank, contains_rank, c.id
 `
 	rows, err := r.DB.Query(q, userID, prefix, pattern)
@@ -897,6 +900,7 @@ ORDER BY c.is_group ASC, prefix_rank, contains_rank, c.id
 
 		if err := rows.Scan(
 			&chat.ID,
+			&chat.CompanyID,
 			&chat.Name,
 			&chat.IsGroup,
 			&chat.CreatedAt,

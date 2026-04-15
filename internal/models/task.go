@@ -27,6 +27,7 @@ type Task struct {
 	ID             int64        `json:"id"`
 	CreatorID      int64        `json:"creator_id"`
 	AssigneeID     int64        `json:"assignee_id"`
+	CompanyID      int64        `json:"company_id"`
 	EntityID       int64        `json:"entity_id"`
 	EntityType     string       `json:"entity_type"`
 	Title          string       `json:"title"`
