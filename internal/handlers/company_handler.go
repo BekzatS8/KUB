@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
-	"turcompany/internal/models"
 	"turcompany/internal/services"
 )
 
@@ -20,45 +19,18 @@ func NewCompanyHandler(service services.CompanyService) *CompanyHandler {
 }
 
 func (h *CompanyHandler) List(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
-	if userID <= 0 {
-		unauthorized(c, "Unauthorized")
-		return
-	}
-
-	memberships, err := h.service.ListUserCompanies(userID)
+	companies, err := h.service.ListCompanies()
 	if err != nil {
 		internalError(c, "Failed to list companies")
 		return
 	}
-	out := make([]*models.Company, 0, len(memberships))
-	for _, m := range memberships {
-		if m.Company == nil {
-			continue
-		}
-		out = append(out, m.Company)
-	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, companies)
 }
 
 func (h *CompanyHandler) GetByID(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
-	if userID <= 0 {
-		unauthorized(c, "Unauthorized")
-		return
-	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
 		badRequest(c, "Invalid company ID")
-		return
-	}
-	hasAccess, err := h.service.HasUserAccess(userID, id)
-	if err != nil {
-		internalError(c, "Failed to validate company access")
-		return
-	}
-	if !hasAccess {
-		notFound(c, "company_not_found", "Company not found")
 		return
 	}
 	company, err := h.service.GetCompany(id)
@@ -94,29 +66,6 @@ func (h *CompanyHandler) GetUserCompanies(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":   userID,
 		"companies": companies,
-	})
-}
-
-func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
-	userID, _ := getUserAndRole(c)
-	if userID <= 0 {
-		unauthorized(c, "Unauthorized")
-		return
-	}
-
-	companies, err := h.service.ListUserCompanies(userID)
-	if err != nil {
-		internalError(c, "Failed to list user companies")
-		return
-	}
-	primaryCompanyID, _ := h.service.GetPrimaryCompanyID(userID)
-	activeCompanyID, _ := h.service.GetUserActiveCompanyID(userID)
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":            userID,
-		"companies":          companies,
-		"primary_company_id": primaryCompanyID,
-		"active_company_id":  activeCompanyID,
 	})
 }
 

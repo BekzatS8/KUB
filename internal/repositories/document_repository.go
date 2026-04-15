@@ -36,7 +36,7 @@ func documentArchiveWhere(scope ArchiveScope) string {
 }
 
 const documentBaseSelect = `
-	SELECT dcm.id, dcm.deal_id, dcm.company_id, dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
+	SELECT dcm.id, dcm.deal_id, dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
 	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
 	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,'')
@@ -127,8 +127,8 @@ func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScop
 
 func (r *DocumentRepository) Update(doc *models.Document) error {
 	const q = `
-		UPDATE documents SET deal_id=$1, company_id=$2, doc_type=$3, file_path=$4, file_path_docx=$5, file_path_pdf=$6, status=$7
-		WHERE id = $8`
+		UPDATE documents SET deal_id=$1, doc_type=$2, file_path=$3, file_path_docx=$4, file_path_pdf=$5, status=$6
+		WHERE id = $7`
 	if _, err := r.db.Exec(q, doc.DealID, doc.CompanyID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.ID); err != nil {
 		return fmt.Errorf("update document: %w", err)
 	}

@@ -23,8 +23,6 @@ type leadHandlerStubService struct {
 	deleteCalled  bool
 	archiveErr    error
 	deleteErr     error
-	listResp      []*models.Leads
-	listMyResp    []*models.Leads
 }
 
 func (s *leadHandlerStubService) Create(lead *models.Leads, userID, roleID int) (int64, error) {
@@ -44,9 +42,6 @@ func (s *leadHandlerStubService) Delete(id int, userID, roleID int) error {
 func (s *leadHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
 	s.listScope = scope
 	s.listFilter = filter
-	if s.listResp != nil {
-		return s.listResp, nil
-	}
 	return []*models.Leads{}, nil
 }
 func (s *leadHandlerStubService) ListMyWithArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope) ([]*models.Leads, error) {
@@ -56,9 +51,6 @@ func (s *leadHandlerStubService) ListMyWithArchiveScope(ownerID, limit, offset i
 func (s *leadHandlerStubService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
 	s.listMyScope = scope
 	s.listMyFilter = filter
-	if s.listMyResp != nil {
-		return s.listMyResp, nil
-	}
 	return []*models.Leads{}, nil
 }
 func (s *leadHandlerStubService) AssignOwner(id, assigneeID, userID, roleID int) error { return nil }
@@ -85,24 +77,16 @@ type dealHandlerStubService struct {
 	listMyFilter repositories.DealListFilter
 	archived     bool
 	deleteErr    error
-	listResp     []*models.Deals
-	listMyResp   []*models.Deals
 }
 
 func (s *dealHandlerStubService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	s.listScope = scope
 	s.listFilter = filter
-	if s.listResp != nil {
-		return s.listResp, nil
-	}
 	return []*models.Deals{}, nil
 }
 func (s *dealHandlerStubService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
 	s.listMyScope = scope
 	s.listMyFilter = filter
-	if s.listMyResp != nil {
-		return s.listMyResp, nil
-	}
 	return []*models.Deals{}, nil
 }
 func (s *dealHandlerStubService) Delete(id, userID, roleID int) error { return s.deleteErr }
@@ -287,56 +271,6 @@ func TestDealList_AppliesClientFilters(t *testing.T) {
 	}
 	if s.listFilter.ClientID != 42 || s.listFilter.ClientType != "individual" {
 		t.Fatalf("expected filter {42 individual}, got %+v", s.listFilter)
-	}
-}
-
-func TestLeadList_FiltersByActiveCompany(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	s := &leadHandlerStubService{
-		listResp: []*models.Leads{
-			{ID: 1, CompanyID: 10},
-			{ID: 2, CompanyID: 20},
-		},
-	}
-	h := &LeadHandler{Service: s}
-	c, w := ctx(http.MethodGet, "/leads", "", authz.RoleManagement)
-	c.Request = httptest.NewRequest(http.MethodGet, "/leads", nil)
-	c.Set("user_id", 100)
-	c.Set("role_id", authz.RoleManagement)
-	c.Set("active_company_id", 10)
-
-	h.List(c)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
-	}
-	body := w.Body.String()
-	if !strings.Contains(body, `"id":1`) || strings.Contains(body, `"id":2`) {
-		t.Fatalf("expected only company-scoped leads, got %s", body)
-	}
-}
-
-func TestDealList_FiltersByActiveCompany(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	s := &dealHandlerStubService{
-		listResp: []*models.Deals{
-			{ID: 1, CompanyID: 10},
-			{ID: 2, CompanyID: 20},
-		},
-	}
-	h := &DealHandler{Service: s}
-	c, w := ctx(http.MethodGet, "/deals", "", authz.RoleManagement)
-	c.Request = httptest.NewRequest(http.MethodGet, "/deals", nil)
-	c.Set("user_id", 100)
-	c.Set("role_id", authz.RoleManagement)
-	c.Set("active_company_id", 10)
-
-	h.List(c)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
-	}
-	body := w.Body.String()
-	if !strings.Contains(body, `"id":1`) || strings.Contains(body, `"id":2`) {
-		t.Fatalf("expected only company-scoped deals, got %s", body)
 	}
 }
 

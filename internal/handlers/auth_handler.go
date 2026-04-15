@@ -70,20 +70,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	log.Printf("[auth][login] password OK for userID=%d", user.ID)
 
-	availableCompanies := make([]int, 0)
-	var primaryCompanyID *int
-	var activeCompanyID *int
-	if h.companyService != nil {
-		if userCompanies, listErr := h.companyService.ListUserCompanies(user.ID); listErr == nil {
-			for _, uc := range userCompanies {
-				availableCompanies = append(availableCompanies, uc.CompanyID)
-			}
-		}
-		primaryCompanyID, _ = h.companyService.GetPrimaryCompanyID(user.ID)
-		activeCompanyID, _ = h.companyService.GetUserActiveCompanyID(user.ID)
-	}
-
-	accessTokenString, accessExp, err := h.authService.GenerateAccessToken(user.ID, user.RoleID, activeCompanyID)
+	accessTokenString, accessExp, err := h.authService.GenerateAccessToken(user.ID, user.RoleID)
 	if err != nil {
 		log.Printf("[auth][login] sign access token failed for userID=%d: err=%v", user.ID, err)
 		internalError(c, "Failed to generate access token")
@@ -107,6 +94,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	log.Printf("[auth][login] success userID=%d role=%d took=%s", user.ID, user.RoleID, time.Since(start).Truncate(time.Millisecond))
 
+	availableCompanies := make([]int, 0)
+	var primaryCompanyID *int
+	var activeCompanyID *int
+	if h.companyService != nil {
+		if userCompanies, listErr := h.companyService.ListUserCompanies(user.ID); listErr == nil {
+			for _, uc := range userCompanies {
+				availableCompanies = append(availableCompanies, uc.CompanyID)
+			}
+		}
+		primaryCompanyID, _ = h.companyService.GetPrimaryCompanyID(user.ID)
+		activeCompanyID, _ = h.companyService.GetUserActiveCompanyID(user.ID)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":             "Login successful",
 		"user":                user, // PasswordHash скрыт тегом json:"-"
@@ -114,8 +114,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"available_companies": availableCompanies,
 		"primary_company_id":  primaryCompanyID,
 		"active_company_id":   activeCompanyID,
-		"access_token":        accessTokenString,
-		"refresh_token":       rt,
 		"tokens": gin.H{
 			"access_token":  accessTokenString,
 			"refresh_token": rt,
@@ -124,7 +122,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) SelectCompany(c *gin.Context) {
-	userID, roleID := getUserAndRole(c)
+	userID, _ := getUserAndRole(c)
 	if userID <= 0 {
 		unauthorized(c, "Unauthorized")
 		return
@@ -147,22 +145,7 @@ func (h *AuthHandler) SelectCompany(c *gin.Context) {
 		return
 	}
 
-	accessTokenString, accessExp, err := h.authService.GenerateAccessToken(userID, roleID, &req.CompanyID)
-	if err != nil {
-		log.Printf("[auth][select-company] generate access token failed for userID=%d: err=%v", userID, err)
-		internalError(c, "Failed to generate access token")
-		return
-	}
-	_ = accessExp
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":           "Active company selected",
-		"active_company_id": req.CompanyID,
-		"access_token":      accessTokenString,
-		"tokens": gin.H{
-			"access_token": accessTokenString,
-		},
-	})
+	c.JSON(http.StatusOK, gin.H{"active_company_id": req.CompanyID})
 }
 
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
@@ -195,21 +178,15 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	activeCompanyID := rotatedUser.ActiveCompanyID
-	accessTokenString, _, err := h.authService.GenerateAccessToken(rotatedUser.ID, rotatedUser.RoleID, activeCompanyID)
+	accessTokenString, _, err := h.authService.GenerateAccessToken(rotatedUser.ID, rotatedUser.RoleID)
 	if err != nil {
 		internalError(c, "Failed to generate access token")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"active_company_id": activeCompanyID,
-		"access_token":      accessTokenString,
-		"refresh_token":     newRT,
-		"tokens": gin.H{
-			"access_token":  accessTokenString,
-			"refresh_token": newRT,
-		},
+		"access_token":  accessTokenString,
+		"refresh_token": newRT,
 	})
 }
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {

@@ -88,7 +88,6 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	if lead.Description == "" {
 		lead.Description = current.Description
 	}
-	lead.CompanyID = current.CompanyID
 
 	return s.Repo.Update(lead)
 }

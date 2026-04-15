@@ -12,9 +12,8 @@ import (
 )
 
 type Claims struct {
-	UserID          int  `json:"user_id"`
-	RoleID          int  `json:"role_id"`
-	ActiveCompanyID *int `json:"active_company_id,omitempty"`
+	UserID int `json:"user_id"`
+	RoleID int `json:"role_id"`
 	jwt.RegisteredClaims
 }
 
@@ -119,9 +118,6 @@ func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 
 		c.Set("user_id", claims.UserID)
 		c.Set("role_id", claims.RoleID)
-		if claims.ActiveCompanyID != nil && *claims.ActiveCompanyID > 0 {
-			c.Set("active_company_id", *claims.ActiveCompanyID)
-		}
 		c.Next()
 	}
 }
