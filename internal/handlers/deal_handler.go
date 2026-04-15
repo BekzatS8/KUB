@@ -53,9 +53,6 @@ func (h *DealHandler) Create(c *gin.Context) {
 	if roleID == authz.RoleSales {
 		deal.OwnerID = userID
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok {
-		deal.CompanyID = companyID
-	}
 	if deal.Status == "" {
 		deal.Status = "new"
 	}
@@ -152,10 +149,6 @@ func (h *DealHandler) Update(c *gin.Context) {
 		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok && current.CompanyID != companyID {
-		notFound(c, DealNotFoundCode, "Deal not found")
-		return
-	}
 
 	var body models.Deals
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -241,10 +234,6 @@ func (h *DealHandler) GetByID(c *gin.Context) {
 		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}
-	if companyID, ok := GetActiveCompanyID(c); ok && deal.CompanyID != companyID {
-		notFound(c, DealNotFoundCode, "Deal not found")
-		return
-	}
 	c.JSON(http.StatusOK, deal)
 }
 
@@ -266,10 +255,6 @@ func (h *DealHandler) Delete(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
-		notFound(c, DealNotFoundCode, "Deal not found")
-		return
-	}
-	if companyID, ok := GetActiveCompanyID(c); ok && deal.CompanyID != companyID {
 		notFound(c, DealNotFoundCode, "Deal not found")
 		return
 	}

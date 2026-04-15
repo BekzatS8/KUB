@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
@@ -14,7 +13,6 @@ import (
 
 type UserHandler struct {
 	service             services.UserService
-	companyService      services.CompanyService
 	verificationService *services.UserVerificationService
 }
 
@@ -31,15 +29,9 @@ type createUserRequest struct {
 func NewUserHandler(
 	service services.UserService,
 	verificationService *services.UserVerificationService,
-	companyService ...services.CompanyService,
 ) *UserHandler {
-	var cs services.CompanyService
-	if len(companyService) > 0 {
-		cs = companyService[0]
-	}
 	return &UserHandler{
 		service:             service,
-		companyService:      cs,
 		verificationService: verificationService,
 	}
 }
@@ -48,83 +40,6 @@ func sanitizeUser(u *models.User) *models.User {
 	cp := *u
 	cp.PasswordHash = ""
 	return &cp
-}
-
-type userRoleDTO struct {
-	ID   int    `json:"id"`
-	Code string `json:"code"`
-	Name string `json:"name"`
-}
-
-type userTelegramDTO struct {
-	ChatID      int64 `json:"chat_id"`
-	NotifyTasks bool  `json:"notify_tasks"`
-}
-
-type userCompanyDTO struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	IsPrimary bool   `json:"is_primary"`
-	IsActive  bool   `json:"is_active"`
-}
-
-type userProfileDTO struct {
-	ID               int              `json:"id"`
-	Email            string           `json:"email"`
-	Phone            string           `json:"phone"`
-	Role             userRoleDTO      `json:"role"`
-	IsVerified       bool             `json:"is_verified"`
-	VerifiedAt       *time.Time       `json:"verified_at,omitempty"`
-	Telegram         userTelegramDTO  `json:"telegram"`
-	Companies        []userCompanyDTO `json:"companies"`
-	PrimaryCompanyID *int             `json:"primary_company_id,omitempty"`
-	ActiveCompanyID  *int             `json:"active_company_id,omitempty"`
-	Legacy           *models.User     `json:"legacy,omitempty"`
-}
-
-func (h *UserHandler) buildUserProfileResponse(u *models.User, includeLegacy bool) userProfileDTO {
-	res := userProfileDTO{
-		ID:         u.ID,
-		Email:      u.Email,
-		Phone:      u.Phone,
-		IsVerified: u.IsVerified,
-		VerifiedAt: u.VerifiedAt,
-		Telegram: userTelegramDTO{
-			ChatID:      u.TelegramChatID,
-			NotifyTasks: u.NotifyTasksTelegram,
-		},
-		Companies:       make([]userCompanyDTO, 0),
-		ActiveCompanyID: u.ActiveCompanyID,
-	}
-	if meta, ok := authz.Roles[u.RoleID]; ok {
-		res.Role = userRoleDTO{ID: u.RoleID, Code: meta.Code, Name: meta.LegacyName}
-	} else {
-		res.Role = userRoleDTO{ID: u.RoleID, Code: "unknown", Name: "unknown"}
-	}
-
-	if h.companyService != nil {
-		if companies, err := h.companyService.ListUserCompanies(u.ID); err == nil {
-			for _, c := range companies {
-				name := ""
-				if c.Company != nil {
-					name = c.Company.Name
-				}
-				res.Companies = append(res.Companies, userCompanyDTO{ID: c.CompanyID, Name: name, IsPrimary: c.IsPrimary, IsActive: c.IsActive})
-			}
-		}
-		if primary, err := h.companyService.GetPrimaryCompanyID(u.ID); err == nil {
-			res.PrimaryCompanyID = primary
-		}
-		if active, err := h.companyService.GetUserActiveCompanyID(u.ID); err == nil {
-			res.ActiveCompanyID = active
-		}
-	}
-
-	if includeLegacy {
-		res.Legacy = sanitizeUser(u)
-	}
-
-	return res
 }
 
 func (h *UserHandler) CreateUser(c *gin.Context) {
@@ -191,7 +106,7 @@ func (h *UserHandler) GetMyProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, h.buildUserProfileResponse(user, true))
+	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
 func (h *UserHandler) GetUserByID(c *gin.Context) {
@@ -220,7 +135,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, h.buildUserProfileResponse(user, true))
+	c.JSON(http.StatusOK, sanitizeUser(user))
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -320,12 +235,12 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	out := make([]userProfileDTO, 0, len(users))
+	out := make([]*models.User, 0, len(users))
 	for _, u := range users {
 		if !authz.CanViewLeadershipData(roleID) && u.RoleID == authz.RoleManagement {
 			continue
 		}
-		out = append(out, h.buildUserProfileResponse(u, true))
+		out = append(out, sanitizeUser(u))
 	}
 	c.JSON(http.StatusOK, out)
 }

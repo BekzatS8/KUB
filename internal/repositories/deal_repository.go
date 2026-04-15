@@ -58,8 +58,8 @@ func dealArchiveWhere(scope ArchiveScope, alias string) string {
 // Создание сделки — возвращает ID новой записи
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
-		INSERT INTO deals (lead_id, client_id, owner_id, company_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO deals (lead_id, client_id, owner_id, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 	`
 	var id int64
@@ -68,11 +68,10 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 		deal.LeadID,    // $1
 		deal.ClientID,  // $2
 		deal.OwnerID,   // $3
-		deal.CompanyID, // $4
-		deal.Amount,    // $5
-		deal.Currency,  // $6
-		deal.Status,    // $7
-		deal.CreatedAt, // $8
+		deal.Amount,    // $4
+		deal.Currency,  // $5
+		deal.Status,    // $6
+		deal.CreatedAt, // $7
 	).Scan(&id)
 
 	if err != nil {
@@ -88,7 +87,7 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 
 func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE d.lead_id = $1 AND %s
@@ -110,7 +109,6 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 		&deal.ClientID,
 		&deal.ClientType,
 		&deal.OwnerID,
-		&deal.CompanyID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -149,14 +147,13 @@ func (r *DealRepository) Update(deal *models.Deals) error {
 		WHERE id=$7
 	`
 	_, err := r.db.Exec(query,
-		deal.LeadID,    // $1
-		deal.ClientID,  // $2
-		deal.OwnerID,   // $3
-		deal.CompanyID, // $4
-		deal.Amount,    // $5
-		deal.Currency,  // $6
-		deal.Status,    // $7
-		deal.ID,        // $8
+		deal.LeadID,   // $1
+		deal.ClientID, // $2
+		deal.OwnerID,  // $3
+		deal.Amount,   // $4
+		deal.Currency, // $5
+		deal.Status,   // $6
+		deal.ID,       // $7
 	)
 
 	if err != nil {
@@ -172,7 +169,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 
 func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE d.id=$1 AND %s
@@ -192,7 +189,6 @@ func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 		&deal.ClientID,
 		&deal.ClientType,
 		&deal.OwnerID,
-		&deal.CompanyID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -295,7 +291,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		sortExpr = "d.created_at"
 	}
 
-	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE d.is_archived = FALSE"
+	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE d.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -392,7 +388,7 @@ func (r *DealRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE %s%s
@@ -478,7 +474,7 @@ func (r *DealRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE d.owner_id = $1 AND %s%s
@@ -647,7 +643,7 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		WHERE d.client_id = $1 AND d.is_archived = FALSE
@@ -668,7 +664,6 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		&deal.ClientID,
 		&deal.ClientType,
 		&deal.OwnerID,
-		&deal.CompanyID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -703,7 +698,7 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 // GetLatestByClientRef возвращает последнюю сделку по точной typed ссылке клиента.
 func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.company_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id
 		WHERE d.client_id = $1 AND c.client_type = $2 AND d.is_archived = FALSE
@@ -724,7 +719,6 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 		&deal.ClientID,
 		&deal.ClientType,
 		&deal.OwnerID,
-		&deal.CompanyID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,

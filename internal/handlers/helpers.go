@@ -39,10 +39,6 @@ func getUserAndRole(c *gin.Context) (userID, roleID int) {
 	return
 }
 
-func GetActiveCompanyID(c *gin.Context) (int, bool) {
-	return getIntFromCtx(c, "active_company_id")
-}
-
 func archiveScopeFromQuery(c *gin.Context) (repositories.ArchiveScope, bool) {
 	raw := strings.ToLower(strings.TrimSpace(c.Query("archive")))
 	switch raw {

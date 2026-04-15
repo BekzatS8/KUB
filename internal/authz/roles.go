@@ -1,11 +1,12 @@
 package authz
 
 const (
-	RoleSales       = 10
-	RoleOperations  = 20
-	RoleControl     = 30
-	RoleManagement  = 40
-	RoleSystemAdmin = 50
+	RoleSales           = 10
+	RoleBackofficeStaff = 15
+	RoleOperations      = 20
+	RoleControl         = 30
+	RoleManagement      = 40
+	RoleSystemAdmin     = 50
 
 	// Backward-compatible alias: historically id=50 was treated as admin-staff.
 	RoleAdminStaff = RoleSystemAdmin
@@ -25,6 +26,12 @@ var Roles = map[int]RoleMeta{
 		ID:             RoleSales,
 		Code:           "sales",
 		LegacyName:     "sales",
+		IsBusinessRole: true,
+	},
+	RoleBackofficeStaff: {
+		ID:             RoleBackofficeStaff,
+		Code:           "backoffice_admin_staff",
+		LegacyName:     "staff",
 		IsBusinessRole: true,
 	},
 	RoleOperations: {
@@ -129,9 +136,13 @@ func CanWorkWithLeads(roleID int) bool {
 	}
 }
 
+func CanAccessMessengerOnly(roleID int) bool {
+	return roleID == RoleBackofficeStaff
+}
+
 func CanAccessTasks(roleID int) bool {
 	switch roleID {
-	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleSystemAdmin:
+	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleBackofficeStaff, RoleSystemAdmin:
 		return true
 	default:
 		return false
@@ -142,7 +153,7 @@ func CanUseChat(roleID int) bool {
 	switch roleID {
 	case RoleManagement, RoleSystemAdmin:
 		return true
-	case RoleControl, RoleOperations, RoleSales:
+	case RoleControl, RoleOperations, RoleSales, RoleBackofficeStaff:
 		return true
 	default:
 		return false
