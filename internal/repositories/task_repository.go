@@ -49,13 +49,13 @@ func taskArchiveWhere(scope ArchiveScope) string {
 func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
 	query := `
 		INSERT INTO tasks (
-			creator_id, assignee_id, entity_id, entity_type, title, description,
+			creator_id, assignee_id, branch_id, entity_id, entity_type, title, description,
 			due_date, reminder_at, priority, status, created_at, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING id, created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
-		task.CreatorID, task.AssigneeID, task.EntityID, task.EntityType,
+		task.CreatorID, task.AssigneeID, task.BranchID, task.EntityID, task.EntityType,
 		task.Title, task.Description, task.DueDate, task.ReminderAt, task.Priority, task.Status,
 		task.CreatedAt, task.UpdatedAt,
 	).Scan(&task.ID, &task.CreatedAt, &task.UpdatedAt)
@@ -66,12 +66,13 @@ func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, 
 }
 
 func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64, scope ArchiveScope) (*models.Task, error) {
-	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
+	query := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
        FROM tasks WHERE id = $1 AND ` + taskArchiveWhere(scope)
 	task := &models.Task{}
+	var branchID sql.NullInt64
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&task.ID, &task.CreatorID, &task.AssigneeID, &task.EntityID, &task.EntityType,
+		&task.ID, &task.CreatorID, &task.AssigneeID, &branchID, &task.EntityID, &task.EntityType,
 		&task.Title, &task.Description, &task.DueDate, &task.ReminderAt, &task.LastRemindedAt,
 		&task.Priority, &task.Status, &task.CreatedAt, &task.UpdatedAt, &task.IsArchived, &task.ArchivedAt, &task.ArchivedBy, &task.ArchiveReason,
 	)
@@ -81,11 +82,15 @@ func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64,
 		}
 		return nil, err
 	}
+	if branchID.Valid {
+		v := branchID.Int64
+		task.BranchID = &v
+	}
 	return task, nil
 }
 
 func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
-	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
+	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'') FROM tasks`
 
 	conditions := []string{}
@@ -100,6 +105,11 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	if filter.CreatorID != nil {
 		conditions = append(conditions, fmt.Sprintf("creator_id = $%d", argID))
 		args = append(args, *filter.CreatorID)
+		argID++
+	}
+	if filter.BranchID != nil {
+		conditions = append(conditions, fmt.Sprintf("branch_id = $%d", argID))
+		args = append(args, *filter.BranchID)
 		argID++
 	}
 	if filter.EntityID != nil {
@@ -153,12 +163,17 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	var tasks []models.Task
 	for rows.Next() {
 		var t models.Task
+		var branchID sql.NullInt64
 		if err := rows.Scan(
-			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType,
+			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType,
 			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
 			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
 			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			t.BranchID = &v
 		}
 		tasks = append(tasks, t)
 	}
@@ -198,11 +213,11 @@ func taskSortExpression(sortBy, order string) (string, string) {
 func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {
 	query := `
 		UPDATE tasks SET
-			assignee_id=$1, title=$2, description=$3, due_date=$4,
-			reminder_at=$5, priority=$6, status=$7, updated_at=$8
-		WHERE id=$9`
+			assignee_id=$1, branch_id=$2, title=$3, description=$4, due_date=$5,
+			reminder_at=$6, priority=$7, status=$8, updated_at=$9
+		WHERE id=$10`
 	_, err := r.db.ExecContext(ctx, query,
-		task.AssigneeID, task.Title, task.Description, task.DueDate,
+		task.AssigneeID, task.BranchID, task.Title, task.Description, task.DueDate,
 		task.ReminderAt, task.Priority, task.Status, task.UpdatedAt, task.ID,
 	)
 	return err
@@ -253,7 +268,7 @@ func (r *taskRepository) UpdateAssignee(ctx context.Context, id int64, assigneeI
 
 func (r *taskRepository) ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error) {
 	q := `
-SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), entity_id, entity_type, title, description,
+SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'')
 FROM tasks
 WHERE reminder_at IS NOT NULL
@@ -272,11 +287,16 @@ LIMIT $1`
 	var out []models.Task
 	for rows.Next() {
 		var t models.Task
+		var branchID sql.NullInt64
 		if err := rows.Scan(
-			&t.ID, &t.CreatorID, &t.AssigneeID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
+			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
 			&t.DueDate, &t.ReminderAt, &t.LastRemindedAt, &t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
 		); err != nil {
 			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			t.BranchID = &v
 		}
 		out = append(out, t)
 	}

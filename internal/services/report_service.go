@@ -11,25 +11,39 @@ import (
 type ReportService struct {
 	LeadRepo *repositories.LeadRepository
 	DealRepo *repositories.DealRepository
+	UserRepo repositories.UserRepository
 }
 
-func NewReportService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository) *ReportService {
-	return &ReportService{
-		LeadRepo: leadRepo,
-		DealRepo: dealRepo,
+func NewReportService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, userRepo ...repositories.UserRepository) *ReportService {
+	s := &ReportService{LeadRepo: leadRepo, DealRepo: dealRepo}
+	if len(userRepo) > 0 {
+		s.UserRepo = userRepo[0]
 	}
+	return s
 }
 
-func (s *ReportService) resolveOwnerFilter(userID, roleID int) (ownerID *int, err error) {
+func (s *ReportService) resolveFilters(userID, roleID int, requestedBranchID *int) (ownerID *int, branchID *int, err error) {
 	switch roleID {
 	case authz.RoleSales:
-		return &userID, nil
-	case authz.RoleOperations, authz.RoleManagement, authz.RoleControl:
-		return nil, nil
-	case authz.RoleSystemAdmin:
-		return nil, ErrForbidden
+		if s.UserRepo != nil {
+			u, e := s.UserRepo.GetByID(userID)
+			if e == nil && u != nil {
+				return &userID, u.BranchID, nil
+			}
+		}
+		return &userID, nil, nil
+	case authz.RoleOperations:
+		if s.UserRepo != nil {
+			u, e := s.UserRepo.GetByID(userID)
+			if e == nil && u != nil {
+				return nil, u.BranchID, nil
+			}
+		}
+		return nil, nil, nil
+	case authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin:
+		return nil, requestedBranchID, nil
 	default:
-		return nil, ErrForbidden
+		return nil, nil, ErrForbidden
 	}
 }
 
@@ -37,7 +51,6 @@ type SalesFunnelItem struct {
 	Status string `json:"status"`
 	Count  int64  `json:"count"`
 }
-
 type SalesFunnelReport struct {
 	From  time.Time         `json:"from"`
 	To    time.Time         `json:"to"`
@@ -45,26 +58,19 @@ type SalesFunnelReport struct {
 }
 
 func (s *ReportService) GetSalesFunnel(ctx context.Context, from, to time.Time, userID, roleID int) (*SalesFunnelReport, error) {
-	ownerID, err := s.resolveOwnerFilter(userID, roleID)
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID)
+	rows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID, branchID)
 	if err != nil {
 		return nil, err
 	}
-
 	items := make([]SalesFunnelItem, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, SalesFunnelItem{Status: row.Status, Count: row.Count})
 	}
-
-	return &SalesFunnelReport{
-		From:  from,
-		To:    to,
-		Items: items,
-	}, nil
+	return &SalesFunnelReport{From: from, To: to, Items: items}, nil
 }
 
 type LeadsSummaryItem struct {
@@ -72,7 +78,6 @@ type LeadsSummaryItem struct {
 	Source string `json:"source"`
 	Count  int64  `json:"count"`
 }
-
 type LeadsSummaryReport struct {
 	From  time.Time          `json:"from"`
 	To    time.Time          `json:"to"`
@@ -80,26 +85,19 @@ type LeadsSummaryReport struct {
 }
 
 func (s *ReportService) GetLeadsSummary(ctx context.Context, from, to time.Time, userID, roleID int) (*LeadsSummaryReport, error) {
-	ownerID, err := s.resolveOwnerFilter(userID, roleID)
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := s.LeadRepo.GetLeadsSummaryStats(ctx, from, to, ownerID)
+	rows, err := s.LeadRepo.GetLeadsSummaryStats(ctx, from, to, ownerID, branchID)
 	if err != nil {
 		return nil, err
 	}
-
 	items := make([]LeadsSummaryItem, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, LeadsSummaryItem{Status: row.Status, Source: row.Source, Count: row.Count})
 	}
-
-	return &LeadsSummaryReport{
-		From:  from,
-		To:    to,
-		Items: items,
-	}, nil
+	return &LeadsSummaryReport{From: from, To: to, Items: items}, nil
 }
 
 type RevenueItem struct {
@@ -107,7 +105,6 @@ type RevenueItem struct {
 	TotalAmount float64 `json:"total_amount"`
 	Currency    string  `json:"currency"`
 }
-
 type TopClientItem struct {
 	ClientID    int     `json:"client_id"`
 	ClientType  string  `json:"client_type"`
@@ -115,7 +112,6 @@ type TopClientItem struct {
 	TotalAmount float64 `json:"total_amount"`
 	Currency    string  `json:"currency"`
 }
-
 type RevenueReport struct {
 	From       time.Time       `json:"from"`
 	To         time.Time       `json:"to"`
@@ -125,48 +121,30 @@ type RevenueReport struct {
 }
 
 func (s *ReportService) GetRevenueStats(ctx context.Context, from, to time.Time, userID, roleID int, period string) (*RevenueReport, error) {
-	ownerID, err := s.resolveOwnerFilter(userID, roleID)
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID)
+	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID, branchID)
 	if err != nil {
 		return nil, err
 	}
-
 	items := make([]RevenueItem, 0, len(revenueRows))
 	for _, row := range revenueRows {
 		items = append(items, RevenueItem{Period: row.Period, TotalAmount: row.TotalAmount, Currency: row.Currency})
 	}
-
-	topRows, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, 10)
+	topRows, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, branchID, 10)
 	if err != nil {
 		return nil, err
 	}
-
 	topItems := make([]TopClientItem, 0, len(topRows))
 	for _, row := range topRows {
-		topItems = append(topItems, TopClientItem{
-			ClientID:    row.ClientID,
-			ClientType:  row.ClientType,
-			ClientName:  row.ClientName,
-			TotalAmount: row.TotalAmount,
-			Currency:    row.Currency,
-		})
+		topItems = append(topItems, TopClientItem{ClientID: row.ClientID, ClientType: row.ClientType, ClientName: row.ClientName, TotalAmount: row.TotalAmount, Currency: row.Currency})
 	}
-
 	if period == "" {
 		period = "month"
 	}
-
-	return &RevenueReport{
-		From:       from,
-		To:         to,
-		Period:     period,
-		Items:      items,
-		TopClients: topItems,
-	}, nil
+	return &RevenueReport{From: from, To: to, Period: period, Items: items, TopClients: topItems}, nil
 }
 
 type DashboardKPI struct {
@@ -174,7 +152,6 @@ type DashboardKPI struct {
 	Value        float64 `json:"value"`
 	TrendPercent float64 `json:"trend_percent"`
 }
-
 type DashboardKPIReport struct {
 	From  time.Time      `json:"from"`
 	To    time.Time      `json:"to"`
@@ -182,28 +159,23 @@ type DashboardKPIReport struct {
 }
 
 func (s *ReportService) GetDashboardKPI(ctx context.Context, from, to time.Time, userID, roleID int) (*DashboardKPIReport, error) {
-	ownerID, err := s.resolveOwnerFilter(userID, roleID)
+	ownerID, branchID, err := s.resolveFilters(userID, roleID, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	funnelRows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID)
+	funnelRows, err := s.DealRepo.GetDealsFunnelStats(ctx, from, to, ownerID, branchID)
 	if err != nil {
 		return nil, err
 	}
-
-	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID)
+	revenueRows, err := s.DealRepo.GetDealsRevenueStats(ctx, from, to, ownerID, branchID)
 	if err != nil {
 		return nil, err
 	}
-
-	topClients, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, 0)
+	topClients, err := s.DealRepo.GetTopClientsByRevenue(ctx, from, to, ownerID, branchID, 0)
 	if err != nil {
 		return nil, err
 	}
-
-	var wonCount int64
-	var totalDeals int64
+	var wonCount, totalDeals int64
 	var totalRevenue float64
 	for _, row := range funnelRows {
 		totalDeals += row.Count
@@ -211,26 +183,13 @@ func (s *ReportService) GetDashboardKPI(ctx context.Context, from, to time.Time,
 			wonCount = row.Count
 		}
 	}
-
 	for _, row := range revenueRows {
 		totalRevenue += row.TotalAmount
 	}
-
 	conversionRate := 0.0
 	if totalDeals > 0 {
 		conversionRate = float64(wonCount) / float64(totalDeals) * 100
 	}
-
-	items := []DashboardKPI{
-		{Key: "total_revenue", Value: totalRevenue, TrendPercent: 0},
-		{Key: "new_clients_count", Value: float64(len(topClients)), TrendPercent: 0},
-		{Key: "closed_deals_count", Value: float64(wonCount), TrendPercent: 0},
-		{Key: "conversion_rate", Value: conversionRate, TrendPercent: 0},
-	}
-
-	return &DashboardKPIReport{
-		From:  from,
-		To:    to,
-		Items: items,
-	}, nil
+	items := []DashboardKPI{{Key: "total_revenue", Value: totalRevenue}, {Key: "new_clients_count", Value: float64(len(topClients))}, {Key: "closed_deals_count", Value: float64(wonCount)}, {Key: "conversion_rate", Value: conversionRate}}
+	return &DashboardKPIReport{From: from, To: to, Items: items}, nil
 }

@@ -13,6 +13,20 @@
 4. `POST /auth/login`
 5. Expected: access+refresh tokens, 200.
 
+## 1.1) Branches smoke
+1. Login as `system_admin`.
+2. `GET /branches` — ожидается список из 5 seed-филиалов.
+3. `POST /branches` — создать филиал.
+4. `PUT /branches/:id` — обновить филиал.
+5. `DELETE /branches/:id` — удалить филиал.
+6. Login as `leadership`:
+   - `GET /branches`, `GET /branches/:id` => 200
+   - `POST/PUT/DELETE /branches...` => 403
+7. Login as business role (например `sales`):
+   - `GET /branches` => 200
+   - `GET /branches/:own_branch_id` => 200
+   - `GET /branches/:other_id` => 403
+
 ## 2) Prepare role for smoke
 - Promote first user to leadership (`role_id=40`) for business smoke, or system_admin (`role_id=50`) for system/integrations checks (dev only).
 
@@ -80,6 +94,38 @@
 2. `GET /debug/register-verification/latest?user_id=<id>` and `GET /debug/sign-confirmations/latest?document_id=<id>` with JWT `system_admin`.
 3. Repeat call with JWT role `leadership`.
 4. Expected: `system_admin` gets 200/404 by data availability; non-system-admin gets 403.
+
+## 11) Users profile contract (branch-based)
+1. `GET /users/me`
+2. Проверить shape:
+   - `first_name`, `last_name`, `middle_name`, `full_name`
+   - `role` (id/code/legacy_name)
+   - `branch` (`id,name,code,is_active` или `null`)
+   - `telegram`
+   - `legacy.company_name`, `legacy.bin_iin`
+3. `POST /users` и `PUT /users/:id` (system_admin):
+   - передать `branch_id`, `first_name`, `last_name`, `middle_name`, `position`, `is_active`
+   - убедиться, что поля сохраняются и возвращаются в enriched profile.
+
+## 12) Branch-scoped business data
+1. Создать пользователей в разных филиалах (Branch 1 / Branch 2).
+2. Под `sales` Branch 1:
+   - создать lead/deal/task/document/chat.
+   - убедиться, что в ответах есть `branch_id`.
+3. Под `sales` Branch 2:
+   - попытка читать/обновлять записи Branch 1 => `403/404` по policy endpoint.
+4. Под `operations` Branch 1:
+   - видит данные Branch 1, не видит Branch 2.
+5. Под `control`/`leadership`/`system_admin`:
+   - видят все филиалы;
+   - `?branch_id=<id>` ограничивает выборку нужным филиалом.
+
+## 13) Reports by branch
+1. Сгенерировать данные минимум в двух филиалах.
+2. Проверить:
+   - `sales` -> отчёты только по своему филиалу;
+   - `operations` -> отчёты своего филиала;
+   - `control/leadership/system_admin` -> отчёты по всем филиалам.
 
 ## 9) Migrations from zero
 1. Start clean DB volume.

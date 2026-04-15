@@ -1,0 +1,12 @@
+BEGIN;
+DROP INDEX IF EXISTS chats_branch_id_idx;
+DROP INDEX IF EXISTS documents_branch_id_idx;
+DROP INDEX IF EXISTS tasks_branch_id_idx;
+DROP INDEX IF EXISTS deals_branch_id_idx;
+DROP INDEX IF EXISTS leads_branch_id_idx;
+ALTER TABLE chats DROP COLUMN IF EXISTS branch_id;
+ALTER TABLE documents DROP COLUMN IF EXISTS branch_id;
+ALTER TABLE tasks DROP COLUMN IF EXISTS branch_id;
+ALTER TABLE deals DROP COLUMN IF EXISTS branch_id;
+ALTER TABLE leads DROP COLUMN IF EXISTS branch_id;
+COMMIT;

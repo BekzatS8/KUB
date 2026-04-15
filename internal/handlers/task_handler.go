@@ -176,7 +176,12 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	switch roleID {
 	case authz.RoleSales:
 		filter.AssigneeID = &uid
-	case authz.RoleControl, authz.RoleOperations, authz.RoleManagement, authz.RoleSystemAdmin:
+	case authz.RoleOperations:
+		if me, err := h.users.GetByID(userID); err == nil && me != nil && me.BranchID != nil {
+			b := int64(*me.BranchID)
+			filter.BranchID = &b
+		}
+	case authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin:
 		// full or supervisory visibility — keep requested filter
 	}
 
@@ -218,6 +223,13 @@ func taskFilterFromQuery(c *gin.Context) (models.TaskFilter, error) {
 			return models.TaskFilter{}, errors.New("Invalid entity_id")
 		}
 		filter.EntityID = &id
+	}
+	if raw := strings.TrimSpace(c.Query("branch_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return models.TaskFilter{}, errors.New("Invalid branch_id")
+		}
+		filter.BranchID = &id
 	}
 	if v := strings.TrimSpace(c.Query("entity_type")); v != "" {
 		filter.EntityType = &v

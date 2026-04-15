@@ -61,7 +61,11 @@ func (s *userService) CreateUserWithPassword(user *models.User, plainPassword st
 	}
 
 	if s.emailService != nil {
-		if err := s.emailService.SendWelcomeEmail(user.Email, user.CompanyName); err != nil {
+		welcomeName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+		if welcomeName == "" {
+			welcomeName = user.CompanyName
+		}
+		if err := s.emailService.SendWelcomeEmail(user.Email, welcomeName); err != nil {
 			log.Printf("CreateUserWithPassword: warning: failed to send welcome email to %s: %v", user.Email, err)
 		}
 	}
@@ -90,7 +94,11 @@ func (s *userService) CreateUser(user *models.User) error {
 	}
 
 	if s.emailService != nil {
-		if err := s.emailService.SendWelcomeEmail(user.Email, user.CompanyName); err != nil {
+		welcomeName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+		if welcomeName == "" {
+			welcomeName = user.CompanyName
+		}
+		if err := s.emailService.SendWelcomeEmail(user.Email, welcomeName); err != nil {
 			log.Printf("CreateUser: warning: failed to send welcome email to %s: %v", user.Email, err)
 		}
 	}

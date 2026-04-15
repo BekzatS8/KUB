@@ -85,3 +85,31 @@
 ## Границы после этапа 4
 
 - `users` и `roles` по-прежнему вне archive scope.
+
+## Branch RBAC (single-company CRM)
+
+- Архитектура CRM: **одна компания**, без tenant/company switching.
+- `branches` — филиалы внутри одной компании; `users.branch_id` определяет рабочий филиал сотрудника.
+- `company_name` / `bin_iin` в `users` считаются legacy-данными и не являются основной осью авторизации/профиля.
+
+### Branch endpoints policy
+
+- `GET /branches` — доступен всем известным ролям (для UX-списка филиалов).
+- `GET /branches/:id`:
+  - `system_admin` и `leadership` — любой филиал;
+  - остальные роли — только свой филиал (`users.branch_id`), иначе `403`.
+- `POST /branches`, `PUT /branches/:id`, `DELETE /branches/:id` — только `system_admin`.
+
+## Branch access matrix (business entities)
+
+Вся бизнес-модель — single-company, а data-scope строится по `branch_id` для `leads`, `deals`, `tasks`, `documents`, `chats`.
+
+| Роль | Доступ по филиалам |
+|---|---|
+| `sales` | Только свой филиал + свои записи (owner/self rules сохраняются) |
+| `operations` | Все данные своего филиала |
+| `control` | Read-only по всем филиалам |
+| `leadership` | Полный доступ по всем филиалам |
+| `system_admin` | Полный доступ по всем филиалам |
+
+Дополнительно для elevated (`control`, `leadership`, `system_admin`) поддержан `branch_id` фильтр в list endpoints.

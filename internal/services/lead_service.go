@@ -15,14 +15,19 @@ type LeadService struct {
 	Repo      *repositories.LeadRepository
 	DealRepo  *repositories.DealRepository
 	ClientSvc *ClientService
+	UserRepo  repositories.UserRepository
 }
 
-func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository) *LeadService {
+func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository, userRepo ...repositories.UserRepository) *LeadService {
 	var clientSvc *ClientService
 	if clientRepo != nil {
 		clientSvc = NewClientService(clientRepo)
 	}
-	return &LeadService{Repo: leadRepo, DealRepo: dealRepo, ClientSvc: clientSvc}
+	svc := &LeadService{Repo: leadRepo, DealRepo: dealRepo, ClientSvc: clientSvc}
+	if len(userRepo) > 0 {
+		svc.UserRepo = userRepo[0]
+	}
+	return svc
 }
 
 // Create: возвращаем ID созданного лида
@@ -32,6 +37,11 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 	}
 	if roleID == authz.RoleSales {
 		lead.OwnerID = userID
+	}
+	if s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil {
+			lead.BranchID = u.BranchID
+		}
 	}
 	if lead.OwnerID == 0 {
 		lead.OwnerID = userID
@@ -112,6 +122,11 @@ func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repos
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
+	if roleID == authz.RoleOperations && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
+			filter.BranchID = u.BranchID
+		}
+	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
 }
 
@@ -126,6 +141,11 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return nil, ErrForbidden
+	}
+	if roleID == authz.RoleOperations && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil && lead.BranchID != nil && *u.BranchID != *lead.BranchID {
+			return nil, ErrForbidden
+		}
 	}
 	return lead, nil
 }

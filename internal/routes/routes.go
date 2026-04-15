@@ -12,6 +12,7 @@ import (
 func SetupRoutes(
 	r *gin.Engine,
 	userHandler *handlers.UserHandler,
+	branchHandler *handlers.BranchHandler,
 	clientHandler *handlers.ClientHandler,
 	clientFilesHandler *handlers.ClientFilesHandler,
 	clientProfileHandler *handlers.ClientProfileHandler,
@@ -153,6 +154,15 @@ func SetupRoutes(
 		users.GET("/:id", userHandler.GetUserByID)
 		users.PUT("/:id", userHandler.UpdateUser)
 		users.DELETE("/:id", userHandler.DeleteUser)
+	}
+
+	branches := r.Group("/branches")
+	{
+		branches.GET("", branchHandler.List)
+		branches.GET("/:id", branchHandler.GetByID)
+		branches.POST("", branchHandler.Create)
+		branches.PUT("/:id", branchHandler.Update)
+		branches.DELETE("/:id", branchHandler.Delete)
 	}
 
 	// CLIENTS
