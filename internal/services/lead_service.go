@@ -134,6 +134,35 @@ func (s *LeadService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int
 	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 }
 
+func (s *LeadService) ListForRoleWithTotal(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error) {
+	items, err := s.ListForRole(userID, roleID, limit, offset, scope, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if roleID == authz.RoleOperations && s.UserRepo != nil {
+		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
+			filter.BranchID = u.BranchID
+		}
+	}
+	total, err := s.Repo.CountAllWithFilterAndArchiveScope(filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+func (s *LeadService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error) {
+	items, err := s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := s.Repo.CountByOwnerWithFilterAndArchiveScope(ownerID, filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
 func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error) {
 	lead, err := s.Repo.GetByID(id)
 	if err != nil || lead == nil {

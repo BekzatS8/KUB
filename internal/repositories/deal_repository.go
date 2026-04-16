@@ -608,6 +608,27 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 	return deals, nil
 }
 
+func (r *DealRepository) CountAllWithFilterAndArchiveScope(filter DealListFilter, scope ArchiveScope) (int, error) {
+	extraWhere, args := buildDealListWhere(filter, 1)
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE %s%s`, dealArchiveWhere(scope, "d"), extraWhere)
+	var total int
+	if err := r.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *DealRepository) CountByOwnerWithFilterAndArchiveScope(ownerID int, filter DealListFilter, scope ArchiveScope) (int, error) {
+	extraWhere, args := buildDealListWhere(filter, 2)
+	args = append([]interface{}{ownerID}, args...)
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM deals d LEFT JOIN clients c ON c.id = d.client_id WHERE d.owner_id = $1 AND %s%s`, dealArchiveWhere(scope, "d"), extraWhere)
+	var total int
+	if err := r.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func buildDealListWhere(filter DealListFilter, startAt int) (string, []interface{}) {
 	where := ""
 	args := make([]interface{}, 0, 10)

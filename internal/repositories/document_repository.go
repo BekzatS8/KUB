@@ -47,6 +47,13 @@ const documentBaseSelect = `
 	LEFT JOIN branches br ON br.id = dcm.branch_id
 `
 
+const documentBaseFrom = `
+	FROM documents dcm
+	LEFT JOIN deals d ON d.id = dcm.deal_id
+	LEFT JOIN clients c ON c.id = d.client_id
+	LEFT JOIN branches br ON br.id = dcm.branch_id
+`
+
 func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Document, error) {
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
@@ -218,6 +225,11 @@ func (r *DocumentRepository) ListDocumentsByDealWithFilterAndArchiveScope(dealID
 	return res, rows.Err()
 }
 
+func (r *DocumentRepository) ListDocumentsByDealWithFilterAndArchiveScopePaginated(dealID int64, limit, offset int, filter DocumentListFilter, scope ArchiveScope) ([]*models.Document, error) {
+	filter.DealID = &dealID
+	return r.ListDocumentsWithFilterAndArchiveScope(limit, offset, filter, scope)
+}
+
 func (r *DocumentRepository) UpdateStatus(id int64, status string) error {
 	if status == "signed" {
 		if _, err := r.db.Exec(`UPDATE documents SET status = $1, signed_at = NOW() WHERE id = $2`, status, id); err != nil {
@@ -265,6 +277,16 @@ func (r *DocumentRepository) ListDocumentsWithFilterAndArchiveScope(limit, offse
 		res = append(res, d)
 	}
 	return res, rows.Err()
+}
+
+func (r *DocumentRepository) CountDocumentsWithFilterAndArchiveScope(filter DocumentListFilter, scope ArchiveScope) (int, error) {
+	where, args := buildDocumentListWhere(filter, scope, 1)
+	query := "SELECT COUNT(1) " + documentBaseFrom + fmt.Sprintf(" WHERE %s", where)
+	var total int
+	if err := r.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count documents: %w", err)
+	}
+	return total, nil
 }
 
 func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, startAt int) (string, []any) {

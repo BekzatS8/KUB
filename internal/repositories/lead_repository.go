@@ -375,6 +375,27 @@ func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 	return out, nil
 }
 
+func (r *LeadRepository) CountAllWithFilterAndArchiveScope(filter LeadListFilter, scope ArchiveScope) (int, error) {
+	extraWhere, args := buildLeadListWhere(filter, 1)
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM leads l WHERE %s%s`, leadArchiveWhere(scope), extraWhere)
+	var total int
+	if err := r.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *LeadRepository) CountByOwnerWithFilterAndArchiveScope(ownerID int, filter LeadListFilter, scope ArchiveScope) (int, error) {
+	extraWhere, args := buildLeadListWhere(filter, 2)
+	args = append([]interface{}{ownerID}, args...)
+	query := fmt.Sprintf(`SELECT COUNT(1) FROM leads l WHERE owner_id = $1 AND %s%s`, leadArchiveWhere(scope), extraWhere)
+	var total int
+	if err := r.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface{}) {
 	where := ""
 	args := make([]interface{}, 0, 4)

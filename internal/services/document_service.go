@@ -57,6 +57,8 @@ type DocumentRepo interface {
 type documentFilterRepo interface {
 	ListDocumentsWithFilterAndArchiveScope(limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error)
 	ListDocumentsByDealWithFilterAndArchiveScope(dealID int64, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error)
+	CountDocumentsWithFilterAndArchiveScope(filter repositories.DocumentListFilter, scope repositories.ArchiveScope) (int, error)
+	ListDocumentsByDealWithFilterAndArchiveScopePaginated(dealID int64, limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, error)
 }
 
 type LeadRepo interface {
@@ -691,6 +693,50 @@ func (s *DocumentService) ListDocumentsByDealWithFilter(dealID int64, userID, ro
 		return repo.ListDocumentsByDealWithFilterAndArchiveScope(dealID, filter, scope)
 	}
 	return s.DocRepo.ListDocumentsByDealWithArchiveScope(dealID, scope)
+}
+
+func (s *DocumentService) ListDocumentsWithFilterAndArchiveScopeAndTotal(limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, int, error) {
+	items, err := s.ListDocumentsWithFilterAndArchiveScope(limit, offset, filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	repo, ok := s.DocRepo.(documentFilterRepo)
+	if !ok {
+		return items, len(items), nil
+	}
+	total, err := repo.CountDocumentsWithFilterAndArchiveScope(filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+func (s *DocumentService) ListDocumentsByDealWithFilterAndTotal(dealID int64, userID, roleID, limit, offset int, filter repositories.DocumentListFilter, scope repositories.ArchiveScope) ([]*models.Document, int, error) {
+	deal, err := s.DealRepo.GetByID(int(dealID))
+	if err != nil || deal == nil {
+		return nil, 0, errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, 0, errors.New("forbidden")
+	}
+	repo, ok := s.DocRepo.(documentFilterRepo)
+	if !ok {
+		items, listErr := s.ListDocumentsByDealWithFilter(dealID, userID, roleID, filter, scope)
+		if listErr != nil {
+			return nil, 0, listErr
+		}
+		return items, len(items), nil
+	}
+	items, err := repo.ListDocumentsByDealWithFilterAndArchiveScopePaginated(dealID, limit, offset, filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	filter.DealID = &dealID
+	total, err := repo.CountDocumentsWithFilterAndArchiveScope(filter, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
 func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {

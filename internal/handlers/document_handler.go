@@ -191,6 +191,22 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
+	if isPaginatedMode(c) {
+		page, size := normalizedPageAndSize(c)
+		offset := offsetFromPage(page, size)
+		docs, total, err := h.Service.ListDocumentsByDealWithFilterAndTotal(dealID, userID, roleID, size, offset, filter, scope)
+		if err != nil {
+			if err.Error() == "forbidden" {
+				forbidden(c, "Forbidden")
+				return
+			}
+			internalError(c, "Could not fetch documents")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Document]{Items: docs, Pagination: buildPaginationMeta(page, size, total)})
+		return
+	}
+
 	docs, err := h.Service.ListDocumentsByDealWithFilter(dealID, userID, roleID, filter, scope)
 	if err != nil {
 		if err.Error() == "forbidden" {
@@ -232,15 +248,22 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 
 // GET /documents
 func (h *DocumentHandler) ListDocuments(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 
 	// доступ:
 	// - Sales: общий список запрещаем (смотри по сделке /documents/deal/:dealid)
@@ -261,6 +284,16 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
+	if paginate {
+		docs, total, err := h.Service.ListDocumentsWithFilterAndArchiveScopeAndTotal(size, offset, filter, scope)
+		if err != nil {
+			internalError(c, "Could not fetch documents")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Document]{Items: docs, Pagination: buildPaginationMeta(page, size, total)})
+		return
+	}
+
 	docs, err := h.Service.ListDocumentsWithFilterAndArchiveScope(size, offset, filter, scope)
 	if err != nil {
 		internalError(c, "Could not fetch documents")

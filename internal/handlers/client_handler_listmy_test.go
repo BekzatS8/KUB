@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ type stubClientListMyService struct {
 	clients    []*models.Client
 	err        error
 	lastFilter repositories.ClientListFilter
+	total      int
 }
 
 func (s *stubClientListMyService) Create(*models.Client, int, int) (int64, error) {
@@ -61,6 +63,19 @@ func (s *stubClientListMyService) GetMissingYellow(_ context.Context, _, _, _ in
 }
 func (s *stubClientListMyService) GetProfile(_ context.Context, _, _, _ int) (*services.ClientProfilePayload, error) {
 	return nil, errors.New("not implemented")
+}
+func (s *stubClientListMyService) ListMineWithArchiveScopeAndTotal(_ int, _ int, _ int, filter repositories.ClientListFilter, _ repositories.ArchiveScope) ([]*models.Client, int, error) {
+	s.lastFilter = filter
+	return s.clients, s.total, s.err
+}
+func (s *stubClientListMyService) ListForRoleWithTotal(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, int, error) {
+	return nil, 0, errors.New("not implemented")
+}
+func (s *stubClientListMyService) ListIndividualsForRoleWithTotal(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, int, error) {
+	return nil, 0, errors.New("not implemented")
+}
+func (s *stubClientListMyService) ListCompaniesForRoleWithTotal(int, int, int, int, repositories.ClientListFilter, repositories.ArchiveScope) ([]*models.Client, int, error) {
+	return nil, 0, errors.New("not implemented")
 }
 
 func TestClientHandler_ListMy_SuccessScenarios(t *testing.T) {
@@ -179,5 +194,29 @@ func TestClientHandler_ListMy_ForwardsDealsAndSortFilters(t *testing.T) {
 	}
 	if svc.lastFilter.DealStatusGroup != "active" || svc.lastFilter.SortBy != "client_type" || svc.lastFilter.Order != "desc" {
 		t.Fatalf("unexpected filter: %+v", svc.lastFilter)
+	}
+}
+
+func TestClientHandler_ListMy_PaginatedEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubClientListMyService{clients: []*models.Client{}, total: 45}
+	h := &ClientHandler{Service: svc}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/clients/my?paginate=true&page=0&size=-1", nil)
+	c.Set("user_id", 101)
+	c.Set("role_id", 10)
+
+	h.ListMy(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "\"items\":") || !strings.Contains(body, "\"pagination\":") {
+		t.Fatalf("expected paginated body, got %s", body)
+	}
+	if !strings.Contains(body, "\"size\":15") || !strings.Contains(body, "\"page\":1") {
+		t.Fatalf("expected normalized defaults in pagination, got %s", body)
 	}
 }

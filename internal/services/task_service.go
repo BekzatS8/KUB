@@ -18,6 +18,7 @@ type TaskService interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 	GetByIDWithArchiveScope(ctx context.Context, id int64, scope repositories.ArchiveScope) (*models.Task, error)
 	GetAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error)
+	GetAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, int, error)
 	Update(ctx context.Context, id int64, updateData *models.Task) (*models.Task, error)
 	Delete(ctx context.Context, id int64, userID int64, roleID int) error
 	ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error)
@@ -77,6 +78,18 @@ func (s *taskService) GetByIDWithArchiveScope(ctx context.Context, id int64, sco
 
 func (s *taskService) GetAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
 	return s.repo.FindAll(ctx, filter)
+}
+
+func (s *taskService) GetAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, int, error) {
+	items, err := s.repo.FindAllPaginated(ctx, filter, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := s.repo.CountAll(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
 func (s *taskService) Update(ctx context.Context, id int64, updateData *models.Task) (*models.Task, error) {

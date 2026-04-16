@@ -91,6 +91,16 @@ SELECT
 FROM clients c
 `
 
+const clientSelectFrom = `
+FROM clients c
+LEFT JOIN client_individual_profiles ip ON ip.client_id = c.id
+LEFT JOIN client_legal_profiles lp ON lp.client_id = c.id
+`
+
+const clientSelectFromLegacy = `
+FROM clients c
+`
+
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	c := &models.Client{}
 	var (
@@ -606,6 +616,23 @@ func (r *ClientRepository) listWithFilterAndArchiveScope(ownerID *int, forcedTyp
 		return nil, fmt.Errorf("%s: %w", fallbackLabel, err)
 	}
 	return clients, nil
+}
+
+func (r *ClientRepository) CountWithFilterAndArchiveScope(ownerID *int, forcedType string, filter ClientListFilter, scope ArchiveScope) (int, error) {
+	where, args := buildClientListWhere(ownerID, forcedType, filter, scope, 1)
+	var total int
+	query := "SELECT COUNT(1) " + clientSelectFrom + fmt.Sprintf(" WHERE %s", where)
+	if err := r.db.QueryRow(query, args...).Scan(&total); err == nil {
+		return total, nil
+	} else if !isProfileSplitTableMissing(err) {
+		return 0, fmt.Errorf("count clients primary query: %w", err)
+	}
+
+	legacyQuery := "SELECT COUNT(1) " + clientSelectFromLegacy + fmt.Sprintf(" WHERE %s", where)
+	if err := r.db.QueryRow(legacyQuery, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count clients legacy fallback: %w", err)
+	}
+	return total, nil
 }
 
 func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilter, scope ArchiveScope, startAt int) (string, []any) {
