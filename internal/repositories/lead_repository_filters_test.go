@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,11 @@ func TestBuildLeadListWhere_SearchAcrossTitleDescriptionPhone(t *testing.T) {
 	}
 	if len(args) != 1 || args[0] != "%7701%" {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+	for _, expected := range []string{"l.title::text", "l.description::text", "l.phone::text"} {
+		if !strings.Contains(where, expected) {
+			t.Fatalf("expected explicit text cast %q in where: %s", expected, where)
+		}
 	}
 }
 
@@ -48,6 +54,26 @@ func TestBuildLeadListWhere_StatusGroupQueryAndBranchID(t *testing.T) {
 	}
 	if args[1] != "%ana%" || args[2] != branchID {
 		t.Fatalf("unexpected args ordering: %#v", args)
+	}
+}
+
+func TestBuildLeadListWhere_PlaceholderNumbersAreUniqueAndSequential(t *testing.T) {
+	branchID := 17
+	where, args := buildLeadListWhere(LeadListFilter{StatusGroup: "active", Query: "ana", BranchID: &branchID}, 1)
+	re := regexp.MustCompile(`\$\d+`)
+	matches := re.FindAllString(where, -1)
+	seen := map[string]bool{}
+	for _, m := range matches {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+	}
+	if !seen["$1"] || !seen["$2"] || !seen["$3"] {
+		t.Fatalf("expected placeholders $1,$2,$3 in where: %s", where)
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d", len(args))
 	}
 }
 

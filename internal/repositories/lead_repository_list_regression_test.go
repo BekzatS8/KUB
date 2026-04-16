@@ -50,6 +50,21 @@ func (c *leadListRegressionConn) QueryContext(_ context.Context, query string, a
 	}
 
 	switch c.mode {
+	case "all-q-only":
+		for _, part := range []string{"like $1", "limit $2 offset $3"} {
+			if !strings.Contains(lowered, part) {
+				return nil, fmt.Errorf("missing expected part %q in query: %s", part, query)
+			}
+		}
+		if strings.Contains(lowered, "any(") || strings.Contains(lowered, "branch_id =") {
+			return nil, fmt.Errorf("unexpected extra filter in q-only query: %s", query)
+		}
+		if len(args) != 3 {
+			return nil, fmt.Errorf("expected 3 args for q-only filter, got %d", len(args))
+		}
+		if got, ok := args[0].Value.(string); !ok || got != "%smoke%" {
+			return nil, fmt.Errorf("unexpected q arg: %#v", args[0].Value)
+		}
 	case "all":
 		for _, part := range []string{"any($1)", "like $2", "l.branch_id = $3", "limit $4 offset $5"} {
 			if !strings.Contains(lowered, part) {
@@ -83,11 +98,50 @@ func (c *leadListRegressionConn) QueryContext(_ context.Context, query string, a
 		if got, ok := toInt(args[2].Value); !ok || got != 1 {
 			return nil, fmt.Errorf("unexpected branch arg: %#v", args[2].Value)
 		}
+	case "owner-status-group":
+		for _, part := range []string{"owner_id = $1", "any($2)", "like $3", "l.branch_id = $4", "limit $5 offset $6"} {
+			if !strings.Contains(lowered, part) {
+				return nil, fmt.Errorf("missing expected part %q in query: %s", part, query)
+			}
+		}
+		if len(args) != 6 {
+			return nil, fmt.Errorf("expected 6 args for owner status_group filter, got %d", len(args))
+		}
+		if got, ok := toInt(args[0].Value); !ok || got != 77 {
+			return nil, fmt.Errorf("unexpected owner arg: %#v", args[0].Value)
+		}
+		if got, ok := args[2].Value.(string); !ok || got != "%smoke%" {
+			return nil, fmt.Errorf("unexpected q arg: %#v", args[2].Value)
+		}
+		if got, ok := toInt(args[3].Value); !ok || got != 1 {
+			return nil, fmt.Errorf("unexpected branch arg: %#v", args[3].Value)
+		}
 	default:
 		return nil, fmt.Errorf("unexpected regression mode: %s", c.mode)
 	}
 
 	return &leadListRegressionRows{}, nil
+}
+
+func TestListAllWithFilter_QueryOnly_UsesValidPlaceholders(t *testing.T) {
+	driverName := fmt.Sprintf("lead-list-regression-q-only-%d", time.Now().UnixNano())
+	sql.Register(driverName, &leadListRegressionDriver{})
+	db, err := sql.Open(driverName, "all-q-only")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewLeadRepository(db)
+	filter := LeadListFilter{Query: "smoke"}
+
+	leads, err := repo.ListAllWithFilterAndArchiveScope(5, 0, filter, ArchiveScopeActiveOnly)
+	if err != nil {
+		t.Fatalf("ListAllWithFilterAndArchiveScope returned error: %v", err)
+	}
+	if len(leads) != 1 {
+		t.Fatalf("expected one row, got %d", len(leads))
+	}
 }
 
 func toInt(v any) (int, bool) {
@@ -160,6 +214,32 @@ func TestListByOwnerWithFilter_QueryBranch_UsesValidPlaceholders(t *testing.T) {
 	filter := LeadListFilter{
 		Query:    "smoke",
 		BranchID: &branchID,
+	}
+
+	leads, err := repo.ListByOwnerWithFilterAndArchiveScope(77, 5, 0, filter, ArchiveScopeActiveOnly)
+	if err != nil {
+		t.Fatalf("ListByOwnerWithFilterAndArchiveScope returned error: %v", err)
+	}
+	if len(leads) != 1 {
+		t.Fatalf("expected one row, got %d", len(leads))
+	}
+}
+
+func TestListByOwnerWithFilter_StatusGroupQueryBranch_UsesValidPlaceholders(t *testing.T) {
+	driverName := fmt.Sprintf("lead-list-regression-owner-status-group-%d", time.Now().UnixNano())
+	sql.Register(driverName, &leadListRegressionDriver{})
+	db, err := sql.Open(driverName, "owner-status-group")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	branchID := 1
+	repo := NewLeadRepository(db)
+	filter := LeadListFilter{
+		StatusGroup: "active",
+		Query:       "smoke",
+		BranchID:    &branchID,
 	}
 
 	leads, err := repo.ListByOwnerWithFilterAndArchiveScope(77, 5, 0, filter, ArchiveScopeActiveOnly)

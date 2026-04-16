@@ -393,11 +393,11 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		}
 	}
 	if filter.Query != "" {
-		likePattern := "%" + strings.ToLower(filter.Query) + "%"
+		likePattern := "%" + strings.ToLower(strings.TrimSpace(filter.Query)) + "%"
 		where += fmt.Sprintf(` AND (
-			LOWER(COALESCE(title, '')) LIKE $%d OR
-			LOWER(COALESCE(description, '')) LIKE $%d OR
-			LOWER(COALESCE(phone, '')) LIKE $%d
+			LOWER(COALESCE(l.title::text, '')) LIKE $%d OR
+			LOWER(COALESCE(l.description::text, '')) LIKE $%d OR
+			LOWER(COALESCE(l.phone::text, '')) LIKE $%d
 		)`, idx, idx, idx)
 		args = append(args, likePattern)
 		idx++

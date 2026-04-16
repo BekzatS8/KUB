@@ -558,6 +558,7 @@ func (h *LeadHandler) List(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
+		log.Printf("lead list failed: user_id=%d role_id=%d scope=%s filter=%+v err=%v", userID, roleID, scope, filter, err)
 		internalError(c, "Failed to list leads")
 		return
 	}
@@ -595,6 +596,7 @@ func (h *LeadHandler) ListMy(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
+		log.Printf("lead list my failed: user_id=%d scope=%s filter=%+v err=%v", userID, scope, filter, err)
 		internalError(c, "Failed to list leads")
 		return
 	}
