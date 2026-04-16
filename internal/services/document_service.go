@@ -725,11 +725,17 @@ func (s *DocumentService) ListDocumentsByDealWithFilterAndTotal(dealID int64, us
 		if listErr != nil {
 			return nil, 0, listErr
 		}
+		if items == nil {
+			items = make([]*models.Document, 0)
+		}
 		return items, len(items), nil
 	}
 	items, err := repo.ListDocumentsByDealWithFilterAndArchiveScopePaginated(dealID, limit, offset, filter, scope)
 	if err != nil {
 		return nil, 0, err
+	}
+	if items == nil {
+		items = make([]*models.Document, 0)
 	}
 	filter.DealID = &dealID
 	total, err := repo.CountDocumentsWithFilterAndArchiveScope(filter, scope)
