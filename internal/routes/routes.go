@@ -72,12 +72,17 @@ func SetupRoutes(
 	if signConfirmHandler != nil {
 		if publicSigningUIHandler != nil {
 			r.GET("/sign/email/verify", publicSigningUIHandler.ServeEmailVerifyPage)
+			r.GET("/sign/sms/verify", publicSigningUIHandler.ServeSMSVerifyPage)
 		} else {
 			r.GET("/sign/email/verify", signConfirmHandler.VerifyEmailToken)
+			r.GET("/sign/sms/verify", signConfirmHandler.VerifySMSToken)
 		}
 		r.GET("/api/v1/sign/email/verify", signConfirmHandler.VerifyEmailToken)
 		r.GET("/api/v1/sign/email/preview", signConfirmHandler.PreviewByEmailToken)
+		r.GET("/api/v1/sign/sms/verify", signConfirmHandler.VerifySMSToken)
+		r.GET("/api/v1/sign/sms/preview", signConfirmHandler.PreviewBySMSToken)
 		r.POST("/documents/:id/sign/confirm/email", signConfirmHandler.ConfirmByEmailCode)
+		r.POST("/documents/:id/sign/confirm/sms", signConfirmHandler.ConfirmBySMSCode)
 	}
 	if telegramSignHandler != nil {
 		r.POST("/telegram/webhook", telegramSignHandler.Handle)
@@ -255,6 +260,7 @@ func SetupRoutes(
 		docs.POST("/:id/sign", documentHandler.Sign)
 		if signConfirmHandler != nil {
 			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
+			docs.POST("/:id/sign/start/sms", signConfirmHandler.StartSigningSMS)
 			docs.GET("/:id/sign/status", signConfirmHandler.Status)
 			if docPublicLinkHandler != nil {
 				docs.POST("/:id/generate-sign-link", docPublicLinkHandler.GenerateSignLink)

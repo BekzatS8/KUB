@@ -205,6 +205,15 @@ func Run() {
 	}
 
 	signDelivery := services.NewDisabledSignDelivery()
+	smsSender := services.NewMobizonSMSClient(services.MobizonSMSConfig{
+		Enabled: cfg.Mobizon.Enabled,
+		APIKey:  cfg.Mobizon.APIKey,
+		BaseURL: cfg.Mobizon.BaseURL,
+		From:    cfg.Mobizon.From,
+		Timeout: time.Duration(cfg.Mobizon.TimeoutSeconds) * time.Second,
+		Retries: cfg.Mobizon.Retries,
+		DryRun:  cfg.Mobizon.DryRun,
+	})
 	signSessionService := services.NewSignSessionService(
 		signSessionRepo,
 		documentService,
@@ -226,13 +235,16 @@ func Run() {
 		services.DocumentSigningConfirmationConfig{
 			ConfirmPolicy:      cfg.SignConfirmPolicy,
 			EmailVerifyBaseURL: cfg.SignEmailVerifyBaseURL,
+			SMSVerifyBaseURL:   cfg.SignSMSVerifyBaseURL,
 			EmailTokenPepper:   cfg.SignEmailTokenPepper,
 			EmailTTL:           time.Duration(cfg.SignEmailTTLMinutes) * time.Minute,
+			SMSTTL:             time.Duration(cfg.SignSMSTTLMinutes) * time.Minute,
 			FilesRoot:          cfg.Files.RootDir,
 			ServerTZ:           serverTZ,
 		},
 		nowProvider,
 	)
+	signConfirmService.SetSMSSender(smsSender)
 	if gin.Mode() != gin.ReleaseMode {
 		signConfirmService.EnableDebug(os.Getenv("DEBUG_KEY"))
 	}

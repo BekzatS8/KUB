@@ -180,8 +180,18 @@ files:
 sign_base_url: "https://YOUR-DOMAIN.TLD/sign"
 sign_confirm_policy: "ANY"         # ANY или BOTH (Email + Telegram)
 sign_email_verify_base_url: "https://YOUR-DOMAIN.TLD"
+sign_sms_verify_base_url: "https://YOUR-DOMAIN.TLD"
 sign_email_ttl_minutes: 30
+sign_sms_ttl_minutes: 30
 sign_session_ttl_minutes: 30   # если не задано/<=0 -> берётся sign_email_ttl_minutes
+mobizon:
+  enabled: false
+  api_key: ""
+  base_url: "https://api.mobizon.kz"
+  from: ""
+  timeout_seconds: 10
+  retries: 1
+  dry_run: true
 
 security:
   jwt_secret: "CHANGE_ME"
@@ -206,6 +216,14 @@ SIGN_CONFIRM_POLICY="ANY"
 
 # базовый URL для email-подтверждения подписи
 SIGN_EMAIL_VERIFY_BASE_URL="https://example.com"
+SIGN_SMS_VERIFY_BASE_URL="https://example.com"
+MOBIZON_ENABLED="false"
+MOBIZON_API_KEY=""
+MOBIZON_BASE_URL="https://api.mobizon.kz"
+MOBIZON_FROM=""
+MOBIZON_TIMEOUT_SECONDS="10"
+MOBIZON_RETRIES="1"
+MOBIZON_DRY_RUN="true"
 ```
 
 Путь к конфигу можно переопределить переменной окружения `CONFIG_PATH` (по умолчанию `config/config.yaml`).

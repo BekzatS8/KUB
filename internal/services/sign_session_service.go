@@ -212,16 +212,22 @@ func (s *SignSessionService) Create(ctx context.Context, documentID int64, phone
 }
 
 func (s *SignSessionService) CreateEmailSession(ctx context.Context, documentID int64, signerEmail, docHash string) (string, *models.SignSession, error) {
+	return s.CreateConfirmedSession(ctx, documentID, signerEmail, docHash)
+}
+
+func (s *SignSessionService) CreateConfirmedSession(ctx context.Context, documentID int64, signerIdentity, docHash string) (string, *models.SignSession, error) {
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
-	signerEmail = strings.TrimSpace(signerEmail)
-	if signerEmail == "" {
+	signerIdentity = strings.TrimSpace(signerIdentity)
+	if signerIdentity == "" {
 		return "", nil, ErrSignSessionInvalidEmail
 	}
-	if signed, err := s.repo.FindSignedByDocumentEmail(ctx, documentID, signerEmail); err != nil {
-		return "", nil, err
-	} else if signed != nil {
-		return "", nil, ErrSignSessionAlreadySigned
+	if strings.Contains(signerIdentity, "@") {
+		if signed, err := s.repo.FindSignedByDocumentEmail(ctx, documentID, signerIdentity); err != nil {
+			return "", nil, err
+		} else if signed != nil {
+			return "", nil, ErrSignSessionAlreadySigned
+		}
 	}
 	token, tokenHash, err := generateToken()
 	if err != nil {
@@ -229,7 +235,7 @@ func (s *SignSessionService) CreateEmailSession(ctx context.Context, documentID 
 	}
 	session := &models.SignSession{
 		DocumentID:  documentID,
-		SignerEmail: signerEmail,
+		SignerEmail: signerIdentity,
 		DocHash:     strings.TrimSpace(docHash),
 		TokenHash:   tokenHash,
 		ExpiresAt:   s.now().Add(s.sessionTTL),

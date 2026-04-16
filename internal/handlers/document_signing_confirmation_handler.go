@@ -113,6 +113,45 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 	})
 }
 
+func (h *DocumentSigningConfirmationHandler) StartSigningSMS(c *gin.Context) {
+	if h.Service == nil || h.DocumentSvc == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	documentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var body struct {
+		Phone          string `json:"phone"`
+		SignerFullName string `json:"signer_full_name"`
+		SignerPosition string `json:"signer_position"`
+		SignerEmail    string `json:"signer_email"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "Invalid request body")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	signer, err := h.DocumentSvc.ResolveSigner(documentID, userID, roleID, services.SignerOverrides{
+		Email:    body.SignerEmail,
+		FullName: body.SignerFullName,
+		Position: body.SignerPosition,
+		Phone:    body.Phone,
+	})
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	result, err := h.Service.StartSigningBySMS(c.Request.Context(), documentID, int64(userID), signer.Phone, signer.Email)
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "pending", "expires_at": result.Channels[0].ExpiresAt})
+}
+
 type emailConfirmRequest struct {
 	Token                  string `json:"token" binding:"required"`
 	Code                   string `json:"code" binding:"required"`
@@ -357,6 +396,92 @@ func (h *DocumentSigningConfirmationHandler) PreviewByEmailToken(c *gin.Context)
 	c.File(preview.AbsPath)
 }
 
+func (h *DocumentSigningConfirmationHandler) PreviewBySMSToken(c *gin.Context) {
+	if h.Service == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		badRequest(c, "Token required")
+		return
+	}
+	preview, err := h.Service.PrepareSMSDocumentPreview(c.Request.Context(), token)
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	_ = h.Service.RecordSMSPreviewOpened(c.Request.Context(), preview, c.ClientIP(), c.GetHeader("User-Agent"))
+	c.Header("Content-Type", preview.ContentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, preview.FileName))
+	c.File(preview.AbsPath)
+}
+
+func (h *DocumentSigningConfirmationHandler) VerifySMSToken(c *gin.Context) {
+	if h.Service == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		badRequest(c, "Token required")
+		return
+	}
+	payload, err := h.Service.ValidateSMSToken(c.Request.Context(), token, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	payload.Document.PreviewURL = fmt.Sprintf("/api/v1/sign/sms/preview?token=%s", url.QueryEscape(token))
+	c.JSON(http.StatusOK, payload)
+}
+
+func (h *DocumentSigningConfirmationHandler) ConfirmBySMSCode(c *gin.Context) {
+	if h.Service == nil || h.SignSessionService == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	var body emailConfirmRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		badRequest(c, "Invalid request body")
+		return
+	}
+	documentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	status, signerIdentity, docHash, confirmation, err := h.Service.ConfirmBySMSToken(
+		c.Request.Context(), documentID, body.Token, body.Code, body.DocumentHashFromClient, body.AgreementTextVersion, c.ClientIP(), c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	if confirmation != nil {
+		_ = h.Service.UpdateConfirmationMeta(c.Request.Context(), confirmation.ID, map[string]any{
+			"agree_terms":            body.AgreeTerms,
+			"confirm_document_read":  body.ConfirmDocumentRead,
+			"agreement_text_version": strings.TrimSpace(body.AgreementTextVersion),
+			"agreed_at":              time.Now().UTC().Format(time.RFC3339Nano),
+			"agreed_ip":              c.ClientIP(),
+			"agreed_user_agent":      c.GetHeader("User-Agent"),
+		})
+	}
+	sessionToken, session, err := h.SignSessionService.CreateConfirmedSession(c.Request.Context(), documentID, signerIdentity, docHash)
+	if err != nil {
+		handleSignSessionCreateError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":        status,
+		"session_id":    session.ID,
+		"session_token": sessionToken,
+		"sign_url":      buildSignSessionURL(c, session.ID, sessionToken),
+		"expires_at":    session.ExpiresAt,
+	})
+}
+
 func shouldRedirectSignVerifyToFrontend(c *gin.Context) bool {
 	if c == nil || c.Request == nil || strings.HasPrefix(c.FullPath(), "/api/") {
 		return false
@@ -444,6 +569,13 @@ func (h *DocumentSigningConfirmationHandler) Status(c *gin.Context) {
 			}
 			if val := strings.TrimSpace(doc.SignUserAgent); val != "" {
 				audit["signed_user_agent"] = val
+			}
+			return audit
+		}(),
+		"sms_confirmation_audit": func() any {
+			audit, auditErr := h.Service.GetSMSConfirmationAudit(c.Request.Context(), documentID, int64(userID))
+			if auditErr != nil || audit == nil {
+				return nil
 			}
 			return audit
 		}(),

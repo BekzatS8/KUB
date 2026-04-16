@@ -111,12 +111,24 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 	if previewW.Code == http.StatusUnauthorized {
 		t.Fatalf("preview api should be public, got 401: body=%s", previewW.Body.String())
 	}
+	smsReq := httptest.NewRequest(http.MethodGet, "/api/v1/sign/sms/verify?token=bad-token&format=json", nil)
+	smsW := httptest.NewRecorder()
+	r.ServeHTTP(smsW, smsReq)
+	if smsW.Code == http.StatusUnauthorized {
+		t.Fatalf("sms verify api should be public, got 401: body=%s", smsW.Body.String())
+	}
 
 	pageReq := httptest.NewRequest(http.MethodGet, "/sign/email/verify?token=abc123", nil)
 	pageW := httptest.NewRecorder()
 	r.ServeHTTP(pageW, pageReq)
 	if pageW.Code != http.StatusOK {
 		t.Fatalf("unexpected status for signing page: got=%d want=%d", pageW.Code, http.StatusOK)
+	}
+	smsPageReq := httptest.NewRequest(http.MethodGet, "/sign/sms/verify?token=abc123", nil)
+	smsPageW := httptest.NewRecorder()
+	r.ServeHTTP(smsPageW, smsPageReq)
+	if smsPageW.Code != http.StatusOK {
+		t.Fatalf("unexpected status for sms signing page: got=%d want=%d", smsPageW.Code, http.StatusOK)
 	}
 
 	favReq := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)

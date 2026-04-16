@@ -102,8 +102,10 @@ type DocumentLookup interface {
 type DocumentSigningConfirmationConfig struct {
 	ConfirmPolicy      string
 	EmailVerifyBaseURL string
+	SMSVerifyBaseURL   string
 	EmailTokenPepper   string
 	EmailTTL           time.Duration
+	SMSTTL             time.Duration
 	FilesRoot          string
 	ServerTZ           *time.Location
 }
@@ -128,11 +130,14 @@ type DocumentSigningConfirmationService struct {
 	docRepo       DocumentLookup
 	docSigner     DocumentSigner
 	email         SigningEmailSender
+	sms           SMSSender
 	telegram      SigningTelegramSender
 	policy        string
 	verifyBaseURL string
+	smsVerifyBase string
 	tokenPepper   string
 	emailTTL      time.Duration
+	smsTTL        time.Duration
 	filesRoot     string
 	serverTZ      *time.Location
 	now           func() time.Time
@@ -167,6 +172,10 @@ func NewDocumentSigningConfirmationService(
 	if emailTTL == 0 {
 		emailTTL = 30 * time.Minute
 	}
+	smsTTL := cfg.SMSTTL
+	if smsTTL == 0 {
+		smsTTL = emailTTL
+	}
 	serverTZ := cfg.ServerTZ
 	if serverTZ == nil {
 		serverTZ = time.UTC
@@ -180,12 +189,21 @@ func NewDocumentSigningConfirmationService(
 		telegram:      telegram,
 		policy:        policy,
 		verifyBaseURL: strings.TrimSpace(cfg.EmailVerifyBaseURL),
+		smsVerifyBase: strings.TrimSpace(cfg.SMSVerifyBaseURL),
 		tokenPepper:   strings.TrimSpace(cfg.EmailTokenPepper),
 		emailTTL:      emailTTL,
+		smsTTL:        smsTTL,
 		filesRoot:     strings.TrimSpace(cfg.FilesRoot),
 		serverTZ:      serverTZ,
 		now:           now,
 	}
+}
+
+func (s *DocumentSigningConfirmationService) SetSMSSender(sender SMSSender) {
+	if s == nil {
+		return
+	}
+	s.sms = sender
 }
 
 type DebugSigningInfo struct {
@@ -378,6 +396,84 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 	}, nil
 }
 
+func (s *DocumentSigningConfirmationService) StartSigningBySMS(ctx context.Context, documentID, userID int64, signerPhone, signerEmail string) (*SigningStartResult, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	if s.repo == nil {
+		return nil, errors.New("signature confirmation repo is nil")
+	}
+	if s.userRepo == nil {
+		return nil, errors.New("user repo is nil")
+	}
+	if s.docRepo == nil {
+		return nil, errors.New("document repo is nil")
+	}
+	if s.sms == nil {
+		return nil, errors.New("sms sender is nil")
+	}
+	signerPhone = strings.TrimSpace(signerPhone)
+	if signerPhone == "" {
+		return nil, errors.New("signer phone is required")
+	}
+	user, err := s.userRepo.GetByID(int(userID))
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if user == nil {
+		return nil, errors.New("user not found")
+	}
+	doc, err := s.docRepo.GetByID(documentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return nil, errors.New("document not found")
+	}
+	if _, err := s.repo.CancelPrevious(ctx, documentID, userID, "sms"); err != nil {
+		return nil, err
+	}
+	now := s.now()
+	expiresAt := now.Add(s.smsTTL)
+	smsToken, smsTokenHash, err := generateConfirmToken(s.tokenPepper)
+	if err != nil {
+		return nil, err
+	}
+	otp := GenerateVerificationCode()
+	otpHash, err := HashVerificationCode(otp)
+	if err != nil {
+		return nil, err
+	}
+	meta := map[string]any{
+		"sent_at":       now.UTC().Format(time.RFC3339Nano),
+		"signer_phone":  signerPhone,
+		"provider":      "mobizon",
+		"signer_email":  strings.TrimSpace(signerEmail),
+		"delivery_type": "sms",
+	}
+	metaBytes, _ := json.Marshal(meta)
+	confirmation, err := s.repo.CreatePending(ctx, documentID, userID, "sms", &otpHash, &smsTokenHash, expiresAt, metaBytes)
+	if err != nil {
+		return nil, err
+	}
+	verifyURL, err := s.buildSMSVerifyURL(smsToken)
+	if err != nil {
+		return nil, err
+	}
+	message := BuildSigningSMS(doc.DocType, otp, verifyURL, expiresAt)
+	sendResult, err := s.sms.Send(ctx, SMSMessage{To: signerPhone, Text: message})
+	if err != nil {
+		return nil, fmt.Errorf("send signing sms: %w", err)
+	}
+	if confirmation != nil && sendResult != nil {
+		_ = s.UpdateConfirmationMeta(ctx, confirmation.ID, map[string]any{
+			"provider":            sendResult.Provider,
+			"provider_message_id": strings.TrimSpace(sendResult.ProviderMessageID),
+		})
+	}
+	channels := []SigningChannelStatus{{Channel: "sms", Status: "pending", ExpiresAt: expiresAt}}
+	return &SigningStartResult{DocumentID: documentID, UserID: userID, Policy: s.policy, Channels: channels}, nil
+}
+
 func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	ctx context.Context,
 	documentID int64,
@@ -509,6 +605,108 @@ func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	return "approved", signerEmail, documentHash, approved, nil
 }
 
+func (s *DocumentSigningConfirmationService) confirmByTokenAndChannel(
+	ctx context.Context,
+	channel string,
+	documentID int64,
+	token, code, documentHashFromClient, agreementTextVersion, ip, userAgent string,
+) (string, string, string, *models.SignatureConfirmation, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return "", "", "", nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	pending, err := s.repo.FindByTokenHash(ctx, channel, tokenHash)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("find confirmation by token hash: %w", err)
+	}
+	if pending == nil {
+		return "", "", "", nil, ErrSignConfirmNotFound
+	}
+	if pending.TokenHash == nil || subtle.ConstantTimeCompare([]byte(*pending.TokenHash), []byte(tokenHash)) != 1 {
+		return "", "", "", nil, ErrSignConfirmInvalidToken
+	}
+	if pending.DocumentID != documentID {
+		return "", "", "", nil, ErrSignConfirmInvalidToken
+	}
+	code = normalizeEmailOTP(code)
+	if code == "" {
+		return "", "", "", nil, ErrSignConfirmInvalidCode
+	}
+	if pending.Status != "pending" {
+		if pending.Status == "approved" {
+			return "", "", "", pending, ErrSignConfirmAlreadyUsed
+		}
+		return "", "", "", pending, ErrSignConfirmExpired
+	}
+	if s.now().After(pending.ExpiresAt) {
+		_ = s.repo.Expire(ctx, pending.ID)
+		return "", "", "", pending, ErrSignConfirmExpired
+	}
+	if pending.Attempts >= signConfirmMaxAttempts {
+		_ = s.repo.Expire(ctx, pending.ID)
+		return "", "", "", pending, ErrSignConfirmTooManyTries
+	}
+	if pending.OTPHash == nil || *pending.OTPHash == "" {
+		return "", "", "", nil, ErrSignConfirmInvalidCode
+	}
+	if err := CompareVerificationCode(*pending.OTPHash, code); err != nil {
+		attempts, incErr := s.repo.IncrementAttempts(ctx, pending.ID)
+		if incErr != nil {
+			return "", "", "", pending, fmt.Errorf("increment confirmation attempts: %w", incErr)
+		}
+		if attempts >= signConfirmMaxAttempts {
+			_ = s.repo.Expire(ctx, pending.ID)
+			return "", "", "", pending, ErrSignConfirmTooManyTries
+		}
+		return "", "", "", nil, ErrSignConfirmInvalidCode
+	}
+	documentHash, err := s.hashDocumentContent(pending.DocumentID)
+	if err != nil {
+		return "", "", "", pending, fmt.Errorf("hash document content: %w", err)
+	}
+	clientHash := normalizeDocumentHash(documentHashFromClient)
+	currentHash := normalizeDocumentHash("sha256:" + documentHash)
+	if clientHash == "" {
+		return "", "", "", pending, ErrSignConfirmHashRequired
+	}
+	agreement := CurrentEmailSigningAgreement()
+	clientAgreementVersion := strings.TrimSpace(strings.ToLower(agreementTextVersion))
+	expectedAgreementVersion := strings.TrimSpace(strings.ToLower(agreement.Version))
+	if clientAgreementVersion == "" {
+		return "", "", "", pending, ErrSignConfirmAgreementVersionRequired
+	}
+	if clientAgreementVersion != expectedAgreementVersion {
+		return "", "", "", pending, ErrSignConfirmAgreementVersionMismatch
+	}
+	if clientHash != currentHash {
+		return "", "", "", pending, ErrSignConfirmDocMismatch
+	}
+	signerIdentity := extractSignerEmail(pending.Meta)
+	if signerIdentity == "" {
+		signerIdentity = extractSignerPhone(pending.Meta)
+	}
+	metaUpdate := map[string]any{
+		"ip":                         ip,
+		"user_agent":                 userAgent,
+		"method":                     channel + "_otp",
+		"document_hash":              currentHash,
+		"document_hash_from_client":  clientHash,
+		"document_hash_current":      currentHash,
+		"agreement_text_version":     agreement.Version,
+		"agreement_version_verified": true,
+		"document_hash_verified":     true,
+	}
+	metaBytes, _ := json.Marshal(metaUpdate)
+	approved, err := s.repo.Approve(ctx, pending.ID, metaBytes)
+	if err != nil {
+		return "", "", "", pending, fmt.Errorf("approve confirmation: %w", err)
+	}
+	return "approved", signerIdentity, documentHash, approved, nil
+}
+
 func normalizeDocumentHash(raw string) string {
 	hash := strings.TrimSpace(strings.ToLower(raw))
 	if hash == "" {
@@ -638,6 +836,17 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	return response, nil
 }
 
+func (s *DocumentSigningConfirmationService) ValidateSMSToken(
+	ctx context.Context,
+	token, ip, userAgent string,
+) (*EmailTokenVerification, error) {
+	response, err := s.validateTokenByChannel(ctx, "sms", token, ip, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
 type EmailDocumentPreview struct {
 	DocumentID       int64
 	ConfirmationID   string
@@ -711,6 +920,13 @@ func (s *DocumentSigningConfirmationService) PrepareEmailDocumentPreview(
 	}, nil
 }
 
+func (s *DocumentSigningConfirmationService) PrepareSMSDocumentPreview(
+	ctx context.Context,
+	token string,
+) (*EmailDocumentPreview, error) {
+	return s.prepareDocumentPreviewByChannel(ctx, "sms", token)
+}
+
 func (s *DocumentSigningConfirmationService) RecordEmailPreviewOpened(
 	ctx context.Context,
 	preview *EmailDocumentPreview,
@@ -748,6 +964,22 @@ func (s *DocumentSigningConfirmationService) RecordEmailPreviewOpened(
 		return fmt.Errorf("update preview meta: %w", err)
 	}
 	return nil
+}
+
+func (s *DocumentSigningConfirmationService) RecordSMSPreviewOpened(
+	ctx context.Context,
+	preview *EmailDocumentPreview,
+	ip, userAgent string,
+) error {
+	return s.RecordEmailPreviewOpened(ctx, preview, ip, userAgent)
+}
+
+func (s *DocumentSigningConfirmationService) ConfirmBySMSToken(
+	ctx context.Context,
+	documentID int64,
+	token, code, documentHashFromClient, agreementTextVersion, ip, userAgent string,
+) (string, string, string, *models.SignatureConfirmation, error) {
+	return s.confirmByTokenAndChannel(ctx, "sms", documentID, token, code, documentHashFromClient, agreementTextVersion, ip, userAgent)
 }
 
 func (s *DocumentSigningConfirmationService) GetEmailConfirmationAudit(ctx context.Context, documentID, userID int64) (map[string]any, error) {
@@ -815,6 +1047,24 @@ func (s *DocumentSigningConfirmationService) LookupEmailConfirmationByToken(
 	return confirmation, nil
 }
 
+func (s *DocumentSigningConfirmationService) LookupSMSConfirmationByToken(
+	ctx context.Context,
+	token string,
+) (*models.SignatureConfirmation, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, nil
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	confirmation, err := s.repo.FindByTokenHash(ctx, "sms", tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("lookup sms confirmation by token hash: %w", err)
+	}
+	return confirmation, nil
+}
+
 func (s *DocumentSigningConfirmationService) ConfirmByTelegramCallback(
 	ctx context.Context,
 	token string,
@@ -874,7 +1124,7 @@ func (s *DocumentSigningConfirmationService) GetStatus(ctx context.Context, docu
 		return nil, errors.New("signature confirmation repo is nil")
 	}
 	now := s.now()
-	channels := []string{"email"}
+	channels := []string{"email", "sms"}
 	result := make([]SigningChannelStatus, 0, len(channels))
 	for _, channel := range channels {
 		latest, err := s.repo.GetLatestByChannel(ctx, documentID, userID, channel)
@@ -910,6 +1160,39 @@ func (s *DocumentSigningConfirmationService) GetStatus(ctx context.Context, docu
 		})
 	}
 	return result, nil
+}
+
+func (s *DocumentSigningConfirmationService) GetSMSConfirmationAudit(ctx context.Context, documentID, userID int64) (map[string]any, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	confirmation, err := s.repo.GetLatestByChannel(ctx, documentID, userID, "sms")
+	if err != nil || confirmation == nil || len(confirmation.Meta) == 0 {
+		return nil, err
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(confirmation.Meta, &meta); err != nil {
+		return nil, nil
+	}
+	approvedAt := ""
+	if confirmation.ApprovedAt != nil {
+		approvedAt = confirmation.ApprovedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return map[string]any{
+		"signer_phone":               firstNonEmpty(meta["signer_phone"]),
+		"sent_at":                    firstNonEmpty(meta["sent_at"]),
+		"opened_at":                  firstNonEmpty(meta["opened_at"]),
+		"opened_ip":                  firstNonEmpty(meta["opened_ip"]),
+		"opened_user_agent":          firstNonEmpty(meta["opened_user_agent"]),
+		"preview_opened_at":          firstNonEmpty(meta["preview_opened_at"]),
+		"preview_open_count":         intFromAny(meta["preview_open_count"]),
+		"preview_document_hash":      firstNonEmpty(meta["preview_document_hash"]),
+		"agreement_text_version":     firstNonEmpty(meta["agreement_text_version"]),
+		"agreement_version_verified": meta["agreement_version_verified"],
+		"document_hash_verified":     meta["document_hash_verified"],
+		"approved_at":                firstNonEmpty(meta["approved_at"], approvedAt),
+		"provider":                   firstNonEmpty(meta["provider"]),
+		"provider_message_id":        firstNonEmpty(meta["provider_message_id"]),
+	}, nil
 }
 
 func (s *DocumentSigningConfirmationService) logConfirmState(transition string, documentID int64, confirmationID string, userID int64, expiresAt time.Time, ttlMinutes int, status string, reason string) {
@@ -954,6 +1237,22 @@ func (s *DocumentSigningConfirmationService) buildEmailVerifyURL(token string) (
 		return "", fmt.Errorf("invalid sign email verify base URL: %w", err)
 	}
 	target.Path = strings.TrimRight(target.Path, "/") + "/sign/email/verify"
+	values := target.Query()
+	values.Set("token", token)
+	target.RawQuery = values.Encode()
+	return target.String(), nil
+}
+
+func (s *DocumentSigningConfirmationService) buildSMSVerifyURL(token string) (string, error) {
+	base := strings.TrimRight(s.smsVerifyBase, "/")
+	if base == "" {
+		return "", errors.New("sign sms verify base URL is required")
+	}
+	target, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid sign sms verify base URL: %w", err)
+	}
+	target.Path = strings.TrimRight(target.Path, "/") + "/sign/sms/verify"
 	values := target.Query()
 	values.Set("token", token)
 	target.RawQuery = values.Encode()
@@ -1047,6 +1346,118 @@ func extractSignerEmail(meta json.RawMessage) string {
 		return strings.TrimSpace(val)
 	}
 	return ""
+}
+
+func extractSignerPhone(meta json.RawMessage) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(meta, &payload); err != nil {
+		return ""
+	}
+	if val, ok := payload["signer_phone"].(string); ok {
+		return strings.TrimSpace(val)
+	}
+	return ""
+}
+
+func (s *DocumentSigningConfirmationService) validateTokenByChannel(
+	ctx context.Context,
+	channel, token, ip, userAgent string,
+) (*EmailTokenVerification, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	pending, err := s.repo.FindByTokenHash(ctx, channel, tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("find confirmation by token hash: %w", err)
+	}
+	if pending == nil {
+		return nil, ErrSignConfirmNotFound
+	}
+	if pending.Status != "pending" {
+		if pending.Status == "approved" {
+			return nil, ErrSignConfirmAlreadyUsed
+		}
+		return nil, ErrSignConfirmExpired
+	}
+	if s.now().After(pending.ExpiresAt) {
+		_ = s.repo.Expire(ctx, pending.ID)
+		return nil, ErrSignConfirmExpired
+	}
+	metaUpdate := buildOpenMetaUpdate(pending.Meta, ip, userAgent, s.now())
+	if len(metaUpdate) > 0 {
+		metaBytes, _ := json.Marshal(metaUpdate)
+		if _, err := s.repo.UpdateMeta(ctx, pending.ID, metaBytes); err != nil {
+			return nil, fmt.Errorf("update confirmation meta: %w", err)
+		}
+	}
+	doc, err := s.docRepo.GetByID(pending.DocumentID)
+	if err != nil || doc == nil {
+		return nil, ErrSignConfirmNotFound
+	}
+	response := &EmailTokenVerification{TokenValid: true, RequirePostConfirm: true}
+	response.Document.ID = doc.ID
+	response.Document.Title = doc.DocType
+	response.Document.Status = doc.Status
+	response.Document.FileName = documentFileName(doc)
+	response.Document.ContentType = documentContentType(response.Document.FileName)
+	if hash, hashErr := s.hashDocumentContent(pending.DocumentID); hashErr == nil && strings.TrimSpace(hash) != "" {
+		response.Document.DocumentHashPreview = "sha256:" + hash
+	}
+	response.Confirmation.ExpiresAt = pending.ExpiresAt
+	response.Agreement = CurrentEmailSigningAgreement()
+	return response, nil
+}
+
+func (s *DocumentSigningConfirmationService) prepareDocumentPreviewByChannel(
+	ctx context.Context,
+	channel, token string,
+) (*EmailDocumentPreview, error) {
+	ctx, cancel := withSignConfirmTimeout(ctx)
+	defer cancel()
+	token = normalizeEmailConfirmToken(token)
+	if token == "" {
+		return nil, ErrSignConfirmNotFound
+	}
+	tokenHash := hashConfirmTokenWithPepper(token, s.tokenPepper)
+	pending, err := s.repo.FindByTokenHash(ctx, channel, tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("find confirmation by token hash: %w", err)
+	}
+	if pending == nil {
+		return nil, ErrSignConfirmNotFound
+	}
+	if s.now().After(pending.ExpiresAt) {
+		_ = s.repo.Expire(ctx, pending.ID)
+		return nil, ErrSignConfirmExpired
+	}
+	doc, relPath, err := s.getDocumentAndPreviewPath(pending.DocumentID)
+	if err != nil {
+		return nil, err
+	}
+	absPath := filepath.Join(strings.TrimSpace(s.filesRoot), relPath)
+	if _, err := os.Stat(absPath); err != nil {
+		return nil, fmt.Errorf("open document: %w", err)
+	}
+	documentHash := ""
+	if hash, hashErr := s.hashDocumentContent(doc.ID); hashErr == nil && strings.TrimSpace(hash) != "" {
+		documentHash = "sha256:" + hash
+	}
+	return &EmailDocumentPreview{
+		DocumentID:       doc.ID,
+		ConfirmationID:   pending.ID,
+		FileName:         documentFileName(doc),
+		ContentType:      documentContentType(documentFileName(doc)),
+		DocumentHash:     documentHash,
+		AbsPath:          absPath,
+		ConfirmationMeta: pending.Meta,
+	}, nil
 }
 
 func (s *DocumentSigningConfirmationService) hashDocumentContent(documentID int64) (string, error) {

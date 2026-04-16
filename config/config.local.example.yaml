@@ -57,7 +57,17 @@ sign_base_url: "http://localhost:4000/sign"
 public_base_url: "http://localhost:4000"
 sign_confirm_policy: "ANY"
 sign_email_verify_base_url: "http://localhost:4000"
+sign_sms_verify_base_url: "http://localhost:4000"
 sign_email_token_pepper: "dev-sign-pepper"
 sign_public_token_pepper: "dev-sign-public-pepper"
 sign_email_ttl_minutes: 30
+sign_sms_ttl_minutes: 30
 sign_session_ttl_minutes: 30
+mobizon:
+  enabled: false
+  api_key: ""
+  base_url: "https://api.mobizon.kz"
+  from: ""
+  timeout_seconds: 10
+  retries: 1
+  dry_run: true
