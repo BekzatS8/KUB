@@ -474,6 +474,17 @@ func (s *DocumentSigningConfirmationService) StartSigningBySMS(ctx context.Conte
 	return &SigningStartResult{DocumentID: documentID, UserID: userID, Policy: s.policy, Channels: channels}, nil
 }
 
+func (s *DocumentSigningConfirmationService) StartSigningByChannel(ctx context.Context, channel string, documentID, userID int64, signerPhone, signerEmail string) (*SigningStartResult, error) {
+	switch strings.ToLower(strings.TrimSpace(channel)) {
+	case "sms":
+		return s.StartSigningBySMS(ctx, documentID, userID, signerPhone, signerEmail)
+	case "email":
+		return s.StartSigning(ctx, documentID, userID, signerEmail)
+	default:
+		return nil, errors.New("unsupported signing channel")
+	}
+}
+
 func (s *DocumentSigningConfirmationService) ConfirmByEmailToken(
 	ctx context.Context,
 	documentID int64,
