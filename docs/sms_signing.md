@@ -23,6 +23,10 @@ SMS flow mirrors email flow and reuses the same embedded signing UI pattern.
 - `SIGN_SMS_VERIFY_BASE_URL`
 - `SIGN_SMS_TTL`
 
+## DB note
+
+`signature_confirmations.channel` check constraint supports: `email`, `telegram`, `sms`.
+
 ## QA
 
 1. Start SMS signing with `POST /documents/:id/sign/start/sms`.
