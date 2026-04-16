@@ -36,6 +36,13 @@ type clientService interface {
 	GetProfile(ctx context.Context, clientID, userID, roleID int) (*services.ClientProfilePayload, error)
 }
 
+type clientPaginationService interface {
+	ListForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error)
+	ListMineWithArchiveScopeAndTotal(userID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error)
+	ListIndividualsForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error)
+	ListCompaniesForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error)
+}
+
 type ClientHandler struct {
 	Service clientService
 }
@@ -832,13 +839,23 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 		forbidden(c, "sales cannot access full list")
 		return
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	if limit < 1 {
-		limit = 100
-	}
-	if offset < 0 {
-		offset = 0
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	offset := 0
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+		offset = offsetFromPage(page, size)
+	} else {
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+		offset, _ = strconv.Atoi(c.DefaultQuery("offset", "0"))
+		if limit < 1 {
+			limit = 100
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		size = limit
 	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -856,9 +873,37 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	)
 	switch kind {
 	case "individual":
-		clients, err = h.Service.ListIndividualsForRole(userID, roleID, limit, offset, filter, scope)
+		if paginate {
+			pSvc, ok := h.Service.(clientPaginationService)
+			if !ok {
+				internalError(c, "Pagination is not supported")
+				return
+			}
+			var total int
+			clients, total, err = pSvc.ListIndividualsForRoleWithTotal(userID, roleID, size, offset, filter, scope)
+			if err == nil {
+				c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
+				return
+			}
+		} else {
+			clients, err = h.Service.ListIndividualsForRole(userID, roleID, size, offset, filter, scope)
+		}
 	case "company":
-		clients, err = h.Service.ListCompaniesForRole(userID, roleID, limit, offset, filter, scope)
+		if paginate {
+			pSvc, ok := h.Service.(clientPaginationService)
+			if !ok {
+				internalError(c, "Pagination is not supported")
+				return
+			}
+			var total int
+			clients, total, err = pSvc.ListCompaniesForRoleWithTotal(userID, roleID, size, offset, filter, scope)
+			if err == nil {
+				c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
+				return
+			}
+		} else {
+			clients, err = h.Service.ListCompaniesForRole(userID, roleID, size, offset, filter, scope)
+		}
 	default:
 		badRequest(c, "invalid client list type")
 		return
@@ -880,15 +925,22 @@ func (h *ClientHandler) List(c *gin.Context) {
 		forbidden(c, "sales cannot access full list")
 		return
 	}
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 	filter, err := clientListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
@@ -899,6 +951,30 @@ func (h *ClientHandler) List(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
+	if paginate {
+		pSvc, ok := h.Service.(clientPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		clients, total, err := pSvc.ListForRoleWithTotal(userID, roleID, size, offset, filter, scope)
+		if err != nil {
+			log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			if strings.Contains(err.Error(), "invalid client_type") {
+				badRequest(c, err.Error())
+				return
+			}
+			internalError(c, "Failed to list clients")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
+		return
+	}
+
 	clients, err := h.Service.ListForRole(userID, roleID, size, offset, filter, scope)
 	if err != nil {
 		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
@@ -918,15 +994,22 @@ func (h *ClientHandler) List(c *gin.Context) {
 
 func (h *ClientHandler) ListMy(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 	filter, err := clientListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
@@ -937,6 +1020,30 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 		badRequest(c, "Invalid archive filter")
 		return
 	}
+	if paginate {
+		pSvc, ok := h.Service.(clientPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		clients, total, err := pSvc.ListMineWithArchiveScopeAndTotal(userID, size, offset, filter, scope)
+		if err != nil {
+			log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			if strings.Contains(err.Error(), "invalid client_type") {
+				badRequest(c, err.Error())
+				return
+			}
+			internalError(c, "Failed to list clients")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
+		return
+	}
+
 	clients, err := h.Service.ListMineWithArchiveScope(userID, size, offset, filter, scope)
 	if err != nil {
 		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)

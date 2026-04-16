@@ -15,6 +15,8 @@ type TaskRepository interface {
 	FindByID(ctx context.Context, id int64) (*models.Task, error)
 	FindByIDWithArchiveScope(ctx context.Context, id int64, scope ArchiveScope) (*models.Task, error)
 	FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error)
+	FindAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, error)
+	CountAll(ctx context.Context, filter models.TaskFilter) (int, error)
 	Update(ctx context.Context, task *models.Task) error
 	Delete(ctx context.Context, id int64) error
 	Archive(ctx context.Context, id int64, archivedBy int64, reason string) error
@@ -92,10 +94,85 @@ func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64,
 func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) ([]models.Task, error) {
 	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_id, entity_type, title, description,
        due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'') FROM tasks`
+	whereClause, args := buildTaskFilterWhere(filter, 1)
+	baseQuery += " WHERE " + whereClause
+	sortExpr, sortOrder := taskSortExpression(filter.SortBy, filter.Order)
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortExpr, sortOrder)
 
+	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []models.Task
+	for rows.Next() {
+		var t models.Task
+		var branchID sql.NullInt64
+		if err := rows.Scan(
+			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType,
+			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
+			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
+		); err != nil {
+			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			t.BranchID = &v
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+func (r *taskRepository) FindAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, error) {
+	baseQuery := `SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_id, entity_type, title, description,
+       due_date, reminder_at, last_reminded_at, priority, status, created_at, updated_at, is_archived, archived_at, archived_by, COALESCE(archive_reason,'') FROM tasks`
+	whereClause, args := buildTaskFilterWhere(filter, 1)
+	baseQuery += " WHERE " + whereClause
+	sortExpr, sortOrder := taskSortExpression(filter.SortBy, filter.Order)
+	args = append(args, limit, offset)
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortExpr, sortOrder, len(args)-1, len(args))
+
+	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []models.Task
+	for rows.Next() {
+		var t models.Task
+		var branchID sql.NullInt64
+		if err := rows.Scan(
+			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType,
+			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
+			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
+		); err != nil {
+			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			t.BranchID = &v
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+func (r *taskRepository) CountAll(ctx context.Context, filter models.TaskFilter) (int, error) {
+	whereClause, args := buildTaskFilterWhere(filter, 1)
+	query := fmt.Sprintf("SELECT COUNT(1) FROM tasks WHERE %s", whereClause)
+	var total int
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func buildTaskFilterWhere(filter models.TaskFilter, startAt int) (string, []interface{}) {
 	conditions := []string{}
 	args := []interface{}{}
-	argID := 1
+	argID := startAt
 
 	if filter.AssigneeID != nil {
 		conditions = append(conditions, fmt.Sprintf("assignee_id = $%d", argID))
@@ -148,36 +225,7 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 	}
 	conditions = append(conditions, taskArchiveWhere(scope))
 
-	if len(conditions) > 0 {
-		baseQuery += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	sortExpr, sortOrder := taskSortExpression(filter.SortBy, filter.Order)
-	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortExpr, sortOrder)
-
-	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tasks []models.Task
-	for rows.Next() {
-		var t models.Task
-		var branchID sql.NullInt64
-		if err := rows.Scan(
-			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType,
-			&t.Title, &t.Description, &t.DueDate, &t.ReminderAt, &t.LastRemindedAt,
-			&t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
-		); err != nil {
-			return nil, err
-		}
-		if branchID.Valid {
-			v := branchID.Int64
-			t.BranchID = &v
-		}
-		tasks = append(tasks, t)
-	}
-	return tasks, rows.Err()
+	return strings.Join(conditions, " AND "), args
 }
 
 func taskStatusesFromGroup(group string) []string {

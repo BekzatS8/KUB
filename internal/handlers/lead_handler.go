@@ -37,6 +37,11 @@ type leadService interface {
 	ConvertLeadToDealWithClientData(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientData *models.Client) (*models.Deals, error)
 }
 
+type leadPaginationService interface {
+	ListForRoleWithTotal(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error)
+	ListMyWithFilterAndArchiveScopeAndTotal(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error)
+}
+
 func NewLeadHandler(service *services.LeadService) *LeadHandler {
 	return &LeadHandler{Service: service}
 }
@@ -531,15 +536,22 @@ func (h *LeadHandler) List(c *gin.Context) {
 		return
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -549,6 +561,26 @@ func (h *LeadHandler) List(c *gin.Context) {
 	filter, err := leadListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
+		return
+	}
+
+	if paginate {
+		pSvc, ok := h.Service.(leadPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		leads, total, err := pSvc.ListForRoleWithTotal(userID, roleID, size, offset, scope, filter)
+		if err != nil {
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			log.Printf("lead list failed: user_id=%d role_id=%d scope=%s filter=%+v err=%v", userID, roleID, scope, filter, err)
+			internalError(c, "Failed to list leads")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Leads]{Items: leads, Pagination: buildPaginationMeta(page, size, total)})
 		return
 	}
 
@@ -569,15 +601,22 @@ func (h *LeadHandler) List(c *gin.Context) {
 func (h *LeadHandler) ListMy(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -587,6 +626,26 @@ func (h *LeadHandler) ListMy(c *gin.Context) {
 	filter, err := leadListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
+		return
+	}
+
+	if paginate {
+		pSvc, ok := h.Service.(leadPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		leads, total, err := pSvc.ListMyWithFilterAndArchiveScopeAndTotal(userID, size, offset, scope, filter)
+		if err != nil {
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			log.Printf("lead list my failed: user_id=%d scope=%s filter=%+v err=%v", userID, scope, filter, err)
+			internalError(c, "Failed to list leads")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Leads]{Items: leads, Pagination: buildPaginationMeta(page, size, total)})
 		return
 	}
 

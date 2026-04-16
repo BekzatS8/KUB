@@ -185,6 +185,19 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 		// full or supervisory visibility — keep requested filter
 	}
 
+	if isPaginatedMode(c) {
+		page, size := normalizedPageAndSize(c)
+		offset := offsetFromPage(page, size)
+		items, total, err := h.service.GetAllPaginated(c.Request.Context(), filter, size, offset)
+		if err != nil {
+			log.Printf("[task][list][err] %v", err)
+			internalError(c, "Failed to retrieve tasks")
+			return
+		}
+		log.Printf("[task][list][ok] count=%d total=%d", len(items), total)
+		c.JSON(http.StatusOK, models.PaginatedResponse[models.Task]{Items: items, Pagination: buildPaginationMeta(page, size, total)})
+		return
+	}
 	tasks, err := h.service.GetAll(c.Request.Context(), filter)
 	if err != nil {
 		log.Printf("[task][list][err] %v", err)

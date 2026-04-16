@@ -34,6 +34,11 @@ type dealService interface {
 	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Deals, error)
 }
 
+type dealPaginationService interface {
+	ListForRoleWithTotal(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, int, error)
+	ListMyWithFilterAndArchiveScopeAndTotal(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, int, error)
+}
+
 func NewDealHandler(service *services.DealService) *DealHandler {
 	return &DealHandler{Service: service}
 }
@@ -384,15 +389,22 @@ func (h *DealHandler) List(c *gin.Context) {
 		return
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -402,6 +414,25 @@ func (h *DealHandler) List(c *gin.Context) {
 	filter, err := dealListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
+		return
+	}
+
+	if paginate {
+		pSvc, ok := h.Service.(dealPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		deals, total, err := pSvc.ListForRoleWithTotal(userID, roleID, size, offset, scope, filter)
+		if err != nil {
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			internalError(c, "Failed to retrieve deals")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Deals]{Items: deals, Pagination: buildPaginationMeta(page, size, total)})
 		return
 	}
 
@@ -421,15 +452,22 @@ func (h *DealHandler) List(c *gin.Context) {
 func (h *DealHandler) ListMy(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "100"))
-	if page < 1 {
-		page = 1
+	paginate := isPaginatedMode(c)
+	page := 1
+	size := 100
+	if paginate {
+		page, size = normalizedPageAndSize(c)
+	} else {
+		page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+		size, _ = strconv.Atoi(c.DefaultQuery("size", "100"))
+		if page < 1 {
+			page = 1
+		}
+		if size < 1 {
+			size = 100
+		}
 	}
-	if size < 1 {
-		size = 100
-	}
-	offset := (page - 1) * size
+	offset := offsetFromPage(page, size)
 
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -439,6 +477,25 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 	filter, err := dealListFilterFromQuery(c)
 	if err != nil {
 		badRequest(c, err.Error())
+		return
+	}
+
+	if paginate {
+		pSvc, ok := h.Service.(dealPaginationService)
+		if !ok {
+			internalError(c, "Pagination is not supported")
+			return
+		}
+		deals, total, err := pSvc.ListMyWithFilterAndArchiveScopeAndTotal(userID, size, offset, scope, filter)
+		if err != nil {
+			if errors.Is(err, services.ErrForbidden) {
+				forbidden(c, "Forbidden")
+				return
+			}
+			internalError(c, "Failed to retrieve deals")
+			return
+		}
+		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Deals]{Items: deals, Pagination: buildPaginationMeta(page, size, total)})
 		return
 	}
 
