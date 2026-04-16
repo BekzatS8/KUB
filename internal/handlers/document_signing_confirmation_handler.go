@@ -55,6 +55,67 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 	var body struct {
+		Channel        string `json:"channel"`
+		ManualPhone    string `json:"manual_phone"`
+		ManualEmail    string `json:"manual_email"`
+		SignerFullName string `json:"signer_full_name"`
+		SignerPosition string `json:"signer_position"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "Invalid request body")
+		return
+	}
+	channel := strings.ToLower(strings.TrimSpace(body.Channel))
+	if channel != "sms" && channel != "email" {
+		badRequest(c, "channel must be one of: sms, email")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	overrides := services.SignerOverrides{
+		Email:    body.ManualEmail,
+		Phone:    body.ManualPhone,
+		FullName: body.SignerFullName,
+		Position: body.SignerPosition,
+	}
+	var signer services.ResolvedSigner
+	switch channel {
+	case "sms":
+		signer, err = h.DocumentSvc.ResolveSignerForSMS(documentID, userID, roleID, overrides)
+	case "email":
+		signer, err = h.DocumentSvc.ResolveSignerForEmail(documentID, userID, roleID, overrides)
+	}
+	if err != nil {
+		switch err.Error() {
+		case "forbidden":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		default:
+			badRequest(c, err.Error())
+			return
+		}
+	}
+	result, err := h.Service.StartSigningByChannel(c.Request.Context(), channel, documentID, int64(userID), signer.Phone, signer.Email)
+	if err != nil {
+		handleSignConfirmError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "pending", "expires_at": result.Channels[0].ExpiresAt, "channel": channel})
+}
+
+func (h *DocumentSigningConfirmationHandler) StartSigningEmail(c *gin.Context) {
+	if h.Service == nil || h.DocumentSvc == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	documentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	var body struct {
 		Email          string `json:"email"`
 		SignerFullName string `json:"signer_full_name"`
 		SignerPosition string `json:"signer_position"`
@@ -78,7 +139,7 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 
-	signer, err := h.DocumentSvc.ResolveSigner(documentID, userID, roleID, services.SignerOverrides{
+	signer, err := h.DocumentSvc.ResolveSignerForEmail(documentID, userID, roleID, services.SignerOverrides{
 		Email:    body.Email,
 		FullName: body.SignerFullName,
 		Position: body.SignerPosition,
@@ -134,7 +195,7 @@ func (h *DocumentSigningConfirmationHandler) StartSigningSMS(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
-	signer, err := h.DocumentSvc.ResolveSigner(documentID, userID, roleID, services.SignerOverrides{
+	signer, err := h.DocumentSvc.ResolveSignerForSMS(documentID, userID, roleID, services.SignerOverrides{
 		Email:    body.SignerEmail,
 		FullName: body.SignerFullName,
 		Position: body.SignerPosition,
@@ -150,6 +211,46 @@ func (h *DocumentSigningConfirmationHandler) StartSigningSMS(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "pending", "expires_at": result.Channels[0].ExpiresAt})
+}
+
+func (h *DocumentSigningConfirmationHandler) ContactOptions(c *gin.Context) {
+	if h.DocumentSvc == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	documentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	options, err := h.DocumentSvc.GetSigningContactOptions(documentID, userID, roleID)
+	if err != nil {
+		switch err.Error() {
+		case "forbidden":
+			forbidden(c, "Forbidden")
+			return
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		default:
+			internalError(c, "Failed to resolve contact options")
+			return
+		}
+	}
+	response := gin.H{
+		"document_id":        options.DocumentID,
+		"client_id":          options.ClientID,
+		"default_phone":      options.DefaultPhone,
+		"default_email":      options.DefaultEmail,
+		"resolved_full_name": options.ResolvedFullName,
+		"resolved_position":  options.ResolvedPosition,
+		"available_channels": options.AvailableChannels,
+	}
+	if options.PreferredChannel != "" {
+		response["preferred_channel"] = options.PreferredChannel
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 type emailConfirmRequest struct {

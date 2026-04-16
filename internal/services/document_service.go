@@ -103,6 +103,17 @@ type ResolvedSigner struct {
 	Phone    string
 }
 
+type SigningContactOptions struct {
+	DocumentID        int64    `json:"document_id"`
+	ClientID          int      `json:"client_id"`
+	DefaultPhone      string   `json:"default_phone"`
+	DefaultEmail      string   `json:"default_email"`
+	ResolvedFullName  string   `json:"resolved_full_name"`
+	ResolvedPosition  string   `json:"resolved_position"`
+	AvailableChannels []string `json:"available_channels"`
+	PreferredChannel  string   `json:"preferred_channel,omitempty"`
+}
+
 type DocumentMissingFieldsError struct {
 	Scope  string                 `json:"scope"`
 	Fields []DocumentMissingField `json:"fields"`
@@ -505,7 +516,7 @@ func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID i
 }
 
 func (s *DocumentService) ResolveSignerEmail(id int64, userID, roleID int, fallbackEmail string) (string, error) {
-	resolved, err := s.ResolveSigner(id, userID, roleID, SignerOverrides{Email: fallbackEmail})
+	resolved, err := s.ResolveSignerForEmail(id, userID, roleID, SignerOverrides{Email: fallbackEmail})
 	if err != nil {
 		return "", err
 	}
@@ -513,6 +524,76 @@ func (s *DocumentService) ResolveSignerEmail(id int64, userID, roleID int, fallb
 }
 
 func (s *DocumentService) ResolveSigner(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
+	return s.ResolveSignerForEmail(id, userID, roleID, overrides)
+}
+
+func (s *DocumentService) ResolveSignerForEmail(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
+	result, err := s.resolveSignerBase(id, userID, roleID, overrides)
+	if err != nil {
+		return ResolvedSigner{}, err
+	}
+	if result.Email == "" {
+		return ResolvedSigner{}, errors.New("signer email is required")
+	}
+	return result, nil
+}
+
+func (s *DocumentService) ResolveSignerForSMS(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
+	result, err := s.resolveSignerBase(id, userID, roleID, overrides)
+	if err != nil {
+		return ResolvedSigner{}, err
+	}
+	if result.Phone == "" {
+		return ResolvedSigner{}, errors.New("signer phone is required")
+	}
+	return result, nil
+}
+
+func (s *DocumentService) ResolveSignerDefault(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
+	return s.resolveSignerBase(id, userID, roleID, overrides)
+}
+
+func (s *DocumentService) GetSigningContactOptions(id int64, userID, roleID int) (SigningContactOptions, error) {
+	doc, err := s.GetDocument(id, userID, roleID)
+	if err != nil || doc == nil {
+		return SigningContactOptions{}, err
+	}
+	if s.DealRepo == nil {
+		return SigningContactOptions{DocumentID: id}, nil
+	}
+	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	if err != nil || deal == nil {
+		return SigningContactOptions{}, err
+	}
+	resolved, err := s.ResolveSignerDefault(id, userID, roleID, SignerOverrides{})
+	if err != nil {
+		return SigningContactOptions{}, err
+	}
+	available := make([]string, 0, 2)
+	preferred := ""
+	if resolved.Phone != "" {
+		available = append(available, "sms")
+		preferred = "sms"
+	}
+	if resolved.Email != "" {
+		available = append(available, "email")
+		if preferred == "" {
+			preferred = "email"
+		}
+	}
+	return SigningContactOptions{
+		DocumentID:        id,
+		ClientID:          deal.ClientID,
+		DefaultPhone:      resolved.Phone,
+		DefaultEmail:      resolved.Email,
+		ResolvedFullName:  resolved.FullName,
+		ResolvedPosition:  resolved.Position,
+		AvailableChannels: available,
+		PreferredChannel:  preferred,
+	}, nil
+}
+
+func (s *DocumentService) resolveSignerBase(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
 	doc, err := s.GetDocument(id, userID, roleID)
 	if err != nil || doc == nil {
 		return ResolvedSigner{}, err
@@ -521,32 +602,24 @@ func (s *DocumentService) ResolveSigner(id int64, userID, roleID int, overrides 
 	overrides.FullName = strings.TrimSpace(overrides.FullName)
 	overrides.Position = strings.TrimSpace(overrides.Position)
 	overrides.Phone = strings.TrimSpace(overrides.Phone)
+	normalizedOverridePhone := normalizePhone(overrides.Phone)
 	if s.DealRepo == nil || s.ClientRepo == nil {
-		if overrides.Email == "" {
-			return ResolvedSigner{}, errors.New("signer email is required")
-		}
-		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: normalizedOverridePhone}, nil
 	}
 	deal, err := s.DealRepo.GetByID(int(doc.DealID))
 	if err != nil || deal == nil {
-		if overrides.Email == "" {
-			return ResolvedSigner{}, errors.New("signer email is required")
-		}
-		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: normalizedOverridePhone}, nil
 	}
 	client, err := s.ClientRepo.GetByID(deal.ClientID)
 	if err != nil || client == nil {
-		if overrides.Email == "" {
-			return ResolvedSigner{}, errors.New("signer email is required")
-		}
-		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: overrides.Phone}, nil
+		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: normalizedOverridePhone}, nil
 	}
 
 	result := ResolvedSigner{
 		Email:    overrides.Email,
 		FullName: overrides.FullName,
 		Position: overrides.Position,
-		Phone:    normalizePhone(overrides.Phone),
+		Phone:    normalizedOverridePhone,
 	}
 	if client.ClientType == models.ClientTypeLegal {
 		if lp := client.LegalProfile; lp != nil {
@@ -582,9 +655,6 @@ func (s *DocumentService) ResolveSigner(id int64, userID, roleID int, overrides 
 		if result.Phone == "" {
 			result.Phone = normalizePhone(strings.TrimSpace(client.Phone))
 		}
-	}
-	if result.Email == "" {
-		return ResolvedSigner{}, errors.New("signer email is required")
 	}
 	return result, nil
 }

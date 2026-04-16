@@ -260,7 +260,9 @@ func SetupRoutes(
 		docs.POST("/:id/sign", documentHandler.Sign)
 		if signConfirmHandler != nil {
 			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
+			docs.POST("/:id/sign/start/email", signConfirmHandler.StartSigningEmail)
 			docs.POST("/:id/sign/start/sms", signConfirmHandler.StartSigningSMS)
+			docs.GET("/:id/sign/contact-options", signConfirmHandler.ContactOptions)
 			docs.GET("/:id/sign/status", signConfirmHandler.Status)
 			if docPublicLinkHandler != nil {
 				docs.POST("/:id/generate-sign-link", docPublicLinkHandler.GenerateSignLink)
