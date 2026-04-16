@@ -203,6 +203,9 @@ func (h *DocumentHandler) ListDocumentsByDeal(c *gin.Context) {
 			internalError(c, "Could not fetch documents")
 			return
 		}
+		if docs == nil {
+			docs = make([]*models.Document, 0)
+		}
 		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Document]{Items: docs, Pagination: buildPaginationMeta(page, size, total)})
 		return
 	}

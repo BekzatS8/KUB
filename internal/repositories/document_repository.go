@@ -227,7 +227,14 @@ func (r *DocumentRepository) ListDocumentsByDealWithFilterAndArchiveScope(dealID
 
 func (r *DocumentRepository) ListDocumentsByDealWithFilterAndArchiveScopePaginated(dealID int64, limit, offset int, filter DocumentListFilter, scope ArchiveScope) ([]*models.Document, error) {
 	filter.DealID = &dealID
-	return r.ListDocumentsWithFilterAndArchiveScope(limit, offset, filter, scope)
+	items, err := r.ListDocumentsWithFilterAndArchiveScope(limit, offset, filter, scope)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = make([]*models.Document, 0)
+	}
+	return items, nil
 }
 
 func (r *DocumentRepository) UpdateStatus(id int64, status string) error {
