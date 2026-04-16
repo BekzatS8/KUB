@@ -41,7 +41,7 @@ func TestPublicSigningUIRendersHTMLPage(t *testing.T) {
 	if !strings.Contains(body, "Ссылка недействительна или документ недоступен.") {
 		t.Fatalf("expected explicit invalid-link message in ui script")
 	}
-	if !strings.Contains(body, "const verifyURL = `/api/v1/sign/email/verify?token=${encodeURIComponent(token)}&format=json`;") {
+	if !strings.Contains(body, "const verifyURL = `/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`;") {
 		t.Fatalf("expected absolute verify URL in ui script")
 	}
 	if !strings.Contains(body, "payload.document?.preview_url || ''") {

@@ -1,5 +1,7 @@
 # Email signing (ПЭП) flow
 
+SMS variant documentation: `docs/sms_signing.md`.
+
 Дополнительно по встроенному UI: `docs/embedded_signing_ui.md`.
 
 ## Environment

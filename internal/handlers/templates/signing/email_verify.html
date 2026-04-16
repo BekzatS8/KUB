@@ -32,7 +32,7 @@
 <body>
 <div class="card">
   <h1>Подписание документа</h1>
-  <p class="muted">Порядок действий: 1) проверьте документ, 2) подтвердите согласие, 3) введите код из email, 4) завершите подпись.</p>
+  <p class="muted">Порядок действий: 1) проверьте документ, 2) подтвердите согласие, 3) введите код подтверждения, 4) завершите подпись.</p>
 
   <div id="state" class="status">Загрузка данных ссылки…</div>
 
@@ -61,7 +61,7 @@
   </div>
 
   <div id="confirmBox" class="hidden section">
-    <label for="code">Код подтверждения из email</label>
+    <label for="code">Код подтверждения</label>
     <input id="code" type="text" maxlength="6" autocomplete="one-time-code" placeholder="Например, 123456" />
     <button id="confirmBtn">Подтвердить код</button>
   </div>
@@ -74,6 +74,7 @@
 <script>
 (() => {
   const initialToken = {{ printf "%q" .Token }};
+  const channel = {{ printf "%q" .Channel }} || 'email';
   const state = document.getElementById('state');
   const docBox = document.getElementById('doc');
   const previewSection = document.getElementById('previewSection');
@@ -186,7 +187,7 @@
     }
     setState('Проверяем ссылку…');
     try {
-      const verifyURL = `/api/v1/sign/email/verify?token=${encodeURIComponent(token)}&format=json`;
+      const verifyURL = `/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`;
       const res = await fetch(verifyURL, { headers: { 'Accept': 'application/json' } });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -219,7 +220,7 @@
       renderPreview();
       renderAgreement();
 
-      setState('Ссылка валидна. Проверьте документ, подтвердите согласие и введите код из письма.', 'ok');
+      setState(`Ссылка валидна. Проверьте документ, подтвердите согласие и введите код из ${channel === 'sms' ? 'SMS' : 'письма'}.`, 'ok');
       if (payload.require_post_confirm !== false) {
         confirmBox.classList.remove('hidden');
       } else {
@@ -242,7 +243,7 @@
     confirmBtn.disabled = true;
     setState('Проверяем код…');
     try {
-      const res = await fetch(`/documents/${docId}/sign/confirm/email`, {
+      const res = await fetch(`/documents/${docId}/sign/confirm/${channel}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({

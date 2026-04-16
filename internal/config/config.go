@@ -103,10 +103,21 @@ type Config struct {
 	PublicBaseURL          string `yaml:"public_base_url"`
 	SignConfirmPolicy      string `yaml:"sign_confirm_policy"`
 	SignEmailVerifyBaseURL string `yaml:"sign_email_verify_base_url"`
+	SignSMSVerifyBaseURL   string `yaml:"sign_sms_verify_base_url"`
 	SignEmailTTLMinutes    int    `yaml:"sign_email_ttl_minutes"`
+	SignSMSTTLMinutes      int    `yaml:"sign_sms_ttl_minutes"`
 	SignSessionTTLMinutes  int    `yaml:"sign_session_ttl_minutes"`
 	SignEmailTokenPepper   string `yaml:"sign_email_token_pepper"`
 	SignPublicTokenPepper  string `yaml:"sign_public_token_pepper"`
+	Mobizon                struct {
+		Enabled        bool   `yaml:"enabled"`
+		APIKey         string `yaml:"api_key"`
+		BaseURL        string `yaml:"base_url"`
+		From           string `yaml:"from"`
+		TimeoutSeconds int    `yaml:"timeout_seconds"`
+		Retries        int    `yaml:"retries"`
+		DryRun         bool   `yaml:"dry_run"`
+	} `yaml:"mobizon"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -224,6 +235,9 @@ func (cfg *Config) Validate() error {
 			return err
 		}
 		if err := validatePublicURL("sign_email_verify_base_url", cfg.SignEmailVerifyBaseURL); err != nil {
+			return err
+		}
+		if err := validatePublicURL("sign_sms_verify_base_url", cfg.SignSMSVerifyBaseURL); err != nil {
 			return err
 		}
 		if strings.TrimSpace(cfg.Security.JWTSecret) == "" {
@@ -371,14 +385,29 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
 	}
+	if strings.TrimSpace(cfg.SignSMSVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
+		cfg.SignSMSVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
+	}
 	if strings.TrimSpace(cfg.SignPublicTokenPepper) == "" {
 		cfg.SignPublicTokenPepper = cfg.SignEmailTokenPepper
 	}
 	if cfg.SignEmailTTLMinutes <= 0 {
 		cfg.SignEmailTTLMinutes = 30
 	}
+	if cfg.SignSMSTTLMinutes <= 0 {
+		cfg.SignSMSTTLMinutes = cfg.SignEmailTTLMinutes
+	}
 	if cfg.SignSessionTTLMinutes <= 0 {
 		cfg.SignSessionTTLMinutes = cfg.SignEmailTTLMinutes
+	}
+	if strings.TrimSpace(cfg.Mobizon.BaseURL) == "" {
+		cfg.Mobizon.BaseURL = "https://api.mobizon.kz"
+	}
+	if cfg.Mobizon.TimeoutSeconds <= 0 {
+		cfg.Mobizon.TimeoutSeconds = 10
+	}
+	if cfg.Mobizon.Retries < 0 {
+		cfg.Mobizon.Retries = 0
 	}
 	if !cfg.Documents.StrictPlaceholders && configMode() != "release" {
 		cfg.Documents.StrictPlaceholders = true
@@ -419,6 +448,12 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SIGN_EMAIL_TOKEN_PEPPER"), &cfg.SignEmailTokenPepper)
 	setString(os.Getenv("SIGN_PUBLIC_TOKEN_PEPPER"), &cfg.SignPublicTokenPepper)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
+	setString(os.Getenv("SIGN_SMS_VERIFY_BASE_URL"), &cfg.SignSMSVerifyBaseURL)
+	setString(os.Getenv("MOBIZON_API_KEY"), &cfg.Mobizon.APIKey)
+	setString(os.Getenv("MOBIZON_BASE_URL"), &cfg.Mobizon.BaseURL)
+	setString(os.Getenv("MOBIZON_FROM"), &cfg.Mobizon.From)
+	setInt(os.Getenv("MOBIZON_TIMEOUT_SECONDS"), &cfg.Mobizon.TimeoutSeconds)
+	setInt(os.Getenv("MOBIZON_RETRIES"), &cfg.Mobizon.Retries)
 	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
 	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)
 	setString(os.Getenv("WAZZUP_API_BASE_URL"), &cfg.Wazzup.APIBaseURL)
@@ -444,6 +479,22 @@ func applyEnvOverrides(cfg *Config) {
 		} else if minutes, err := strconv.Atoi(ttl); err == nil && minutes > 0 {
 			cfg.SignEmailTTLMinutes = minutes
 		}
+	}
+	if ttl := strings.TrimSpace(os.Getenv("SIGN_SMS_TTL")); ttl != "" {
+		if duration, err := time.ParseDuration(ttl); err == nil {
+			minutes := int(duration.Minutes())
+			if minutes > 0 {
+				cfg.SignSMSTTLMinutes = minutes
+			}
+		} else if minutes, err := strconv.Atoi(ttl); err == nil && minutes > 0 {
+			cfg.SignSMSTTLMinutes = minutes
+		}
+	}
+	if val := strings.TrimSpace(os.Getenv("MOBIZON_ENABLED")); val != "" {
+		cfg.Mobizon.Enabled = parseBoolEnvValue(val)
+	}
+	if val := strings.TrimSpace(os.Getenv("MOBIZON_DRY_RUN")); val != "" {
+		cfg.Mobizon.DryRun = parseBoolEnvValue(val)
 	}
 	setInt(os.Getenv("SIGN_SESSION_TTL_MINUTES"), &cfg.SignSessionTTLMinutes)
 }
