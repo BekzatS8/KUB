@@ -16,6 +16,34 @@ type DealService struct {
 	UserRepo   repositories.UserRepository
 }
 
+func (s *DealService) branchScopeForRole(userID, roleID int) (*int, error) {
+	switch roleID {
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+		if s.UserRepo == nil {
+			return nil, ErrForbidden
+		}
+		u, err := s.UserRepo.GetByID(userID)
+		if err != nil || u == nil || u.BranchID == nil {
+			return nil, ErrForbidden
+		}
+		return u.BranchID, nil
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return nil, nil
+	default:
+		return nil, ErrForbidden
+	}
+}
+
+func sameDealBranch(required *int, deal *models.Deals) bool {
+	if required == nil {
+		return true
+	}
+	if deal == nil || deal.BranchID == nil {
+		return false
+	}
+	return *required == *deal.BranchID
+}
+
 func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
 	service := &DealService{Repo: repo}
 	if len(clientRepo) > 0 {
@@ -108,6 +136,13 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 			deal.BranchID = u.BranchID
 		}
 	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return 0, scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
+		return 0, ErrForbidden
+	}
 
 	if deal.Status == "" {
 		deal.Status = "new"
@@ -157,6 +192,13 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	}
 	if current == nil {
 		return ErrDealNotFound
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameDealBranch(branchScope, current) {
+		return ErrForbidden
 	}
 
 	// 3) Проверка доступа для sales
@@ -243,10 +285,12 @@ func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error)
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return nil, ErrForbidden
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil && deal.BranchID != nil && *u.BranchID != *deal.BranchID {
-			return nil, ErrForbidden
-		}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
+		return nil, ErrForbidden
 	}
 	return deal, nil
 }
@@ -257,6 +301,13 @@ func (s *DealService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 		return deal, err
 	}
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
 		return nil, ErrForbidden
 	}
 	return deal, nil
@@ -272,6 +323,13 @@ func (s *DealService) Delete(id int, userID, roleID int) error {
 	}
 	if deal == nil {
 		return errors.New("deal not found")
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
+		return ErrForbidden
 	}
 	return s.Repo.Delete(id)
 }
@@ -296,10 +354,8 @@ func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repos
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
-			filter.BranchID = u.BranchID
-		}
+	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+		filter.BranchID = branchScope
 	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
 }
@@ -313,10 +369,8 @@ func (s *DealService) ListForRoleWithTotal(userID, roleID, limit, offset int, sc
 	if err != nil {
 		return nil, 0, err
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
-			filter.BranchID = u.BranchID
-		}
+	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+		filter.BranchID = branchScope
 	}
 	total, err := s.Repo.CountAllWithFilterAndArchiveScope(filter, scope)
 	if err != nil {
@@ -352,6 +406,13 @@ func (s *DealService) UpdateStatus(id int, to string, userID, roleID int) error 
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return ErrForbidden
 	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
+		return ErrForbidden
+	}
 	if !canTransition(deal.Status, to, DealTransitions) {
 		return errors.New("invalid status transition")
 	}
@@ -372,6 +433,13 @@ func (s *DealService) ArchiveDeal(id, userID, roleID int, reason string) error {
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
 		return ErrForbidden
 	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
+		return ErrForbidden
+	}
 	if deal.IsArchived {
 		return nil
 	}
@@ -390,6 +458,13 @@ func (s *DealService) UnarchiveDeal(id, userID, roleID int) error {
 		return ErrDealNotFound
 	}
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return ErrForbidden
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameDealBranch(branchScope, deal) {
 		return ErrForbidden
 	}
 	if !deal.IsArchived {

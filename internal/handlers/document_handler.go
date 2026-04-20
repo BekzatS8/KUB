@@ -271,7 +271,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	// доступ:
 	// - Sales: общий список запрещаем (смотри по сделке /documents/deal/:dealid)
 	// - Ops/Mgmt/Admin/Control: можно
-	_, roleID := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleSales {
 		forbidden(c, "Forbidden for sales; use /documents/deal/{dealid}")
 		return
@@ -287,6 +287,13 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
+	scopedBranchID, scopeErr := h.Service.ResolveListBranchScope(userID, roleID, filter.BranchID)
+	if scopeErr != nil {
+		forbidden(c, "Forbidden")
+		return
+	}
+	filter.BranchID = scopedBranchID
+
 	if paginate {
 		docs, total, err := h.Service.ListDocumentsWithFilterAndArchiveScopeAndTotal(size, offset, filter, scope)
 		if err != nil {
@@ -330,6 +337,13 @@ func documentListFilterFromQuery(c *gin.Context) (repositories.DocumentListFilte
 			return repositories.DocumentListFilter{}, errors.New("Invalid client_id")
 		}
 		filter.ClientID = &clientID
+	}
+	if raw := strings.TrimSpace(c.Query("branch_id")); raw != "" {
+		branchID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || branchID <= 0 {
+			return repositories.DocumentListFilter{}, errors.New("Invalid branch_id")
+		}
+		filter.BranchID = &branchID
 	}
 	if filter.ClientType != "" && filter.ClientType != models.ClientTypeIndividual && filter.ClientType != models.ClientTypeLegal {
 		return repositories.DocumentListFilter{}, errors.New("Invalid client_type")

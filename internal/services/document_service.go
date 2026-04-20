@@ -81,6 +81,7 @@ type DocumentService struct {
 	LeadRepo   LeadRepo
 	DealRepo   DealRepo
 	ClientRepo ClientRepo
+	UserRepo   repositories.UserRepository
 	SignSecret string
 
 	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
@@ -89,6 +90,67 @@ type DocumentService struct {
 	XlsxGen   xlsx.Generator
 	now       func() time.Time
 	displayTZ *time.Location
+}
+
+func (s *DocumentService) SetUserRepo(userRepo repositories.UserRepository) {
+	s.UserRepo = userRepo
+}
+
+func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
+	switch roleID {
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+		if s.UserRepo == nil {
+			return nil, nil
+		}
+		u, err := s.UserRepo.GetByID(userID)
+		if err != nil || u == nil || u.BranchID == nil {
+			return nil, errors.New("forbidden")
+		}
+		return u.BranchID, nil
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return nil, nil
+	default:
+		return nil, errors.New("forbidden")
+	}
+}
+
+func dealMatchesBranch(scope *int, deal *models.Deals) bool {
+	if scope == nil {
+		return true
+	}
+	if deal == nil || deal.BranchID == nil {
+		return false
+	}
+	return *scope == *deal.BranchID
+}
+
+func (s *DocumentService) ensureDealAccess(deal *models.Deals, userID, roleID int) error {
+	if deal == nil {
+		return errors.New("not found")
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return errors.New("forbidden")
+	}
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return err
+	}
+	if !dealMatchesBranch(branchScope, deal) {
+		return errors.New("forbidden")
+	}
+	return nil
+}
+
+func (s *DocumentService) ResolveListBranchScope(userID, roleID int, requested *int64) (*int64, error) {
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	if branchScope != nil {
+		v := int64(*branchScope)
+		return &v, nil
+	}
+	return requested, nil
 }
 
 type SignerOverrides struct {
@@ -391,9 +453,8 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 		return 0, errors.New("unsupported doc_type")
 	}
 
-	// Sales может создавать документ только по своей сделке
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return 0, errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return 0, err
 	}
 
 	// статус по умолчанию
@@ -423,8 +484,8 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 	if err != nil || deal == nil {
 		return nil, errors.New("deal not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return nil, err
 	}
 	docType = normalizeDocType(docType)
 	if docType == "" {
@@ -487,15 +548,21 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	if err != nil || doc == nil {
 		return nil, err
 	}
-	// Sales видит документ только если владеет сделкой
-	if roleID == authz.RoleSales {
-		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-		if derr != nil || deal == nil {
-			return nil, errors.New("not found")
-		}
-		if deal.OwnerID != userID {
+	if roleID != authz.RoleSales && roleID != authz.RoleOperations && roleID != authz.RoleControl {
+		return doc, nil
+	}
+	if s.DealRepo == nil {
+		return nil, errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return nil, errors.New("not found")
+	}
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		if err.Error() == "forbidden" {
 			return nil, errors.New("forbidden")
 		}
+		return nil, errors.New("not found")
 	}
 	return doc, nil
 }
@@ -505,14 +572,21 @@ func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID i
 	if err != nil || doc == nil {
 		return nil, err
 	}
-	if roleID == authz.RoleSales {
-		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-		if derr != nil || deal == nil {
-			return nil, errors.New("not found")
-		}
-		if deal.OwnerID != userID {
+	if roleID != authz.RoleSales && roleID != authz.RoleOperations && roleID != authz.RoleControl {
+		return doc, nil
+	}
+	if s.DealRepo == nil {
+		return nil, errors.New("not found")
+	}
+	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	if derr != nil || deal == nil {
+		return nil, errors.New("not found")
+	}
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		if err.Error() == "forbidden" {
 			return nil, errors.New("forbidden")
 		}
+		return nil, errors.New("not found")
 	}
 	return doc, nil
 }
@@ -685,9 +759,8 @@ func (s *DocumentService) ListDocumentsByDealWithFilter(dealID int64, userID, ro
 	if err != nil || deal == nil {
 		return nil, errors.New("not found")
 	}
-	// Sales — только свои сделки
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return nil, err
 	}
 	if repo, ok := s.DocRepo.(documentFilterRepo); ok {
 		return repo.ListDocumentsByDealWithFilterAndArchiveScope(dealID, filter, scope)
@@ -716,8 +789,8 @@ func (s *DocumentService) ListDocumentsByDealWithFilterAndTotal(dealID int64, us
 	if err != nil || deal == nil {
 		return nil, 0, errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, 0, errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return nil, 0, err
 	}
 	repo, ok := s.DocRepo.(documentFilterRepo)
 	if !ok {
@@ -757,8 +830,8 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return err
 	}
 	if err := s.deleteDocumentFiles(doc); err != nil {
 		return err
@@ -778,8 +851,8 @@ func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason s
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return err
 	}
 	if doc.IsArchived {
 		return nil
@@ -799,8 +872,8 @@ func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error 
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return err
 	}
 	if !doc.IsArchived {
 		return errors.New("not archived")
@@ -822,8 +895,8 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return err
 	}
 	if doc.Status != "draft" {
 		return errors.New("invalid status")

@@ -146,7 +146,7 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
-	if !canViewTask(roleID, int64(userID), task) {
+	if !canViewTask(roleID, int64(userID), task) || !h.hasTaskBranchAccess(roleID, int64(userID), task) {
 		log.Printf("[task][getByID][deny] uid=%d role=%d", userID, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -297,7 +297,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][update][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -419,7 +419,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][delete][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -474,7 +474,7 @@ func (h *TaskHandler) Archive(c *gin.Context) {
 		return
 	}
 	uid := int64(userID)
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -517,7 +517,7 @@ func (h *TaskHandler) Unarchive(c *gin.Context) {
 		return
 	}
 	uid := int64(userID)
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -568,7 +568,7 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 		return
 	}
 
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][status][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -633,7 +633,7 @@ func (h *TaskHandler) Complete(c *gin.Context) {
 		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][complete][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -679,7 +679,7 @@ func (h *TaskHandler) RemindLater(c *gin.Context) {
 		notFound(c, ValidationFailed, "Task not found")
 		return
 	}
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][remind][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -768,7 +768,7 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	}
 	log.Printf("[task][assign] new_assignee=%d", body.AssigneeID)
 
-	if !canModifyTask(roleID, uid, current) {
+	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][assign][deny] uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
@@ -846,6 +846,27 @@ func isOwnTask(uid int64, t *models.Task) bool {
 		return false
 	}
 	return t.CreatorID == uid || t.AssigneeID == uid
+}
+
+func (h *TaskHandler) hasTaskBranchAccess(roleID int, uid int64, t *models.Task) bool {
+	if t == nil {
+		return false
+	}
+	switch roleID {
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return true
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+		if h.users == nil || t.BranchID == nil {
+			return false
+		}
+		me, err := h.users.GetByID(int(uid))
+		if err != nil || me == nil || me.BranchID == nil {
+			return false
+		}
+		return int64(*me.BranchID) == *t.BranchID
+	default:
+		return false
+	}
 }
 
 // === TG helpers ===

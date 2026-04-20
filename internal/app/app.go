@@ -166,6 +166,7 @@ func Run() {
 	userService := services.NewUserService(userRepo, emailService, authService)
 	branchService := services.NewBranchService(branchRepo)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
+	clientService.SetUserRepo(userRepo)
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
 	dealService := services.NewDealService(dealRepo, clientRepo)
@@ -197,6 +198,7 @@ func Run() {
 		docxGen,
 		excelGen,
 	)
+	documentService.SetUserRepo(userRepo)
 	documentService.SetTimeProvider(nowProvider, serverTZ)
 
 	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)

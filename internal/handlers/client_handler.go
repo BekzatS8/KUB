@@ -1088,6 +1088,13 @@ func clientListFilterFromQuery(c *gin.Context) (repositories.ClientListFilter, e
 	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
 		return repositories.ClientListFilter{}, errors.New("Invalid order")
 	}
+	if raw := strings.TrimSpace(c.Query("branch_id")); raw != "" {
+		branchID, err := strconv.Atoi(raw)
+		if err != nil || branchID <= 0 {
+			return repositories.ClientListFilter{}, errors.New("Invalid branch_id")
+		}
+		filter.BranchID = &branchID
+	}
 	return filter, nil
 }
 
