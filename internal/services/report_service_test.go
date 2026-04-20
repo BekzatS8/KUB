@@ -85,10 +85,27 @@ func TestResolveFilters_SalesAndOperationsBoundToOwnBranch(t *testing.T) {
 	}
 }
 
-func TestResolveFilters_ElevatedCanUseRequestedBranch(t *testing.T) {
+func TestResolveFilters_ControlBoundToOwnBranch(t *testing.T) {
+	branchID := 7
+	requested := 3
+	svc := &ReportService{UserRepo: &reportTestUserRepo{user: &models.User{BranchID: &branchID}}}
+
+	ownerID, scopedBranchID, err := svc.resolveFilters(1, authz.RoleControl, &requested)
+	if err != nil {
+		t.Fatalf("control resolve failed: %v", err)
+	}
+	if ownerID != nil {
+		t.Fatalf("control must not be owner-scoped")
+	}
+	if scopedBranchID == nil || *scopedBranchID != branchID {
+		t.Fatalf("control must be bound to own branch, got %v", scopedBranchID)
+	}
+}
+
+func TestResolveFilters_ManagementAndAdminCanUseRequestedBranch(t *testing.T) {
 	svc := &ReportService{}
 	requested := 3
-	for _, roleID := range []int{authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin} {
+	for _, roleID := range []int{authz.RoleManagement, authz.RoleSystemAdmin} {
 		ownerID, scopedBranchID, err := svc.resolveFilters(1, roleID, &requested)
 		if err != nil {
 			t.Fatalf("role=%d unexpected error: %v", roleID, err)
@@ -109,5 +126,8 @@ func TestResolveFilters_DeniesWhenBranchContextMissing(t *testing.T) {
 	}
 	if _, _, err := svc.resolveFilters(1, authz.RoleOperations, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("operations without branch context must be forbidden, got %v", err)
+	}
+	if _, _, err := svc.resolveFilters(1, authz.RoleControl, nil); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("control without branch context must be forbidden, got %v", err)
 	}
 }

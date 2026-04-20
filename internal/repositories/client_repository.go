@@ -19,6 +19,7 @@ func NewClientRepository(db *sql.DB) *ClientRepository { return &ClientRepositor
 type ClientListFilter struct {
 	Query           string
 	ClientType      string
+	BranchID        *int
 	HasDeals        *bool
 	DealStatusGroup string
 	SortBy          string
@@ -31,6 +32,7 @@ const clientSelect = `
 SELECT
 	c.id,
 	c.owner_id,
+	c.branch_id,
 	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
 	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), '') AS display_name,
 	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, ''), '') AS primary_phone,
@@ -64,6 +66,7 @@ const clientSelectLegacy = `
 SELECT
 	c.id,
 	c.owner_id,
+	c.branch_id,
 	COALESCE(NULLIF(c.client_type, ''), 'individual') AS client_type,
 	COALESCE(NULLIF(c.display_name, ''), NULLIF(c.name, ''), '') AS display_name,
 	COALESCE(NULLIF(c.primary_phone, ''), NULLIF(c.phone, ''), '') AS primary_phone,
@@ -104,6 +107,7 @@ FROM clients c
 func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	c := &models.Client{}
 	var (
+		branchID                                 sql.NullInt64
 		displayName, primaryPhone, primaryEmail sql.NullString
 		birthDate, passIssue, passExpire        sql.NullTime
 		driverIssue, driverExpire               sql.NullTime
@@ -117,7 +121,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	ip := &models.ClientIndividualProfile{}
 	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
-		&c.ID, &c.OwnerID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.OwnerID, &branchID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
 		&c.IsArchived, &archivedAt, &archivedBy, &archiveReason,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber,
 		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
@@ -136,6 +140,10 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	}
 	if displayName.Valid {
 		c.DisplayName = displayName.String
+	}
+	if branchID.Valid {
+		v := int(branchID.Int64)
+		c.BranchID = &v
 	}
 	if primaryPhone.Valid {
 		c.PrimaryPhone = primaryPhone.String
@@ -249,10 +257,10 @@ func (r *ClientRepository) Create(c *models.Client) (int64, error) {
 	if c.UpdatedAt.IsZero() {
 		c.UpdatedAt = now
 	}
-	q := `INSERT INTO clients (owner_id, client_type, display_name, primary_phone, primary_email, address, contact_info, created_at, updated_at, name, phone, email, bin_iin)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`
+	q := `INSERT INTO clients (owner_id, branch_id, client_type, display_name, primary_phone, primary_email, address, contact_info, created_at, updated_at, name, phone, email, bin_iin)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`
 	var id int64
-	err = tx.QueryRow(q, c.OwnerID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.CreatedAt, c.UpdatedAt, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin)).Scan(&id)
+	err = tx.QueryRow(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.CreatedAt, c.UpdatedAt, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("create client: %w", err)
 	}
@@ -321,8 +329,8 @@ func buildLegalProfileForUpsert(c *models.Client) models.ClientLegalProfile {
 }
 
 func (r *ClientRepository) Update(c *models.Client) error {
-	q := `UPDATE clients SET owner_id=$1, client_type=$2, display_name=$3, primary_phone=$4, primary_email=$5, address=$6, contact_info=$7, updated_at=NOW(), name=$8, phone=$9, email=$10, bin_iin=$11 WHERE id=$12`
-	_, err := r.db.Exec(q, c.OwnerID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin), c.ID)
+	q := `UPDATE clients SET owner_id=$1, branch_id=$2, client_type=$3, display_name=$4, primary_phone=$5, primary_email=$6, address=$7, contact_info=$8, updated_at=NOW(), name=$9, phone=$10, email=$11, bin_iin=$12 WHERE id=$13`
+	_, err := r.db.Exec(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin), c.ID)
 	if err != nil {
 		return fmt.Errorf("update client: %w", err)
 	}
@@ -383,6 +391,21 @@ func (r *ClientRepository) GetByID(id int) (*models.Client, error) {
 
 func (r *ClientRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Client, error) {
 	row := r.db.QueryRow(clientSelect+` WHERE c.id=$1 AND `+clientArchiveWhere(scope), id)
+	c, err := scanClient(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (r *ClientRepository) GetByIDWithBranchScope(id int, branchID *int, scope ArchiveScope) (*models.Client, error) {
+	if branchID == nil {
+		return r.GetByIDWithArchiveScope(id, scope)
+	}
+	row := r.db.QueryRow(clientSelect+` WHERE c.id=$1 AND c.branch_id=$2 AND `+clientArchiveWhere(scope), id, *branchID)
 	c, err := scanClient(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -643,6 +666,11 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 	if ownerID != nil {
 		conditions = append(conditions, fmt.Sprintf("c.owner_id = $%d", idx))
 		args = append(args, *ownerID)
+		idx++
+	}
+	if filter.BranchID != nil {
+		conditions = append(conditions, fmt.Sprintf("c.branch_id = $%d", idx))
+		args = append(args, *filter.BranchID)
 		idx++
 	}
 

@@ -18,6 +18,34 @@ type LeadService struct {
 	UserRepo  repositories.UserRepository
 }
 
+func (s *LeadService) branchScopeForRole(userID, roleID int) (*int, error) {
+	switch roleID {
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+		if s.UserRepo == nil {
+			return nil, ErrForbidden
+		}
+		u, err := s.UserRepo.GetByID(userID)
+		if err != nil || u == nil || u.BranchID == nil {
+			return nil, ErrForbidden
+		}
+		return u.BranchID, nil
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return nil, nil
+	default:
+		return nil, ErrForbidden
+	}
+}
+
+func sameLeadBranch(required *int, lead *models.Leads) bool {
+	if required == nil {
+		return true
+	}
+	if lead == nil || lead.BranchID == nil {
+		return false
+	}
+	return *required == *lead.BranchID
+}
+
 func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository, userRepo ...repositories.UserRepository) *LeadService {
 	var clientSvc *ClientService
 	if clientRepo != nil {
@@ -67,6 +95,13 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	}
 	if current == nil {
 		return errors.New("lead not found")
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameLeadBranch(branchScope, current) {
+		return ErrForbidden
 	}
 
 	if roleID == authz.RoleSales && current.OwnerID != userID {
@@ -122,10 +157,8 @@ func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repos
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
-			filter.BranchID = u.BranchID
-		}
+	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+		filter.BranchID = branchScope
 	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
 }
@@ -139,10 +172,8 @@ func (s *LeadService) ListForRoleWithTotal(userID, roleID, limit, offset int, sc
 	if err != nil {
 		return nil, 0, err
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil {
-			filter.BranchID = u.BranchID
-		}
+	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+		filter.BranchID = branchScope
 	}
 	total, err := s.Repo.CountAllWithFilterAndArchiveScope(filter, scope)
 	if err != nil {
@@ -171,10 +202,12 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return nil, ErrForbidden
 	}
-	if roleID == authz.RoleOperations && s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil && u.BranchID != nil && lead.BranchID != nil && *u.BranchID != *lead.BranchID {
-			return nil, ErrForbidden
-		}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
+		return nil, ErrForbidden
 	}
 	return lead, nil
 }
@@ -185,6 +218,13 @@ func (s *LeadService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 		return lead, err
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
 		return nil, ErrForbidden
 	}
 	return lead, nil
@@ -200,6 +240,13 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 	}
 	if lead == nil {
 		return errors.New("lead not found")
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
+		return ErrForbidden
 	}
 	return s.Repo.Delete(id)
 }
@@ -228,6 +275,13 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 		return nil, errors.New("lead not found")
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
 		return nil, ErrForbidden
 	}
 	if s.ClientSvc == nil {
@@ -291,7 +345,7 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 		return nil, errors.New("client repository not configured")
 	}
 
-	client, err := s.ClientSvc.GetOrCreateByBIN(clientData.BinIin, clientData)
+	client, err := s.ClientSvc.GetOrCreateByBIN(clientData.BinIin, clientData, userID, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +371,13 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return ErrForbidden
 	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
+		return ErrForbidden
+	}
 
 	if !canTransition(lead.Status, to, LeadTransitions) {
 		return errors.New("invalid status transition")
@@ -339,6 +400,13 @@ func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
 		return ErrForbidden
 	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
+		return ErrForbidden
+	}
 	if lead.IsArchived {
 		return nil
 	}
@@ -357,6 +425,13 @@ func (s *LeadService) UnarchiveLead(id, userID, roleID int) error {
 		return ErrLeadNotFound
 	}
 	if roleID == authz.RoleSales && lead.OwnerID != userID {
+		return ErrForbidden
+	}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !sameLeadBranch(branchScope, lead) {
 		return ErrForbidden
 	}
 	if !lead.IsArchived {

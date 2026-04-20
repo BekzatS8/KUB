@@ -45,3 +45,16 @@ func TestTaskFilterFromQuery_BranchID(t *testing.T) {
 		t.Fatalf("expected branch_id=2, got %+v", f.BranchID)
 	}
 }
+
+func TestClientFilterFromQuery_BranchID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/clients?branch_id=4", nil)
+	f, err := clientListFilterFromQuery(c)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if f.BranchID == nil || *f.BranchID != 4 {
+		t.Fatalf("expected branch_id=4, got %+v", f.BranchID)
+	}
+}

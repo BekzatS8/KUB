@@ -37,6 +37,17 @@ func TestBuildClientListWhere_HasDealsAndStatusGroup(t *testing.T) {
 	}
 }
 
+func TestBuildClientListWhere_BranchScope(t *testing.T) {
+	branchID := 7
+	where, args := buildClientListWhere(nil, "", ClientListFilter{BranchID: &branchID}, ArchiveScopeActiveOnly, 1)
+	if !strings.Contains(where, "c.branch_id = $1") {
+		t.Fatalf("expected branch condition in where, got: %s", where)
+	}
+	if len(args) != 1 || args[0] != branchID {
+		t.Fatalf("unexpected args for branch scope: %#v", args)
+	}
+}
+
 func TestClientSortExpressionWhitelist(t *testing.T) {
 	tests := []struct {
 		filter  ClientListFilter

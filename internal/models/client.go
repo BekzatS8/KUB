@@ -9,6 +9,7 @@ import (
 type Client struct {
 	ID           int    `json:"id"`
 	OwnerID      int    `json:"owner_id"`
+	BranchID     *int   `json:"branch_id,omitempty"`
 	ClientType   string `json:"client_type" db:"client_type"`
 	DisplayName  string `json:"display_name"`
 	PrimaryPhone string `json:"primary_phone"`
