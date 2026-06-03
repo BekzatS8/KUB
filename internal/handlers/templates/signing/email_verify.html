@@ -73,8 +73,8 @@
 
 <script>
 (() => {
-  const initialToken = {{ printf "%q" .Token }};
-  const channel = {{ printf "%q" .Channel }} || 'email';
+  const initialToken = {{ .Token }};
+  const channel = {{ .Channel }} || 'email';
   const state = document.getElementById('state');
   const docBox = document.getElementById('doc');
   const previewSection = document.getElementById('previewSection');
