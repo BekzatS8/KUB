@@ -63,7 +63,7 @@ func (h *VerifyHandler) ConfirmUser(c *gin.Context) {
 		badRequest(c, "Invalid or expired code")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Email verified"})
+	c.JSON(http.StatusOK, gin.H{"message": "User verified"})
 }
 
 func (h *VerifyHandler) ResendUser(c *gin.Context) {

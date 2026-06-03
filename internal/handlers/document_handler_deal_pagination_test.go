@@ -98,7 +98,7 @@ func newDocumentDealPaginationRouter(docRepo services.DocumentRepo) *gin.Engine 
 	})
 	r.Use(func(c *gin.Context) {
 		c.Set("user_id", 999)
-		c.Set("role_id", authz.RoleOperations)
+		c.Set("role_id", authz.RoleManagement)
 		c.Next()
 	})
 	r.GET("/documents/deal/:dealid", h.ListDocumentsByDeal)

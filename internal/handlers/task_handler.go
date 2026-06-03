@@ -73,6 +73,11 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		forbidden(c, "Staff can assign only to self")
 		return
 	}
+	if !h.canAssignTaskWithinBranch(roleID, uid, req.AssigneeID) {
+		log.Printf("[task][create][deny] uid=%d role=%d assignee=%d branch mismatch", userID, roleID, req.AssigneeID)
+		forbidden(c, "Forbidden")
+		return
+	}
 
 	var due *time.Time
 	if req.DueDate != "" {
@@ -176,12 +181,22 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	switch roleID {
 	case authz.RoleSales:
 		filter.AssigneeID = &uid
-	case authz.RoleOperations:
-		if me, err := h.users.GetByID(userID); err == nil && me != nil && me.BranchID != nil {
-			b := int64(*me.BranchID)
-			filter.BranchID = &b
+		branchID, ok := h.taskUserBranchID(userID)
+		if !ok {
+			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)
+			forbidden(c, "Forbidden")
+			return
 		}
-	case authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin:
+		filter.BranchID = &branchID
+	case authz.RoleOperations, authz.RoleControl:
+		branchID, ok := h.taskUserBranchID(userID)
+		if !ok {
+			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)
+			forbidden(c, "Forbidden")
+			return
+		}
+		filter.BranchID = &branchID
+	case authz.RoleManagement, authz.RoleSystemAdmin:
 		// full or supervisory visibility — keep requested filter
 	}
 
@@ -324,6 +339,11 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		if roleID == authz.RoleSales && *req.AssigneeID != uid {
 			log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, *req.AssigneeID)
 			forbidden(c, "Staff can assign only to self")
+			return
+		}
+		if !h.canAssignTaskWithinBranch(roleID, uid, *req.AssigneeID) {
+			log.Printf("[task][update][deny] uid=%d role=%d assignee=%d branch mismatch", uid, roleID, *req.AssigneeID)
+			forbidden(c, "Forbidden")
 			return
 		}
 		update.AssigneeID = *req.AssigneeID
@@ -778,6 +798,11 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 		forbidden(c, "Staff can assign only to self")
 		return
 	}
+	if !h.canAssignTaskWithinBranch(roleID, uid, body.AssigneeID) {
+		log.Printf("[task][assign][deny] uid=%d role=%d assignee=%d branch mismatch", uid, roleID, body.AssigneeID)
+		forbidden(c, "Forbidden")
+		return
+	}
 
 	updated, err := h.service.UpdateAssignee(c.Request.Context(), id, body.AssigneeID)
 	if err != nil {
@@ -864,6 +889,39 @@ func (h *TaskHandler) hasTaskBranchAccess(roleID int, uid int64, t *models.Task)
 			return false
 		}
 		return int64(*me.BranchID) == *t.BranchID
+	default:
+		return false
+	}
+}
+
+func (h *TaskHandler) taskUserBranchID(userID int) (int64, bool) {
+	if h.users == nil {
+		return 0, false
+	}
+	me, err := h.users.GetByID(userID)
+	if err != nil || me == nil || me.BranchID == nil {
+		return 0, false
+	}
+	return int64(*me.BranchID), true
+}
+
+func (h *TaskHandler) canAssignTaskWithinBranch(roleID int, actorID, assigneeID int64) bool {
+	switch roleID {
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return true
+	case authz.RoleSales, authz.RoleOperations:
+		if h.users == nil {
+			return false
+		}
+		actor, err := h.users.GetByID(int(actorID))
+		if err != nil || actor == nil || actor.BranchID == nil {
+			return false
+		}
+		assignee, err := h.users.GetByID(int(assigneeID))
+		if err != nil || assignee == nil || assignee.BranchID == nil {
+			return false
+		}
+		return *actor.BranchID == *assignee.BranchID
 	default:
 		return false
 	}

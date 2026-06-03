@@ -5,6 +5,7 @@ import "errors"
 var (
 	ErrForbidden                 = errors.New("forbidden")
 	ErrReadOnly                  = errors.New("read-only role")
+	ErrNotFound                  = errors.New("not found")
 	ErrNotChatMember             = errors.New("user is not a member of this chat")
 	ErrChatNotFound              = errors.New("chat not found")
 	ErrChatForbidden             = errors.New("chat action is forbidden")
@@ -32,6 +33,7 @@ var (
 	ErrInvalidEmail                     = errors.New("invalid email")
 	ErrEmailAlreadyUsed                 = errors.New("email already used")
 	ErrClientAlreadyExists              = errors.New("client already exists")
+	ErrRoleInUse                        = errors.New("role is in use")
 	ErrIndividualIINExists              = errors.New("individual profile with this IIN already exists")
 	ErrLegalBINExists                   = errors.New("legal profile with this BIN already exists")
 	ErrClientFilePrimaryExists          = errors.New("primary file for this category already exists")

@@ -80,82 +80,10 @@ func (h *SignSessionHandler) CreateDeprecated(c *gin.Context) {
 
 func (h *SignSessionHandler) Verify(c *gin.Context) {
 	c.JSON(http.StatusGone, gin.H{"error": "Sign session verification via phone is deprecated"})
-	return
-	token := strings.TrimSpace(c.Param("token"))
-	if token == "" {
-		badRequest(c, "Missing token")
-		return
-	}
-	var input struct {
-		Code string `json:"code" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		badRequest(c, "Invalid input")
-		return
-	}
-	session, err := h.Service.Verify(c.Request.Context(), token, input.Code, c.ClientIP(), c.Request.UserAgent())
-	if err != nil {
-		switch {
-		case errors.Is(err, services.ErrSignSessionNotFound):
-			notFound(c, ValidationFailed, "Session not found")
-		case errors.Is(err, services.ErrSignSessionExpired):
-			c.JSON(http.StatusGone, gin.H{"error": "Session expired"})
-		case errors.Is(err, services.ErrSignSessionAlreadySigned):
-			c.JSON(http.StatusConflict, gin.H{"error": "Session already signed"})
-		case errors.Is(err, services.ErrSignSessionTooManyTries):
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many attempts"})
-		default:
-			badRequest(c, "Invalid code")
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":      "verified",
-		"verified_at": session.VerifiedAt,
-	})
 }
 
 func (h *SignSessionHandler) Sign(c *gin.Context) {
 	c.JSON(http.StatusGone, gin.H{"error": "Sign session signing via phone is deprecated"})
-	return
-	token := strings.TrimSpace(c.Param("token"))
-	if token == "" {
-		badRequest(c, "Missing token")
-		return
-	}
-	var input struct {
-		Agree *bool `json:"agree"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil && err.Error() != "EOF" {
-		badRequest(c, "Invalid input")
-		return
-	}
-	if input.Agree != nil && !*input.Agree {
-		badRequest(c, "Agreement required")
-		return
-	}
-	session, err := h.Service.Sign(c.Request.Context(), token, c.ClientIP(), c.Request.UserAgent())
-	if err != nil {
-		switch {
-		case errors.Is(err, services.ErrSignSessionNotFound):
-			notFound(c, ValidationFailed, "Session not found")
-		case errors.Is(err, services.ErrSignSessionExpired):
-			c.JSON(http.StatusGone, gin.H{"error": "Session expired"})
-		case errors.Is(err, services.ErrSignSessionAlreadySigned):
-			c.JSON(http.StatusConflict, gin.H{"error": "Session already signed"})
-		case errors.Is(err, services.ErrSignSessionNotVerified):
-			badRequest(c, "Session not verified")
-		default:
-			internalError(c, "Failed to sign")
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":    "signed",
-		"signed_at": session.SignedAt,
-	})
 }
 
 func (h *SignSessionHandler) ServeSessionPage(c *gin.Context) {

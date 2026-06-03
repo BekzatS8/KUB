@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,8 @@ type ChatHandler struct {
 	service *services.ChatService
 	hub     *realtime.ChatHub
 }
+
+var attachmentUUIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // ✅ text больше НЕ required — можно отправлять только attachments
 type sendMessageRequest struct {
@@ -368,6 +371,10 @@ func (h *ChatHandler) DownloadAttachment(c *gin.Context) {
 		badRequest(c, "Invalid attachment id")
 		return
 	}
+	if !attachmentUUIDPattern.MatchString(attachmentID) {
+		badRequest(c, "Invalid attachment id")
+		return
+	}
 	att, reader, _, err := h.service.DownloadAttachment(attachmentID, userID)
 	if err != nil {
 		switch err {
@@ -479,15 +486,19 @@ func (h *ChatHandler) DeleteChat(c *gin.Context) {
 }
 
 func (h *ChatHandler) GetUserStatus(c *gin.Context) {
-	userID, err := strconv.Atoi(c.Param("id"))
+	viewerID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+	targetUserID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid user id")
 		return
 	}
 
-	online, lastSeen, err := h.service.GetUserStatus(userID)
+	online, lastSeen, err := h.service.GetUserStatus(viewerID, targetUserID)
 	if err != nil {
-		internalError(c, "Failed to load status")
+		writeChatError(c, err, "Failed to load status")
 		return
 	}
 
@@ -574,14 +585,8 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 	}
 	msg, err := h.service.EditMessage(chatID, messageID, userID, req.Text)
 	if err != nil {
-		switch err {
-		case services.ErrForbidden:
-			forbidden(c, "Forbidden")
-			return
-		default:
-			internalError(c, "Failed to edit message")
-			return
-		}
+		writeChatError(c, err, "Failed to edit message")
+		return
 	}
 	h.hub.NotifyMessageUpdated(chatID, msg)
 	c.JSON(http.StatusOK, msg)
@@ -604,14 +609,8 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 	}
 	msg, err := h.service.DeleteMessage(chatID, messageID, userID)
 	if err != nil {
-		switch err {
-		case services.ErrForbidden:
-			forbidden(c, "Forbidden")
-			return
-		default:
-			internalError(c, "Failed to delete message")
-			return
-		}
+		writeChatError(c, err, "Failed to delete message")
+		return
 	}
 	deletedBy := 0
 	if msg.DeletedBy != nil {
@@ -642,11 +641,7 @@ func (h *ChatHandler) PinMessage(c *gin.Context) {
 	}
 	pin, err := h.service.PinMessage(chatID, messageID, userID)
 	if err != nil {
-		if err == services.ErrForbidden {
-			forbidden(c, "Forbidden")
-			return
-		}
-		internalError(c, "Failed to pin message")
+		writeChatError(c, err, "Failed to pin message")
 		return
 	}
 	h.hub.NotifyMessagePinned(chatID, pin)
@@ -669,11 +664,7 @@ func (h *ChatHandler) UnpinMessage(c *gin.Context) {
 		return
 	}
 	if err := h.service.UnpinMessage(chatID, messageID, userID); err != nil {
-		if err == services.ErrForbidden {
-			forbidden(c, "Forbidden")
-			return
-		}
-		internalError(c, "Failed to unpin message")
+		writeChatError(c, err, "Failed to unpin message")
 		return
 	}
 	h.hub.NotifyMessageUnpinned(chatID, messageID)
@@ -697,7 +688,7 @@ func (h *ChatHandler) FavoriteMessage(c *gin.Context) {
 	}
 	fav, err := h.service.FavoriteMessage(chatID, messageID, userID)
 	if err != nil {
-		internalError(c, "Failed to favorite message")
+		writeChatError(c, err, "Failed to favorite message")
 		return
 	}
 	c.JSON(http.StatusOK, fav)
@@ -719,7 +710,7 @@ func (h *ChatHandler) UnfavoriteMessage(c *gin.Context) {
 		return
 	}
 	if err := h.service.UnfavoriteMessage(chatID, messageID, userID); err != nil {
-		internalError(c, "Failed to unfavorite message")
+		writeChatError(c, err, "Failed to unfavorite message")
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -842,6 +833,10 @@ func (h *ChatHandler) Stream(c *gin.Context) {
 	chatID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Invalid chat id")
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.GetHeader("Upgrade")), "websocket") {
+		badRequest(c, "WebSocket upgrade required")
 		return
 	}
 

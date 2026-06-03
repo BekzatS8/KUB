@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -27,15 +28,17 @@ type passwordResetService struct {
 	userRepo     repositories.UserRepository
 	repo         repositories.PasswordResetRepository
 	emails       EmailService
+	sms          SMSSender
 	auth         AuthService
 	frontendHost string
 }
 
-func NewPasswordResetService(userRepo repositories.UserRepository, repo repositories.PasswordResetRepository, emails EmailService, auth AuthService, frontendHost string) PasswordResetService {
+func NewPasswordResetService(userRepo repositories.UserRepository, repo repositories.PasswordResetRepository, emails EmailService, sms SMSSender, auth AuthService, frontendHost string) PasswordResetService {
 	return &passwordResetService{
 		userRepo:     userRepo,
 		repo:         repo,
 		emails:       emails,
+		sms:          sms,
 		auth:         auth,
 		frontendHost: strings.TrimSpace(frontendHost),
 	}
@@ -62,10 +65,19 @@ func (s *passwordResetService) RequestReset(email string) error {
 		return err
 	}
 
+	resetURL := s.buildResetURL(token)
 	if s.emails != nil {
-		resetURL := s.buildResetURL(token)
 		if err := s.emails.SendPasswordResetEmail(user.Email, resetURL); err != nil {
 			log.Printf("[password-reset] failed to send email to %s: %v", user.Email, err)
+		}
+	}
+	if s.sms != nil && strings.TrimSpace(user.Phone) != "" && resetURL != "" {
+		if _, err := s.sms.Send(context.Background(), SMSMessage{To: user.Phone, Text: BuildPasswordResetSMS(resetURL)}); err != nil {
+			if !errors.Is(err, ErrSMSSendDisabled) {
+				log.Printf("[password-reset] failed to send sms to=%s user_id=%d err=%v", redactPhoneForLog(user.Phone), user.ID, err)
+			}
+		} else {
+			log.Printf("[password-reset] sms sent to=%s user_id=%d", redactPhoneForLog(user.Phone), user.ID)
 		}
 	}
 	return nil
@@ -114,4 +126,8 @@ func (s *passwordResetService) buildResetURL(token string) string {
 	base = strings.TrimRight(base, "/")
 	escapedToken := url.QueryEscape(token)
 	return fmt.Sprintf("%s/reset-password?token=%s", base, escapedToken)
+}
+
+func BuildPasswordResetSMS(resetURL string) string {
+	return fmt.Sprintf("KUB CRM password reset link: %s", strings.TrimSpace(resetURL))
 }

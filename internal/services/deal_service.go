@@ -354,7 +354,11 @@ func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repos
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	if branchScope != nil {
 		filter.BranchID = branchScope
 	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
@@ -369,7 +373,11 @@ func (s *DealService) ListForRoleWithTotal(userID, roleID, limit, offset int, sc
 	if err != nil {
 		return nil, 0, err
 	}
-	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if branchScope != nil {
 		filter.BranchID = branchScope
 	}
 	total, err := s.Repo.CountAllWithFilterAndArchiveScope(filter, scope)

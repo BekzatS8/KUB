@@ -107,7 +107,7 @@ func TestTaskHandler_GetAll_ForwardsExtendedFilters(t *testing.T) {
 func TestTaskHandler_GetAll_SalesForcedToOwnAssignee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubTaskListService{}
-	h := NewTaskHandler(svc, nil, nil)
+	h := NewTaskHandler(svc, nil, &taskBranchUserRepoStub{users: map[int]*models.User{42: {ID: 42, BranchID: ptrInt(1)}}})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/tasks?assignee_id=123&status_group=active", nil)
@@ -121,6 +121,9 @@ func TestTaskHandler_GetAll_SalesForcedToOwnAssignee(t *testing.T) {
 	}
 	if svc.lastFilter.AssigneeID == nil || *svc.lastFilter.AssigneeID != 42 {
 		t.Fatalf("expected assignee forced to 42, got %+v", svc.lastFilter.AssigneeID)
+	}
+	if svc.lastFilter.BranchID == nil || *svc.lastFilter.BranchID != 1 {
+		t.Fatalf("expected branch forced to 1, got %+v", svc.lastFilter.BranchID)
 	}
 }
 

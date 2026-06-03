@@ -401,7 +401,7 @@ func applyDefaults(cfg *Config) {
 		cfg.SignSessionTTLMinutes = cfg.SignEmailTTLMinutes
 	}
 	if strings.TrimSpace(cfg.Mobizon.BaseURL) == "" {
-		cfg.Mobizon.BaseURL = "https://api.mobizon.kz"
+		cfg.Mobizon.BaseURL = "https://api.mobizon.kz/service"
 	}
 	if cfg.Mobizon.TimeoutSeconds <= 0 {
 		cfg.Mobizon.TimeoutSeconds = 10
@@ -449,8 +449,10 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("SIGN_PUBLIC_TOKEN_PEPPER"), &cfg.SignPublicTokenPepper)
 	setString(os.Getenv("SIGN_EMAIL_VERIFY_BASE_URL"), &cfg.SignEmailVerifyBaseURL)
 	setString(os.Getenv("SIGN_SMS_VERIFY_BASE_URL"), &cfg.SignSMSVerifyBaseURL)
-	setString(os.Getenv("MOBIZON_API_KEY"), &cfg.Mobizon.APIKey)
+	mobizonAPIKeyEnv := os.Getenv("MOBIZON_API_KEY")
+	setString(mobizonAPIKeyEnv, &cfg.Mobizon.APIKey)
 	setString(os.Getenv("MOBIZON_BASE_URL"), &cfg.Mobizon.BaseURL)
+	setString(os.Getenv("MOBIZON_API_URL"), &cfg.Mobizon.BaseURL)
 	setString(os.Getenv("MOBIZON_FROM"), &cfg.Mobizon.From)
 	setInt(os.Getenv("MOBIZON_TIMEOUT_SECONDS"), &cfg.Mobizon.TimeoutSeconds)
 	setInt(os.Getenv("MOBIZON_RETRIES"), &cfg.Mobizon.Retries)
@@ -492,9 +494,13 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if val := strings.TrimSpace(os.Getenv("MOBIZON_ENABLED")); val != "" {
 		cfg.Mobizon.Enabled = parseBoolEnvValue(val)
+	} else if strings.TrimSpace(mobizonAPIKeyEnv) != "" {
+		cfg.Mobizon.Enabled = true
 	}
 	if val := strings.TrimSpace(os.Getenv("MOBIZON_DRY_RUN")); val != "" {
 		cfg.Mobizon.DryRun = parseBoolEnvValue(val)
+	} else if strings.TrimSpace(mobizonAPIKeyEnv) != "" {
+		cfg.Mobizon.DryRun = false
 	}
 	setInt(os.Getenv("SIGN_SESSION_TTL_MINUTES"), &cfg.SignSessionTTLMinutes)
 }

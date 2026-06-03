@@ -13,6 +13,7 @@ Last updated: 2026-04-20
   - [ ] expected FK/constraints are present (if enabled in environment).
 
 ### 1.2 Backfill verification
+- [ ] Run `make branch-audit` after migrations; release is blocked if any `CRITICAL` count is greater than zero.
 - [ ] Run backfill verification query and capture metrics:
   - [ ] total clients.
   - [ ] clients with non-null `branch_id`.
@@ -133,7 +134,8 @@ Legend:
 1. Branch isolation basic:
    - [ ] User from branch A does not see branch B entities in list/search.
 2. Admin/global visibility:
-   - [ ] System admin sees branch A + B.
+   - [ ] System admin/leadership sees branch A + B.
+   - [ ] Sales/operations/control branch list contains only own branch.
 3. Create path branch assignment:
    - [ ] New client/lead/deal created by branch A user has branch A assignment.
 4. Reports/export:

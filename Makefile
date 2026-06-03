@@ -1,4 +1,4 @@
-.PHONY: build run test docker-build docker-up prepare-dirs preflight smoke prod-up prod-down logs db-psql migrate up down local-up local-down local-logs local-psql local-migrate local-seed-smoke
+.PHONY: build run test docker-build docker-up prepare-dirs preflight smoke prod-up prod-down logs db-psql migrate branch-audit up down local-up local-down local-logs local-psql local-migrate local-seed-smoke local-branch-audit
 
 BIN_DIR ?= bin
 BINARY ?= $(BIN_DIR)/turcompany
@@ -49,6 +49,9 @@ db-psql:
 migrate:
 	$(COMPOSE_PROD) run --rm migrate
 
+branch-audit:
+	sh ./scripts/run-branch-readiness-audit.sh
+
 # backward-compatible aliases
 up-prod: up
 
@@ -75,3 +78,6 @@ local-migrate:
 
 local-seed-smoke:
 	cat ./scripts/local_seed_smoke.sql | $(COMPOSE_LOCAL) exec -T postgres psql -U $${POSTGRES_USER:-turcompany} -d $${POSTGRES_DB:-turcompany}
+
+local-branch-audit:
+	COMPOSE_FILE=docker-compose.local.yml sh ./scripts/run-branch-readiness-audit.sh

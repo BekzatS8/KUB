@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -104,6 +105,19 @@ func (h *UserHandler) branchPayload(branchID *int) interface{} {
 	return gin.H{"id": b.ID, "name": b.Name, "code": b.Code, "is_active": b.IsActive}
 }
 
+func userRoleRequiresBranch(roleID int) bool {
+	switch roleID {
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+		return true
+	default:
+		return false
+	}
+}
+
+func sameUserBranch(a, b *models.User) bool {
+	return a != nil && b != nil && a.BranchID != nil && b.BranchID != nil && *a.BranchID == *b.BranchID
+}
+
 func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 	if u == nil {
 		return nil
@@ -149,6 +163,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		badRequest(c, "Invalid role_id")
 		return
 	}
+	if userRoleRequiresBranch(newRole) && req.BranchID == nil {
+		badRequest(c, "branch_id is required for this role")
+		return
+	}
 	user := &models.User{
 		CompanyName: req.CompanyName,
 		BinIin:      req.BinIin,
@@ -162,15 +180,21 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		RoleID:      newRole,
 		IsVerified:  false,
 		IsActive:    true,
+		IsActiveSet: true,
 	}
 	if req.IsVerified != nil {
 		user.IsVerified = *req.IsVerified
 	}
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
+		user.IsActiveSet = true
 	}
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("CreateUser: service error: %v", err)
+		if errors.Is(err, services.ErrEmailAlreadyUsed) {
+			conflict(c, ConflictCode, "Email already used")
+			return
+		}
 		internalError(c, "Failed to create user")
 		return
 	}
@@ -216,6 +240,13 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		forbidden(c, "Forbidden")
 		return
 	}
+	if !authz.CanViewLeadershipData(roleID) && currentUserID != id {
+		current, err := h.service.GetUserByID(currentUserID)
+		if err != nil || !sameUserBranch(current, user) {
+			forbidden(c, "Forbidden")
+			return
+		}
+	}
 	c.JSON(http.StatusOK, h.userToResponse(user))
 }
 
@@ -245,7 +276,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		req.RoleID = nil
+		req.BranchID = nil
 		req.IsVerified = nil
+		req.IsActive = nil
 	}
 	if authz.CanAssignRoles(roleID) && req.RoleID != nil && !authz.IsKnownRole(*req.RoleID) {
 		badRequest(c, "Invalid role_id")
@@ -286,6 +319,10 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	if req.IsActive != nil {
 		body.IsActive = *req.IsActive
+	}
+	if authz.CanAssignRoles(roleID) && userRoleRequiresBranch(body.RoleID) && body.BranchID == nil {
+		badRequest(c, "branch_id is required for this role")
+		return
 	}
 	if err := h.service.UpdateUser(&body); err != nil {
 		log.Printf("UpdateUser: service error: %v", err)
@@ -337,8 +374,19 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		return
 	}
 	out := make([]*userResponse, 0, len(users))
+	var current *models.User
+	if !authz.CanViewLeadershipData(roleID) {
+		current, err = h.service.GetUserByID(c.GetInt("user_id"))
+		if err != nil || current == nil || current.BranchID == nil {
+			forbidden(c, "Forbidden")
+			return
+		}
+	}
 	for _, u := range users {
 		if !authz.CanViewLeadershipData(roleID) && u.RoleID == authz.RoleManagement {
+			continue
+		}
+		if !authz.CanViewLeadershipData(roleID) && !sameUserBranch(current, u) {
 			continue
 		}
 		out = append(out, h.userToResponse(u))
@@ -349,6 +397,10 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if !authz.CanViewLeadershipData(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -363,6 +415,10 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if !authz.CanViewLeadershipData(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -396,12 +452,13 @@ func (h *UserHandler) Register(c *gin.Context) {
 		LastName:    req.LastName,
 		MiddleName:  req.MiddleName,
 		Position:    req.Position,
-		BranchID:    req.BranchID,
+		BranchID:    nil,
 		Email:       req.Email,
 		Phone:       req.Phone,
 		RoleID:      authz.RoleSales,
 		IsVerified:  false,
 		IsActive:    true,
+		IsActiveSet: true,
 	}
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("Register: service error: %v", err)
@@ -414,5 +471,5 @@ func (h *UserHandler) Register(c *gin.Context) {
 			verificationSent = true
 		}
 	}
-	c.JSON(http.StatusCreated, gin.H{"user": h.userToResponse(user), "message": "Registered. Email code sent.", "verification_sent": verificationSent})
+	c.JSON(http.StatusCreated, gin.H{"user": h.userToResponse(user), "message": "Registered. Verification code sent.", "verification_sent": verificationSent})
 }

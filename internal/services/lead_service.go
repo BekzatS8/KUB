@@ -54,6 +54,9 @@ func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositorie
 	svc := &LeadService{Repo: leadRepo, DealRepo: dealRepo, ClientSvc: clientSvc}
 	if len(userRepo) > 0 {
 		svc.UserRepo = userRepo[0]
+		if svc.ClientSvc != nil {
+			svc.ClientSvc.SetUserRepo(userRepo[0])
+		}
 	}
 	return svc
 }
@@ -66,10 +69,12 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 	if roleID == authz.RoleSales {
 		lead.OwnerID = userID
 	}
-	if s.UserRepo != nil {
-		if u, err := s.UserRepo.GetByID(userID); err == nil && u != nil {
-			lead.BranchID = u.BranchID
-		}
+	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	if scopeErr != nil {
+		return 0, scopeErr
+	}
+	if branchScope != nil {
+		lead.BranchID = branchScope
 	}
 	if lead.OwnerID == 0 {
 		lead.OwnerID = userID
@@ -79,6 +84,9 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 	}
 	if lead.Status == "" {
 		lead.Status = "new"
+	}
+	if !sameLeadBranch(branchScope, lead) {
+		return 0, ErrForbidden
 	}
 	// created_at нам вернёт репозиторий через RETURNING
 	return s.Repo.Create(lead)
@@ -157,7 +165,11 @@ func (s *LeadService) ListForRole(userID, roleID, limit, offset int, scope repos
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	if branchScope != nil {
 		filter.BranchID = branchScope
 	}
 	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
@@ -172,7 +184,11 @@ func (s *LeadService) ListForRoleWithTotal(userID, roleID, limit, offset int, sc
 	if err != nil {
 		return nil, 0, err
 	}
-	if branchScope, err := s.branchScopeForRole(userID, roleID); err == nil && branchScope != nil {
+	branchScope, err := s.branchScopeForRole(userID, roleID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if branchScope != nil {
 		filter.BranchID = branchScope
 	}
 	total, err := s.Repo.CountAllWithFilterAndArchiveScope(filter, scope)

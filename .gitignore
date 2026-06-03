@@ -8,3 +8,5 @@ config/config.yaml
 .env.prod
 .env.local
 config/config.local.yaml
+reports/branch_readiness_audit_*.txt
+backups/

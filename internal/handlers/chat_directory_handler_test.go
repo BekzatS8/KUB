@@ -31,6 +31,21 @@ type chatDirectoryRepoStub struct {
 	}
 }
 
+func chatTestBranchIDValue(v int) *int {
+	return &v
+}
+
+func chatTestBranchID() *int {
+	return chatTestBranchIDValue(1)
+}
+
+func withChatTestBranch(ch *models.Chat) *models.Chat {
+	if ch != nil && ch.BranchID == nil {
+		ch.BranchID = chatTestBranchID()
+	}
+	return ch
+}
+
 func (s *chatDirectoryRepoStub) ListChatDirectoryUsers(viewerUserID int, query string, limit, offset int) ([]*models.ChatUserDirectoryItem, int, error) {
 	q := strings.ToLower(strings.TrimSpace(query))
 	filtered := make([]*models.ChatUserDirectoryItem, 0, len(s.items))
@@ -62,6 +77,7 @@ func (s *chatDirectoryRepoStub) ListUserChats(int) ([]*models.Chat, error) {
 	for _, ch := range s.chats {
 		cp := *ch
 		cp.Members = append([]int(nil), ch.Members...)
+		withChatTestBranch(&cp)
 		out = append(out, &cp)
 	}
 	return out, nil
@@ -72,10 +88,24 @@ func (s *chatDirectoryRepoStub) ListMessages(int, int, int) ([]*models.ChatMessa
 func (s *chatDirectoryRepoStub) CreateMessage(int, int, string, []string) (*models.ChatMessage, error) {
 	return nil, nil
 }
-func (s *chatDirectoryRepoStub) IsMember(int, int) (bool, error) { return false, nil }
+func (s *chatDirectoryRepoStub) IsMember(chatID, userID int) (bool, error) {
+	for _, ch := range s.chats {
+		if ch.ID != chatID {
+			continue
+		}
+		for _, member := range ch.Members {
+			if member == userID {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	return false, nil
+}
 func (s *chatDirectoryRepoStub) CreateChat(name string, isGroup bool, creatorID int, memberIDs []int) (*models.Chat, error) {
 	id := len(s.chats) + 100
 	chat := &models.Chat{ID: id, IsGroup: isGroup, Name: name, CreatorID: creatorID, Members: append([]int(nil), memberIDs...)}
+	withChatTestBranch(chat)
 	s.chats = append(s.chats, chat)
 	return chat, nil
 }
@@ -99,6 +129,7 @@ func (s *chatDirectoryRepoStub) GetChatByID(id int) (*models.Chat, error) {
 		if ch.ID == id {
 			cp := *ch
 			cp.Members = append([]int(nil), ch.Members...)
+			withChatTestBranch(&cp)
 			return &cp, nil
 		}
 	}
@@ -132,6 +163,7 @@ func (s *chatDirectoryRepoStub) SearchChats(userID int, query string) ([]*models
 		if strings.Contains(name, q) || strings.Contains(lastText, q) {
 			cp := *ch
 			cp.Members = append([]int(nil), ch.Members...)
+			withChatTestBranch(&cp)
 			matched = append(matched, &cp)
 			continue
 		}
@@ -148,6 +180,7 @@ func (s *chatDirectoryRepoStub) SearchChats(userID int, query string) ([]*models
 				if strings.Contains(hay, q) {
 					cp := *ch
 					cp.Members = append([]int(nil), ch.Members...)
+					withChatTestBranch(&cp)
 					matched = append(matched, &cp)
 					break
 				}
@@ -220,6 +253,7 @@ func (s *chatDirectoryRepoStub) FindPersonalChat(user1, user2 int) (*models.Chat
 		if has1 && has2 {
 			cp := *ch
 			cp.Members = append([]int(nil), ch.Members...)
+			withChatTestBranch(&cp)
 			return &cp, nil
 		}
 	}
@@ -232,10 +266,13 @@ func setupChatDirectoryRouter(roleID int, repo repositories.ChatRepository) *gin
 	gin.SetMode(gin.TestMode)
 	userRepo := &chatTestUserRepo{
 		users: map[int]*models.User{
-			1: {ID: 1, IsVerified: true, Email: "me@kub.local"},
-			2: {ID: 2, IsVerified: true, Email: "u2@kub.local"},
-			7: {ID: 7, IsVerified: true, Email: "u7@kub.local"},
-			9: {ID: 9, IsVerified: false, Email: "u9@kub.local"},
+			1: {ID: 1, RoleID: roleID, BranchID: chatTestBranchID(), IsVerified: true, Email: "me@kub.local"},
+			2: {ID: 2, RoleID: authz.RoleOperations, BranchID: chatTestBranchID(), IsVerified: true, Email: "u2@kub.local"},
+			3: {ID: 3, RoleID: authz.RoleSales, BranchID: chatTestBranchID(), IsVerified: true, Email: "u3@kub.local"},
+			4: {ID: 4, RoleID: authz.RoleControl, BranchID: chatTestBranchID(), IsVerified: true, Email: "u4@kub.local"},
+			7: {ID: 7, RoleID: authz.RoleOperations, BranchID: chatTestBranchID(), IsVerified: true, Email: "u7@kub.local"},
+			8: {ID: 8, RoleID: authz.RoleOperations, BranchID: chatTestBranchIDValue(2), IsVerified: true, Email: "u8@kub.local"},
+			9: {ID: 9, RoleID: authz.RoleSales, BranchID: chatTestBranchID(), IsVerified: false, Email: "u9@kub.local"},
 		},
 	}
 	svc := services.NewChatService(repo, "", userRepo)
@@ -250,6 +287,7 @@ func setupChatDirectoryRouter(roleID int, repo repositories.ChatRepository) *gin
 	r.GET("/chats", h.ListChats)
 	r.GET("/chats/search", h.SearchChats)
 	r.GET("/chats/:id/info", h.GetChatInfo)
+	r.GET("/chats/status/:id", h.GetUserStatus)
 	r.GET("/chats/:id/messages", h.ListMessages)
 	r.POST("/chats/:id/add-members", h.AddMembers)
 	r.POST("/chats/personal", h.CreatePersonalChat)
@@ -452,6 +490,7 @@ func TestListChats_GroupContainsParticipantsPreview(t *testing.T) {
 
 func TestGetChatInfo_ReturnsParticipantsWithSafeMeaningfulFields(t *testing.T) {
 	repo := &chatDirectoryRepoStub{
+		chats: []*models.Chat{{ID: 12, IsGroup: false, Members: []int{1, 7}}},
 		info: &models.ChatInfoResponse{
 			Chat: models.ChatInfoMeta{ID: 12, IsGroup: false, Name: ""},
 			Participants: []models.ChatInfoParticipant{
@@ -472,6 +511,17 @@ func TestGetChatInfo_ReturnsParticipantsWithSafeMeaningfulFields(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "\"display_name\":\"Aigerim Tulegenova\"") || !strings.Contains(w.Body.String(), "\"role_code\":\"operations\"") {
 		t.Fatalf("expected participant safe fields in response: %s", w.Body.String())
+	}
+}
+
+func TestGetUserStatus_ForbidsForeignBranch(t *testing.T) {
+	repo := &chatDirectoryRepoStub{}
+	r := setupChatDirectoryRouter(authz.RoleSales, repo)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/chats/status/8", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

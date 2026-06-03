@@ -21,6 +21,13 @@ templates:
   xlsx_dir: "assets/templates/xlsx"
   txt_dir: "assets/templates/txt"
 
+libreoffice:
+  enable: true
+  binary: "libreoffice"
+
+documents:
+  strict_placeholders: true
+
 telegram:
   enable: false
   bot_token: "REPLACE_TELEGRAM_BOT_TOKEN"
@@ -63,7 +70,7 @@ sign_session_ttl_minutes: 30
 mobizon:
   enabled: false
   api_key: ""
-  base_url: "https://api.mobizon.kz"
+  base_url: "https://api.mobizon.kz/service"
   from: ""
   timeout_seconds: 10
   retries: 1

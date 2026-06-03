@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 	"turcompany/internal/storage"
@@ -34,6 +35,10 @@ func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {
 	if err != nil {
 		return nil, err
 	}
+	chats, err = s.filterChatsByBranchAccess(userID, chats)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.attachMemberStatuses(chats, userID); err != nil {
 		return nil, err
 	}
@@ -49,6 +54,10 @@ func (s *ChatService) SearchChats(userID int, query string) ([]*models.Chat, err
 		return []*models.Chat{}, nil
 	}
 	chats, err := s.repo.SearchChats(userID, query)
+	if err != nil {
+		return nil, err
+	}
+	chats, err = s.filterChatsByBranchAccess(userID, chats)
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +79,28 @@ func (s *ChatService) ListDirectoryUsers(viewerUserID int, query string, limit, 
 
 	// defense-in-depth: even if repository filter changes, never return current user in picker.
 	filtered := make([]*models.ChatUserDirectoryItem, 0, len(items))
+	viewer, err := s.chatUserForBranchScope(viewerUserID)
+	if err != nil {
+		return nil, 0, err
+	}
+	global := canUseAllChatBranches(viewer)
+	if !global && viewer.BranchID == nil {
+		return nil, 0, ErrChatForbidden
+	}
 	for _, item := range items {
 		if item == nil || item.UserID == viewerUserID {
 			continue
 		}
+		if !global {
+			target, err := s.chatUserForBranchScope(item.UserID)
+			if err != nil || !sameChatUserBranch(viewer, target) {
+				continue
+			}
+		}
 		filtered = append(filtered, item)
+	}
+	if !global {
+		total = len(filtered)
 	}
 	return filtered, total, nil
 }
@@ -273,6 +299,9 @@ func (s *ChatService) CreatePersonalChat(user1, user2 int) (*models.Chat, error)
 	if err := s.ensureTargetUserForPersonalChat(user2); err != nil {
 		return nil, err
 	}
+	if err := s.ensureUsersInChatBranch(user1, []int{user2}); err != nil {
+		return nil, err
+	}
 	existing, err := s.repo.FindPersonalChat(user1, user2)
 	if err != nil {
 		return nil, err
@@ -296,6 +325,9 @@ func (s *ChatService) CreateGroupChat(name string, creatorID int, members []int)
 			return nil, err
 		}
 	}
+	if err := s.ensureUsersInChatBranch(creatorID, members); err != nil {
+		return nil, err
+	}
 	return s.repo.CreateChat(name, true, creatorID, members)
 }
 
@@ -304,6 +336,84 @@ func (s *ChatService) LeaveChat(chatID, userID int) error {
 		return err
 	}
 	return s.repo.RemoveMember(chatID, userID)
+}
+
+func (s *ChatService) filterChatsByBranchAccess(userID int, chats []*models.Chat) ([]*models.Chat, error) {
+	user, err := s.chatUserForBranchScope(userID)
+	if err != nil {
+		return nil, err
+	}
+	if canUseAllChatBranches(user) {
+		return chats, nil
+	}
+	if user.BranchID == nil {
+		return nil, ErrChatForbidden
+	}
+	filtered := make([]*models.Chat, 0, len(chats))
+	for _, chat := range chats {
+		if chat == nil || !chatMatchesUserBranch(chat, user) {
+			continue
+		}
+		filtered = append(filtered, chat)
+	}
+	return filtered, nil
+}
+
+func (s *ChatService) ensureChatBranchAccessForChat(chat *models.Chat, userID int) error {
+	user, err := s.chatUserForBranchScope(userID)
+	if err != nil {
+		return err
+	}
+	if canUseAllChatBranches(user) {
+		return nil
+	}
+	if !chatMatchesUserBranch(chat, user) {
+		return ErrChatForbidden
+	}
+	return nil
+}
+
+func (s *ChatService) ensureUsersInChatBranch(actorID int, memberIDs []int) error {
+	actor, err := s.chatUserForBranchScope(actorID)
+	if err != nil {
+		return err
+	}
+	if canUseAllChatBranches(actor) {
+		return nil
+	}
+	for _, memberID := range memberIDs {
+		member, err := s.chatUserForBranchScope(memberID)
+		if err != nil {
+			return err
+		}
+		if !sameChatUserBranch(actor, member) {
+			return ErrChatForbidden
+		}
+	}
+	return nil
+}
+
+func (s *ChatService) chatUserForBranchScope(userID int) (*models.User, error) {
+	if s.userRepo == nil {
+		return nil, ErrChatForbidden
+	}
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		return nil, ErrChatUserNotFound
+	}
+	return user, nil
+}
+
+func canUseAllChatBranches(user *models.User) bool {
+	return user != nil && (user.RoleID == authz.RoleManagement || user.RoleID == authz.RoleSystemAdmin)
+}
+
+func sameChatUserBranch(a, b *models.User) bool {
+	return a != nil && b != nil && a.BranchID != nil && b.BranchID != nil && *a.BranchID == *b.BranchID
+}
+
+func chatMatchesUserBranch(chat *models.Chat, user *models.User) bool {
+	return chat != nil && user != nil && chat.BranchID != nil && user.BranchID != nil && *chat.BranchID == *user.BranchID
 }
 
 func contains(slice []int, v int) bool {
@@ -332,12 +442,18 @@ func (s *ChatService) AddMembers(chatID, userID int, memberIDs []int) error {
 	if !contains(chat.Members, userID) {
 		return ErrChatForbidden
 	}
+	if err := s.ensureChatBranchAccessForChat(chat, userID); err != nil {
+		return err
+	}
 
 	uniq := uniqueInts(memberIDs)
 	for _, memberID := range uniq {
 		if err := s.ensureActiveUser(memberID); err != nil {
 			return err
 		}
+	}
+	if err := s.ensureUsersInChatBranch(userID, uniq); err != nil {
+		return err
 	}
 	return s.repo.AddMembers(chatID, uniq)
 }
@@ -348,6 +464,9 @@ func (s *ChatService) DeleteChat(chatID, userID int) error {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrChatNotFound
 		}
+		return err
+	}
+	if err := s.ensureChatBranchAccessForChat(chat, userID); err != nil {
 		return err
 	}
 
@@ -385,10 +504,23 @@ func (s *ChatService) ensureMember(chatID, userID int) error {
 		}
 		return ErrNotChatMember
 	}
+	chat, err := s.repo.GetChatByID(chatID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrChatNotFound
+		}
+		return err
+	}
+	if err := s.ensureChatBranchAccessForChat(chat, userID); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (s *ChatService) GetChatInfo(chatID, userID int) (*models.ChatInfoResponse, error) {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	info, err := s.repo.GetChatInfo(chatID, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -405,8 +537,21 @@ func (s *ChatService) GetChatInfo(chatID, userID int) (*models.ChatInfoResponse,
 	return info, nil
 }
 
-func (s *ChatService) GetUserStatus(userID int) (bool, time.Time, error) {
-	return s.repo.GetOnlineStatus(userID)
+func (s *ChatService) GetUserStatus(viewerUserID, targetUserID int) (bool, time.Time, error) {
+	viewer, err := s.chatUserForBranchScope(viewerUserID)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	if !canUseAllChatBranches(viewer) {
+		target, err := s.chatUserForBranchScope(targetUserID)
+		if err != nil {
+			return false, time.Time{}, err
+		}
+		if !sameChatUserBranch(viewer, target) {
+			return false, time.Time{}, ErrChatForbidden
+		}
+	}
+	return s.repo.GetOnlineStatus(targetUserID)
 }
 
 func (s *ChatService) EnsureMember(chatID, userID int) error {
@@ -434,6 +579,10 @@ func (s *ChatService) MarkChatRead(chatID, userID int, messageID *int) (int, *mo
 
 func (s *ChatService) ListUnreadChats(userID int) ([]*models.Chat, error) {
 	chats, err := s.repo.ListUserChats(userID)
+	if err != nil {
+		return nil, err
+	}
+	chats, err = s.filterChatsByBranchAccess(userID, chats)
 	if err != nil {
 		return nil, err
 	}
@@ -594,6 +743,9 @@ func (s *ChatService) EditMessage(chatID, messageID, userID int, text string) (*
 	if text == "" {
 		return nil, ErrInvalidChatPayload
 	}
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	msg, err := s.repo.EditMessage(chatID, messageID, userID, text)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -605,6 +757,9 @@ func (s *ChatService) EditMessage(chatID, messageID, userID int, text string) (*
 }
 
 func (s *ChatService) DeleteMessage(chatID, messageID, userID int) (*models.ChatMessage, error) {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	msg, err := s.repo.DeleteMessage(chatID, messageID, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -616,6 +771,9 @@ func (s *ChatService) DeleteMessage(chatID, messageID, userID int) (*models.Chat
 }
 
 func (s *ChatService) PinMessage(chatID, messageID, userID int) (*models.PinResponse, error) {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	p, err := s.repo.PinMessage(chatID, messageID, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -627,6 +785,9 @@ func (s *ChatService) PinMessage(chatID, messageID, userID int) (*models.PinResp
 }
 
 func (s *ChatService) UnpinMessage(chatID, messageID, userID int) error {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return err
+	}
 	if err := s.repo.UnpinMessage(chatID, messageID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrChatForbidden
@@ -637,14 +798,36 @@ func (s *ChatService) UnpinMessage(chatID, messageID, userID int) error {
 }
 
 func (s *ChatService) FavoriteMessage(chatID, messageID, userID int) (*models.FavoriteResponse, error) {
-	return s.repo.FavoriteMessage(chatID, messageID, userID)
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
+	fav, err := s.repo.FavoriteMessage(chatID, messageID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrChatForbidden
+		}
+		return nil, err
+	}
+	return fav, nil
 }
 
 func (s *ChatService) UnfavoriteMessage(chatID, messageID, userID int) error {
-	return s.repo.UnfavoriteMessage(chatID, messageID, userID)
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return err
+	}
+	if err := s.repo.UnfavoriteMessage(chatID, messageID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrChatForbidden
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *ChatService) ListPins(chatID, userID, limit, offset int) ([]*models.PinResponse, error) {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 20
 	}
@@ -658,6 +841,9 @@ func (s *ChatService) ListPins(chatID, userID, limit, offset int) ([]*models.Pin
 }
 
 func (s *ChatService) ListFavorites(chatID, userID, limit, offset int) ([]*models.FavoriteResponse, error) {
+	if err := s.ensureMember(chatID, userID); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 20
 	}

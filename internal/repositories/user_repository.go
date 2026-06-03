@@ -47,7 +47,7 @@ func (r *userRepository) Create(user *models.User) error {
 		RETURNING id
 	`
 	isActive := user.IsActive
-	if !isActive {
+	if !user.IsActiveSet && !isActive {
 		isActive = true
 	}
 	return r.DB.QueryRow(q,

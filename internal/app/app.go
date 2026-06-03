@@ -136,6 +136,25 @@ func Run() {
 		cfg.Email.FromEmail,
 		cfg.Email.FromName,
 	)
+	smsSender := services.NewMobizonSMSClient(services.MobizonSMSConfig{
+		Enabled: cfg.Mobizon.Enabled,
+		APIKey:  cfg.Mobizon.APIKey,
+		BaseURL: cfg.Mobizon.BaseURL,
+		From:    cfg.Mobizon.From,
+		Timeout: time.Duration(cfg.Mobizon.TimeoutSeconds) * time.Second,
+		Retries: cfg.Mobizon.Retries,
+		DryRun:  cfg.Mobizon.DryRun,
+	})
+	log.Printf(
+		"[BOOT] config: mobizon.enabled=%v api_url=%s from_set=%v api_key_set=%v timeout_s=%d retries=%d dry_run=%v",
+		cfg.Mobizon.Enabled,
+		cfg.Mobizon.BaseURL,
+		strings.TrimSpace(cfg.Mobizon.From) != "",
+		strings.TrimSpace(cfg.Mobizon.APIKey) != "",
+		cfg.Mobizon.TimeoutSeconds,
+		cfg.Mobizon.Retries,
+		cfg.Mobizon.DryRun,
+	)
 
 	var (
 		tgSvc               *services.TelegramService
@@ -172,7 +191,7 @@ func Run() {
 	dealService := services.NewDealService(dealRepo, clientRepo)
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
-	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, authService, cfg.Frontend.Host)
+	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, cfg.Templates.TxtDir, "assets/fonts/DejaVuSans.ttf")
 
@@ -207,15 +226,6 @@ func Run() {
 	}
 
 	signDelivery := services.NewDisabledSignDelivery()
-	smsSender := services.NewMobizonSMSClient(services.MobizonSMSConfig{
-		Enabled: cfg.Mobizon.Enabled,
-		APIKey:  cfg.Mobizon.APIKey,
-		BaseURL: cfg.Mobizon.BaseURL,
-		From:    cfg.Mobizon.From,
-		Timeout: time.Duration(cfg.Mobizon.TimeoutSeconds) * time.Second,
-		Retries: cfg.Mobizon.Retries,
-		DryRun:  cfg.Mobizon.DryRun,
-	})
 	signSessionService := services.NewSignSessionService(
 		signSessionRepo,
 		documentService,
@@ -268,6 +278,7 @@ func Run() {
 		emailService,
 		nil,
 	)
+	userVerificationService.SetSMSSender(smsSender)
 
 	// Reports
 	reportService := services.NewReportService(leadRepo, dealRepo, userRepo)

@@ -15,6 +15,7 @@ type User struct {
 	RoleID       int    `json:"role_id"`
 	BranchID     *int   `json:"branch_id,omitempty"`
 	IsActive     bool   `json:"is_active"`
+	IsActiveSet  bool   `json:"-"`
 
 	Phone               string     `json:"phone"`
 	IsVerified          bool       `json:"is_verified"`

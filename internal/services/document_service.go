@@ -100,18 +100,26 @@ func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
 	switch roleID {
 	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
 		if s.UserRepo == nil {
-			return nil, nil
+			return nil, ErrForbidden
 		}
 		u, err := s.UserRepo.GetByID(userID)
 		if err != nil || u == nil || u.BranchID == nil {
-			return nil, errors.New("forbidden")
+			return nil, ErrForbidden
 		}
 		return u.BranchID, nil
 	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return nil, nil
 	default:
-		return nil, errors.New("forbidden")
+		return nil, ErrForbidden
 	}
+}
+
+func documentBranchIDFromDeal(deal *models.Deals) *int64 {
+	if deal == nil || deal.BranchID == nil {
+		return nil
+	}
+	v := int64(*deal.BranchID)
+	return &v
 }
 
 func dealMatchesBranch(scope *int, deal *models.Deals) bool {
@@ -139,6 +147,20 @@ func (s *DocumentService) ensureDealAccess(deal *models.Deals, userID, roleID in
 		return errors.New("forbidden")
 	}
 	return nil
+}
+
+func (s *DocumentService) loadDocumentDealForAccess(doc *models.Document, userID, roleID int) (*models.Deals, error) {
+	if doc == nil {
+		return nil, ErrNotFound
+	}
+	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	if err != nil || deal == nil {
+		return nil, ErrNotFound
+	}
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return nil, err
+	}
+	return deal, nil
 }
 
 func (s *DocumentService) ResolveListBranchScope(userID, roleID int, requested *int64) (*int64, error) {
@@ -351,13 +373,8 @@ func (s *DocumentService) PrepareForSignature(id int64, userID, roleID int) erro
 		return errors.New("not found")
 	}
 
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-	if derr != nil || deal == nil {
-		return errors.New("not found")
-	}
-
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if _, err := s.loadDocumentDealForAccess(doc, userID, roleID); err != nil {
+		return err
 	}
 
 	if doc.Status != "approved" {
@@ -375,13 +392,8 @@ func (s *DocumentService) GetSignatureMetadata(id int64, userID, roleID int) (ma
 		return nil, errors.New("not found")
 	}
 
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-	if derr != nil || deal == nil {
-		return nil, errors.New("not found")
-	}
-
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, errors.New("forbidden")
+	if _, err := s.loadDocumentDealForAccess(doc, userID, roleID); err != nil {
+		return nil, err
 	}
 
 	result := map[string]interface{}{
@@ -915,6 +927,9 @@ func (s *DocumentService) Review(id int64, action string, userID, roleID int) er
 	if doc.Status != "under_review" {
 		return errors.New("invalid status")
 	}
+	if _, err := s.loadDocumentDealForAccess(doc, userID, roleID); err != nil {
+		return err
+	}
 	switch action {
 	case "approve":
 		return s.DocRepo.UpdateStatus(id, "approved")
@@ -1062,8 +1077,8 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 		return "", "", errors.New("not found")
 	}
 	// Sales — только свои документы
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return "", "", errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return "", "", err
 	}
 
 	// Теперь FilePath может быть "/pdf/xxx.pdf" или "xxx.pdf" (для upload)
@@ -1102,8 +1117,8 @@ func (s *DocumentService) EnsureSigningAllowed(docID int64, userID, roleID int) 
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return err
 	}
 	if doc.Status != "approved" {
 		return errors.New("invalid status")
@@ -1126,8 +1141,8 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	if derr != nil || deal == nil {
 		return "", "", errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return "", "", errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return "", "", err
 	}
 
 	variant = strings.ToLower(strings.TrimSpace(variant))
@@ -1244,8 +1259,8 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 	if err != nil || deal == nil {
 		return nil, errors.New("deal not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, errors.New("forbidden")
+	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+		return nil, err
 	}
 
 	if s.PDFGen == nil {
@@ -1286,6 +1301,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 		Status:      "draft",
 		FilePath:    relPath,
 		FilePathPdf: relPath,
+		BranchID:    documentBranchIDFromDeal(deal),
 	}
 	id, ierr := s.DocRepo.Create(doc)
 	if ierr != nil {
@@ -1360,8 +1376,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 			}
 		}
 
-		if roleID == authz.RoleSales && deal.OwnerID != userID {
-			return nil, errors.New("forbidden")
+		if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1410,6 +1426,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 			FilePath:     excelRelPath,
 			FilePathPdf:  normalizeStoragePath(excelPDFPath),
 			FilePathDocx: "",
+			BranchID:     documentBranchIDFromDeal(deal),
 		}
 
 		id, err := s.DocRepo.Create(doc)
@@ -1448,6 +1465,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 			FilePath:     mainPath, // основной путь — PDF если он есть
 			FilePathPdf:  pdfRelPath,
 			FilePathDocx: docxRelPath,
+			BranchID:     documentBranchIDFromDeal(deal),
 		}
 
 		id, err := s.DocRepo.Create(doc)
@@ -1824,6 +1842,7 @@ func applyReasonCheckboxes(docType string, extra map[string]string, placeholders
 	switch docType {
 	case "refund_application":
 		applyReasonSet("REFUND", 6, "☑", "☐")
+		applyDocsMarks(extra, placeholders, 15)
 	case "pause_application":
 		applyReasonSet("PAUSE", 8, "X", "")
 	case "cancel_appointment":

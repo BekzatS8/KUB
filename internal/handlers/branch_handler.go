@@ -21,9 +21,23 @@ func NewBranchHandler(branchService services.BranchService, userService services
 }
 
 func (h *BranchHandler) List(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
+	userID, roleID := getUserAndRole(c)
 	if !authz.IsKnownRole(roleID) {
 		forbidden(c, "Forbidden")
+		return
+	}
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		me, err := h.userService.GetUserByID(userID)
+		if err != nil || me == nil || me.BranchID == nil {
+			forbidden(c, "Forbidden")
+			return
+		}
+		branch, err := h.branchService.GetBranchByID(*me.BranchID)
+		if err != nil || branch == nil {
+			notFound(c, ValidationFailed, "Branch not found")
+			return
+		}
+		c.JSON(http.StatusOK, []*models.Branch{branch})
 		return
 	}
 	branches, err := h.branchService.ListBranches()
@@ -52,7 +66,7 @@ func (h *BranchHandler) GetByID(c *gin.Context) {
 			unauthorized(c, "Unauthorized")
 			return
 		}
-		if me.BranchID != nil && *me.BranchID != id {
+		if me.BranchID == nil || *me.BranchID != id {
 			forbidden(c, "Forbidden")
 			return
 		}

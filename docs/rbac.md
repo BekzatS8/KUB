@@ -10,7 +10,7 @@
 |--------:|---------------------------|-------------|------------|
 | 10      | `sales`                   | `sales`     | Лиды/сделки/договоры в своей зоне |
 | 20      | `operations`              | `operations`| Проверка и операционный документооборот |
-| 30      | `control`                 | `audit`     | Глобальный read-only по бизнес-данным, без leadership данных |
+| 30      | `control`                 | `audit`     | Read-only по бизнес-данным своего филиала, без leadership данных |
 | 40      | `leadership`              | `management`| Полный доступ к бизнес-данным |
 | 50      | `system_admin`            | `admin`     | Суперпользователь: системное администрирование + полный доступ к бизнес-данным |
 
@@ -23,8 +23,8 @@
 - `CanAccessLogs` — только `system_admin`.
 - `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
 - `CanViewLeadershipData` — `leadership`, `system_admin`.
-- `CanViewAllBusinessData` — `leadership`, `control`, `operations` (legacy-поведение сохранено).
-- `CanAccessAllBusinessDataIncludingAdmin` — `leadership`, `control`, `operations`, `system_admin`.
+- `CanViewAllBusinessData` — legacy helper; endpoint-level branch scope ограничивает `operations` и `control` своим филиалом.
+- `CanAccessAllBusinessDataIncludingAdmin` — legacy helper; endpoint-level branch scope остаётся source of truth для business data.
 - `CanArchiveBusinessEntity` — бизнес-роли, кроме read-only, плюс `system_admin`.
 - `CanHardDeleteBusinessEntity` — только `system_admin` (`role_id=50`).
 
@@ -93,7 +93,7 @@
 
 ### Branch endpoints policy
 
-- `GET /branches` — доступен всем известным ролям (для UX-списка филиалов).
+- `GET /branches` — `system_admin` и `leadership` видят все филиалы; остальные роли получают только свой филиал.
 - `GET /branches/:id`:
   - `system_admin` и `leadership` — любой филиал;
   - остальные роли — только свой филиал (`users.branch_id`), иначе `403`.
@@ -107,16 +107,17 @@
 |---|---|
 | `sales` | Только свой филиал + свои записи (owner/self rules сохраняются) |
 | `operations` | Все данные своего филиала |
-| `control` | Read-only по всем филиалам |
+| `control` | Read-only по своему филиалу |
 | `leadership` | Полный доступ по всем филиалам |
 | `system_admin` | Полный доступ по всем филиалам |
 
-Дополнительно для elevated (`control`, `leadership`, `system_admin`) поддержан `branch_id` фильтр в list endpoints.
+Дополнительно для global ролей (`leadership`, `system_admin`) поддержан `branch_id` фильтр в list endpoints. Для `control` переданный `branch_id` игнорируется/заменяется на филиал пользователя.
 
 ### Reports branch filter
 
 - `GET /reports/funnel`, `GET /reports/leads`, `GET /reports/revenue`, `GET /reports/revenue/export` принимают optional `branch_id`.
-- `control` / `leadership` / `system_admin` могут использовать `branch_id` как фильтр по нужному филиалу.
+- `leadership` / `system_admin` могут использовать `branch_id` как фильтр по нужному филиалу.
+- `control` всегда ограничен своим `users.branch_id`, даже если передан чужой `branch_id`.
 - `sales` и `operations` не могут выбирать произвольный филиал через query:
   - `sales`: всегда `owner_id=self` + `branch_id=users.branch_id`;
   - `operations`: всегда `branch_id=users.branch_id`.

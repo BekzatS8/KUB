@@ -729,6 +729,18 @@ func handleSignConfirmError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, ValidationFailed, "Agreement text version mismatch. Please reopen the document before signing")
 	case errors.Is(err, services.ErrSignConfirmDocMismatch):
 		writeError(c, http.StatusConflict, ValidationFailed, "Document version mismatch. Please reopen the document before signing")
+	case errors.Is(err, services.ErrSMSInvalidPhone):
+		writeError(c, http.StatusBadRequest, BadRequestCode, "Invalid SMS recipient phone")
+	case errors.Is(err, services.ErrSMSEmptyText):
+		writeError(c, http.StatusBadRequest, BadRequestCode, "SMS text is empty")
+	case errors.Is(err, services.ErrSMSSendDisabled):
+		writeError(c, http.StatusServiceUnavailable, InternalErrorCode, "SMS delivery is disabled")
+	case errors.Is(err, services.ErrSMSAPIKeyMissing):
+		writeError(c, http.StatusServiceUnavailable, InternalErrorCode, "SMS provider is not configured")
+	case errors.Is(err, services.ErrSMSTimeout):
+		writeError(c, http.StatusGatewayTimeout, InternalErrorCode, "SMS provider timeout")
+	case errors.Is(err, services.ErrSMSProviderFailure), errors.Is(err, services.ErrSMSSendFailed):
+		writeError(c, http.StatusBadGateway, InternalErrorCode, "SMS provider error")
 	case errors.Is(err, services.ErrSignConfirmInvalidToken):
 		writeError(c, http.StatusNotFound, SignConfirmNotFoundCode, "Not found")
 	case errors.Is(err, services.ErrSignConfirmNotFound):

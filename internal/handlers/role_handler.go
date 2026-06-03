@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
@@ -29,6 +31,10 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 	if err := c.ShouldBindJSON(&role); err != nil {
 		log.Println("Bind error:", err)
 		badRequest(c, "Invalid role payload")
+		return
+	}
+	if strings.TrimSpace(role.Name) == "" {
+		badRequest(c, "Role name is required")
 		return
 	}
 	if err := h.service.CreateRole(&role); err != nil {
@@ -77,9 +83,17 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 		badRequest(c, "Invalid role payload")
 		return
 	}
+	if strings.TrimSpace(role.Name) == "" {
+		badRequest(c, "Role name is required")
+		return
+	}
 	role.ID = id
 
 	if err := h.service.UpdateRole(&role); err != nil {
+		if errors.Is(err, services.ErrNotFound) {
+			notFound(c, ValidationFailed, "Role not found")
+			return
+		}
 		internalError(c, "Failed to update role")
 		return
 	}
@@ -99,6 +113,14 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteRole(id); err != nil {
+		if errors.Is(err, services.ErrNotFound) {
+			notFound(c, ValidationFailed, "Role not found")
+			return
+		}
+		if errors.Is(err, services.ErrRoleInUse) {
+			conflict(c, ConflictCode, "Role is in use")
+			return
+		}
 		internalError(c, "Failed to delete role")
 		return
 	}

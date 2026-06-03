@@ -59,6 +59,16 @@ curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```bash
 make preflight
 ```
+Branch/RBAC release audit перед production deploy:
+```bash
+make branch-audit
+```
+PowerShell:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-branch-readiness-audit.ps1
+```
+Если audit вернул `CRITICAL > 0`, деплой нужно остановить до ручного назначения `branch_id`.
+
 Запуск:
 ```bash
 make up

@@ -19,6 +19,7 @@ KUB — это REST API на **Go + Gin**, с ролевой моделью до
 - [Clients data model](docs/clients.md)
 - [Manual QA smoke checklist](docs/manual_qa_checklist.md)
 - [Smoke map (E2E)](docs/smoke_map.md)
+- [Production release checklist](docs/production_release_checklist.md)
 - [Эндпоинты](#эндпоинты)  
 - [Коллекция Postman](#коллекция-postman)  
 - [Требования/запуск в проде](#требованиязапуск-в-проде)
@@ -275,7 +276,7 @@ TTL access-токена настраивается через переменну
 |-------------|---------------------------------------------------|
 | 10 `sales`  | Лиды/сделки свои, документы — отправка на ревью   |
 | 20 `operations`    | Операционный доступ к бизнес-сущностям и документам |
-| 30 `control`  | Широкий read-only доступ к бизнес-данным |
+| 30 `control`  | Read-only доступ к бизнес-данным только своего филиала |
 | 40 `leadership` | Полный доступ к бизнес-сущностям + подпись документов |
 | 50 `system_admin` | Системное администрирование: роли/пользователи/интеграции/debug |
 
@@ -307,7 +308,7 @@ TTL access-токена настраивается через переменну
 
 ### Branches (single-company model)
 
-- `GET /branches` — список филиалов (все аутентифицированные роли)
+- `GET /branches` — `system_admin/leadership` видят все филиалы; остальные роли получают только свой филиал
 - `GET /branches/:id` — детали филиала (`system_admin/leadership` любой; остальные — только свой)
 - `POST /branches` — создать филиал (`system_admin`)
 - `PUT /branches/:id` — обновить филиал (`system_admin`)
@@ -322,7 +323,7 @@ TTL access-токена настраивается через переменну
   - `task.branch_id` наследуется из автора (fallback)
   - `document.branch_id` наследуется из сделки
   - `chat.branch_id` наследуется из создателя чата
-- Elevated роли (`control`, `leadership`, `system_admin`) могут использовать list-фильтр `branch_id`.
+- Global роли (`leadership`, `system_admin`) могут использовать list-фильтр `branch_id`; `control` остаётся read-only в своём филиале.
 
 **Roles** (system_admin)
 - CRUD + счётчики
@@ -361,7 +362,8 @@ TTL access-токена настраивается через переменну
 **Reports** (sales/operations/control/leadership/system_admin)
 - `/reports/funnel`, `/reports/leads`, `/reports/revenue`, `/reports/revenue/export`
 - `branch_id` query filter:
-  - `control` / `leadership` / `system_admin` могут фильтровать отчёты по любому филиалу;
+  - `leadership` / `system_admin` могут фильтровать отчёты по любому филиалу;
+  - `control` всегда получает read-only отчёты только своего `branch_id`;
   - `sales` всегда получает отчёты только по `owner_id=self` и своему `branch_id`;
   - `operations` всегда получает отчёты своего `branch_id`.
 

@@ -73,6 +73,7 @@ func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 		"password":     "Passw0rd",
 		"phone":        "+77001112233",
 		"role_id":      authz.RoleSales,
+		"branch_id":    1,
 	}
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(raw))
@@ -104,7 +105,7 @@ func TestCreateUser_WithIsVerifiedTruePassesFlag(t *testing.T) {
 	})
 	r.POST("/users", h.CreateUser)
 
-	body := `{"company_name":"Acme","bin_iin":"123456789012","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"is_verified":true}`
+	body := `{"company_name":"Acme","bin_iin":"123456789012","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1,"is_verified":true}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

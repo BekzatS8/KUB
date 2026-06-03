@@ -15,7 +15,7 @@
 
 ## 1.1) Branches smoke
 1. Login as `system_admin`.
-2. `GET /branches` — ожидается список из 5 seed-филиалов.
+2. `GET /branches` — ожидается список из 5 seed-филиалов для `system_admin`.
 3. `POST /branches` — создать филиал.
 4. `PUT /branches/:id` — обновить филиал.
 5. `DELETE /branches/:id` — удалить филиал.
@@ -23,7 +23,7 @@
    - `GET /branches`, `GET /branches/:id` => 200
    - `POST/PUT/DELETE /branches...` => 403
 7. Login as business role (например `sales`):
-   - `GET /branches` => 200
+   - `GET /branches` => 200 и только свой филиал в списке
    - `GET /branches/:own_branch_id` => 200
    - `GET /branches/:other_id` => 403
 
@@ -116,7 +116,10 @@
    - попытка читать/обновлять записи Branch 1 => `403/404` по policy endpoint.
 4. Под `operations` Branch 1:
    - видит данные Branch 1, не видит Branch 2.
-5. Под `control`/`leadership`/`system_admin`:
+5. Под `control` Branch 1:
+   - видит только Branch 1 read-only;
+   - `?branch_id=<branch2>` не раскрывает данные Branch 2.
+6. Под `leadership`/`system_admin`:
    - видят все филиалы;
    - `?branch_id=<id>` ограничивает выборку нужным филиалом.
 
@@ -125,8 +128,9 @@
 2. Проверить:
    - `sales` -> отчёты только по своему филиалу и только по своим сделкам (owner=self), даже если передан `?branch_id=other`;
    - `operations` -> отчёты только своего филиала, даже если передан `?branch_id=other`;
-   - `control/leadership/system_admin` -> отчёты по всем филиалам;
-   - для elevated ролей `?branch_id=<id>` должен сужать отчёт до выбранного филиала.
+   - `control` -> отчёты только своего филиала, даже если передан `?branch_id=other`;
+   - `leadership/system_admin` -> отчёты по всем филиалам;
+   - для global ролей `?branch_id=<id>` должен сужать отчёт до выбранного филиала.
 
 ## 9) Migrations from zero
 1. Start clean DB volume.

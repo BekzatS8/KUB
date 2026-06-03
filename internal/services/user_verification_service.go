@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -16,6 +18,7 @@ type UserVerificationService struct {
 	Repo     UserVerificationRepo
 	UserSvc  UserService
 	EmailSvc EmailService
+	SMS      SMSSender
 	CodeTTL  time.Duration
 	now      func() time.Time
 }
@@ -36,6 +39,10 @@ func NewUserVerificationService(
 		CodeTTL:  DefaultVerificationTTL,
 		now:      now,
 	}
+}
+
+func (s *UserVerificationService) SetSMSSender(sender SMSSender) {
+	s.SMS = sender
 }
 
 // Send creates a verification record and sends an email with the OTP.
@@ -68,11 +75,10 @@ func (s *UserVerificationService) Send(userID int, email string) error {
 		return err
 	}
 
-	if err := s.EmailSvc.SendVerificationCode(email, code, ttlMinutes(ttl)); err != nil {
-		return fmt.Errorf("send verification email: %w", err)
+	if err := s.sendVerificationCode(userID, email, code, ttl, "send"); err != nil {
+		return err
 	}
 
-	log.Printf("[email][user][send] user_id=%d email=%s", userID, email)
 	return nil
 }
 
@@ -165,11 +171,10 @@ func (s *UserVerificationService) Resend(userID int) error {
 		return err
 	}
 
-	if err := s.EmailSvc.SendVerificationCode(user.Email, code, ttlMinutes(ttl)); err != nil {
-		return fmt.Errorf("send verification email: %w", err)
+	if err := s.sendVerificationCode(user.ID, user.Email, code, ttl, "resend"); err != nil {
+		return err
 	}
 
-	log.Printf("[email][user][resend] user_id=%d email=%s", user.ID, user.Email)
 	return nil
 }
 
@@ -302,6 +307,59 @@ func ttlMinutes(ttl time.Duration) int {
 		ttl = DefaultVerificationTTL
 	}
 	return int(math.Ceil(ttl.Minutes()))
+}
+
+func (s *UserVerificationService) sendVerificationCode(userID int, email, code string, ttl time.Duration, action string) error {
+	minutes := ttlMinutes(ttl)
+	var emailErr error
+	if s.EmailSvc != nil && strings.TrimSpace(email) != "" {
+		if err := s.EmailSvc.SendVerificationCode(email, code, minutes); err != nil {
+			emailErr = fmt.Errorf("send verification email: %w", err)
+			log.Printf("[email][user][%s] status=failed user_id=%d email=%s err=%v", action, userID, email, err)
+		} else {
+			log.Printf("[email][user][%s] status=ok user_id=%d email=%s", action, userID, email)
+		}
+	}
+
+	phone := s.lookupUserPhone(userID)
+	if s.SMS != nil && strings.TrimSpace(phone) != "" {
+		if _, err := s.SMS.Send(context.Background(), SMSMessage{To: phone, Text: BuildUserVerificationSMS(code, minutes)}); err != nil {
+			if !errors.Is(err, ErrSMSSendDisabled) {
+				log.Printf("[sms][user][%s] status=failed user_id=%d to=%s err=%v", action, userID, redactPhoneForLog(phone), err)
+			}
+			if emailErr != nil {
+				return fmt.Errorf("%v; send verification sms: %w", emailErr, err)
+			}
+			if !errors.Is(err, ErrSMSSendDisabled) {
+				return fmt.Errorf("send verification sms: %w", err)
+			}
+		} else {
+			log.Printf("[sms][user][%s] status=ok user_id=%d to=%s", action, userID, redactPhoneForLog(phone))
+		}
+	}
+
+	return emailErr
+}
+
+func (s *UserVerificationService) lookupUserPhone(userID int) string {
+	if s.UserSvc == nil || userID <= 0 {
+		return ""
+	}
+	user, err := s.UserSvc.GetUserByID(userID)
+	if err != nil || user == nil {
+		if err != nil {
+			log.Printf("[verify][phone] user_id=%d lookup failed: %v", userID, err)
+		}
+		return ""
+	}
+	return strings.TrimSpace(user.Phone)
+}
+
+func BuildUserVerificationSMS(code string, ttlMinutes int) string {
+	if ttlMinutes <= 0 {
+		ttlMinutes = int(math.Ceil(DefaultVerificationTTL.Minutes()))
+	}
+	return fmt.Sprintf("KUB CRM verification code: %s. Valid for %d min.", strings.TrimSpace(code), ttlMinutes)
 }
 
 func logVerifyConfirmDebug(userID int, email string, v *models.UserVerification, code, reason string) {

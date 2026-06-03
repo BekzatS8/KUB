@@ -1,6 +1,9 @@
 package services
 
 import (
+	"database/sql"
+	"errors"
+
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -32,11 +35,26 @@ func (s *roleService) GetRoleByID(id int) (*models.Role, error) {
 }
 
 func (s *roleService) UpdateRole(role *models.Role) error {
-	return s.repo.Update(role)
+	if err := s.repo.Update(role); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *roleService) DeleteRole(id int) error {
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if repositories.IsSQLState(err, repositories.SQLStateForeignKey) {
+			return ErrRoleInUse
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *roleService) ListRoles(limit, offset int) ([]*models.Role, error) {

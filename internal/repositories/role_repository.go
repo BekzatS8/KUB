@@ -74,14 +74,34 @@ func (r *roleRepository) Create(role *models.Role) error {
 
 func (r *roleRepository) Update(role *models.Role) error {
 	query := `UPDATE roles SET name = $1, description = $2 WHERE id = $3`
-	_, err := r.DB.Exec(query, role.Name, role.Description, role.ID)
-	return err
+	result, err := r.DB.Exec(query, role.Name, role.Description, role.ID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *roleRepository) Delete(id int) error {
 	query := `DELETE FROM roles WHERE id = $1`
-	_, err := r.DB.Exec(query, id)
-	return err
+	result, err := r.DB.Exec(query, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *roleRepository) GetCount() (int, error) {

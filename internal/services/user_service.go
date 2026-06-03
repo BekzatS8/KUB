@@ -57,7 +57,7 @@ func (s *userService) CreateUserWithPassword(user *models.User, plainPassword st
 	normalizeUserVerificationForCreate(user)
 
 	if err := s.repo.Create(user); err != nil {
-		return err
+		return normalizeUserCreateError(err)
 	}
 
 	if s.emailService != nil {
@@ -90,7 +90,7 @@ func (s *userService) CreateUser(user *models.User) error {
 	normalizeUserVerificationForCreate(user)
 
 	if err := s.repo.Create(user); err != nil {
-		return err
+		return normalizeUserCreateError(err)
 	}
 
 	if s.emailService != nil {
@@ -148,6 +148,15 @@ func (s *userService) RotateRefresh(oldToken, newToken string, newExpiresAt time
 // === verification ===
 func (s *userService) VerifyUser(userID int) error {
 	return s.repo.VerifyUser(userID)
+}
+
+func normalizeUserCreateError(err error) error {
+	if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
+		if repositories.ConstraintName(err) == "users_email_key" {
+			return ErrEmailAlreadyUsed
+		}
+	}
+	return err
 }
 
 func normalizeUserVerificationForCreate(user *models.User) {

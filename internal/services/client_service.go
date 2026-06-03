@@ -52,9 +52,9 @@ func (s *ClientService) currentUserBranch(userID int) (*int, error) {
 
 func (s *ClientService) branchScopeForRole(userID, roleID int) (*int, error) {
 	switch roleID {
-	case authz.RoleSales, authz.RoleOperations:
+	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
 		return s.currentUserBranch(userID)
-	case authz.RoleControl, authz.RoleManagement, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return nil, nil
 	default:
 		return nil, ErrForbidden
@@ -826,26 +826,26 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 	fallback.BranchID = branchScope
 	id, err := s.Repo.Create(fallback)
 	if err != nil {
-			if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
-				if fallback.BinIin != "" {
-					existing, lookupErr := s.Repo.GetByBIN(fallback.BinIin)
-					if lookupErr != nil {
-						return nil, lookupErr
-					}
-					if existing != nil && sameBranch(branchScope, existing) {
-						return existing, nil
-					}
+		if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
+			if fallback.BinIin != "" {
+				existing, lookupErr := s.Repo.GetByBIN(fallback.BinIin)
+				if lookupErr != nil {
+					return nil, lookupErr
 				}
-				if fallback.IIN != "" {
-					existing, lookupErr := s.Repo.GetByIIN(fallback.IIN)
-					if lookupErr != nil {
-						return nil, lookupErr
-					}
-					if existing != nil && sameBranch(branchScope, existing) {
-						return existing, nil
-					}
+				if existing != nil && sameBranch(branchScope, existing) {
+					return existing, nil
 				}
 			}
+			if fallback.IIN != "" {
+				existing, lookupErr := s.Repo.GetByIIN(fallback.IIN)
+				if lookupErr != nil {
+					return nil, lookupErr
+				}
+				if existing != nil && sameBranch(branchScope, existing) {
+					return existing, nil
+				}
+			}
+		}
 		return nil, err
 	}
 	fallback.ID = int(id)
