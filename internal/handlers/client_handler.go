@@ -387,7 +387,13 @@ func (h *ClientHandler) Create(c *gin.Context) {
 			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
 			return
 		}
-		badRequest(c, "Failed to create client")
+		if errors.Is(err, services.ErrSchemaMismatch) {
+			log.Printf("[clients][create][schema_mismatch] user_id=%d role_id=%d err=%v", userID, roleID, err)
+			internalError(c, err.Error())
+			return
+		}
+		log.Printf("[clients][create][error] user_id=%d role_id=%d err=%v", userID, roleID, err)
+		badRequest(c, err.Error())
 		return
 	}
 	client.ID = int(id)
@@ -593,7 +599,13 @@ func (h *ClientHandler) Update(c *gin.Context) {
 			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
 			return
 		}
-		badRequest(c, "Failed to update client")
+		if errors.Is(err, services.ErrSchemaMismatch) {
+			log.Printf("[clients][update][schema_mismatch] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
+			internalError(c, err.Error())
+			return
+		}
+		log.Printf("[clients][update][error] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
+		badRequest(c, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, current)
@@ -790,7 +802,13 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
 			return
 		}
-		badRequest(c, "Failed to update client")
+		if errors.Is(err, services.ErrSchemaMismatch) {
+			log.Printf("[clients][patch][schema_mismatch] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
+			internalError(c, err.Error())
+			return
+		}
+		log.Printf("[clients][patch][error] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
+		badRequest(c, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, updated)

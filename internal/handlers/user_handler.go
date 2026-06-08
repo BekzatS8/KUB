@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,8 @@ type updateUserRequest struct {
 	IsActive    *bool   `json:"is_active"`
 }
 
+var userPhoneE164Pattern = regexp.MustCompile(`^\+[1-9]\d{10,14}$`)
+
 func NewUserHandler(service services.UserService, branchService services.BranchService, verificationService *services.UserVerificationService) *UserHandler {
 	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService}
 }
@@ -89,6 +92,71 @@ func userFullName(u *models.User) string {
 		return strings.TrimSpace(u.CompanyName)
 	}
 	return u.Email
+}
+
+func trimCreateUserRequest(req *createUserRequest) {
+	req.CompanyName = strings.TrimSpace(req.CompanyName)
+	req.BinIin = strings.TrimSpace(req.BinIin)
+	req.FirstName = strings.TrimSpace(req.FirstName)
+	req.LastName = strings.TrimSpace(req.LastName)
+	req.MiddleName = strings.TrimSpace(req.MiddleName)
+	req.Position = strings.TrimSpace(req.Position)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Phone = strings.TrimSpace(req.Phone)
+}
+
+func trimStringPtr(value **string) {
+	if value != nil && *value != nil {
+		trimmed := strings.TrimSpace(**value)
+		*value = &trimmed
+	}
+}
+
+func trimUpdateUserRequest(req *updateUserRequest) {
+	trimStringPtr(&req.CompanyName)
+	trimStringPtr(&req.BinIin)
+	trimStringPtr(&req.FirstName)
+	trimStringPtr(&req.LastName)
+	trimStringPtr(&req.MiddleName)
+	trimStringPtr(&req.Position)
+	trimStringPtr(&req.Email)
+	trimStringPtr(&req.Phone)
+}
+
+func validateRequiredCreateUserFields(req createUserRequest) string {
+	switch {
+	case req.LastName == "":
+		return "last_name is required"
+	case req.FirstName == "":
+		return "first_name is required"
+	case req.MiddleName == "":
+		return "middle_name is required"
+	case req.Phone == "":
+		return "phone is required"
+	case !userPhoneE164Pattern.MatchString(req.Phone):
+		return "phone must be in international format, e.g. +77001234567"
+	case req.RoleID == 0:
+		return "role_id is required"
+	default:
+		return ""
+	}
+}
+
+func validateUpdateUserFields(req updateUserRequest) string {
+	switch {
+	case req.LastName != nil && *req.LastName == "":
+		return "last_name is required"
+	case req.FirstName != nil && *req.FirstName == "":
+		return "first_name is required"
+	case req.MiddleName != nil && *req.MiddleName == "":
+		return "middle_name is required"
+	case req.Phone != nil && *req.Phone == "":
+		return "phone is required"
+	case req.Phone != nil && !userPhoneE164Pattern.MatchString(*req.Phone):
+		return "phone must be in international format, e.g. +77001234567"
+	default:
+		return ""
+	}
 }
 
 func (h *UserHandler) branchPayload(branchID *int) interface{} {
@@ -155,10 +223,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		badRequest(c, "Invalid user payload")
 		return
 	}
-	newRole := req.RoleID
-	if newRole == 0 {
-		newRole = authz.RoleSales
+	trimCreateUserRequest(&req)
+	if msg := validateRequiredCreateUserFields(req); msg != "" {
+		badRequest(c, msg)
+		return
 	}
+	newRole := req.RoleID
 	if !authz.IsKnownRole(newRole) {
 		badRequest(c, "Invalid role_id")
 		return
@@ -265,6 +335,11 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	var req updateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, "Invalid user payload")
+		return
+	}
+	trimUpdateUserRequest(&req)
+	if msg := validateUpdateUserFields(req); msg != "" {
+		badRequest(c, msg)
 		return
 	}
 	body := *target
@@ -445,6 +520,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 		badRequest(c, "Invalid registration payload")
 		return
 	}
+	trimCreateUserRequest(&req)
 	user := &models.User{
 		CompanyName: req.CompanyName,
 		BinIin:      req.BinIin,

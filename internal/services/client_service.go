@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 	"time"
@@ -856,19 +857,41 @@ func mapClientDBError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if !repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
+	pqErr, ok := repositories.AsPQError(err)
+	if !ok {
 		return err
 	}
-	switch repositories.ConstraintName(err) {
-	case "clients_bin_iin_unique_idx":
-		return ErrClientAlreadyExists
-	case "client_individual_profiles_iin_uq":
-		return ErrIndividualIINExists
-	case "client_legal_profiles_bin_uq":
-		return ErrLegalBINExists
-	default:
-		return ErrClientAlreadyExists
+	switch string(pqErr.Code) {
+	case repositories.SQLStateUniqueViolation:
+		switch string(pqErr.Constraint) {
+		case "clients_bin_iin_unique_idx":
+			return ErrClientAlreadyExists
+		case "client_individual_profiles_iin_uq":
+			return ErrIndividualIINExists
+		case "client_legal_profiles_bin_uq":
+			return ErrLegalBINExists
+		default:
+			return ErrClientAlreadyExists
+		}
+	case repositories.SQLStateUndefinedTable, repositories.SQLStateUndefinedColumn:
+		return fmt.Errorf("%w: missing or outdated database migration (%s)", ErrSchemaMismatch, pqErr.Message)
+	case repositories.SQLStateNotNull:
+		if pqErr.Column != "" {
+			return fmt.Errorf("%w: required database column is empty (%s)", ErrSchemaMismatch, pqErr.Column)
+		}
+		return fmt.Errorf("%w: required database column is empty", ErrSchemaMismatch)
+	case repositories.SQLStateForeignKey:
+		if pqErr.Constraint != "" {
+			return fmt.Errorf("related record not found or unavailable (%s)", pqErr.Constraint)
+		}
+		return errors.New("related record not found or unavailable")
+	case repositories.SQLStateCheckViolation:
+		if pqErr.Constraint != "" {
+			return fmt.Errorf("invalid value for database constraint (%s)", pqErr.Constraint)
+		}
+		return errors.New("invalid value for database constraint")
 	}
+	return err
 }
 
 func (s *ClientService) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {

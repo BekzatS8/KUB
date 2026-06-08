@@ -364,7 +364,15 @@ SELECT cm.user_id,
        cm.role,
        cm.joined_at,
        u.email AS email,
-       COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+       COALESCE(
+           NULLIF(BTRIM(CONCAT_WS(' ',
+               NULLIF(BTRIM(u.last_name), ''),
+               NULLIF(BTRIM(u.first_name), ''),
+               NULLIF(BTRIM(u.middle_name), '')
+           )), ''),
+           NULLIF(BTRIM(u.company_name), ''),
+           u.email
+       ) AS display_name,
        COALESCE(rl.description, rl.name, 'unknown') AS role_name,
        COALESCE(rl.name, 'unknown') AS role_code,
        NULL::text AS avatar_url,
@@ -431,7 +439,15 @@ func (r *chatRepository) GetChatVisibleProfiles(userIDs []int) (map[int]*models.
 	}
 	const q = `
 SELECT u.id,
-       COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+       COALESCE(
+           NULLIF(BTRIM(CONCAT_WS(' ',
+               NULLIF(BTRIM(u.last_name), ''),
+               NULLIF(BTRIM(u.first_name), ''),
+               NULLIF(BTRIM(u.middle_name), '')
+           )), ''),
+           NULLIF(BTRIM(u.company_name), ''),
+           u.email
+       ) AS display_name,
        COALESCE(rl.name, 'unknown') AS role_code,
        COALESCE(rl.description, rl.name, 'unknown') AS role_name,
        u.email
@@ -474,6 +490,19 @@ WHERE u.id <> $1
   AND u.is_verified = TRUE
   AND (
       $2 = ''
+      OR COALESCE(u.first_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.last_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.middle_name, '') ILIKE '%' || $2 || '%'
+      OR BTRIM(CONCAT_WS(' ',
+          NULLIF(BTRIM(u.last_name), ''),
+          NULLIF(BTRIM(u.first_name), ''),
+          NULLIF(BTRIM(u.middle_name), '')
+      )) ILIKE '%' || $2 || '%'
+      OR BTRIM(CONCAT_WS(' ',
+          NULLIF(BTRIM(u.first_name), ''),
+          NULLIF(BTRIM(u.last_name), ''),
+          NULLIF(BTRIM(u.middle_name), '')
+      )) ILIKE '%' || $2 || '%'
       OR COALESCE(u.company_name, '') ILIKE '%' || $2 || '%'
       OR COALESCE(u.email, '') ILIKE '%' || $2 || '%'
       OR COALESCE(rl.name, '') ILIKE '%' || $2 || '%'
@@ -488,7 +517,15 @@ WHERE u.id <> $1
 	const listQ = `
 SELECT
 	u.id,
-	COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name,
+	COALESCE(
+		NULLIF(BTRIM(CONCAT_WS(' ',
+			NULLIF(BTRIM(u.last_name), ''),
+			NULLIF(BTRIM(u.first_name), ''),
+			NULLIF(BTRIM(u.middle_name), '')
+		)), ''),
+		NULLIF(BTRIM(u.company_name), ''),
+		u.email
+	) AS display_name,
 	COALESCE(rl.name, 'unknown') AS role_code,
 	COALESCE(rl.description, rl.name, 'unknown') AS role_name,
 	u.email,
@@ -511,6 +548,19 @@ WHERE u.id <> $1
   AND u.is_verified = TRUE
   AND (
       $2 = ''
+      OR COALESCE(u.first_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.last_name, '') ILIKE '%' || $2 || '%'
+      OR COALESCE(u.middle_name, '') ILIKE '%' || $2 || '%'
+      OR BTRIM(CONCAT_WS(' ',
+          NULLIF(BTRIM(u.last_name), ''),
+          NULLIF(BTRIM(u.first_name), ''),
+          NULLIF(BTRIM(u.middle_name), '')
+      )) ILIKE '%' || $2 || '%'
+      OR BTRIM(CONCAT_WS(' ',
+          NULLIF(BTRIM(u.first_name), ''),
+          NULLIF(BTRIM(u.last_name), ''),
+          NULLIF(BTRIM(u.middle_name), '')
+      )) ILIKE '%' || $2 || '%'
       OR COALESCE(u.company_name, '') ILIKE '%' || $2 || '%'
       OR COALESCE(u.email, '') ILIKE '%' || $2 || '%'
       OR COALESCE(rl.name, '') ILIKE '%' || $2 || '%'
@@ -840,7 +890,16 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) lm ON true
 LEFT JOIN LATERAL (
-    SELECT COALESCE(NULLIF(u.company_name, ''), u.email) AS display_name, u.email
+    SELECT COALESCE(
+               NULLIF(BTRIM(CONCAT_WS(' ',
+                   NULLIF(BTRIM(u.last_name), ''),
+                   NULLIF(BTRIM(u.first_name), ''),
+                   NULLIF(BTRIM(u.middle_name), '')
+               )), ''),
+               NULLIF(BTRIM(u.company_name), ''),
+               u.email
+           ) AS display_name,
+           u.email
     FROM chat_members cm3
     JOIN users u ON u.id = cm3.user_id
     WHERE cm3.chat_id = c.id AND cm3.user_id <> $1

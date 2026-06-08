@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,13 +18,17 @@ import (
 )
 
 type driverDateStubClientService struct {
-	created *models.Client
-	updated *models.Client
-	patched map[string]any
+	created   *models.Client
+	updated   *models.Client
+	patched   map[string]any
+	createErr error
 }
 
 func (s *driverDateStubClientService) Create(c *models.Client, userID, roleID int) (int64, error) {
 	s.created = c
+	if s.createErr != nil {
+		return 0, s.createErr
+	}
 	return 1, nil
 }
 func (s *driverDateStubClientService) Update(c *models.Client, userID, roleID int) error {
@@ -86,6 +91,46 @@ func TestClientHandler_Create_ParsesDriverLicenseDates(t *testing.T) {
 	}
 	if svc.created == nil || svc.created.DriverLicenseIssueDate == nil || svc.created.DriverLicenseExpireDate == nil {
 		t.Fatalf("expected driver license dates propagated to created model: %#v", svc.created)
+	}
+}
+
+func TestClientHandler_Create_ReportsMissingRequiredFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &driverDateStubClientService{}
+	h := &ClientHandler{Service: svc}
+	body := `{"client_type":"individual","last_name":"Doe","first_name":"John","phone":"77001112233"}`
+	c, w := newClientDatesCtx(http.MethodPost, "/clients", body)
+
+	h.Create(c)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	bodyText := w.Body.String()
+	for _, field := range []string{"country", "trip_purpose", "birth_date"} {
+		if !strings.Contains(bodyText, field) {
+			t.Fatalf("expected missing field %q in response body=%s", field, bodyText)
+		}
+	}
+	if svc.created != nil {
+		t.Fatalf("service should not be called when required fields are missing")
+	}
+}
+
+func TestClientHandler_Create_ReportsSchemaMismatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &driverDateStubClientService{
+		createErr: fmt.Errorf("%w: missing or outdated database migration (column education_level does not exist)", services.ErrSchemaMismatch),
+	}
+	h := &ClientHandler{Service: svc}
+	body := `{"client_type":"individual","last_name":"Doe","first_name":"John","phone":"77001112233","country":"KZ","trip_purpose":"tour","birth_date":"2026-01-02"}`
+	c, w := newClientDatesCtx(http.MethodPost, "/clients", body)
+
+	h.Create(c)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "missing or outdated database migration") {
+		t.Fatalf("expected schema mismatch details, body=%s", w.Body.String())
 	}
 }
 

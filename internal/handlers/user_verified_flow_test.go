@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,9 @@ func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 	body := map[string]interface{}{
 		"company_name": "Acme",
 		"bin_iin":      "123456789012",
+		"first_name":   "Aigerim",
+		"last_name":    "Tulegenova",
+		"middle_name":  "Serikovna",
 		"email":        "admin-created@example.com",
 		"password":     "Passw0rd",
 		"phone":        "+77001112233",
@@ -105,7 +109,7 @@ func TestCreateUser_WithIsVerifiedTruePassesFlag(t *testing.T) {
 	})
 	r.POST("/users", h.CreateUser)
 
-	body := `{"company_name":"Acme","bin_iin":"123456789012","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1,"is_verified":true}`
+	body := `{"company_name":"Acme","bin_iin":"123456789012","first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1,"is_verified":true}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -116,6 +120,61 @@ func TestCreateUser_WithIsVerifiedTruePassesFlag(t *testing.T) {
 	}
 	if svc.createdUser == nil || !svc.createdUser.IsVerified {
 		t.Fatal("expected is_verified=true to be passed into create flow")
+	}
+}
+
+func TestCreateUser_RequiresFullNameAndInternationalPhone(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantMessage string
+	}{
+		{
+			name:        "missing middle name",
+			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","email":"missing-middle@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1}`,
+			wantMessage: "middle_name is required",
+		},
+		{
+			name:        "local phone",
+			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"bad-phone@example.com","password":"Passw0rd","phone":"010-110-1122","role_id":10,"branch_id":1}`,
+			wantMessage: "phone must be in international format",
+		},
+		{
+			name:        "missing role",
+			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"missing-role@example.com","password":"Passw0rd","phone":"+77001112233","branch_id":1}`,
+			wantMessage: "role_id is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := &stubUserService{}
+			h := NewUserHandler(svc, nil, nil)
+
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				c.Set("user_id", 1)
+				c.Set("role_id", authz.RoleSystemAdmin)
+				c.Next()
+			})
+			r.POST("/users", h.CreateUser)
+
+			req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("unexpected status: got=%d want=%d body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tt.wantMessage) {
+				t.Fatalf("expected message %q in body, got %s", tt.wantMessage, w.Body.String())
+			}
+			if svc.createdUser != nil {
+				t.Fatalf("expected service not to be called, got %+v", svc.createdUser)
+			}
+		})
 	}
 }
 
@@ -182,7 +241,7 @@ func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
-	reqBody := `{"email":"a@b.c","password":"Passw0rd","phone":"+7700","role_id":10,"branch_id":3,"first_name":"A","last_name":"B"}`
+	reqBody := `{"email":"a@b.c","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":3,"first_name":"A","last_name":"B","middle_name":"C"}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

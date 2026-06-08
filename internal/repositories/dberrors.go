@@ -8,9 +8,11 @@ import (
 
 const (
 	SQLStateUniqueViolation = "23505"
+	SQLStateNotNull         = "23502"
 	SQLStateForeignKey      = "23503"
 	SQLStateCheckViolation  = "23514"
 	SQLStateUndefinedTable  = "42P01"
+	SQLStateUndefinedColumn = "42703"
 )
 
 func AsPQError(err error) (*pq.Error, bool) {

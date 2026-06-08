@@ -78,6 +78,19 @@ func categoryAllowsImageOnly(category string) bool {
 	return normalizeClientFileCategory(category) == "photo35x45"
 }
 
+func isAllowedClientFileExtension(category, ext string) bool {
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	if categoryAllowsImageOnly(category) {
+		return true
+	}
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".pdf", ".doc", ".docx", ".xls", ".xlsx":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, clientID int, category string, fileHeader *multipart.FileHeader) (*models.ClientFile, error) {
 	if fileHeader == nil {
 		return nil, ErrFileRequired
@@ -92,11 +105,7 @@ func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, 
 	}
 
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-	if categoryAllowsImageOnly(category) {
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-			return nil, ErrUnsupportedClientFileExtension
-		}
-	} else if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".pdf" && ext != ".doc" && ext != ".docx" && ext != ".xls" && ext != ".xlsx" {
+	if !isAllowedClientFileExtension(category, ext) {
 		return nil, ErrUnsupportedClientFileExtension
 	}
 
