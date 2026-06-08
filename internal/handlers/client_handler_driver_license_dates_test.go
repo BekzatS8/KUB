@@ -170,6 +170,70 @@ func TestClientHandler_Create_ReportsUserBranchRequired(t *testing.T) {
 	}
 }
 
+func TestClientHandler_Create_ReportsRussianServiceErrors(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantText   string
+	}{
+		{
+			name:       "invalid email",
+			err:        services.ErrInvalidEmail,
+			wantStatus: http.StatusBadRequest,
+			wantText:   "Некорректный формат email",
+		},
+		{
+			name:       "duplicate bin iin",
+			err:        services.ErrClientAlreadyExists,
+			wantStatus: http.StatusConflict,
+			wantText:   "Клиент с таким БИН/ИИН уже существует",
+		},
+		{
+			name:       "invalid iin length",
+			err:        fmt.Errorf("iin must be 12 digits"),
+			wantStatus: http.StatusBadRequest,
+			wantText:   "ИИН должен состоять из 12 цифр",
+		},
+		{
+			name:       "related record missing",
+			err:        fmt.Errorf("related record not found or unavailable (clients_branch_id_fkey)"),
+			wantStatus: http.StatusBadRequest,
+			wantText:   "Не найдена связанная запись",
+		},
+		{
+			name:       "database check violation",
+			err:        fmt.Errorf("invalid value for database constraint (clients_client_type_check)"),
+			wantStatus: http.StatusBadRequest,
+			wantText:   "Некорректное значение одного из полей",
+		},
+		{
+			name:       "fallback",
+			err:        fmt.Errorf("unexpected low-level error"),
+			wantStatus: http.StatusBadRequest,
+			wantText:   "Не удалось создать клиента",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := &driverDateStubClientService{createErr: tt.err}
+			h := &ClientHandler{Service: svc}
+			body := `{"client_type":"individual","last_name":"Doe","first_name":"John","phone":"77001112233","country":"kazakhstan","trip_purpose":"tour","birth_date":"2026-01-02"}`
+			c, w := newClientDatesCtx(http.MethodPost, "/clients", body)
+
+			h.Create(c)
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d body=%s", tt.wantStatus, w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tt.wantText) {
+				t.Fatalf("expected %q in body=%s", tt.wantText, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestClientHandler_Update_ParsesDriverLicenseDates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &driverDateStubClientService{}

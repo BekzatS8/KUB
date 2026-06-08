@@ -350,62 +350,79 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	client := buildClientFromCreateRequest(req, userID, birthDate, passportIssueDate, passportExpireDate, driverLicenseIssueDate, driverLicenseExpireDate)
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
-		if errors.Is(err, services.ErrClientAlreadyExists) {
-			conflict(c, ClientAlreadyExists, "Клиент с таким БИН/ИИН уже существует")
-			return
-		}
-		if errors.Is(err, services.ErrIndividualIINExists) {
-			conflict(c, ConflictCode, "Клиент с таким ИИН уже существует")
-			return
-		}
-		if errors.Is(err, services.ErrLegalBINExists) {
-			conflict(c, ConflictCode, "Клиент с таким БИН уже существует")
-			return
-		}
-		if errors.Is(err, services.ErrInvalidEmail) {
-			badRequestWithCode(c, InvalidEmailCode, "Некорректный формат email")
-			return
-		}
-		if errors.Is(err, services.ErrEmailAlreadyUsed) {
-			conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
-			return
-		}
-		if errors.Is(err, services.ErrReadOnly) {
-			writeError(c, http.StatusForbidden, ReadOnlyRoleCode, "У вашей роли нет права создавать клиентов")
-			return
-		}
-		if errors.Is(err, services.ErrUserBranchRequired) {
-			writeError(c, http.StatusForbidden, UserBranchRequiredCode, "У вашего пользователя не указан филиал. Попросите администратора назначить филиал перед созданием клиента.")
-			return
-		}
-		if errors.Is(err, services.ErrForbidden) {
-			writeError(c, http.StatusForbidden, ForbiddenCode, "У вас нет права создавать клиентов")
-			return
-		}
-		var missingErr *services.MissingFieldsError
-		if errors.As(err, &missingErr) {
-			c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": missingErr.Error(), "missing_fields": missingErr.Fields})
-			return
-		}
-		if errors.Is(err, services.ErrInvalidClientType) {
-			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
-			return
-		}
-		if errors.Is(err, services.ErrInvalidEducationLevel) {
-			badRequest(c, "Некорректное значение поля «Образование». Выберите вариант из списка")
-			return
-		}
-		if errors.Is(err, services.ErrSchemaMismatch) {
-			log.Printf("[clients][create][schema_mismatch] user_id=%d role_id=%d err=%v", userID, roleID, err)
-			internalError(c, "Ошибка базы данных: не применена нужная миграция. Обратитесь к администратору")
-			return
-		}
-		log.Printf("[clients][create][error] user_id=%d role_id=%d err=%v", userID, roleID, err)
-		badRequest(c, "Не удалось создать клиента. Проверьте заполненные поля и попробуйте снова")
+		h.writeCreateClientError(c, err, userID, roleID)
 		return
 	}
 	client.ID = int(id)
 	c.JSON(http.StatusCreated, client)
+}
+
+func (h *ClientHandler) writeCreateClientError(c *gin.Context, err error, userID, roleID int) {
+	if errors.Is(err, services.ErrClientAlreadyExists) {
+		conflict(c, ClientAlreadyExists, "Клиент с таким БИН/ИИН уже существует")
+		return
+	}
+	if errors.Is(err, services.ErrIndividualIINExists) {
+		conflict(c, ConflictCode, "Клиент с таким ИИН уже существует")
+		return
+	}
+	if errors.Is(err, services.ErrLegalBINExists) {
+		conflict(c, ConflictCode, "Клиент с таким БИН уже существует")
+		return
+	}
+	if errors.Is(err, services.ErrInvalidEmail) {
+		badRequestWithCode(c, InvalidEmailCode, "Некорректный формат email")
+		return
+	}
+	if errors.Is(err, services.ErrEmailAlreadyUsed) {
+		conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
+		return
+	}
+	if errors.Is(err, services.ErrReadOnly) {
+		writeError(c, http.StatusForbidden, ReadOnlyRoleCode, "У вашей роли нет права создавать клиентов")
+		return
+	}
+	if errors.Is(err, services.ErrUserBranchRequired) {
+		writeError(c, http.StatusForbidden, UserBranchRequiredCode, "У вашего пользователя не указан филиал. Попросите администратора назначить филиал перед созданием клиента.")
+		return
+	}
+	if errors.Is(err, services.ErrForbidden) {
+		writeError(c, http.StatusForbidden, ForbiddenCode, "У вас нет права создавать клиентов")
+		return
+	}
+	var missingErr *services.MissingFieldsError
+	if errors.As(err, &missingErr) {
+		c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": "Не заполнены обязательные поля", "missing_fields": missingErr.Fields})
+		return
+	}
+	if errors.Is(err, services.ErrClientTypeRequired) || errors.Is(err, services.ErrInvalidClientType) {
+		badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
+		return
+	}
+	if errors.Is(err, services.ErrInvalidEducationLevel) {
+		badRequest(c, "Некорректное значение поля «Образование». Выберите вариант из списка")
+		return
+	}
+	if errors.Is(err, services.ErrSchemaMismatch) {
+		log.Printf("[clients][create][schema_mismatch] user_id=%d role_id=%d err=%v", userID, roleID, err)
+		internalError(c, "Ошибка базы данных: не применена нужная миграция. Обратитесь к администратору")
+		return
+	}
+
+	errText := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(errText, "name or"):
+		badRequest(c, "Укажите имя и фамилию клиента или название компании")
+	case strings.Contains(errText, "iin must be 12 digits"):
+		badRequest(c, "ИИН должен состоять из 12 цифр")
+	case strings.Contains(errText, "related record not found"):
+		badRequest(c, "Не найдена связанная запись: пользователь, филиал или другая зависимость")
+	case strings.Contains(errText, "invalid value for database constraint"):
+		badRequest(c, "Некорректное значение одного из полей. Проверьте данные и попробуйте снова")
+	default:
+		log.Printf("[clients][create][error] user_id=%d role_id=%d err=%v", userID, roleID, err)
+		badRequest(c, "Не удалось создать клиента. Проверьте заполненные поля и попробуйте снова")
+	}
 }
 
 // PUT /clients/:id
@@ -825,10 +842,27 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 func writeDateError(c *gin.Context, err error) {
 	var dErr *dateFieldError
 	if errors.As(err, &dErr) {
-		badRequestWithCode(c, InvalidDateFormatCode, dErr.Error())
+		badRequestWithCode(c, InvalidDateFormatCode, "Некорректная дата в поле «"+clientDateFieldLabel(dErr.field)+"». Используйте формат ДД.ММ.ГГГГ")
 		return
 	}
 	badRequest(c, "Некорректная дата. Используйте формат ДД.ММ.ГГГГ")
+}
+
+func clientDateFieldLabel(field string) string {
+	switch field {
+	case "birth_date":
+		return "Дата рождения"
+	case "passport_issue_date":
+		return "Дата выдачи паспорта"
+	case "passport_expire_date":
+		return "Дата окончания паспорта"
+	case "driver_license_issue_date":
+		return "Дата выдачи водительского удостоверения"
+	case "driver_license_expire_date":
+		return "Дата окончания водительского удостоверения"
+	default:
+		return field
+	}
 }
 
 // GET /clients/:id

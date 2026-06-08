@@ -92,7 +92,7 @@ type MissingFieldsError struct {
 }
 
 func (e *MissingFieldsError) Error() string {
-	return "missing required fields"
+	return "Не заполнены обязательные поля"
 }
 
 func (s *ClientService) NormalizeAndValidate(c *models.Client) error {
