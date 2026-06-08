@@ -126,17 +126,17 @@ func trimUpdateUserRequest(req *updateUserRequest) {
 func validateRequiredCreateUserFields(req createUserRequest) string {
 	switch {
 	case req.LastName == "":
-		return "last_name is required"
+		return "Укажите фамилию"
 	case req.FirstName == "":
-		return "first_name is required"
+		return "Укажите имя"
 	case req.MiddleName == "":
-		return "middle_name is required"
+		return "Укажите отчество"
 	case req.Phone == "":
-		return "phone is required"
+		return "Укажите телефон"
 	case !userPhoneE164Pattern.MatchString(req.Phone):
-		return "phone must be in international format, e.g. +77001234567"
+		return "Телефон должен быть в международном формате, например +77001234567"
 	case req.RoleID == 0:
-		return "role_id is required"
+		return "Выберите роль"
 	default:
 		return ""
 	}
@@ -145,18 +145,39 @@ func validateRequiredCreateUserFields(req createUserRequest) string {
 func validateUpdateUserFields(req updateUserRequest) string {
 	switch {
 	case req.LastName != nil && *req.LastName == "":
-		return "last_name is required"
+		return "Укажите фамилию"
 	case req.FirstName != nil && *req.FirstName == "":
-		return "first_name is required"
+		return "Укажите имя"
 	case req.MiddleName != nil && *req.MiddleName == "":
-		return "middle_name is required"
+		return "Укажите отчество"
 	case req.Phone != nil && *req.Phone == "":
-		return "phone is required"
+		return "Укажите телефон"
 	case req.Phone != nil && !userPhoneE164Pattern.MatchString(*req.Phone):
-		return "phone must be in international format, e.g. +77001234567"
+		return "Телефон должен быть в международном формате, например +77001234567"
 	default:
 		return ""
 	}
+}
+
+func branchIDSelected(branchID *int) bool {
+	return branchID != nil && *branchID > 0
+}
+
+func (h *UserHandler) validateRequiredBranch(branchID *int) string {
+	if !branchIDSelected(branchID) {
+		return "Выберите филиал"
+	}
+	if h.branchService == nil {
+		return ""
+	}
+	branch, err := h.branchService.GetBranchByID(*branchID)
+	if err != nil || branch == nil {
+		return "Выбранный филиал не найден"
+	}
+	if !branch.IsActive {
+		return "Выбранный филиал неактивен"
+	}
+	return ""
 }
 
 func (h *UserHandler) branchPayload(branchID *int) interface{} {
@@ -171,15 +192,6 @@ func (h *UserHandler) branchPayload(branchID *int) interface{} {
 		return gin.H{"id": *branchID}
 	}
 	return gin.H{"id": b.ID, "name": b.Name, "code": b.Code, "is_active": b.IsActive}
-}
-
-func userRoleRequiresBranch(roleID int) bool {
-	switch roleID {
-	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
-		return true
-	default:
-		return false
-	}
 }
 
 func sameUserBranch(a, b *models.User) bool {
@@ -215,12 +227,12 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !authz.CanAssignRoles(roleID) {
-		forbidden(c, "Only system admin can create users")
+		forbidden(c, "Только системный администратор может создавать пользователей")
 		return
 	}
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid user payload")
+		badRequest(c, "Некорректные данные пользователя")
 		return
 	}
 	trimCreateUserRequest(&req)
@@ -230,11 +242,11 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 	newRole := req.RoleID
 	if !authz.IsKnownRole(newRole) {
-		badRequest(c, "Invalid role_id")
+		badRequest(c, "Некорректная роль")
 		return
 	}
-	if userRoleRequiresBranch(newRole) && req.BranchID == nil {
-		badRequest(c, "branch_id is required for this role")
+	if msg := h.validateRequiredBranch(req.BranchID); msg != "" {
+		badRequest(c, msg)
 		return
 	}
 	user := &models.User{
@@ -262,10 +274,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	if err := h.service.CreateUserWithPassword(user, req.Password); err != nil {
 		log.Printf("CreateUser: service error: %v", err)
 		if errors.Is(err, services.ErrEmailAlreadyUsed) {
-			conflict(c, ConflictCode, "Email already used")
+			conflict(c, ConflictCode, "Этот email уже используется")
 			return
 		}
-		internalError(c, "Failed to create user")
+		internalError(c, "Не удалось создать пользователя")
 		return
 	}
 	if h.verificationService != nil {
@@ -329,12 +341,12 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	target, err := h.service.GetUserByID(id)
 	if err != nil || target == nil {
-		notFound(c, ClientNotFoundCode, "User not found")
+		notFound(c, ClientNotFoundCode, "Пользователь не найден")
 		return
 	}
 	var req updateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid user payload")
+		badRequest(c, "Некорректные данные пользователя")
 		return
 	}
 	trimUpdateUserRequest(&req)
@@ -356,7 +368,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		req.IsActive = nil
 	}
 	if authz.CanAssignRoles(roleID) && req.RoleID != nil && !authz.IsKnownRole(*req.RoleID) {
-		badRequest(c, "Invalid role_id")
+		badRequest(c, "Некорректная роль")
 		return
 	}
 	if req.CompanyName != nil {
@@ -395,13 +407,15 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	if req.IsActive != nil {
 		body.IsActive = *req.IsActive
 	}
-	if authz.CanAssignRoles(roleID) && userRoleRequiresBranch(body.RoleID) && body.BranchID == nil {
-		badRequest(c, "branch_id is required for this role")
-		return
+	if authz.CanAssignRoles(roleID) {
+		if msg := h.validateRequiredBranch(body.BranchID); msg != "" {
+			badRequest(c, msg)
+			return
+		}
 	}
 	if err := h.service.UpdateUser(&body); err != nil {
 		log.Printf("UpdateUser: service error: %v", err)
-		internalError(c, "Failed to update user")
+		internalError(c, "Не удалось обновить пользователя")
 		return
 	}
 	updated, _ := h.service.GetUserByID(id)
@@ -411,20 +425,20 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
 	if !authz.CanAssignRoles(roleID) {
-		forbidden(c, "Only system admin can delete users")
+		forbidden(c, "Только системный администратор может удалять пользователей")
 		return
 	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		badRequest(c, "Invalid user ID")
+		badRequest(c, "Некорректный ID пользователя")
 		return
 	}
 	if err := h.service.DeleteUser(id); err != nil {
 		log.Printf("DeleteUser: service error: %v", err)
-		internalError(c, "Failed to delete user")
+		internalError(c, "Не удалось удалить пользователя")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
+	c.JSON(http.StatusOK, gin.H{"message": "Пользователь удален"})
 }
 
 func (h *UserHandler) ListUsers(c *gin.Context) {

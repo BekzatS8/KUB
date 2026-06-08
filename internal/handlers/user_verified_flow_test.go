@@ -132,17 +132,17 @@ func TestCreateUser_RequiresFullNameAndInternationalPhone(t *testing.T) {
 		{
 			name:        "missing middle name",
 			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","email":"missing-middle@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1}`,
-			wantMessage: "middle_name is required",
+			wantMessage: "Укажите отчество",
 		},
 		{
 			name:        "local phone",
 			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"bad-phone@example.com","password":"Passw0rd","phone":"010-110-1122","role_id":10,"branch_id":1}`,
-			wantMessage: "phone must be in international format",
+			wantMessage: "Телефон должен быть в международном формате",
 		},
 		{
 			name:        "missing role",
 			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"missing-role@example.com","password":"Passw0rd","phone":"+77001112233","branch_id":1}`,
-			wantMessage: "role_id is required",
+			wantMessage: "Выберите роль",
 		},
 	}
 
@@ -251,6 +251,28 @@ func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 	}
 	if svc.createdUser == nil || svc.createdUser.BranchID == nil || *svc.createdUser.BranchID != 3 {
 		t.Fatalf("expected branch_id=3 in create payload, got %+v", svc.createdUser)
+	}
+}
+
+func TestCreateUser_RequiresBranchForEveryRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubUserService{}
+	h := NewUserHandler(svc, nil, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
+	r.POST("/users", h.CreateUser)
+
+	reqBody := `{"email":"admin-no-branch@example.com","password":"Passw0rd","phone":"+77001112233","role_id":50,"first_name":"A","last_name":"B","middle_name":"C"}`
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.createdUser != nil {
+		t.Fatalf("service must not be called without branch, got %+v", svc.createdUser)
 	}
 }
 

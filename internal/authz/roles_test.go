@@ -15,8 +15,11 @@ func TestSystemAdminCanManageSystem(t *testing.T) {
 	if !CanManageSystem(RoleSystemAdmin) || !CanAssignRoles(RoleSystemAdmin) || !CanAccessLogs(RoleSystemAdmin) || !CanManageIntegrations(RoleSystemAdmin) {
 		t.Fatalf("system admin must manage system")
 	}
-	if CanViewAllBusinessData(RoleSystemAdmin) {
-		t.Fatalf("system admin must not automatically have full business data access")
+	if !CanViewAllBusinessData(RoleSystemAdmin) {
+		t.Fatalf("system admin must have full business data access")
+	}
+	if !CanProcessDocuments(RoleSystemAdmin) || !CanWorkWithLeads(RoleSystemAdmin) || !IsFullAccess(RoleSystemAdmin) {
+		t.Fatalf("system admin must be allowed to use all business functions")
 	}
 }
 

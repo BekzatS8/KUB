@@ -942,7 +942,7 @@ func (s *DocumentService) Review(id int64, action string, userID, roleID int) er
 
 func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 	// Только Management вручную
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)
@@ -956,7 +956,7 @@ func (s *DocumentService) Sign(id int64, userID, roleID int) error {
 }
 
 func (s *DocumentService) MarkDocumentSigned(id int64, signedBy string, signedAt *time.Time, userID, roleID int) error {
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)

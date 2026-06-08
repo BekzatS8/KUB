@@ -118,7 +118,7 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 
 	// owner запрещаем менять всем кроме management
 	// owner
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		lead.OwnerID = current.OwnerID
 	} else {
 		// ✅ management: если owner не прислали — не затирать на 0
@@ -457,7 +457,7 @@ func (s *LeadService) UnarchiveLead(id, userID, roleID int) error {
 }
 
 func (s *LeadService) AssignOwner(id, assigneeID, userID, roleID int) error {
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		return ErrForbidden
 	}
 	return s.Repo.UpdateOwner(id, assigneeID)

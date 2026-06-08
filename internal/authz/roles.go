@@ -68,7 +68,7 @@ func IsReadOnly(roleID int) bool {
 }
 
 func IsFullAccess(roleID int) bool {
-	return roleID == RoleManagement
+	return roleID == RoleManagement || roleID == RoleSystemAdmin
 }
 
 func CanManageSystem(roleID int) bool {
@@ -92,7 +92,7 @@ func CanViewLeadershipData(roleID int) bool {
 }
 
 func CanViewAllBusinessData(roleID int) bool {
-	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleOperations
+	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleOperations || roleID == RoleSystemAdmin
 }
 
 func CanHardDeleteBusinessEntity(roleID int) bool {
@@ -117,12 +117,12 @@ func CanAccessAllBusinessDataIncludingAdmin(roleID int) bool {
 }
 
 func CanProcessDocuments(roleID int) bool {
-	return roleID == RoleOperations || roleID == RoleManagement
+	return roleID == RoleOperations || roleID == RoleManagement || roleID == RoleSystemAdmin
 }
 
 func CanWorkWithLeads(roleID int) bool {
 	switch roleID {
-	case RoleSales, RoleOperations, RoleManagement:
+	case RoleSales, RoleOperations, RoleManagement, RoleSystemAdmin:
 		return true
 	default:
 		return false

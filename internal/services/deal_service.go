@@ -243,7 +243,7 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	}
 
 	// 5) Логика owner
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		// всем кроме management запрещаем менять владельца
 		deal.OwnerID = current.OwnerID
 	} else {

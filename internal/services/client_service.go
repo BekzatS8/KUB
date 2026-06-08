@@ -698,7 +698,7 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		c.OwnerID = current.OwnerID
 	}
 	c.BranchID = current.BranchID
@@ -1371,7 +1371,7 @@ func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int
 		}
 		updates["client_type"] = ct
 	}
-	if roleID != authz.RoleManagement {
+	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		delete(updates, "owner_id")
 	}
 	delete(updates, "branch_id")
