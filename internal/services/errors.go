@@ -1,9 +1,13 @@
 package services
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrForbidden                 = errors.New("forbidden")
+	ErrUserBranchRequired        = fmt.Errorf("%w: user branch is required", ErrForbidden)
 	ErrReadOnly                  = errors.New("read-only role")
 	ErrNotFound                  = errors.New("not found")
 	ErrNotChatMember             = errors.New("user is not a member of this chat")

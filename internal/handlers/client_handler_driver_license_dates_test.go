@@ -129,8 +129,44 @@ func TestClientHandler_Create_ReportsSchemaMismatch(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d body=%s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "missing or outdated database migration") {
-		t.Fatalf("expected schema mismatch details, body=%s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "Ошибка базы данных") {
+		t.Fatalf("expected Russian schema mismatch message, body=%s", w.Body.String())
+	}
+}
+
+func TestClientHandler_Create_ReportsReadOnlyRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &driverDateStubClientService{}
+	h := &ClientHandler{Service: svc}
+	body := `{"client_type":"individual","last_name":"Doe","first_name":"John","phone":"77001112233","country":"kazakhstan","trip_purpose":"tour","birth_date":"2026-01-02"}`
+	c, w := newClientDatesCtx(http.MethodPost, "/clients", body)
+	c.Set("role_id", 30)
+
+	h.Create(c)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), ReadOnlyRoleCode) {
+		t.Fatalf("expected read-only error code, body=%s", w.Body.String())
+	}
+	if svc.created != nil {
+		t.Fatal("service should not be called for read-only role")
+	}
+}
+
+func TestClientHandler_Create_ReportsUserBranchRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &driverDateStubClientService{createErr: services.ErrUserBranchRequired}
+	h := &ClientHandler{Service: svc}
+	body := `{"client_type":"individual","last_name":"Doe","first_name":"John","phone":"77001112233","country":"kazakhstan","trip_purpose":"tour","birth_date":"2026-01-02"}`
+	c, w := newClientDatesCtx(http.MethodPost, "/clients", body)
+
+	h.Create(c)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), UserBranchRequiredCode) {
+		t.Fatalf("expected branch-required error code, body=%s", w.Body.String())
 	}
 }
 

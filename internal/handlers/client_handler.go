@@ -304,19 +304,19 @@ func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate
 func (h *ClientHandler) Create(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
+		writeError(c, http.StatusForbidden, ReadOnlyRoleCode, "У вашей роли нет права создавать клиентов")
 		return
 	}
 
 	var req createClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid client payload")
+		badRequest(c, "Некорректные данные клиента")
 		return
 	}
 
 	missing := collectMissingRedFields(req)
 	if len(missing) > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": "Missing required fields", "missing_fields": missing})
+		c.JSON(http.StatusBadRequest, gin.H{"error_code": BadRequestCode, "message": "Не заполнены обязательные поля", "missing_fields": missing})
 		return
 	}
 
@@ -351,27 +351,35 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	id, err := h.Service.Create(client, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrClientAlreadyExists) {
-			conflict(c, ClientAlreadyExists, "Client with the same BIN/IIN already exists")
+			conflict(c, ClientAlreadyExists, "Клиент с таким БИН/ИИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrIndividualIINExists) {
-			conflict(c, ConflictCode, "Individual profile with this IIN already exists")
+			conflict(c, ConflictCode, "Клиент с таким ИИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrLegalBINExists) {
-			conflict(c, ConflictCode, "Legal profile with this BIN already exists")
+			conflict(c, ConflictCode, "Клиент с таким БИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEmail) {
-			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			badRequestWithCode(c, InvalidEmailCode, "Некорректный формат email")
 			return
 		}
 		if errors.Is(err, services.ErrEmailAlreadyUsed) {
-			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
+			conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
 			return
 		}
-		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+		if errors.Is(err, services.ErrReadOnly) {
+			writeError(c, http.StatusForbidden, ReadOnlyRoleCode, "У вашей роли нет права создавать клиентов")
+			return
+		}
+		if errors.Is(err, services.ErrUserBranchRequired) {
+			writeError(c, http.StatusForbidden, UserBranchRequiredCode, "У вашего пользователя не указан филиал. Попросите администратора назначить филиал перед созданием клиента.")
+			return
+		}
+		if errors.Is(err, services.ErrForbidden) {
+			writeError(c, http.StatusForbidden, ForbiddenCode, "У вас нет права создавать клиентов")
 			return
 		}
 		var missingErr *services.MissingFieldsError
@@ -380,20 +388,20 @@ func (h *ClientHandler) Create(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
-			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEducationLevel) {
-			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
+			badRequest(c, "Некорректное значение поля «Образование». Выберите вариант из списка")
 			return
 		}
 		if errors.Is(err, services.ErrSchemaMismatch) {
 			log.Printf("[clients][create][schema_mismatch] user_id=%d role_id=%d err=%v", userID, roleID, err)
-			internalError(c, err.Error())
+			internalError(c, "Ошибка базы данных: не применена нужная миграция. Обратитесь к администратору")
 			return
 		}
 		log.Printf("[clients][create][error] user_id=%d role_id=%d err=%v", userID, roleID, err)
-		badRequest(c, err.Error())
+		badRequest(c, "Не удалось создать клиента. Проверьте заполненные поля и попробуйте снова")
 		return
 	}
 	client.ID = int(id)
@@ -404,26 +412,26 @@ func (h *ClientHandler) Create(c *gin.Context) {
 func (h *ClientHandler) Update(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
+		forbidden(c, "У вашей роли нет права редактировать клиентов")
 		return
 	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	current, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || current == nil {
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к этому клиенту")
 			return
 		}
-		notFound(c, ClientNotFoundCode, "Client not found")
+		notFound(c, ClientNotFoundCode, "Клиент не найден")
 		return
 	}
 	var req updateClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid client payload")
+		badRequest(c, "Некорректные данные клиента")
 		return
 	}
 	birthDate, err := parseDateField("birth_date", req.BirthDate, false)
@@ -560,52 +568,52 @@ func (h *ClientHandler) Update(c *gin.Context) {
 	}
 	if err := h.Service.Update(current, userID, roleID); err != nil {
 		if errors.Is(err, services.ErrClientAlreadyExists) {
-			conflict(c, ClientAlreadyExists, "Client with the same BIN/IIN already exists")
+			conflict(c, ClientAlreadyExists, "Клиент с таким БИН/ИИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrIndividualIINExists) {
-			conflict(c, ConflictCode, "Individual profile with this IIN already exists")
+			conflict(c, ConflictCode, "Клиент с таким ИИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrLegalBINExists) {
-			conflict(c, ConflictCode, "Legal profile with this BIN already exists")
+			conflict(c, ConflictCode, "Клиент с таким БИН уже существует")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEmail) {
-			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			badRequestWithCode(c, InvalidEmailCode, "Некорректный формат email")
 			return
 		}
 		if errors.Is(err, services.ErrEmailAlreadyUsed) {
-			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
+			conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrClientNotFound) {
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+			forbidden(c, "У вас нет права редактировать этого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
-			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEducationLevel) {
-			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
+			badRequest(c, "Некорректное значение поля «Образование». Выберите вариант из списка")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {
-			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
+			conflict(c, ConflictCode, "Тип клиента нельзя менять после создания")
 			return
 		}
 		if errors.Is(err, services.ErrSchemaMismatch) {
 			log.Printf("[clients][update][schema_mismatch] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
-			internalError(c, err.Error())
+			internalError(c, "Ошибка базы данных: не применена нужная миграция. Обратитесь к администратору")
 			return
 		}
 		log.Printf("[clients][update][error] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
-		badRequest(c, err.Error())
+		badRequest(c, "Не удалось обновить клиента. Проверьте заполненные поля и попробуйте снова")
 		return
 	}
 	c.JSON(http.StatusOK, current)
@@ -615,31 +623,31 @@ func (h *ClientHandler) Update(c *gin.Context) {
 func (h *ClientHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		badRequest(c, "Invalid id")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 
 	userID, roleID := getUserAndRole(c)
 	if !authz.CanHardDeleteBusinessEntity(roleID) {
-		forbidden(c, "Forbidden")
+		forbidden(c, "У вас нет права удалять клиентов")
 		return
 	}
 
 	err = h.Service.Delete(id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+			forbidden(c, "У вас нет права удалить этого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrClientNotFound) {
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
 		if errors.Is(err, services.ErrClientInUse) {
-			conflict(c, ClientInUseCode, "Client has linked deals/documents and cannot be deleted")
+			conflict(c, ClientInUseCode, "Клиента нельзя удалить: к нему привязаны сделки или документы")
 			return
 		}
-		internalError(c, "Failed to delete client")
+		internalError(c, "Не удалось удалить клиента")
 		return
 	}
 
@@ -653,25 +661,25 @@ type archiveClientRequest struct {
 func (h *ClientHandler) Archive(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		badRequest(c, "Invalid id")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	var req archiveClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
-		badRequest(c, "Invalid payload")
+		badRequest(c, "Некорректные данные архивации")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.ArchiveClient(id, userID, roleID, req.Reason); err != nil {
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+			forbidden(c, "У вас нет права архивировать этого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrClientNotFound) {
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
-		internalError(c, "Failed to archive client")
+		internalError(c, "Не удалось архивировать клиента")
 		return
 	}
 	client, _ := h.Service.GetByIDWithArchiveScope(id, userID, roleID, repositories.ArchiveScopeAll)
@@ -681,24 +689,24 @@ func (h *ClientHandler) Archive(c *gin.Context) {
 func (h *ClientHandler) Unarchive(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		badRequest(c, "Invalid id")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	if err := h.Service.UnarchiveClient(id, userID, roleID); err != nil {
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+			forbidden(c, "У вас нет права разархивировать этого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrClientNotFound) {
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
 		if errors.Is(err, services.ErrNotArchived) {
-			badRequest(c, "Client is not archived")
+			badRequest(c, "Клиент не находится в архиве")
 			return
 		}
-		internalError(c, "Failed to unarchive client")
+		internalError(c, "Не удалось разархивировать клиента")
 		return
 	}
 	client, _ := h.Service.GetByID(id, userID, roleID)
@@ -709,17 +717,17 @@ func (h *ClientHandler) Unarchive(c *gin.Context) {
 func (h *ClientHandler) Patch(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if authz.IsReadOnly(roleID) {
-		forbidden(c, "Read-only role")
+		forbidden(c, "У вашей роли нет права редактировать клиентов")
 		return
 	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	var req patchClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, "Invalid client payload")
+		badRequest(c, "Некорректные данные клиента")
 		return
 	}
 	updates := make(map[string]any)
@@ -775,40 +783,40 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 	updated, err := h.Service.Patch(id, updates, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrClientNotFound) {
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEmail) {
-			badRequestWithCode(c, InvalidEmailCode, "Email has invalid format")
+			badRequestWithCode(c, InvalidEmailCode, "Некорректный формат email")
 			return
 		}
 		if errors.Is(err, services.ErrEmailAlreadyUsed) {
-			conflict(c, EmailAlreadyUsedCode, "Email already used by another client")
+			conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
-			forbidden(c, err.Error())
+			forbidden(c, "У вас нет права редактировать этого клиента")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidClientType) {
-			badRequest(c, "invalid client_type: allowed values are individual, legal")
+			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidEducationLevel) {
-			badRequest(c, "invalid education_level: allowed values are higher, secondary_special, secondary, primary, incomplete_higher")
+			badRequest(c, "Некорректное значение поля «Образование». Выберите вариант из списка")
 			return
 		}
 		if errors.Is(err, services.ErrClientTypeImmutable) {
-			conflict(c, ConflictCode, services.ErrClientTypeImmutable.Error())
+			conflict(c, ConflictCode, "Тип клиента нельзя менять после создания")
 			return
 		}
 		if errors.Is(err, services.ErrSchemaMismatch) {
 			log.Printf("[clients][patch][schema_mismatch] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
-			internalError(c, err.Error())
+			internalError(c, "Ошибка базы данных: не применена нужная миграция. Обратитесь к администратору")
 			return
 		}
 		log.Printf("[clients][patch][error] client_id=%d user_id=%d role_id=%d err=%v", id, userID, roleID, err)
-		badRequest(c, err.Error())
+		badRequest(c, "Не удалось обновить клиента. Проверьте заполненные поля и попробуйте снова")
 		return
 	}
 	c.JSON(http.StatusOK, updated)
@@ -820,24 +828,24 @@ func writeDateError(c *gin.Context, err error) {
 		badRequestWithCode(c, InvalidDateFormatCode, dErr.Error())
 		return
 	}
-	badRequest(c, err.Error())
+	badRequest(c, "Некорректная дата. Используйте формат ДД.ММ.ГГГГ")
 }
 
 // GET /clients/:id
 func (h *ClientHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	client, err := h.Service.GetByID(id, userID, roleID)
 	if err != nil || client == nil {
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к этому клиенту")
 			return
 		}
-		notFound(c, ClientNotFoundCode, "Client not found")
+		notFound(c, ClientNotFoundCode, "Клиент не найден")
 		return
 	}
 	c.JSON(http.StatusOK, client)
@@ -854,7 +862,7 @@ func (h *ClientHandler) ListCompanies(c *gin.Context) {
 func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleSales {
-		forbidden(c, "sales cannot access full list")
+		forbidden(c, "У вашей роли нет доступа к полному списку клиентов")
 		return
 	}
 	paginate := isPaginatedMode(c)
@@ -877,7 +885,7 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
-		badRequest(c, "Invalid archive filter")
+		badRequest(c, "Некорректный фильтр архива")
 		return
 	}
 	filter, err := clientListFilterFromQuery(c)
@@ -894,7 +902,7 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 		if paginate {
 			pSvc, ok := h.Service.(clientPaginationService)
 			if !ok {
-				internalError(c, "Pagination is not supported")
+				internalError(c, "Постраничная загрузка клиентов не поддерживается")
 				return
 			}
 			var total int
@@ -910,7 +918,7 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 		if paginate {
 			pSvc, ok := h.Service.(clientPaginationService)
 			if !ok {
-				internalError(c, "Pagination is not supported")
+				internalError(c, "Постраничная загрузка клиентов не поддерживается")
 				return
 			}
 			var total int
@@ -923,15 +931,15 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 			clients, err = h.Service.ListCompaniesForRole(userID, roleID, size, offset, filter, scope)
 		}
 	default:
-		badRequest(c, "invalid client list type")
+		badRequest(c, "Некорректный тип списка клиентов")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к списку клиентов")
 			return
 		}
-		internalError(c, "Failed to list clients")
+		internalError(c, "Не удалось загрузить список клиентов")
 		return
 	}
 	c.JSON(http.StatusOK, clients)
@@ -940,7 +948,7 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 func (h *ClientHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if roleID == authz.RoleSales {
-		forbidden(c, "sales cannot access full list")
+		forbidden(c, "У вашей роли нет доступа к полному списку клиентов")
 		return
 	}
 	paginate := isPaginatedMode(c)
@@ -966,27 +974,27 @@ func (h *ClientHandler) List(c *gin.Context) {
 	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
-		badRequest(c, "Invalid archive filter")
+		badRequest(c, "Некорректный фильтр архива")
 		return
 	}
 	if paginate {
 		pSvc, ok := h.Service.(clientPaginationService)
 		if !ok {
-			internalError(c, "Pagination is not supported")
+			internalError(c, "Постраничная загрузка клиентов не поддерживается")
 			return
 		}
 		clients, total, err := pSvc.ListForRoleWithTotal(userID, roleID, size, offset, filter, scope)
 		if err != nil {
 			log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 			if errors.Is(err, services.ErrForbidden) {
-				forbidden(c, "Forbidden")
+				forbidden(c, "У вас нет доступа к списку клиентов")
 				return
 			}
 			if strings.Contains(err.Error(), "invalid client_type") {
-				badRequest(c, err.Error())
+				badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 				return
 			}
-			internalError(c, "Failed to list clients")
+			internalError(c, "Не удалось загрузить список клиентов")
 			return
 		}
 		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
@@ -997,14 +1005,14 @@ func (h *ClientHandler) List(c *gin.Context) {
 	if err != nil {
 		log.Printf("ClientHandler.List error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к списку клиентов")
 			return
 		}
 		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 			return
 		}
-		internalError(c, "Failed to list clients")
+		internalError(c, "Не удалось загрузить список клиентов")
 		return
 	}
 	c.JSON(http.StatusOK, clients)
@@ -1035,27 +1043,27 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	}
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
-		badRequest(c, "Invalid archive filter")
+		badRequest(c, "Некорректный фильтр архива")
 		return
 	}
 	if paginate {
 		pSvc, ok := h.Service.(clientPaginationService)
 		if !ok {
-			internalError(c, "Pagination is not supported")
+			internalError(c, "Постраничная загрузка клиентов не поддерживается")
 			return
 		}
 		clients, total, err := pSvc.ListMineWithArchiveScopeAndTotal(userID, size, offset, filter, scope)
 		if err != nil {
 			log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 			if errors.Is(err, services.ErrForbidden) {
-				forbidden(c, "Forbidden")
+				forbidden(c, "У вас нет доступа к списку клиентов")
 				return
 			}
 			if strings.Contains(err.Error(), "invalid client_type") {
-				badRequest(c, err.Error())
+				badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 				return
 			}
-			internalError(c, "Failed to list clients")
+			internalError(c, "Не удалось загрузить список клиентов")
 			return
 		}
 		c.JSON(http.StatusOK, models.PaginatedResponse[*models.Client]{Items: clients, Pagination: buildPaginationMeta(page, size, total)})
@@ -1066,14 +1074,14 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	if err != nil {
 		log.Printf("ClientHandler.ListMy error: user_id=%d role_id=%d page=%d size=%d filter=%+v err=%v", userID, roleID, page, size, filter, err)
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к списку клиентов")
 			return
 		}
 		if strings.Contains(err.Error(), "invalid client_type") {
-			badRequest(c, err.Error())
+			badRequest(c, "Некорректный тип клиента: выберите физическое или юридическое лицо")
 			return
 		}
-		internalError(c, "Failed to list clients")
+		internalError(c, "Не удалось загрузить список клиентов")
 		return
 	}
 	c.JSON(http.StatusOK, clients)
@@ -1087,29 +1095,29 @@ func clientListFilterFromQuery(c *gin.Context) (repositories.ClientListFilter, e
 		Order:      strings.ToLower(strings.TrimSpace(c.Query("order"))),
 	}
 	if filter.ClientType != "" && filter.ClientType != models.ClientTypeIndividual && filter.ClientType != models.ClientTypeLegal {
-		return repositories.ClientListFilter{}, errors.New("invalid client_type: allowed values are individual, legal")
+		return repositories.ClientListFilter{}, errors.New("Некорректный тип клиента: выберите физическое или юридическое лицо")
 	}
 	if raw := strings.TrimSpace(c.Query("has_deals")); raw != "" {
 		hasDeals, err := strconv.ParseBool(raw)
 		if err != nil {
-			return repositories.ClientListFilter{}, errors.New("Invalid has_deals")
+			return repositories.ClientListFilter{}, errors.New("Некорректный фильтр наличия сделок")
 		}
 		filter.HasDeals = &hasDeals
 	}
 	filter.DealStatusGroup = strings.ToLower(strings.TrimSpace(c.Query("deal_status_group")))
 	if filter.DealStatusGroup != "" && filter.DealStatusGroup != "active" && filter.DealStatusGroup != "completed" && filter.DealStatusGroup != "closed" && filter.DealStatusGroup != "all" {
-		return repositories.ClientListFilter{}, errors.New("Invalid deal_status_group")
+		return repositories.ClientListFilter{}, errors.New("Некорректный фильтр статуса сделок")
 	}
 	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "name" && filter.SortBy != "display_name" && filter.SortBy != "client_type" {
-		return repositories.ClientListFilter{}, errors.New("Invalid sort_by")
+		return repositories.ClientListFilter{}, errors.New("Некорректное поле сортировки")
 	}
 	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
-		return repositories.ClientListFilter{}, errors.New("Invalid order")
+		return repositories.ClientListFilter{}, errors.New("Некорректный порядок сортировки")
 	}
 	if raw := strings.TrimSpace(c.Query("branch_id")); raw != "" {
 		branchID, err := strconv.Atoi(raw)
 		if err != nil || branchID <= 0 {
-			return repositories.ClientListFilter{}, errors.New("Invalid branch_id")
+			return repositories.ClientListFilter{}, errors.New("Некорректный ID филиала")
 		}
 		filter.BranchID = &branchID
 	}
@@ -1119,17 +1127,17 @@ func clientListFilterFromQuery(c *gin.Context) (repositories.ClientListFilter, e
 func (h *ClientHandler) GetCompleteness(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
 	profile, err := h.Service.GetProfile(c.Request.Context(), id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к этому клиенту")
 			return
 		}
-		notFound(c, ClientNotFoundCode, "Client not found")
+		notFound(c, ClientNotFoundCode, "Клиент не найден")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

@@ -42,11 +42,14 @@ func (s *ClientService) SetUserRepo(userRepo repositories.UserRepository) {
 
 func (s *ClientService) currentUserBranch(userID int) (*int, error) {
 	if s.UserRepo == nil {
-		return nil, ErrForbidden
+		return nil, ErrUserBranchRequired
 	}
 	u, err := s.UserRepo.GetByID(userID)
 	if err != nil || u == nil || u.BranchID == nil {
-		return nil, ErrForbidden
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrUserBranchRequired, err)
+		}
+		return nil, ErrUserBranchRequired
 	}
 	return u.BranchID, nil
 }
@@ -641,9 +644,15 @@ func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, err
 	if err := s.authorizeWrite(roleID); err != nil {
 		return 0, err
 	}
-	userBranchID, err := s.currentUserBranch(userID)
-	if err != nil {
-		return 0, err
+	var userBranchID *int
+	if roleID == authz.RoleSales || roleID == authz.RoleOperations {
+		var err error
+		userBranchID, err = s.currentUserBranch(userID)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		userBranchID, _ = s.currentUserBranch(userID)
 	}
 	if roleID == authz.RoleSales {
 		c.OwnerID = userID

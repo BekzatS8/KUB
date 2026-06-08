@@ -26,7 +26,7 @@ func NewClientProfileHandler(service clientProfileProvider) *ClientProfileHandle
 func (h *ClientProfileHandler) GetProfile(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
@@ -34,10 +34,10 @@ func (h *ClientProfileHandler) GetProfile(c *gin.Context) {
 	payload, err := h.Service.GetProfile(c.Request.Context(), id, userID, roleID)
 	if err != nil {
 		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к этому клиенту")
 			return
 		}
-		notFound(c, ClientNotFoundCode, "Client not found")
+		notFound(c, ClientNotFoundCode, "Клиент не найден")
 		return
 	}
 

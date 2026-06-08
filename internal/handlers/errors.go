@@ -25,6 +25,7 @@ const (
 	DocumentNotFound       = "DOCUMENT_NOT_FOUND"
 	ClientNotFoundCode     = "CLIENT_NOT_FOUND"
 	ReadOnlyRoleCode       = "READ_ONLY_ROLE"
+	UserBranchRequiredCode = "USER_BRANCH_REQUIRED"
 	InvalidEmailCode       = "INVALID_EMAIL"
 	InvalidDateFormatCode  = "INVALID_DATE_FORMAT"
 	EmailAlreadyUsedCode   = "EMAIL_ALREADY_USED"

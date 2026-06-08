@@ -24,13 +24,13 @@ func NewClientFilesHandler(service *services.ClientFilesService) *ClientFilesHan
 func (h *ClientFilesHandler) Upload(c *gin.Context) {
 	clientID, err := strconv.Atoi(c.Param("id"))
 	if err != nil || clientID <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	category := c.PostForm("category")
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		badRequest(c, "file is required")
+		badRequest(c, "Выберите файл для загрузки")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
@@ -39,17 +39,17 @@ func (h *ClientFilesHandler) Upload(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrForbidden), errors.Is(err, services.ErrReadOnly):
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет права загружать файлы этого клиента")
 		case errors.Is(err, repositories.ErrClientNotFound):
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 		case errors.Is(err, services.ErrUnsupportedClientFileCategory):
-			badRequest(c, "unsupported category for this client type")
+			badRequest(c, "Эта категория файла не подходит для выбранного типа клиента")
 		case errors.Is(err, services.ErrUnsupportedClientFileExtension):
-			badRequest(c, "unsupported file extension for selected category")
+			badRequest(c, "Этот формат файла не поддерживается для выбранной категории")
 		case errors.Is(err, services.ErrFileRequired):
-			badRequest(c, err.Error())
+			badRequest(c, "Выберите файл для загрузки")
 		default:
-			internalError(c, "Failed to upload client file")
+			internalError(c, "Не удалось загрузить файл клиента")
 		}
 		return
 	}
@@ -70,12 +70,12 @@ func (h *ClientFilesHandler) ServePrimaryDownload(c *gin.Context) {
 func (h *ClientFilesHandler) servePrimary(c *gin.Context, download bool) {
 	clientID, err := strconv.Atoi(c.Param("id"))
 	if err != nil || clientID <= 0 {
-		badRequest(c, "Invalid client ID")
+		badRequest(c, "Некорректный ID клиента")
 		return
 	}
 	category := c.DefaultQuery("category", "")
 	if category == "" {
-		badRequest(c, "category is required")
+		badRequest(c, "Укажите категорию файла")
 		return
 	}
 	userID, roleID := getUserAndRole(c)
@@ -84,15 +84,15 @@ func (h *ClientFilesHandler) servePrimary(c *gin.Context, download bool) {
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrForbidden), errors.Is(err, services.ErrReadOnly):
-			forbidden(c, "Forbidden")
+			forbidden(c, "У вас нет доступа к файлу этого клиента")
 		case errors.Is(err, repositories.ErrClientNotFound):
-			notFound(c, ClientNotFoundCode, "Client not found")
+			notFound(c, ClientNotFoundCode, "Клиент не найден")
 		case errors.Is(err, repositories.ErrClientFileNotFound), errors.Is(err, os.ErrNotExist):
-			notFound(c, NotFoundCode, "Client file not found")
+			notFound(c, NotFoundCode, "Файл клиента не найден")
 		case errors.Is(err, services.ErrClientFilePathTraversal):
-			badRequest(c, "Invalid file path")
+			badRequest(c, "Некорректный путь к файлу")
 		default:
-			internalError(c, "Failed to resolve client file")
+			internalError(c, "Не удалось открыть файл клиента")
 		}
 		return
 	}

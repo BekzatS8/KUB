@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-const supportedDateFormats = "YYYY-MM-DD, DD.MM.YYYY, YYYY-MM-DDTHH:MM:SSZ"
+const supportedDateFormats = "ГГГГ-ММ-ДД, ДД.ММ.ГГГГ или дата из календаря"
 
 type dateFieldError struct {
 	field string
 }
 
 func (e *dateFieldError) Error() string {
-	return fmt.Sprintf("invalid %s format. Allowed formats: %s", e.field, supportedDateFormats)
+	return fmt.Sprintf("Некорректный формат даты в поле %s. Допустимые форматы: %s", e.field, supportedDateFormats)
 }
 
 func parseFlexibleDate(field, value string, required bool) (*time.Time, error) {
