@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
 
@@ -103,15 +104,9 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 }
 
 func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error) {
-	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
+	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
 	if err != nil {
 		return "", err
-	}
-	if integration == nil {
-		return "", ErrNotFound
-	}
-	if !integration.Enabled {
-		return "", ErrDisabled
 	}
 	name := strings.TrimSpace(userName)
 	if name == "" {
@@ -228,12 +223,9 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 }
 
 func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, text string) (*SendMessageResponse, error) {
-	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
+	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
 	if err != nil {
 		return nil, err
-	}
-	if integration == nil || !integration.Enabled {
-		return nil, ErrDisabled
 	}
 	req := SendMessageRequest{
 		ChannelID: s.defaultChannelID,
@@ -247,6 +239,28 @@ func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, text
 	}
 	log.Printf("integration=wazzup operation=send_message status=ok owner_user_id=%d target_chat=%s message_id=%s", ownerUserID, maskChatID(chatID), tokenPrefix(resp.MessageID))
 	return resp, nil
+}
+
+func (s *Service) activeIntegrationForUser(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error) {
+	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if integration != nil && integration.Enabled {
+		return integration, nil
+	}
+
+	shared, err := s.repo.GetAnyEnabledIntegration(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if shared != nil {
+		return shared, nil
+	}
+	if integration != nil {
+		return nil, ErrDisabled
+	}
+	return nil, ErrNotFound
 }
 
 func (s *Service) resolveAPIKey(saved string) string {

@@ -216,6 +216,7 @@ func TestLogin_VerifiedUserCanLoginImmediately(t *testing.T) {
 		Email:        "verified@example.com",
 		PasswordHash: hash,
 		RoleID:       authz.RoleSales,
+		IsActive:     true,
 		IsVerified:   true,
 		VerifiedAt:   &now,
 	}}
@@ -231,6 +232,38 @@ func TestLogin_VerifiedUserCanLoginImmediately(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("unexpected status: got=%d want=%d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestLogin_InactiveUserCannotLogin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	authSvc := services.NewAuthService([]byte("01234567890123456789012345678901"), nil, 0, 0, nil)
+	hash, err := authSvc.HashPassword("Passw0rd")
+	if err != nil {
+		t.Fatalf("HashPassword error: %v", err)
+	}
+	now := time.Now().UTC()
+	svc := &stubUserService{byEmail: &models.User{
+		ID:           7,
+		Email:        "inactive@example.com",
+		PasswordHash: hash,
+		RoleID:       authz.RoleSales,
+		IsActive:     false,
+		IsVerified:   true,
+		VerifiedAt:   &now,
+	}}
+	h := NewAuthHandler(svc, authSvc, nil)
+
+	r := gin.New()
+	r.POST("/auth/login", h.Login)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"inactive@example.com","password":"Passw0rd"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status: got=%d want=%d body=%s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }
 
@@ -254,7 +287,29 @@ func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 	}
 }
 
-func TestCreateUser_RequiresBranchForEveryRole(t *testing.T) {
+func TestCreateUser_RequiresBranchForNonAdminRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubUserService{}
+	h := NewUserHandler(svc, nil, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
+	r.POST("/users", h.CreateUser)
+
+	reqBody := `{"email":"sales-no-branch@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"first_name":"A","last_name":"B","middle_name":"C"}`
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.createdUser != nil {
+		t.Fatalf("service must not be called without branch, got %+v", svc.createdUser)
+	}
+}
+
+func TestCreateUser_AllowsSystemAdminWithoutBranch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
 	h := NewUserHandler(svc, nil, nil)
@@ -268,11 +323,14 @@ func TestCreateUser_RequiresBranchForEveryRole(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("unexpected status: got=%d want=%d body=%s", w.Code, http.StatusCreated, w.Body.String())
 	}
-	if svc.createdUser != nil {
-		t.Fatalf("service must not be called without branch, got %+v", svc.createdUser)
+	if svc.createdUser == nil {
+		t.Fatalf("service must be called for system admin without branch")
+	}
+	if svc.createdUser.BranchID != nil {
+		t.Fatalf("system admin branch must stay nil, got %+v", svc.createdUser.BranchID)
 	}
 }
 

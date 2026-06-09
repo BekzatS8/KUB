@@ -39,6 +39,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		unauthorized(c, "Invalid email or password")
 		return
 	}
+	if !user.IsActive {
+		log.Printf("[auth][login] inactive user id=%d", user.ID)
+		forbidden(c, "Пользователь отключен")
+		return
+	}
 
 	// Блокируем логин, если телефон не подтверждён
 	if !user.IsVerified {
@@ -109,7 +114,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 	old := strings.TrimSpace(req.RefreshToken)
 	user, err := h.userService.GetByRefreshToken(old)
-	if err != nil || user == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked {
+	if err != nil || user == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked || !user.IsActive {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}
@@ -124,7 +129,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 	rotatedUser, err := h.userService.RotateRefresh(old, newRT, newExp)
-	if err != nil || rotatedUser == nil {
+	if err != nil || rotatedUser == nil || !rotatedUser.IsActive {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}

@@ -95,7 +95,21 @@ func (r *userRepository) Update(user *models.User) error {
 }
 
 func (r *userRepository) Delete(id int) error {
-	_, err := r.DB.Exec(`DELETE FROM users WHERE id=$1`, id)
+	const q = `
+		UPDATE users
+		SET is_active=FALSE,
+			refresh_token=NULL,
+			refresh_expires_at=NULL,
+			refresh_revoked=TRUE,
+			telegram_chat_id=NULL,
+			notify_tasks_telegram=FALSE,
+			email=CASE
+				WHEN email LIKE 'deleted-user-%@deleted.local' THEN email
+				ELSE 'deleted-user-' || id::text || '-' || EXTRACT(EPOCH FROM NOW())::bigint::text || '@deleted.local'
+			END
+		WHERE id=$1
+	`
+	_, err := r.DB.Exec(q, id)
 	return err
 }
 
@@ -113,6 +127,7 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
+		WHERE COALESCE(is_active, TRUE) = TRUE
 		ORDER BY id
 		LIMIT $1 OFFSET $2
 	`
@@ -141,7 +156,7 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
-		FROM users WHERE email=$1
+		FROM users WHERE email=$1 AND COALESCE(is_active, TRUE) = TRUE
 	`
 	u, d := &models.User{}, &userDBFields{}
 	if err := r.DB.QueryRow(q, email).Scan(d.dest(u)...); err != nil {
@@ -153,13 +168,13 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 
 func (r *userRepository) GetCount() (int, error) {
 	var c int
-	err := r.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&c)
+	err := r.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE COALESCE(is_active, TRUE) = TRUE`).Scan(&c)
 	return c, err
 }
 
 func (r *userRepository) GetCountByRole(roleID int) (int, error) {
 	var c int
-	err := r.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE role_id=$1`, roleID).Scan(&c)
+	err := r.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE role_id=$1 AND COALESCE(is_active, TRUE) = TRUE`, roleID).Scan(&c)
 	return c, err
 }
 
@@ -182,7 +197,9 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 	const q = `
 		UPDATE users
 		SET refresh_token=$1, refresh_expires_at=$2, refresh_revoked=FALSE
-		WHERE refresh_token=$3 OR refresh_token=$4
+		WHERE (refresh_token=$3 OR refresh_token=$4)
+		  AND COALESCE(is_active, TRUE) = TRUE
+		  AND refresh_revoked = FALSE
 		RETURNING
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
@@ -213,7 +230,9 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
-		FROM users WHERE refresh_token=$1 OR refresh_token=$2
+		FROM users
+		WHERE (refresh_token=$1 OR refresh_token=$2)
+		  AND COALESCE(is_active, TRUE) = TRUE
 	`
 	u, d := &models.User{}, &userDBFields{}
 	if err := r.DB.QueryRow(q, normalized, hashed).Scan(d.dest(u)...); err != nil {
@@ -271,7 +290,12 @@ func (r *userRepository) GetByIDSimple(id int) (*models.User, error) {
 func (r *userRepository) GetTelegramSettings(ctx context.Context, userID int64) (int64, bool, error) {
 	var chat sql.NullInt64
 	var notify bool
-	err := r.DB.QueryRowContext(ctx, `SELECT telegram_chat_id, notify_tasks_telegram FROM users WHERE id=$1`, userID).Scan(&chat, &notify)
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT telegram_chat_id,
+		       CASE WHEN COALESCE(is_active, TRUE) THEN notify_tasks_telegram ELSE FALSE END
+		FROM users
+		WHERE id=$1
+	`, userID).Scan(&chat, &notify)
 	if err != nil {
 		return 0, false, err
 	}
@@ -289,7 +313,10 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, is_verified, verified_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
-		FROM users WHERE telegram_chat_id=$1 LIMIT 1
+		FROM users
+		WHERE telegram_chat_id=$1
+		  AND COALESCE(is_active, TRUE) = TRUE
+		LIMIT 1
 	`
 	u, d := &models.User{}, &userDBFields{}
 	if err := r.DB.QueryRowContext(ctx, q, chatID).Scan(d.dest(u)...); err != nil {

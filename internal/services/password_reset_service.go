@@ -55,6 +55,10 @@ func (s *passwordResetService) RequestReset(email string) error {
 		log.Printf("[password-reset] request for %q: user not found or error: %v", email, err)
 		return nil
 	}
+	if !user.IsActive {
+		log.Printf("[password-reset] request for %q: user inactive id=%d", email, user.ID)
+		return nil
+	}
 
 	token, err := utils.NewRefreshToken(32)
 	if err != nil {
@@ -105,6 +109,13 @@ func (s *passwordResetService) ResetPassword(token, newPassword string) error {
 	}
 	if time.Now().After(pr.ExpiresAt) {
 		return ErrResetTokenExpired
+	}
+	user, err := s.userRepo.GetByID(pr.UserID)
+	if err != nil {
+		return err
+	}
+	if user == nil || !user.IsActive {
+		return ErrResetTokenNotFound
 	}
 
 	hash, err := s.auth.HashPassword(newPassword)

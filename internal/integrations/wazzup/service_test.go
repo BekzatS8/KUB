@@ -10,7 +10,8 @@ import (
 )
 
 type stubRepo struct {
-	integration *models.WazzupIntegration
+	integration       *models.WazzupIntegration
+	sharedIntegration *models.WazzupIntegration
 }
 
 func (s stubRepo) GetIntegrationByToken(context.Context, string) (*models.WazzupIntegration, error) {
@@ -22,6 +23,15 @@ func (s stubRepo) GetCRMUserByID(context.Context, int) (*repositories.CRMUserDTO
 }
 func (s stubRepo) GetIntegrationByOwnerUserID(context.Context, int) (*models.WazzupIntegration, error) {
 	return s.integration, nil
+}
+func (s stubRepo) GetAnyEnabledIntegration(context.Context) (*models.WazzupIntegration, error) {
+	if s.sharedIntegration != nil {
+		return s.sharedIntegration, nil
+	}
+	if s.integration != nil && s.integration.Enabled {
+		return s.integration, nil
+	}
+	return nil, nil
 }
 func (s stubRepo) UpsertIntegrationByOwner(context.Context, int, string, string, string, bool) (int, string, error) {
 	return 1, "tok", nil
@@ -59,5 +69,30 @@ func TestHandleWebhookVerifyToken(t *testing.T) {
 	_, _, err := svc.HandleWebhook(context.Background(), "abc", "Bearer wrong", []byte(`{"messages":[]}`))
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestGetIframeURLUsesSharedEnabledIntegration(t *testing.T) {
+	svc := NewService(stubRepo{
+		sharedIntegration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true},
+	}, noopClient{}, "", "", "", "")
+
+	_, err := svc.GetIframeURL(context.Background(), 22, 1, "Seller")
+	if err != nil {
+		t.Fatalf("expected shared integration to allow iframe, got %v", err)
+	}
+}
+
+func TestSendMessageUsesSharedEnabledIntegration(t *testing.T) {
+	svc := NewService(stubRepo{
+		sharedIntegration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true},
+	}, noopClient{}, "", "channel", "", "")
+
+	resp, err := svc.SendMessage(context.Background(), 22, "chat-id", "hello")
+	if err != nil {
+		t.Fatalf("expected shared integration to allow send, got %v", err)
+	}
+	if resp == nil || resp.MessageID != "ok" {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 }

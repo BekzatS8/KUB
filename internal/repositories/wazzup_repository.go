@@ -18,6 +18,7 @@ type WazzupRepository interface {
 	ListCRMUsers(ctx context.Context) ([]CRMUserDTO, error)
 	GetCRMUserByID(ctx context.Context, id int) (*CRMUserDTO, error)
 	GetIntegrationByOwnerUserID(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error)
+	GetAnyEnabledIntegration(ctx context.Context) (*models.WazzupIntegration, error)
 	UpsertIntegrationByOwner(ctx context.Context, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (integrationID int, webhookToken string, err error)
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindLeadByPhone(ctx context.Context, phone string) (leadID int, err error)
@@ -65,6 +66,18 @@ func (r *wazzupRepository) GetIntegrationByOwnerUserID(ctx context.Context, owne
 	return scanWazzupIntegration(row)
 }
 
+func (r *wazzupRepository) GetAnyEnabledIntegration(ctx context.Context) (*models.WazzupIntegration, error) {
+	const q = `
+		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at
+		FROM wazzup_integrations
+		WHERE enabled = TRUE
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 1
+	`
+	row := r.db.QueryRowContext(ctx, q)
+	return scanWazzupIntegration(row)
+}
+
 func (r *wazzupRepository) ListCRMUsers(ctx context.Context) ([]CRMUserDTO, error) {
 	nameExpr, err := r.crmUserNameExpr(ctx)
 	if err != nil {
@@ -73,6 +86,7 @@ func (r *wazzupRepository) ListCRMUsers(ctx context.Context) ([]CRMUserDTO, erro
 	q := fmt.Sprintf(`
 		SELECT id, email, %s AS name
 		FROM public.users
+		WHERE COALESCE(is_active, TRUE) = TRUE
 		ORDER BY id
 	`, nameExpr)
 	rows, err := r.db.QueryContext(ctx, q)
@@ -106,6 +120,7 @@ func (r *wazzupRepository) GetCRMUserByID(ctx context.Context, id int) (*CRMUser
 		SELECT id, email, %s AS name
 		FROM public.users
 		WHERE id = $1
+		  AND COALESCE(is_active, TRUE) = TRUE
 	`, nameExpr)
 	var u CRMUserDTO
 	err = r.db.QueryRowContext(ctx, q, id).Scan(&u.ID, &u.Email, &u.Name)

@@ -488,6 +488,7 @@ FROM users u
 LEFT JOIN roles rl ON rl.id = u.role_id
 WHERE u.id <> $1
   AND u.is_verified = TRUE
+  AND COALESCE(u.is_active, TRUE) = TRUE
   AND (
       $2 = ''
       OR COALESCE(u.first_name, '') ILIKE '%' || $2 || '%'
@@ -546,6 +547,7 @@ LEFT JOIN LATERAL (
 ) pc ON TRUE
 WHERE u.id <> $1
   AND u.is_verified = TRUE
+  AND COALESCE(u.is_active, TRUE) = TRUE
   AND (
       $2 = ''
       OR COALESCE(u.first_name, '') ILIKE '%' || $2 || '%'

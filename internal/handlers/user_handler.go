@@ -180,6 +180,13 @@ func (h *UserHandler) validateRequiredBranch(branchID *int) string {
 	return ""
 }
 
+func (h *UserHandler) validateBranchForRole(roleID int, branchID *int) string {
+	if roleID == authz.RoleSystemAdmin && !branchIDSelected(branchID) {
+		return ""
+	}
+	return h.validateRequiredBranch(branchID)
+}
+
 func (h *UserHandler) branchPayload(branchID *int) interface{} {
 	if branchID == nil {
 		return nil
@@ -245,7 +252,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		badRequest(c, "Некорректная роль")
 		return
 	}
-	if msg := h.validateRequiredBranch(req.BranchID); msg != "" {
+	if msg := h.validateBranchForRole(newRole, req.BranchID); msg != "" {
 		badRequest(c, msg)
 		return
 	}
@@ -408,7 +415,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		body.IsActive = *req.IsActive
 	}
 	if authz.CanAssignRoles(roleID) {
-		if msg := h.validateRequiredBranch(body.BranchID); msg != "" {
+		if msg := h.validateBranchForRole(body.RoleID, body.BranchID); msg != "" {
 			badRequest(c, msg)
 			return
 		}
