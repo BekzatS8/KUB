@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	wz "turcompany/internal/integrations/wazzup"
+	"turcompany/internal/models"
 )
 
 type stubWazzupService struct {
@@ -28,11 +29,26 @@ func (s *stubWazzupService) GetIframeURL(context.Context, int, int, string) (str
 	}
 	return s.iframeURL, nil
 }
+func (s *stubWazzupService) GetStatus(context.Context, int) (*models.WazzupStatus, error) {
+	return &models.WazzupStatus{Provider: "wazzup"}, nil
+}
+func (s *stubWazzupService) SyncChannels(context.Context, int) ([]models.WazzupChannel, error) {
+	return nil, nil
+}
+func (s *stubWazzupService) ListDialogs(context.Context, int, string) ([]models.WazzupDialog, error) {
+	return nil, nil
+}
+func (s *stubWazzupService) ListDialogMessages(context.Context, int, int, int, int) ([]models.WazzupDialogMessage, error) {
+	return nil, nil
+}
 func (s *stubWazzupService) HandleWebhook(context.Context, string, string, []byte) (int, bool, error) {
 	return 0, false, nil
 }
 func (s *stubWazzupService) SendMessage(context.Context, int, string, string) (*wz.SendMessageResponse, error) {
 	return &wz.SendMessageResponse{}, nil
+}
+func (s *stubWazzupService) SendDialogMessage(context.Context, int, int, string) (*models.WazzupDialogMessage, error) {
+	return &models.WazzupDialogMessage{}, nil
 }
 
 func TestWazzupSetupAllowsEmptyWebhookBaseURL(t *testing.T) {

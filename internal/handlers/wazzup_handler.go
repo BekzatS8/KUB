@@ -13,14 +13,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
 	wz "turcompany/internal/integrations/wazzup"
+	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
 
 type WazzupService interface {
 	Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error)
 	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error)
+	GetStatus(ctx context.Context, ownerUserID int) (*models.WazzupStatus, error)
+	SyncChannels(ctx context.Context, ownerUserID int) ([]models.WazzupChannel, error)
+	ListDialogs(ctx context.Context, userID int, transport string) ([]models.WazzupDialog, error)
+	ListDialogMessages(ctx context.Context, userID, dialogID, limit, offset int) ([]models.WazzupDialogMessage, error)
 	HandleWebhook(ctx context.Context, token string, authHeader string, payload []byte) (leadID int, created bool, err error)
 	SendMessage(ctx context.Context, ownerUserID int, chatID, text string) (*wz.SendMessageResponse, error)
+	SendDialogMessage(ctx context.Context, userID, dialogID int, text string) (*models.WazzupDialogMessage, error)
 }
 
 type WazzupHandler struct {
@@ -48,6 +54,10 @@ type wazzupSendMessageRequest struct {
 	Text   string `json:"text"`
 }
 
+type wazzupDialogSendRequest struct {
+	Text string `json:"text"`
+}
+
 func (h *WazzupHandler) Webhook(c *gin.Context) {
 	token := strings.TrimSpace(c.Param("token"))
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
@@ -64,7 +74,7 @@ func (h *WazzupHandler) Webhook(c *gin.Context) {
 		if len(payloadPreview) > 300 {
 			payloadPreview = payloadPreview[:300]
 		}
-		log.Printf("[WAZZUP][webhook] token=%s err=%v payload_prefix=%q", tokenPrefix(token), err, payloadPreview)
+		log.Printf("[WAZZUP][webhook] err=%v payload_prefix=%q", err, payloadPreview)
 		switch {
 		case errors.Is(err, wz.ErrUnauthorized):
 			unauthorized(c, "invalid authorization")
@@ -190,6 +200,89 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 	})
 }
 
+func (h *WazzupHandler) Status(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	status, err := h.svc.GetStatus(ctx, userID)
+	if err != nil {
+		writeWazzupError(c, err, "failed to get wazzup status")
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func (h *WazzupHandler) Channels(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	channels, err := h.svc.SyncChannels(ctx, userID)
+	if err != nil {
+		writeWazzupError(c, err, "failed to list wazzup channels")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"value": channels, "count": len(channels)})
+}
+
+func (h *WazzupHandler) Dialogs(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	transport := strings.TrimSpace(c.Query("transport"))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer cancel()
+
+	dialogs, err := h.svc.ListDialogs(ctx, userID, transport)
+	if err != nil {
+		writeWazzupError(c, err, "failed to list wazzup dialogs")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"value": dialogs, "count": len(dialogs)})
+}
+
+func (h *WazzupHandler) DialogMessages(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	dialogID, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
+	if err != nil || dialogID <= 0 {
+		badRequest(c, "Invalid dialog id")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer cancel()
+
+	messages, err := h.svc.ListDialogMessages(ctx, userID, dialogID, limit, offset)
+	if err != nil {
+		writeWazzupError(c, err, "failed to list wazzup messages")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"value": messages, "count": len(messages)})
+}
+
+func (h *WazzupHandler) SendDialogMessage(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	dialogID, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
+	if err != nil || dialogID <= 0 {
+		badRequest(c, "Invalid dialog id")
+		return
+	}
+	var req wazzupDialogSendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	msg, err := h.svc.SendDialogMessage(ctx, userID, dialogID, req.Text)
+	if err != nil {
+		writeWazzupError(c, err, "failed to send wazzup dialog message")
+		return
+	}
+	c.JSON(http.StatusCreated, msg)
+}
+
 func (h *WazzupHandler) CRMUsers(c *gin.Context) {
 	if h.repo == nil {
 		internalError(c, "crm users repository is not configured")
@@ -214,7 +307,7 @@ func (h *WazzupHandler) CRMUsers(c *gin.Context) {
 		internalError(c, "failed to list users")
 		return
 	}
-	log.Printf("[WAZZUP][crm-users] token=%s count=%d", tokenPrefix(token), len(users))
+	log.Printf("[WAZZUP][crm-users] count=%d", len(users))
 
 	out := make([]gin.H, 0, len(users))
 	for _, u := range users {
@@ -270,6 +363,23 @@ func (h *WazzupHandler) CRMUserByID(c *gin.Context) {
 		"phone":  u.Phone,
 		"active": u.Active,
 	})
+}
+
+func writeWazzupError(c *gin.Context, err error, fallback string) {
+	switch {
+	case errors.Is(err, wz.ErrBadRequest):
+		badRequest(c, err.Error())
+	case errors.Is(err, wz.ErrUnauthorized):
+		unauthorized(c, "wazzup unauthorized")
+	case errors.Is(err, wz.ErrNotFound), errors.Is(err, wz.ErrDisabled):
+		notFound(c, "wazzup_integration_not_found", "Integration not found")
+	case errors.Is(err, wz.ErrUsersSync):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Wazzup users sync failed"})
+	case errors.Is(err, wz.ErrUpstream):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "wazzup upstream error"})
+	default:
+		internalError(c, fallback)
+	}
 }
 
 func tokenPrefix(token string) string {

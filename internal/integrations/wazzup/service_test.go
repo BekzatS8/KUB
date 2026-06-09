@@ -36,14 +36,35 @@ func (s stubRepo) GetAnyEnabledIntegration(context.Context) (*models.WazzupInteg
 func (s stubRepo) UpsertIntegrationByOwner(context.Context, int, string, string, string, bool) (int, string, error) {
 	return 1, "tok", nil
 }
-func (s stubRepo) RegisterDedup(context.Context, int, string) (bool, error) { return true, nil }
-func (s stubRepo) FindLeadByPhone(context.Context, string) (int, error)     { return 0, nil }
+func (s stubRepo) GetStatus(context.Context) (*models.WazzupStatus, error) {
+	return &models.WazzupStatus{Provider: "wazzup"}, nil
+}
+func (s stubRepo) UpsertChannels(context.Context, int, []models.WazzupChannel) error { return nil }
+func (s stubRepo) ListChannels(context.Context, int) ([]models.WazzupChannel, error) { return nil, nil }
+func (s stubRepo) RegisterDedup(context.Context, int, string) (bool, error)          { return true, nil }
+func (s stubRepo) FindClientByPhone(context.Context, string) (int, error)            { return 0, nil }
+func (s stubRepo) FindLeadByPhone(context.Context, string) (int, error)              { return 0, nil }
 func (s stubRepo) CreateLeadFromInbound(context.Context, int, string, string) (int, error) {
 	return 123, nil
 }
 func (s stubRepo) UpdateLeadDescriptionIfEmpty(context.Context, int, string) error { return nil }
 func (s stubRepo) GetLeadPhoneByID(context.Context, int) (string, error)           { return "", nil }
 func (s stubRepo) GetClientPhoneByID(context.Context, int) (string, error)         { return "", nil }
+func (s stubRepo) UpsertExternalChat(context.Context, repositories.ExternalChatUpsert) (*models.WazzupDialog, error) {
+	return &models.WazzupDialog{ID: 1}, nil
+}
+func (s stubRepo) CreateExternalMessage(context.Context, repositories.ExternalMessageCreate) (*models.WazzupDialogMessage, bool, error) {
+	return &models.WazzupDialogMessage{ID: 1}, true, nil
+}
+func (s stubRepo) ListExternalDialogs(context.Context, int, string) ([]models.WazzupDialog, error) {
+	return nil, nil
+}
+func (s stubRepo) GetExternalDialog(context.Context, int, int) (*models.WazzupDialog, error) {
+	return &models.WazzupDialog{ID: 1, ExternalChatID: "chat", ExternalChannelID: "channel", Transport: "whatsapp"}, nil
+}
+func (s stubRepo) ListExternalMessages(context.Context, int, int, int, int) ([]models.WazzupDialogMessage, error) {
+	return nil, nil
+}
 
 type noopClient struct{}
 
@@ -52,6 +73,7 @@ func (noopClient) UpsertUsers(context.Context, string, []UserUpsert) error     {
 func (noopClient) CreateIframe(context.Context, string, CreateIframeRequest) (string, error) {
 	return "", nil
 }
+func (noopClient) ListChannels(context.Context, string) ([]Channel, error) { return nil, nil }
 func (noopClient) SendMessage(context.Context, string, SendMessageRequest) (*SendMessageResponse, error) {
 	return &SendMessageResponse{MessageID: "ok"}, nil
 }

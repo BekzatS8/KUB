@@ -18,6 +18,7 @@ type Client interface {
 	PatchWebhooks(ctx context.Context, apiKey, webhooksURI, crmKey string) error
 	UpsertUsers(ctx context.Context, apiKey string, users []UserUpsert) error
 	CreateIframe(ctx context.Context, apiKey string, req CreateIframeRequest) (string, error)
+	ListChannels(ctx context.Context, apiKey string) ([]Channel, error)
 	SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error)
 }
 
@@ -39,6 +40,16 @@ type SendMessageRequest struct {
 
 type SendMessageResponse struct {
 	MessageID string
+}
+
+type Channel struct {
+	ID         string         `json:"id"`
+	Transport  string         `json:"transport"`
+	Name       string         `json:"name"`
+	Username   string         `json:"username"`
+	Phone      string         `json:"phone"`
+	Status     string         `json:"status"`
+	RawPayload map[string]any `json:"raw_payload,omitempty"`
 }
 
 type HTTPClient struct {
@@ -113,6 +124,28 @@ func (c *HTTPClient) CreateIframe(ctx context.Context, apiKey string, req Create
 	return "", fmt.Errorf("iframe url is empty")
 }
 
+func (c *HTTPClient) ListChannels(ctx context.Context, apiKey string) ([]Channel, error) {
+	body, err := c.doJSON(ctx, http.MethodGet, "/v3/channels", apiKey, nil)
+	if err != nil {
+		return nil, err
+	}
+	var root any
+	if err := json.Unmarshal(body, &root); err != nil {
+		return nil, fmt.Errorf("decode channels response: %w", err)
+	}
+
+	rawItems := extractChannelItems(root)
+	channels := make([]Channel, 0, len(rawItems))
+	for _, item := range rawItems {
+		ch := mapChannel(item)
+		if strings.TrimSpace(ch.ID) == "" {
+			continue
+		}
+		channels = append(channels, ch)
+	}
+	return channels, nil
+}
+
 func (c *HTTPClient) SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
 	req.ChatID = strings.TrimSpace(req.ChatID)
 	req.Text = strings.TrimSpace(req.Text)
@@ -138,17 +171,28 @@ func (c *HTTPClient) SendMessage(ctx context.Context, apiKey string, req SendMes
 }
 
 func (c *HTTPClient) doJSON(ctx context.Context, method, path, apiKey string, payload any) ([]byte, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+	var body io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		body = bytes.NewReader(b)
 	}
 	var lastErr error
 	for attempt := 0; attempt <= c.retries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(b))
+		if payload != nil {
+			if seeker, ok := body.(io.Seeker); ok {
+				_, _ = seeker.Seek(0, io.SeekStart)
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 		if err != nil {
 			return nil, fmt.Errorf("new request: %w", err)
 		}
-		req.Header.Set("Content-Type", "application/json")
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 
 		resp, err := c.http.Do(req)
@@ -182,4 +226,90 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path, apiKey string, pa
 		lastErr = errors.New("wazzup request failed")
 	}
 	return nil, lastErr
+}
+
+func extractChannelItems(root any) []map[string]any {
+	switch v := root.(type) {
+	case []any:
+		return anySliceToMaps(v)
+	case map[string]any:
+		for _, key := range []string{"channels", "data", "items", "result"} {
+			if arr, ok := v[key].([]any); ok {
+				return anySliceToMaps(arr)
+			}
+		}
+	}
+	return nil
+}
+
+func anySliceToMaps(items []any) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func mapChannel(item map[string]any) Channel {
+	ch := Channel{
+		ID:         firstString(item, "id", "channelId", "channel_id", "guid"),
+		Transport:  normalizeTransport(firstString(item, "transport", "type", "channelType", "channel_type")),
+		Name:       firstString(item, "name", "title", "displayName", "display_name"),
+		Username:   firstString(item, "username", "login", "accountName", "account_name"),
+		Phone:      firstString(item, "phone", "phoneNumber", "phone_number"),
+		Status:     strings.ToLower(strings.TrimSpace(firstString(item, "status", "state"))),
+		RawPayload: item,
+	}
+	if ch.Transport == "" {
+		ch.Transport = "whatsapp"
+	}
+	if ch.Status == "" {
+		ch.Status = "unknown"
+	}
+	if ch.Name == "" {
+		ch.Name = ch.Username
+	}
+	if ch.Name == "" {
+		ch.Name = ch.Phone
+	}
+	if ch.Name == "" {
+		ch.Name = ch.ID
+	}
+	return ch
+}
+
+func firstString(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := item[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		case float64:
+			return fmt.Sprintf("%.0f", v)
+		case int:
+			return fmt.Sprintf("%d", v)
+		}
+	}
+	return ""
+}
+
+func normalizeTransport(value string) string {
+	v := strings.ToLower(strings.TrimSpace(value))
+	switch v {
+	case "wa", "waba", "whatsapp":
+		return "whatsapp"
+	case "tg", "telegram":
+		return "telegram"
+	case "ig", "instagram", "instagram_direct", "direct":
+		return "instagram"
+	default:
+		return v
+	}
 }

@@ -142,6 +142,11 @@ func SetupRoutes(
 	if wazzupHandler != nil {
 		wazzup := r.Group("/integrations/wazzup")
 		{
+			wazzup.GET("/status", wazzupHandler.Status)
+			wazzup.GET("/channels", wazzupHandler.Channels)
+			wazzup.GET("/dialogs", wazzupHandler.Dialogs)
+			wazzup.GET("/dialogs/:id/messages", wazzupHandler.DialogMessages)
+			wazzup.POST("/dialogs/:id/messages", wazzupHandler.SendDialogMessage)
 			wazzup.POST("/setup", wazzupHandler.Setup)
 			wazzup.POST("/iframe", wazzupHandler.Iframe)
 			wazzup.POST("/send", wazzupHandler.SendMessage)
