@@ -28,8 +28,23 @@ type UserUpsert struct {
 }
 
 type CreateIframeRequest struct {
-	User  UserUpsert `json:"user"`
-	Scope string     `json:"scope"`
+	User       UserUpsert        `json:"user"`
+	Scope      string            `json:"scope"`
+	Filter     []IframeChat      `json:"filter,omitempty"`
+	ActiveChat *IframeActiveChat `json:"activeChat,omitempty"`
+	Options    map[string]any    `json:"options,omitempty"`
+}
+
+type IframeChat struct {
+	ChatType string `json:"chatType,omitempty"`
+	ChatID   string `json:"chatId,omitempty"`
+	Name     string `json:"name,omitempty"`
+}
+
+type IframeActiveChat struct {
+	ChannelID string `json:"channelId,omitempty"`
+	ChatType  string `json:"chatType,omitempty"`
+	ChatID    string `json:"chatId,omitempty"`
 }
 
 type SendMessageRequest struct {

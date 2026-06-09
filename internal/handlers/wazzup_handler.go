@@ -20,6 +20,7 @@ import (
 type WazzupService interface {
 	Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error)
 	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error)
+	GetIframe(ctx context.Context, ownerUserID int, companyID int, userName string, opts wz.IframeOptions) (*wz.IframeResponse, error)
 	GetStatus(ctx context.Context, ownerUserID int) (*models.WazzupStatus, error)
 	SyncChannels(ctx context.Context, ownerUserID int) ([]models.WazzupChannel, error)
 	ListDialogs(ctx context.Context, userID int, transport string) ([]models.WazzupDialog, error)
@@ -47,7 +48,10 @@ type wazzupSetupRequest struct {
 	Enabled         bool   `json:"enabled"`
 }
 
-type wazzupIframeRequest struct{}
+type wazzupIframeRequest struct {
+	Transport string `json:"transport"`
+	ChannelID string `json:"channel_id"`
+}
 
 type wazzupSendMessageRequest struct {
 	ChatID string `json:"chat_id"`
@@ -177,7 +181,10 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		}
 	}
 
-	url, err := h.svc.GetIframeURL(ctx, userID, companyID, userName)
+	resp, err := h.svc.GetIframe(ctx, userID, companyID, userName, wz.IframeOptions{
+		Transport: req.Transport,
+		ChannelID: req.ChannelID,
+	})
 	if err != nil {
 		log.Printf("[WAZZUP][iframe] user_id=%d err=%v", userID, err)
 		switch {
@@ -194,10 +201,7 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"iframe_url": url,
-		"url":        url,
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *WazzupHandler) Status(c *gin.Context) {

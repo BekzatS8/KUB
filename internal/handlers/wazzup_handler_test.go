@@ -29,6 +29,13 @@ func (s *stubWazzupService) GetIframeURL(context.Context, int, int, string) (str
 	}
 	return s.iframeURL, nil
 }
+func (s *stubWazzupService) GetIframe(ctx context.Context, ownerUserID int, companyID int, userName string, opts wz.IframeOptions) (*wz.IframeResponse, error) {
+	url, err := s.GetIframeURL(ctx, ownerUserID, companyID, userName)
+	if err != nil {
+		return nil, err
+	}
+	return &wz.IframeResponse{URL: url, IframeURL: url}, nil
+}
 func (s *stubWazzupService) GetStatus(context.Context, int) (*models.WazzupStatus, error) {
 	return &models.WazzupStatus{Provider: "wazzup"}, nil
 }

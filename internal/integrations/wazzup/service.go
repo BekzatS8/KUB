@@ -43,6 +43,20 @@ type SetupResponse struct {
 	CRMKey       string `json:"crm_key"`
 }
 
+type IframeOptions struct {
+	Transport string `json:"transport,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
+}
+
+type IframeResponse struct {
+	URL             string `json:"url"`
+	IframeURL       string `json:"iframe_url"`
+	ChannelSpecific bool   `json:"channel_specific"`
+	Transport       string `json:"transport,omitempty"`
+	ChannelID       string `json:"channel_id,omitempty"`
+	Message         string `json:"message,omitempty"`
+}
+
 type SendDialogMessageResponse struct {
 	Message *models.WazzupDialogMessage `json:"message"`
 }
@@ -108,15 +122,39 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 }
 
 func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error) {
-	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
+	resp, err := s.GetIframe(ctx, ownerUserID, companyID, userName, IframeOptions{})
 	if err != nil {
 		return "", err
+	}
+	return resp.URL, nil
+}
+
+func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int, userName string, opts IframeOptions) (*IframeResponse, error) {
+	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	transport := normalizeTransport(opts.Transport)
+	channelID := strings.TrimSpace(opts.ChannelID)
+	if transport != "" && !isSupportedTransport(transport) {
+		return nil, fmt.Errorf("%w: unsupported transport", ErrBadRequest)
+	}
+	if transport != "" || channelID != "" {
+		ch, err := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, channelID)
+		if err != nil {
+			return nil, err
+		}
+		if ch == nil {
+			return nil, ErrNotFound
+		}
+		channelID = strings.TrimSpace(ch.ExternalChannelID)
+		transport = normalizeTransport(ch.Transport)
 	}
 	name := strings.TrimSpace(userName)
 	if name == "" {
 		crmUser, userErr := s.repo.GetCRMUserByID(ctx, ownerUserID)
 		if userErr != nil {
-			return "", userErr
+			return nil, userErr
 		}
 		if crmUser != nil {
 			name = strings.TrimSpace(crmUser.Name)
@@ -132,7 +170,7 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID i
 	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
 	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
 		log.Printf("integration=wazzup operation=iframe_upsert_users status=failed owner_user_id=%d err=%v", ownerUserID, err)
-		return "", fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
+		return nil, fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
 	}
 	url, err := s.client.CreateIframe(ctx, apiKey, CreateIframeRequest{
 		User:  UserUpsert{ID: wazzupUserID, Name: name},
@@ -140,9 +178,46 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID i
 	})
 	if err != nil {
 		log.Printf("integration=wazzup operation=iframe_create status=failed owner_user_id=%d err=%v", ownerUserID, err)
-		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
+		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
-	return url, nil
+	resp := &IframeResponse{
+		URL:       url,
+		IframeURL: url,
+		Transport: transport,
+		ChannelID: channelID,
+	}
+	if transport != "" || channelID != "" {
+		resp.Message = "Wazzup returned global iframe only"
+	}
+	return resp, nil
+}
+
+func (s *Service) resolveIframeChannel(ctx context.Context, ownerUserID, integrationID int, transport, channelID string) (*models.WazzupChannel, error) {
+	channels, err := s.SyncChannels(ctx, ownerUserID)
+	if err != nil {
+		cached, cacheErr := s.repo.ListChannels(ctx, integrationID)
+		if cacheErr != nil || len(cached) == 0 {
+			return nil, err
+		}
+		channels = cached
+	}
+	var fallback *models.WazzupChannel
+	for i := range channels {
+		ch := channels[i]
+		if strings.TrimSpace(channelID) != "" && strings.TrimSpace(ch.ExternalChannelID) != strings.TrimSpace(channelID) {
+			continue
+		}
+		if transport != "" && normalizeTransport(ch.Transport) != transport {
+			continue
+		}
+		if fallback == nil {
+			fallback = &ch
+		}
+		if isActiveChannelStatus(ch.Status) {
+			return &ch, nil
+		}
+	}
+	return fallback, nil
 }
 
 func (s *Service) GetStatus(ctx context.Context, ownerUserID int) (*models.WazzupStatus, error) {
@@ -589,6 +664,15 @@ func firstNonEmpty(values ...string) string {
 func isSupportedTransport(transport string) bool {
 	switch normalizeTransport(transport) {
 	case "whatsapp", "telegram", "instagram":
+		return true
+	default:
+		return false
+	}
+}
+
+func isActiveChannelStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "active", "connected", "enabled", "ok", "online", "working":
 		return true
 	default:
 		return false
