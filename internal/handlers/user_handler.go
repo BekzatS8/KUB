@@ -1,9 +1,16 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/mail"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +25,7 @@ type UserHandler struct {
 	service             services.UserService
 	branchService       services.BranchService
 	verificationService *services.UserVerificationService
+	filesRoot           string
 }
 
 type createUserRequest struct {
@@ -28,9 +36,12 @@ type createUserRequest struct {
 	MiddleName  string `json:"middle_name"`
 	Position    string `json:"position"`
 	BranchID    *int   `json:"branch_id"`
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=6"`
-	Phone       string `json:"phone" binding:"required"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Phone       string `json:"phone"`
+	Address     string `json:"address"`
+	ExtraInfo   string `json:"extra_info"`
+	AvatarURL   string `json:"avatar_url"`
 	RoleID      int    `json:"role_id"`
 	IsVerified  *bool  `json:"is_verified"`
 	IsActive    *bool  `json:"is_active"`
@@ -46,6 +57,8 @@ type updateUserRequest struct {
 	BranchID    *int    `json:"branch_id"`
 	Email       *string `json:"email"`
 	Phone       *string `json:"phone"`
+	Address     *string `json:"address"`
+	ExtraInfo   *string `json:"extra_info"`
 	RoleID      *int    `json:"role_id"`
 	IsVerified  *bool   `json:"is_verified"`
 	IsActive    *bool   `json:"is_active"`
@@ -53,8 +66,12 @@ type updateUserRequest struct {
 
 var userPhoneE164Pattern = regexp.MustCompile(`^\+[1-9]\d{10,14}$`)
 
-func NewUserHandler(service services.UserService, branchService services.BranchService, verificationService *services.UserVerificationService) *UserHandler {
-	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService}
+func NewUserHandler(service services.UserService, branchService services.BranchService, verificationService *services.UserVerificationService, filesRoot ...string) *UserHandler {
+	root := "files"
+	if len(filesRoot) > 0 && strings.TrimSpace(filesRoot[0]) != "" {
+		root = strings.TrimSpace(filesRoot[0])
+	}
+	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService, filesRoot: root}
 }
 
 type userResponse struct {
@@ -65,6 +82,11 @@ type userResponse struct {
 	FullName   string      `json:"full_name"`
 	Email      string      `json:"email"`
 	Phone      string      `json:"phone"`
+	IIN        string      `json:"iin,omitempty"`
+	Address    string      `json:"address,omitempty"`
+	ExtraInfo  string      `json:"extra_info,omitempty"`
+	Avatar     gin.H       `json:"avatar"`
+	AvatarURL  string      `json:"avatar_url,omitempty"`
 	Role       gin.H       `json:"role"`
 	Position   string      `json:"position,omitempty"`
 	Branch     interface{} `json:"branch"`
@@ -103,6 +125,9 @@ func trimCreateUserRequest(req *createUserRequest) {
 	req.Position = strings.TrimSpace(req.Position)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Phone = strings.TrimSpace(req.Phone)
+	req.Address = strings.TrimSpace(req.Address)
+	req.ExtraInfo = strings.TrimSpace(req.ExtraInfo)
+	req.AvatarURL = strings.TrimSpace(req.AvatarURL)
 }
 
 func trimStringPtr(value **string) {
@@ -121,22 +146,24 @@ func trimUpdateUserRequest(req *updateUserRequest) {
 	trimStringPtr(&req.Position)
 	trimStringPtr(&req.Email)
 	trimStringPtr(&req.Phone)
+	trimStringPtr(&req.Address)
+	trimStringPtr(&req.ExtraInfo)
 }
 
 func validateRequiredCreateUserFields(req createUserRequest) string {
 	switch {
-	case req.LastName == "":
-		return "Укажите фамилию"
-	case req.FirstName == "":
-		return "Укажите имя"
-	case req.MiddleName == "":
-		return "Укажите отчество"
-	case req.Phone == "":
-		return "Укажите телефон"
-	case !userPhoneE164Pattern.MatchString(req.Phone):
-		return "Телефон должен быть в международном формате, например +77001234567"
+	case req.Email == "":
+		return "Заполните email"
+	case !validEmail(req.Email):
+		return "Некорректный email"
+	case req.Password == "":
+		return "Введите пароль"
 	case req.RoleID == 0:
 		return "Выберите роль"
+	case req.Position == "":
+		return "Укажите должность"
+	case !branchIDSelected(req.BranchID):
+		return "Выберите филиал"
 	default:
 		return ""
 	}
@@ -144,21 +171,19 @@ func validateRequiredCreateUserFields(req createUserRequest) string {
 
 func validateUpdateUserFields(req updateUserRequest) string {
 	switch {
-	case req.LastName != nil && *req.LastName == "":
-		return "Укажите фамилию"
-	case req.FirstName != nil && *req.FirstName == "":
-		return "Укажите имя"
-	case req.MiddleName != nil && *req.MiddleName == "":
-		return "Укажите отчество"
-	case req.Phone != nil && *req.Phone == "":
-		return "Укажите телефон"
-	case req.Phone != nil && !userPhoneE164Pattern.MatchString(*req.Phone):
+	case req.Email != nil && *req.Email != "" && !validEmail(*req.Email):
+		return "Некорректный email"
+	case req.Phone != nil && *req.Phone != "" && !userPhoneE164Pattern.MatchString(*req.Phone):
 		return "Телефон должен быть в международном формате, например +77001234567"
 	default:
 		return ""
 	}
 }
 
+func validEmail(email string) bool {
+	_, err := mail.ParseAddress(email)
+	return err == nil
+}
 func branchIDSelected(branchID *int) bool {
 	return branchID != nil && *branchID > 0
 }
@@ -181,9 +206,6 @@ func (h *UserHandler) validateRequiredBranch(branchID *int) string {
 }
 
 func (h *UserHandler) validateBranchForRole(roleID int, branchID *int) string {
-	if roleID == authz.RoleSystemAdmin && !branchIDSelected(branchID) {
-		return ""
-	}
 	return h.validateRequiredBranch(branchID)
 }
 
@@ -218,6 +240,18 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 		FullName:   userFullName(u),
 		Email:      u.Email,
 		Phone:      u.Phone,
+		IIN:        u.BinIin,
+		Address:    u.Address,
+		ExtraInfo:  u.ExtraInfo,
+		AvatarURL:  u.AvatarURL,
+		Avatar: gin.H{
+			"url":                u.AvatarURL,
+			"crop_x":             u.AvatarCropX,
+			"crop_y":             u.AvatarCropY,
+			"crop_scale":         u.AvatarCropScale,
+			"crop_size":          u.AvatarCropSize,
+			"has_original_image": u.AvatarOriginalPath != "",
+		},
 		Role:       rolePayload(u.RoleID),
 		Position:   u.Position,
 		Branch:     h.branchPayload(u.BranchID),
@@ -266,6 +300,9 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		BranchID:    req.BranchID,
 		Email:       req.Email,
 		Phone:       req.Phone,
+		Address:     req.Address,
+		ExtraInfo:   req.ExtraInfo,
+		AvatarURL:   req.AvatarURL,
 		RoleID:      newRole,
 		IsVerified:  false,
 		IsActive:    true,
@@ -309,6 +346,223 @@ func (h *UserHandler) GetMyProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, h.userToResponse(user))
 }
 
+type updateProfileRequest struct {
+	FirstName  *string `json:"first_name"`
+	LastName   *string `json:"last_name"`
+	MiddleName *string `json:"middle_name"`
+	IIN        *string `json:"iin"`
+	BinIin     *string `json:"bin_iin"`
+	Phone      *string `json:"phone"`
+	Address    *string `json:"address"`
+	ExtraInfo  *string `json:"extra_info"`
+}
+
+type avatarCropRequest struct {
+	CropX     *float64 `json:"crop_x"`
+	CropY     *float64 `json:"crop_y"`
+	CropScale *float64 `json:"crop_scale"`
+	CropSize  *float64 `json:"crop_size"`
+}
+
+func trimUpdateProfileRequest(req *updateProfileRequest) {
+	trimStringPtr(&req.FirstName)
+	trimStringPtr(&req.LastName)
+	trimStringPtr(&req.MiddleName)
+	trimStringPtr(&req.IIN)
+	trimStringPtr(&req.BinIin)
+	trimStringPtr(&req.Phone)
+	trimStringPtr(&req.Address)
+	trimStringPtr(&req.ExtraInfo)
+}
+
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	h.GetMyProfile(c)
+}
+
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	if userID == 0 {
+		unauthorized(c, "Unauthorized")
+		return
+	}
+	current, err := h.service.GetUserByID(userID)
+	if err != nil || current == nil {
+		notFound(c, ClientNotFoundCode, "User not found")
+		return
+	}
+	var req updateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Некорректные данные профиля")
+		return
+	}
+	trimUpdateProfileRequest(&req)
+	next := *current
+	if req.FirstName != nil {
+		next.FirstName = *req.FirstName
+	}
+	if req.LastName != nil {
+		next.LastName = *req.LastName
+	}
+	if req.MiddleName != nil {
+		next.MiddleName = *req.MiddleName
+	}
+	if req.IIN != nil {
+		next.BinIin = *req.IIN
+	} else if req.BinIin != nil {
+		next.BinIin = *req.BinIin
+	}
+	if req.Phone != nil {
+		next.Phone = *req.Phone
+	}
+	if req.Address != nil {
+		next.Address = *req.Address
+	}
+	if req.ExtraInfo != nil {
+		next.ExtraInfo = *req.ExtraInfo
+	}
+	if err := h.service.UpdateProfile(userID, &next); err != nil {
+		log.Printf("UpdateProfile: service error: %v", err)
+		internalError(c, "Не удалось сохранить профиль")
+		return
+	}
+	updated, _ := h.service.GetUserByID(userID)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
+}
+
+func (h *UserHandler) UploadProfileAvatar(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	if userID == 0 {
+		unauthorized(c, "Unauthorized")
+		return
+	}
+	current, err := h.service.GetUserByID(userID)
+	if err != nil || current == nil {
+		notFound(c, ClientNotFoundCode, "User not found")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
+	header, err := c.FormFile("file")
+	if err != nil {
+		badRequest(c, "Файл не указан")
+		return
+	}
+	if header.Size > 10<<20 {
+		badRequest(c, "Файл слишком большой")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !allowedAvatarExt(ext) {
+		badRequest(c, "Неверный формат файла")
+		return
+	}
+	file, err := header.Open()
+	if err != nil {
+		internalError(c, "Не удалось открыть файл")
+		return
+	}
+	defer file.Close()
+	if err := validateAvatarMime(file, ext); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	if seeker, ok := file.(io.Seeker); ok {
+		_, _ = seeker.Seek(0, io.SeekStart)
+	}
+	name, err := randomHex(16)
+	if err != nil {
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	key := filepath.ToSlash(filepath.Join("avatars", "users", strconv.Itoa(userID), name+ext))
+	fullPath, err := h.resolveFilePath(key)
+	if err != nil {
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	out, err := os.Create(fullPath)
+	if err != nil {
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		_ = out.Close()
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	if err := out.Close(); err != nil {
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	avatarURL := fmt.Sprintf("/users/%d/avatar/content", userID)
+	if err := h.service.UpdateAvatar(userID, avatarURL, key, key); err != nil {
+		_ = os.Remove(fullPath)
+		log.Printf("UploadProfileAvatar: service error: %v", err)
+		internalError(c, "Не удалось сохранить фото")
+		return
+	}
+	h.removeStoredFile(current.AvatarPath)
+	updated, _ := h.service.GetUserByID(userID)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
+}
+
+func (h *UserHandler) UpdateProfileAvatarCrop(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	if userID == 0 {
+		unauthorized(c, "Unauthorized")
+		return
+	}
+	var req avatarCropRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Некорректные параметры кадрирования")
+		return
+	}
+	if req.CropScale != nil && *req.CropScale <= 0 {
+		badRequest(c, "Масштаб должен быть больше нуля")
+		return
+	}
+	if req.CropSize != nil && *req.CropSize <= 0 {
+		badRequest(c, "Размер должен быть больше нуля")
+		return
+	}
+	if err := h.service.UpdateAvatarCrop(userID, req.CropX, req.CropY, req.CropScale, req.CropSize); err != nil {
+		log.Printf("UpdateProfileAvatarCrop: service error: %v", err)
+		internalError(c, "Не удалось сохранить аватар")
+		return
+	}
+	updated, _ := h.service.GetUserByID(userID)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
+}
+
+func (h *UserHandler) DeleteProfileAvatar(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	if userID == 0 {
+		unauthorized(c, "Unauthorized")
+		return
+	}
+	current, err := h.service.GetUserByID(userID)
+	if err != nil || current == nil {
+		notFound(c, ClientNotFoundCode, "User not found")
+		return
+	}
+	if err := h.service.DeleteAvatar(userID); err != nil {
+		log.Printf("DeleteProfileAvatar: service error: %v", err)
+		internalError(c, "Не удалось удалить аватар")
+		return
+	}
+	h.removeStoredFile(current.AvatarPath)
+	updated, _ := h.service.GetUserByID(userID)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
+}
+
+func (h *UserHandler) ServeMyAvatar(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	h.serveAvatarForUser(c, userID)
+}
+
 func (h *UserHandler) GetUserByID(c *gin.Context) {
 	currentUserID, roleID := getUserAndRole(c)
 	id, err := strconv.Atoi(c.Param("id"))
@@ -337,6 +591,55 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, h.userToResponse(user))
+}
+
+func (h *UserHandler) ServeUserAvatar(c *gin.Context) {
+	currentUserID, roleID := getUserAndRole(c)
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid user ID")
+		return
+	}
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) && currentUserID != id {
+		current, currentErr := h.service.GetUserByID(currentUserID)
+		target, targetErr := h.service.GetUserByID(id)
+		if currentErr != nil || targetErr != nil || !sameUserBranch(current, target) {
+			forbidden(c, "Forbidden")
+			return
+		}
+	}
+	h.serveAvatarForUser(c, id)
+}
+
+func (h *UserHandler) serveAvatarForUser(c *gin.Context, userID int) {
+	if userID == 0 {
+		unauthorized(c, "Unauthorized")
+		return
+	}
+	user, err := h.service.GetUserByID(userID)
+	if err != nil || user == nil || user.AvatarPath == "" {
+		notFound(c, NotFoundCode, "Avatar not found")
+		return
+	}
+	fullPath, err := h.resolveFilePath(user.AvatarPath)
+	if err != nil {
+		notFound(c, NotFoundCode, "Avatar not found")
+		return
+	}
+	f, err := os.Open(fullPath)
+	if err != nil {
+		notFound(c, NotFoundCode, "Avatar not found")
+		return
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil {
+		notFound(c, NotFoundCode, "Avatar not found")
+		return
+	}
+	c.Header("Content-Type", avatarContentType(filepath.Ext(user.AvatarPath)))
+	c.Header("Content-Disposition", "inline")
+	http.ServeContent(c.Writer, c.Request, filepath.Base(user.AvatarPath), stat.ModTime(), f)
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -369,6 +672,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
+		req.CompanyName = nil
+		req.Email = nil
+		req.Position = nil
 		req.RoleID = nil
 		req.BranchID = nil
 		req.IsVerified = nil
@@ -401,6 +707,12 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	if req.Phone != nil {
 		body.Phone = *req.Phone
+	}
+	if req.Address != nil {
+		body.Address = *req.Address
+	}
+	if req.ExtraInfo != nil {
+		body.ExtraInfo = *req.ExtraInfo
 	}
 	if req.RoleID != nil {
 		body.RoleID = *req.RoleID
@@ -569,4 +881,82 @@ func (h *UserHandler) Register(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusCreated, gin.H{"user": h.userToResponse(user), "message": "Registered. Verification code sent.", "verification_sent": verificationSent})
+}
+
+func allowedAvatarExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg", ".png", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func avatarContentType(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func validateAvatarMime(file io.Reader, ext string) error {
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("Не удалось прочитать файл")
+	}
+	mimeType := http.DetectContentType(buf[:n])
+	expected := avatarContentType(ext)
+	if expected == "application/octet-stream" || mimeType != expected {
+		if !(ext == ".jpg" && mimeType == "image/jpeg") && !(ext == ".jpeg" && mimeType == "image/jpeg") {
+			return fmt.Errorf("Неверный формат файла")
+		}
+	}
+	return nil
+}
+
+func randomHex(bytesLen int) (string, error) {
+	buf := make([]byte, bytesLen)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+func (h *UserHandler) resolveFilePath(key string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(key))
+	if clean == "." || clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid file key")
+	}
+	rootAbs, err := filepath.Abs(h.filesRoot)
+	if err != nil {
+		return "", err
+	}
+	fullAbs, err := filepath.Abs(filepath.Join(h.filesRoot, clean))
+	if err != nil {
+		return "", err
+	}
+	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid file key")
+	}
+	return fullAbs, nil
+}
+
+func (h *UserHandler) removeStoredFile(key string) {
+	if strings.TrimSpace(key) == "" {
+		return
+	}
+	fullPath, err := h.resolveFilePath(key)
+	if err != nil {
+		return
+	}
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("removeStoredFile: %v", err)
+	}
 }

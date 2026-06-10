@@ -18,6 +18,10 @@ type UserRepository interface {
 	GetByEmail(email string) (*models.User, error)
 	GetCount() (int, error)
 	GetCountByRole(roleID int) (int, error)
+	UpdateProfile(userID int, profile *models.User) error
+	UpdateAvatar(userID int, avatarURL, avatarPath, originalPath string) error
+	UpdateAvatarCrop(userID int, cropX, cropY, cropScale, cropSize *float64) error
+	DeleteAvatar(userID int) error
 	UpdatePassword(userID int, passwordHash string) error
 	UpdateRefresh(userID int, token string, expiresAt time.Time) error
 	RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error)
@@ -39,11 +43,13 @@ func (r *userRepository) Create(user *models.User) error {
 		INSERT INTO users (
 			company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			telegram_chat_id, notify_tasks_telegram
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,FALSE,NULL,DEFAULT)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULL,NULL,FALSE,NULL,DEFAULT)
 		RETURNING id
 	`
 	isActive := user.IsActive
@@ -54,7 +60,10 @@ func (r *userRepository) Create(user *models.User) error {
 		user.CompanyName, user.BinIin,
 		nullableString(user.FirstName), nullableString(user.LastName), nullableString(user.MiddleName), nullableString(user.Position),
 		user.Email, user.PasswordHash, user.RoleID, user.BranchID, isActive,
-		user.Phone, user.IsVerified, user.VerifiedAt,
+		nullableString(user.Phone), nullableString(user.Address), nullableString(user.ExtraInfo),
+		nullableString(user.AvatarURL), nullableString(user.AvatarPath), nullableString(user.AvatarOriginalPath),
+		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
+		user.IsVerified, user.VerifiedAt,
 	).Scan(&user.ID)
 }
 
@@ -64,7 +73,9 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users WHERE id=$1
 	`
@@ -81,14 +92,19 @@ func (r *userRepository) Update(user *models.User) error {
 		UPDATE users SET
 			company_name=$1, bin_iin=$2, first_name=$3, last_name=$4, middle_name=$5, position=$6,
 			email=$7, password_hash=$8, role_id=$9, branch_id=$10, is_active=$11,
-			phone=$12, is_verified=$13, verified_at=$14
-		WHERE id=$15
+			phone=$12, address=$13, extra_info=$14, avatar_url=$15, avatar_path=$16, avatar_original_path=$17,
+			avatar_crop_x=$18, avatar_crop_y=$19, avatar_crop_scale=$20, avatar_crop_size=$21,
+			is_verified=$22, verified_at=$23, updated_at=NOW()
+		WHERE id=$24
 	`
 	_, err := r.DB.Exec(q,
 		user.CompanyName, user.BinIin,
 		nullableString(user.FirstName), nullableString(user.LastName), nullableString(user.MiddleName), nullableString(user.Position),
 		user.Email, user.PasswordHash, user.RoleID, user.BranchID, user.IsActive,
-		user.Phone, user.IsVerified, user.VerifiedAt,
+		nullableString(user.Phone), nullableString(user.Address), nullableString(user.ExtraInfo),
+		nullableString(user.AvatarURL), nullableString(user.AvatarPath), nullableString(user.AvatarOriginalPath),
+		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
+		user.IsVerified, user.VerifiedAt,
 		user.ID,
 	)
 	return err
@@ -124,7 +140,9 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, '' as password_hash, role_id, branch_id, is_active,
 			NULL as refresh_token, NULL as refresh_expires_at, FALSE as refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
 		WHERE COALESCE(is_active, TRUE) = TRUE
@@ -154,7 +172,9 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users WHERE email=$1 AND COALESCE(is_active, TRUE) = TRUE
 	`
@@ -176,6 +196,77 @@ func (r *userRepository) GetCountByRole(roleID int) (int, error) {
 	var c int
 	err := r.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE role_id=$1 AND COALESCE(is_active, TRUE) = TRUE`, roleID).Scan(&c)
 	return c, err
+}
+
+func (r *userRepository) UpdateProfile(userID int, profile *models.User) error {
+	const q = `
+		UPDATE users SET
+			bin_iin=$1,
+			first_name=$2,
+			last_name=$3,
+			middle_name=$4,
+			phone=$5,
+			address=$6,
+			extra_info=$7,
+			updated_at=NOW()
+		WHERE id=$8
+	`
+	_, err := r.DB.Exec(q,
+		nullableString(profile.BinIin),
+		nullableString(profile.FirstName),
+		nullableString(profile.LastName),
+		nullableString(profile.MiddleName),
+		nullableString(profile.Phone),
+		nullableString(profile.Address),
+		nullableString(profile.ExtraInfo),
+		userID,
+	)
+	return err
+}
+
+func (r *userRepository) UpdateAvatar(userID int, avatarURL, avatarPath, originalPath string) error {
+	_, err := r.DB.Exec(`
+		UPDATE users SET
+			avatar_url=$1,
+			avatar_path=$2,
+			avatar_original_path=$3,
+			avatar_crop_x=NULL,
+			avatar_crop_y=NULL,
+			avatar_crop_scale=NULL,
+			avatar_crop_size=NULL,
+			updated_at=NOW()
+		WHERE id=$4
+	`, nullableString(avatarURL), nullableString(avatarPath), nullableString(originalPath), userID)
+	return err
+}
+
+func (r *userRepository) UpdateAvatarCrop(userID int, cropX, cropY, cropScale, cropSize *float64) error {
+	_, err := r.DB.Exec(`
+		UPDATE users SET
+			avatar_crop_x=$1,
+			avatar_crop_y=$2,
+			avatar_crop_scale=$3,
+			avatar_crop_size=$4,
+			updated_at=NOW()
+		WHERE id=$5
+	`, cropX, cropY, cropScale, cropSize, userID)
+	return err
+}
+
+func (r *userRepository) DeleteAvatar(userID int) error {
+	_, err := r.DB.Exec(`
+		UPDATE users SET
+			avatar_url=NULL,
+			avatar_path=NULL,
+			avatar_original_path=NULL,
+			avatar_crop_x=NULL,
+			avatar_crop_y=NULL,
+			avatar_crop_scale=NULL,
+			avatar_crop_size=NULL,
+			updated_at=NOW()
+		WHERE id=$1
+	`, userID)
+	return err
 }
 
 func (r *userRepository) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
@@ -204,7 +295,9 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 	`
 	u, d := &models.User{}, &userDBFields{}
@@ -228,7 +321,9 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
 		WHERE (refresh_token=$1 OR refresh_token=$2)
@@ -311,7 +406,9 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, is_verified, verified_at,
+			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
+			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
 		WHERE telegram_chat_id=$1
@@ -328,10 +425,14 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 
 type userDBFields struct {
 	firstName, lastName, middleName, position sql.NullString
+	address, extraInfo                        sql.NullString
+	avatarURL, avatarPath, avatarOriginalPath sql.NullString
 	roleID, branchID                          sql.NullInt64
 	isActive, rr, isVerified, tgNotify        sql.NullBool
 	rt, phone                                 sql.NullString
-	rte, verifiedAt                           sql.NullTime
+	avatarCropX, avatarCropY                  sql.NullFloat64
+	avatarCropScale, avatarCropSize           sql.NullFloat64
+	rte, verifiedAt, updatedAt                sql.NullTime
 	tgChatID                                  sql.NullInt64
 }
 
@@ -340,7 +441,9 @@ func (d *userDBFields) dest(u *models.User) []interface{} {
 		&u.ID, &u.CompanyName, &u.BinIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
 		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.isActive,
 		&d.rt, &d.rte, &d.rr,
-		&d.phone, &d.isVerified, &d.verifiedAt,
+		&d.phone, &d.address, &d.extraInfo, &d.avatarURL, &d.avatarPath, &d.avatarOriginalPath,
+		&d.avatarCropX, &d.avatarCropY, &d.avatarCropScale, &d.avatarCropSize,
+		&d.isVerified, &d.verifiedAt, &d.updatedAt,
 		&d.tgChatID, &d.tgNotify,
 	}
 }
@@ -382,6 +485,37 @@ func (d *userDBFields) apply(u *models.User) {
 	if d.phone.Valid {
 		u.Phone = d.phone.String
 	}
+	if d.address.Valid {
+		u.Address = d.address.String
+	}
+	if d.extraInfo.Valid {
+		u.ExtraInfo = d.extraInfo.String
+	}
+	if d.avatarURL.Valid {
+		u.AvatarURL = d.avatarURL.String
+	}
+	if d.avatarPath.Valid {
+		u.AvatarPath = d.avatarPath.String
+	}
+	if d.avatarOriginalPath.Valid {
+		u.AvatarOriginalPath = d.avatarOriginalPath.String
+	}
+	if d.avatarCropX.Valid {
+		v := d.avatarCropX.Float64
+		u.AvatarCropX = &v
+	}
+	if d.avatarCropY.Valid {
+		v := d.avatarCropY.Float64
+		u.AvatarCropY = &v
+	}
+	if d.avatarCropScale.Valid {
+		v := d.avatarCropScale.Float64
+		u.AvatarCropScale = &v
+	}
+	if d.avatarCropSize.Valid {
+		v := d.avatarCropSize.Float64
+		u.AvatarCropSize = &v
+	}
 	if d.isVerified.Valid {
 		u.IsVerified = d.isVerified.Bool
 	}
@@ -389,9 +523,14 @@ func (d *userDBFields) apply(u *models.User) {
 		v := d.verifiedAt.Time
 		u.VerifiedAt = &v
 	}
+	if d.updatedAt.Valid {
+		v := d.updatedAt.Time
+		u.UpdatedAt = &v
+	}
 	if d.tgChatID.Valid {
 		u.TelegramChatID = d.tgChatID.Int64
 	}
+	u.IIN = u.BinIin
 	if d.tgNotify.Valid {
 		u.NotifyTasksTelegram = d.tgNotify.Bool
 	}

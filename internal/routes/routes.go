@@ -154,6 +154,16 @@ func SetupRoutes(
 	}
 
 	// USERS
+	profile := r.Group("/profile")
+	{
+		profile.GET("", userHandler.GetProfile)
+		profile.PATCH("", userHandler.UpdateProfile)
+		profile.POST("/avatar", userHandler.UploadProfileAvatar)
+		profile.PATCH("/avatar/crop", userHandler.UpdateProfileAvatarCrop)
+		profile.DELETE("/avatar", userHandler.DeleteProfileAvatar)
+		profile.GET("/avatar/content", userHandler.ServeMyAvatar)
+	}
+
 	users := r.Group("/users")
 	{
 		users.POST("", userHandler.CreateUser)
@@ -161,6 +171,7 @@ func SetupRoutes(
 		users.GET("/count", userHandler.GetUserCount)
 		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
 		users.GET("", userHandler.ListUsers)
+		users.GET("/:id/avatar/content", userHandler.ServeUserAvatar)
 		users.GET("/:id", userHandler.GetUserByID)
 		users.PUT("/:id", userHandler.UpdateUser)
 		users.DELETE("/:id", userHandler.DeleteUser)

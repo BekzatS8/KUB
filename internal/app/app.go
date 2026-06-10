@@ -290,7 +290,7 @@ func Run() {
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService)
+	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
 	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService)

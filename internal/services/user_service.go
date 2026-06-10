@@ -19,6 +19,10 @@ type UserService interface {
 	GetUserByEmail(email string) (*models.User, error)
 	GetUserCount() (int, error)
 	GetUserCountByRole(roleID int) (int, error)
+	UpdateProfile(userID int, profile *models.User) error
+	UpdateAvatar(userID int, avatarURL, avatarPath, originalPath string) error
+	UpdateAvatarCrop(userID int, cropX, cropY, cropScale, cropSize *float64) error
+	DeleteAvatar(userID int) error
 
 	// refresh helpers
 	UpdateRefresh(userID int, token string, expiresAt time.Time) error
@@ -131,6 +135,22 @@ func (s *userService) GetUserCount() (int, error) {
 
 func (s *userService) GetUserCountByRole(roleID int) (int, error) {
 	return s.repo.GetCountByRole(roleID)
+}
+
+func (s *userService) UpdateProfile(userID int, profile *models.User) error {
+	return s.repo.UpdateProfile(userID, profile)
+}
+
+func (s *userService) UpdateAvatar(userID int, avatarURL, avatarPath, originalPath string) error {
+	return s.repo.UpdateAvatar(userID, avatarURL, avatarPath, originalPath)
+}
+
+func (s *userService) UpdateAvatarCrop(userID int, cropX, cropY, cropScale, cropSize *float64) error {
+	return s.repo.UpdateAvatarCrop(userID, cropX, cropY, cropScale, cropSize)
+}
+
+func (s *userService) DeleteAvatar(userID int) error {
+	return s.repo.DeleteAvatar(userID)
 }
 
 func (s *userService) UpdateRefresh(userID int, token string, expiresAt time.Time) error {

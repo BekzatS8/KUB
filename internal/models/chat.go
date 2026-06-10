@@ -84,6 +84,7 @@ type ChatUserDirectoryItem struct {
 	RoleCode               string     `json:"role_code"`
 	RoleName               string     `json:"role_name"`
 	Email                  string     `json:"email"`
+	AvatarURL              *string    `json:"avatar_url,omitempty"`
 	Online                 bool       `json:"online"`
 	LastSeen               *time.Time `json:"last_seen,omitempty"`
 	ExistingPersonalChatID *int       `json:"existing_personal_chat_id,omitempty"`

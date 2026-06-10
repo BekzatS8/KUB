@@ -375,7 +375,7 @@ SELECT cm.user_id,
        ) AS display_name,
        COALESCE(rl.description, rl.name, 'unknown') AS role_name,
        COALESCE(rl.name, 'unknown') AS role_code,
-       NULL::text AS avatar_url,
+       u.avatar_url AS avatar_url,
        COALESCE(us.online, false) AS online,
        us.last_seen,
        crs.last_read_message_id,
@@ -530,6 +530,7 @@ SELECT
 	COALESCE(rl.name, 'unknown') AS role_code,
 	COALESCE(rl.description, rl.name, 'unknown') AS role_name,
 	u.email,
+	u.avatar_url,
 	COALESCE(us.online, false) AS online,
 	us.last_seen,
 	pc.id AS existing_personal_chat_id
@@ -583,6 +584,7 @@ LIMIT $3 OFFSET $4
 		var (
 			lastSeen sql.NullTime
 			chatID   sql.NullInt64
+			avatar   sql.NullString
 		)
 		if err := rows.Scan(
 			&item.UserID,
@@ -590,11 +592,15 @@ LIMIT $3 OFFSET $4
 			&item.RoleCode,
 			&item.RoleName,
 			&item.Email,
+			&avatar,
 			&item.Online,
 			&lastSeen,
 			&chatID,
 		); err != nil {
 			return nil, 0, err
+		}
+		if avatar.Valid {
+			item.AvatarURL = &avatar.String
 		}
 		if lastSeen.Valid {
 			t := lastSeen.Time
