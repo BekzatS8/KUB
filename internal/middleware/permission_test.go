@@ -44,7 +44,7 @@ func TestRequirePermission_FunnelsCreate(t *testing.T) {
 		{authz.RoleVisa, "visa", http.StatusForbidden},
 		{authz.RoleHR, "hr", http.StatusForbidden},
 		{authz.RoleLegal, "legal", http.StatusForbidden},
-		{authz.RoleOperations, "", http.StatusForbidden}, // legacy role_id=20 — no code, no permission
+		{999, "", http.StatusForbidden}, // unknown role_id — no code, no permission
 	}
 
 	for _, tc := range cases {
@@ -81,7 +81,7 @@ func TestRequirePermission_LeadsMoveBetweenFunnels(t *testing.T) {
 		{authz.RoleControl, http.StatusForbidden},
 		{authz.RoleHR, http.StatusForbidden},
 		{authz.RoleLegal, http.StatusForbidden},
-		{authz.RoleOperations, http.StatusForbidden},
+		{999, http.StatusForbidden}, // unknown role_id
 	}
 
 	for _, tc := range cases {

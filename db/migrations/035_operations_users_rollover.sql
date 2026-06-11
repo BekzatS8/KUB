@@ -23,8 +23,9 @@ ORDER BY id;
 -- OPTION A: Reassign to sales (role_id=10) — typical for operations who work with leads
 -- UPDATE users SET role_id = 10 WHERE role_id = 20;
 
--- OPTION B: Reassign to visa (role_id=60)
--- UPDATE users SET role_id = 60 WHERE role_id = 20;
+-- OPTION B: NOT APPLICABLE — in production role_id=20 IS the visa dept (vds).
+-- Users at role_id=20 are already visa users and should stay at role_id=20.
+-- After migration 034 their role code becomes 'visa'. No reassignment needed.
 
 -- OPTION C: Reassign per-user individually (safest, use after Step 2 review)
 -- UPDATE users SET role_id = <target_role_id> WHERE id = <user_id>;

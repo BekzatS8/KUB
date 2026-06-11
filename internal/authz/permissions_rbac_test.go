@@ -65,21 +65,23 @@ func TestLeadsMoveBetweenFunnelsPermissions(t *testing.T) {
 	}
 }
 
-// TestOperationsRoleHasNoPermissions ensures legacy role_id=20 gets no permissions.
-func TestOperationsRoleHasNoPermissions(t *testing.T) {
-	// role_id=20 has no code in Roles map, so RoleCodeByID returns ""
+// TestLegacyOperationsCodeHasNoPermissions ensures the string code "operations" gives no permissions.
+// RoleOperations is now an alias for RoleVisa (id=20, code="visa"). The string "operations" is not
+// a valid active code, so HasPermission("operations", ...) must always return false.
+func TestLegacyOperationsCodeHasNoPermissions(t *testing.T) {
+	// RoleOperations is an alias for RoleVisa=20, which is active
 	code := RoleCodeByID(RoleOperations)
-	if code != "" {
-		t.Errorf("operations (role_id=20) must not have an active role code, got %q", code)
+	if code != "visa" {
+		t.Errorf("RoleOperations (id=20) must resolve to 'visa', got %q", code)
 	}
 
-	// With empty role code, HasPermission must return false for every action
+	// The string code "operations" is not in baseRolePermissions — must return false for all actions
 	for _, action := range allActions {
 		if HasPermission("", action) {
 			t.Errorf("empty role must NOT have permission for action %q", action)
 		}
 		if HasPermission("operations", action) {
-			t.Errorf("legacy operations role must NOT have permission for action %q", action)
+			t.Errorf("legacy 'operations' string code must NOT have permission for action %q", action)
 		}
 	}
 }
@@ -123,8 +125,11 @@ func TestCanUsesCombinedRoleIDAndCode(t *testing.T) {
 	if Can(UserContext{RoleID: RoleSales}, ActionFunnelsCreate, "funnel") {
 		t.Error("sales by role_id must NOT be allowed funnels.create via ID fallback")
 	}
-	// operations by ID
-	if Can(UserContext{RoleID: RoleOperations}, ActionFunnelsView, "funnel") {
-		t.Error("operations role_id must NOT be allowed any funnel action")
+	// visa/operations (role_id=20): can VIEW funnels but NOT create them
+	if !Can(UserContext{RoleID: RoleOperations}, ActionFunnelsView, "funnel") {
+		t.Error("visa/operations role_id=20 must be allowed funnels.view")
+	}
+	if Can(UserContext{RoleID: RoleOperations}, ActionFunnelsCreate, "funnel") {
+		t.Error("visa/operations role_id=20 must NOT be allowed funnels.create")
 	}
 }

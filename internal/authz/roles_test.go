@@ -54,15 +54,29 @@ func TestControlRestrictions(t *testing.T) {
 	}
 }
 
-func TestReservedOperationsRoleIsNotActive(t *testing.T) {
-	if IsKnownRole(RoleOperations) {
-		t.Fatalf("legacy operations role_id=20 must not be active")
+// TestOperationsAliasIsVisa verifies that RoleOperations is a deprecated alias for RoleVisa (id=20).
+// Production role_id=20 is the visa department (vds); there is no separate "operations" role.
+func TestOperationsAliasIsVisa(t *testing.T) {
+	if RoleOperations != RoleVisa {
+		t.Fatalf("RoleOperations must equal RoleVisa; got %d and %d", RoleOperations, RoleVisa)
 	}
-	if CanManageIntegrations(RoleOperations) || CanViewAllBusinessData(RoleOperations) || CanProcessDocuments(RoleOperations) || CanWorkWithLeads(RoleOperations) || CanAccessTasks(RoleOperations) || CanUseChat(RoleOperations) {
-		t.Fatalf("legacy operations role_id=20 must not receive active role permissions")
+	if !IsKnownRole(RoleOperations) {
+		t.Fatalf("role_id=20 (visa/operations alias) must be an active known role")
+	}
+	if RoleCodeByID(RoleOperations) != "visa" {
+		t.Fatalf("role_id=20 must resolve to code 'visa', got %q", RoleCodeByID(RoleOperations))
 	}
 	if CanManageSystem(RoleOperations) {
-		t.Fatalf("operations must not manage system")
+		t.Fatalf("visa/operations must not have system admin privileges")
+	}
+	if CanHardDeleteBusinessEntity(RoleOperations) {
+		t.Fatalf("visa/operations must not hard delete business entities")
+	}
+	if !CanWorkWithLeads(RoleOperations) {
+		t.Fatalf("visa role must be able to work with leads")
+	}
+	if !CanUseChat(RoleOperations) {
+		t.Fatalf("visa role must be able to use chat")
 	}
 }
 

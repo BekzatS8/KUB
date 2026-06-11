@@ -1,19 +1,23 @@
 package authz
 
 const (
-	RoleSales = 10
-	// Reserved legacy id. Do not reuse without an explicit migration for old users.
-	RoleOperations  = 20
-	RoleControl     = 30
-	RoleManagement  = 40
-	RoleSystemAdmin = 50
-	RoleVisa        = 60
-	RolePartner     = 70
-	RoleHR          = 80
-	RoleLegal       = 90
+	RoleLegal       = 1  // lawyer in production (id=1, name='lawyer')
+	RoleHR          = 2  // hr in production (id=2, name='hr')
+	RolePartner     = 3  // bdm in production (id=3, name='bdm')
+	RoleSales       = 10 // sales, unchanged
+	RoleVisa        = 20 // vds in production (id=20, name='vds')
+	RoleControl     = 30 // audit in production (id=30, name='audit')
+	RoleManagement  = 40 // unchanged
+	RoleSystemAdmin = 50 // unchanged
 
 	// Backward-compatible alias: historically id=50 was treated as admin-staff.
 	RoleAdminStaff = RoleSystemAdmin
+
+	// RoleOperations is a deprecated alias for RoleVisa.
+	// In production, role_id=20 is the visa department (vds).
+	// All existing service code using RoleOperations was correctly handling
+	// visa users at id=20. No service files need to change.
+	RoleOperations = RoleVisa
 )
 
 type RoleMeta struct {
@@ -26,10 +30,34 @@ type RoleMeta struct {
 }
 
 var Roles = map[int]RoleMeta{
+	RoleLegal: {
+		ID:             RoleLegal,
+		Code:           "legal",
+		LegacyName:     "lawyer",
+		IsBusinessRole: true,
+	},
+	RoleHR: {
+		ID:             RoleHR,
+		Code:           "hr",
+		LegacyName:     "hr",
+		IsBusinessRole: true,
+	},
+	RolePartner: {
+		ID:             RolePartner,
+		Code:           "partner",
+		LegacyName:     "bdm",
+		IsBusinessRole: true,
+	},
 	RoleSales: {
 		ID:             RoleSales,
 		Code:           "sales",
 		LegacyName:     "sales",
+		IsBusinessRole: true,
+	},
+	RoleVisa: {
+		ID:             RoleVisa,
+		Code:           "visa",
+		LegacyName:     "vds",
 		IsBusinessRole: true,
 	},
 	RoleControl: {
@@ -50,30 +78,6 @@ var Roles = map[int]RoleMeta{
 		Code:         "admin",
 		LegacyName:   "admin",
 		IsSystemRole: true,
-	},
-	RoleVisa: {
-		ID:             RoleVisa,
-		Code:           "visa",
-		LegacyName:     "visa",
-		IsBusinessRole: true,
-	},
-	RolePartner: {
-		ID:             RolePartner,
-		Code:           "partner",
-		LegacyName:     "partner",
-		IsBusinessRole: true,
-	},
-	RoleHR: {
-		ID:             RoleHR,
-		Code:           "hr",
-		LegacyName:     "hr",
-		IsBusinessRole: true,
-	},
-	RoleLegal: {
-		ID:             RoleLegal,
-		Code:           "legal",
-		LegacyName:     "legal",
-		IsBusinessRole: true,
 	},
 }
 
