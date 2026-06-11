@@ -1,11 +1,16 @@
 package authz
 
 const (
-	RoleSales       = 10
+	RoleSales = 10
+	// Reserved legacy id. Do not reuse without an explicit migration for old users.
 	RoleOperations  = 20
 	RoleControl     = 30
 	RoleManagement  = 40
 	RoleSystemAdmin = 50
+	RoleVisa        = 60
+	RolePartner     = 70
+	RoleHR          = 80
+	RoleLegal       = 90
 
 	// Backward-compatible alias: historically id=50 was treated as admin-staff.
 	RoleAdminStaff = RoleSystemAdmin
@@ -27,31 +32,69 @@ var Roles = map[int]RoleMeta{
 		LegacyName:     "sales",
 		IsBusinessRole: true,
 	},
-	RoleOperations: {
-		ID:             RoleOperations,
-		Code:           "operations",
-		LegacyName:     "operations",
-		IsBusinessRole: true,
-	},
 	RoleControl: {
 		ID:             RoleControl,
-		Code:           "control",
+		Code:           "quality_control",
 		LegacyName:     "audit",
 		IsBusinessRole: true,
 		ReadOnly:       true,
 	},
 	RoleManagement: {
 		ID:             RoleManagement,
-		Code:           "leadership",
+		Code:           "management",
 		LegacyName:     "management",
 		IsBusinessRole: true,
 	},
 	RoleSystemAdmin: {
 		ID:           RoleSystemAdmin,
-		Code:         "system_admin",
+		Code:         "admin",
 		LegacyName:   "admin",
 		IsSystemRole: true,
 	},
+	RoleVisa: {
+		ID:             RoleVisa,
+		Code:           "visa",
+		LegacyName:     "visa",
+		IsBusinessRole: true,
+	},
+	RolePartner: {
+		ID:             RolePartner,
+		Code:           "partner",
+		LegacyName:     "partner",
+		IsBusinessRole: true,
+	},
+	RoleHR: {
+		ID:             RoleHR,
+		Code:           "hr",
+		LegacyName:     "hr",
+		IsBusinessRole: true,
+	},
+	RoleLegal: {
+		ID:             RoleLegal,
+		Code:           "legal",
+		LegacyName:     "legal",
+		IsBusinessRole: true,
+	},
+}
+
+func NormalizeRoleCode(code string) string {
+	switch code {
+	case "system_admin", "admin_staff", "admin":
+		return "admin"
+	case "leadership", "manager", "management":
+		return "management"
+	case "control", "audit", "quality_control":
+		return "quality_control"
+	default:
+		return code
+	}
+}
+
+func RoleCodeByID(roleID int) string {
+	if meta, ok := Roles[roleID]; ok {
+		return meta.Code
+	}
+	return ""
 }
 
 func IsKnownRole(roleID int) bool {
@@ -60,7 +103,7 @@ func IsKnownRole(roleID int) bool {
 }
 
 func IsElevated(roleID int) bool {
-	return roleID == RoleOperations || roleID == RoleManagement || roleID == RoleControl || roleID == RoleSystemAdmin
+	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleSystemAdmin
 }
 
 func IsReadOnly(roleID int) bool {
@@ -92,7 +135,7 @@ func CanViewLeadershipData(roleID int) bool {
 }
 
 func CanViewAllBusinessData(roleID int) bool {
-	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleOperations || roleID == RoleSystemAdmin
+	return roleID == RoleManagement || roleID == RoleControl || roleID == RoleSystemAdmin
 }
 
 func CanHardDeleteBusinessEntity(roleID int) bool {
@@ -117,12 +160,12 @@ func CanAccessAllBusinessDataIncludingAdmin(roleID int) bool {
 }
 
 func CanProcessDocuments(roleID int) bool {
-	return roleID == RoleOperations || roleID == RoleManagement || roleID == RoleSystemAdmin
+	return roleID == RoleManagement || roleID == RoleSystemAdmin || roleID == RoleVisa || roleID == RolePartner || roleID == RoleHR || roleID == RoleLegal
 }
 
 func CanWorkWithLeads(roleID int) bool {
 	switch roleID {
-	case RoleSales, RoleOperations, RoleManagement, RoleSystemAdmin:
+	case RoleSales, RoleManagement, RoleSystemAdmin, RoleVisa, RolePartner:
 		return true
 	default:
 		return false
@@ -131,7 +174,7 @@ func CanWorkWithLeads(roleID int) bool {
 
 func CanAccessTasks(roleID int) bool {
 	switch roleID {
-	case RoleManagement, RoleOperations, RoleControl, RoleSales, RoleSystemAdmin:
+	case RoleManagement, RoleControl, RoleSales, RoleSystemAdmin, RoleVisa, RolePartner, RoleHR, RoleLegal:
 		return true
 	default:
 		return false
@@ -142,7 +185,7 @@ func CanUseChat(roleID int) bool {
 	switch roleID {
 	case RoleManagement, RoleSystemAdmin:
 		return true
-	case RoleControl, RoleOperations, RoleSales:
+	case RoleControl, RoleSales, RoleVisa, RolePartner, RoleHR, RoleLegal:
 		return true
 	default:
 		return false

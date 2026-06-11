@@ -42,17 +42,22 @@ func (s *stubUserService) UpdateUser(user *models.User) error {
 	s.byID = &cp
 	return nil
 }
-func (s *stubUserService) DeleteUser(int) error                           { return nil }
-func (s *stubUserService) ListUsers(int, int) ([]*models.User, error)     { return nil, nil }
-func (s *stubUserService) GetUserByEmail(string) (*models.User, error)    { return s.byEmail, nil }
-func (s *stubUserService) GetUserCount() (int, error)                     { return 0, nil }
-func (s *stubUserService) GetUserCountByRole(int) (int, error)            { return 0, nil }
-func (s *stubUserService) UpdateRefresh(int, string, time.Time) error     { return nil }
-func (s *stubUserService) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
+func (s *stubUserService) DeleteUser(int) error                            { return nil }
+func (s *stubUserService) ListUsers(int, int) ([]*models.User, error)      { return nil, nil }
+func (s *stubUserService) GetUserByEmail(string) (*models.User, error)     { return s.byEmail, nil }
+func (s *stubUserService) GetAuthUserByEmail(string) (*models.User, error) { return s.byEmail, nil }
+func (s *stubUserService) GetUserCount() (int, error)                      { return 0, nil }
+func (s *stubUserService) GetUserCountByRole(int) (int, error)             { return 0, nil }
+func (s *stubUserService) UpdateRefresh(int, string, time.Time) error      { return nil }
+func (s *stubUserService) GetByRefreshToken(string) (*models.User, error)  { return nil, nil }
 func (s *stubUserService) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
 }
-func (s *stubUserService) VerifyUser(int) error { return nil }
+func (s *stubUserService) UpdateProfile(int, *models.User) error                              { return nil }
+func (s *stubUserService) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (s *stubUserService) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (s *stubUserService) DeleteAvatar(int) error                                             { return nil }
+func (s *stubUserService) VerifyUser(int) error                                               { return nil }
 
 func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -73,6 +78,7 @@ func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 		"first_name":   "Aigerim",
 		"last_name":    "Tulegenova",
 		"middle_name":  "Serikovna",
+		"position":     "Manager",
 		"email":        "admin-created@example.com",
 		"password":     "Passw0rd",
 		"phone":        "+77001112233",
@@ -109,7 +115,7 @@ func TestCreateUser_WithIsVerifiedTruePassesFlag(t *testing.T) {
 	})
 	r.POST("/users", h.CreateUser)
 
-	body := `{"company_name":"Acme","bin_iin":"123456789012","first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1,"is_verified":true}`
+	body := `{"company_name":"Acme","bin_iin":"123456789012","first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","position":"Manager","email":"verified@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1,"is_verified":true}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -274,7 +280,7 @@ func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
-	reqBody := `{"email":"a@b.c","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":3,"first_name":"A","last_name":"B","middle_name":"C"}`
+	reqBody := `{"email":"a@b.c","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":3,"first_name":"A","last_name":"B","middle_name":"C","position":"M"}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -317,7 +323,7 @@ func TestCreateUser_AllowsSystemAdminWithoutBranch(t *testing.T) {
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
 
-	reqBody := `{"email":"admin-no-branch@example.com","password":"Passw0rd","phone":"+77001112233","role_id":50,"first_name":"A","last_name":"B","middle_name":"C"}`
+	reqBody := `{"email":"admin-no-branch@example.com","password":"Passw0rd","phone":"+77001112233","role_id":50,"first_name":"A","last_name":"B","middle_name":"C","position":"Admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

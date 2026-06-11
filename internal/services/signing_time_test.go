@@ -131,6 +131,7 @@ func (f *fakeUserRepo) Update(*models.User) error                      { return 
 func (f *fakeUserRepo) Delete(int) error                               { return nil }
 func (f *fakeUserRepo) List(limit, offset int) ([]*models.User, error) { return nil, nil }
 func (f *fakeUserRepo) GetByEmail(string) (*models.User, error)        { return nil, nil }
+func (f *fakeUserRepo) GetAuthByEmail(string) (*models.User, error)    { return nil, nil }
 func (f *fakeUserRepo) GetCount() (int, error)                         { return 0, nil }
 func (f *fakeUserRepo) GetCountByRole(int) (int, error)                { return 0, nil }
 func (f *fakeUserRepo) UpdatePassword(int, string) error               { return nil }
@@ -142,7 +143,11 @@ func (f *fakeUserRepo) ClearRefresh(int) error                         { return 
 func (f *fakeUserRepo) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (f *fakeUserRepo) VerifyUser(int) error                           { return nil }
 func (f *fakeUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (f *fakeUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (f *fakeUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (f *fakeUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
+func (f *fakeUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (f *fakeUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (f *fakeUserRepo) DeleteAvatar(int) error                                             { return nil }
 func (f *fakeUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }

@@ -89,7 +89,7 @@ func (r *DealRepository) GetByLeadID(leadID int) (*models.Deals, error) {
 
 func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		LEFT JOIN branches b ON b.id = d.branch_id
@@ -102,6 +102,7 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 	var status sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var funnelID sql.NullInt64
 
 	var isArchived bool
 	var archivedAt sql.NullTime
@@ -116,6 +117,7 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 		&deal.OwnerID,
 		&branchID,
 		&branchName,
+		&funnelID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -140,6 +142,10 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 	}
 	if branchName.Valid {
 		deal.BranchName = branchName.String
+	}
+	if funnelID.Valid {
+		v := int(funnelID.Int64)
+		deal.FunnelID = &v
 	}
 	deal.IsArchived = isArchived
 	if archivedAt.Valid {
@@ -184,7 +190,7 @@ func (r *DealRepository) GetByID(id int) (*models.Deals, error) {
 
 func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		LEFT JOIN branches b ON b.id = d.branch_id
@@ -195,6 +201,7 @@ func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 	var status sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var funnelID sql.NullInt64
 
 	var isArchived bool
 	var archivedAt sql.NullTime
@@ -209,6 +216,7 @@ func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 		&deal.OwnerID,
 		&branchID,
 		&branchName,
+		&funnelID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -233,6 +241,10 @@ func (r *DealRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 	}
 	if branchName.Valid {
 		deal.BranchName = branchName.String
+	}
+	if funnelID.Valid {
+		v := int(funnelID.Int64)
+		deal.FunnelID = &v
 	}
 	deal.IsArchived = isArchived
 	if archivedAt.Valid {
@@ -318,7 +330,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		sortExpr = "d.created_at"
 	}
 
-	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason FROM deals d LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN branches b ON b.id = d.branch_id WHERE d.is_archived = FALSE"
+	query := "SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason FROM deals d LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN branches b ON b.id = d.branch_id WHERE d.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -368,6 +380,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		var status sql.NullString
 		var branchID sql.NullInt64
 		var branchName sql.NullString
+		var funnelID sql.NullInt64
 		var isArchived bool
 		var archivedAt sql.NullTime
 		var archivedBy sql.NullInt64
@@ -381,6 +394,7 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 			&deal.OwnerID,
 			&branchID,
 			&branchName,
+			&funnelID,
 			&deal.Amount,
 			&deal.Currency,
 			&status,
@@ -400,6 +414,10 @@ func (r *DealRepository) FilterDeals(status, fromDate, toDate, currency, sortBy,
 		}
 		if branchName.Valid {
 			deal.BranchName = branchName.String
+		}
+		if funnelID.Valid {
+			v := int(funnelID.Int64)
+			deal.FunnelID = &v
 		}
 		deal.IsArchived = isArchived
 		if archivedAt.Valid {
@@ -426,7 +444,7 @@ func (r *DealRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		LEFT JOIN branches b ON b.id = d.branch_id
@@ -461,6 +479,7 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 		var status sql.NullString
 		var branchID sql.NullInt64
 		var branchName sql.NullString
+		var funnelID sql.NullInt64
 		var isArchived bool
 		var archivedAt sql.NullTime
 		var archivedBy sql.NullInt64
@@ -474,6 +493,7 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 			&d.OwnerID,
 			&branchID,
 			&branchName,
+			&funnelID,
 			&d.Amount,
 			&d.Currency,
 			&status,
@@ -493,6 +513,10 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 		}
 		if branchName.Valid {
 			d.BranchName = branchName.String
+		}
+		if funnelID.Valid {
+			v := int(funnelID.Int64)
+			d.FunnelID = &v
 		}
 		d.IsArchived = isArchived
 		if archivedAt.Valid {
@@ -524,7 +548,7 @@ func (r *DealRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter DealListFilter, scope ArchiveScope) ([]*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		LEFT JOIN branches b ON b.id = d.branch_id
@@ -560,6 +584,7 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 		var status sql.NullString
 		var branchID sql.NullInt64
 		var branchName sql.NullString
+		var funnelID sql.NullInt64
 		var isArchived bool
 		var archivedAt sql.NullTime
 		var archivedBy sql.NullInt64
@@ -573,6 +598,7 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 			&d.OwnerID,
 			&branchID,
 			&branchName,
+			&funnelID,
 			&d.Amount,
 			&d.Currency,
 			&status,
@@ -592,6 +618,10 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 		}
 		if branchName.Valid {
 			d.BranchName = branchName.String
+		}
+		if funnelID.Valid {
+			v := int(funnelID.Int64)
+			d.FunnelID = &v
 		}
 		d.IsArchived = isArchived
 		if archivedAt.Valid {
@@ -731,7 +761,7 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id
 		LEFT JOIN branches b ON b.id = d.branch_id
@@ -744,6 +774,7 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 	var status sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var funnelID sql.NullInt64
 	var isArchived bool
 	var archivedAt sql.NullTime
 	var archivedBy sql.NullInt64
@@ -757,6 +788,7 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 		&deal.OwnerID,
 		&branchID,
 		&branchName,
+		&funnelID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -782,6 +814,10 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 	if branchName.Valid {
 		deal.BranchName = branchName.String
 	}
+	if funnelID.Valid {
+		v := int(funnelID.Int64)
+		deal.FunnelID = &v
+	}
 	deal.IsArchived = isArchived
 	if archivedAt.Valid {
 		archived := archivedAt.Time
@@ -798,9 +834,10 @@ func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error
 // GetLatestByClientRef возвращает последнюю сделку по точной typed ссылке клиента.
 func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error) {
 	query := `
-		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
+		SELECT d.id, d.lead_id, d.client_id, COALESCE(c.client_type, ''), d.owner_id, d.branch_id, COALESCE(b.name,''), d.funnel_id, d.amount, d.currency, d.status, d.created_at, d.is_archived, d.archived_at, d.archived_by, d.archive_reason
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id
+		LEFT JOIN branches b ON b.id = d.branch_id
 		WHERE d.client_id = $1 AND c.client_type = $2 AND d.is_archived = FALSE
 		ORDER BY d.created_at DESC
 		LIMIT 1
@@ -810,6 +847,7 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 	var status sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var funnelID sql.NullInt64
 	var isArchived bool
 	var archivedAt sql.NullTime
 	var archivedBy sql.NullInt64
@@ -823,6 +861,7 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 		&deal.OwnerID,
 		&branchID,
 		&branchName,
+		&funnelID,
 		&deal.Amount,
 		&deal.Currency,
 		&status,
@@ -845,6 +884,10 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 	}
 	if branchName.Valid {
 		deal.BranchName = branchName.String
+	}
+	if funnelID.Valid {
+		v := int(funnelID.Int64)
+		deal.FunnelID = &v
 	}
 	deal.IsArchived = isArchived
 	if archivedAt.Valid {

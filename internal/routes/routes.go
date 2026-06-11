@@ -26,6 +26,8 @@ func SetupRoutes(
 	signConfirmHandler *handlers.DocumentSigningConfirmationHandler,
 	telegramSignHandler *handlers.TelegramSignWebhookHandler,
 	reportHandler *handlers.ReportHandler,
+	permissionHandler *handlers.PermissionHandler,
+	funnelHandler *handlers.FunnelHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
@@ -128,6 +130,16 @@ func SetupRoutes(
 				debug.GET("/register-verification/latest", verifyHandler.DebugLatest)
 			}
 		}
+	}
+
+	if permissionHandler != nil {
+		r.GET("/permissions/me", permissionHandler.GetMe)
+		r.GET("/api/v1/permissions/me", permissionHandler.GetMe)
+	}
+
+	if funnelHandler != nil {
+		registerFunnelsRoutes(r.Group("/funnels"), funnelHandler)
+		registerFunnelsRoutes(r.Group("/api/v1/funnels"), funnelHandler)
 	}
 
 	// PRIVATE (JWT): Telegram link endpoints
@@ -238,6 +250,16 @@ func SetupRoutes(
 		leads.GET("/my", leadHandler.ListMy)
 		leads.POST("/:id/assign", leadHandler.Assign)
 		leads.POST("/:id/status", leadHandler.UpdateStatus)
+		if funnelHandler != nil {
+			leads.PATCH("/:id/funnel", middleware.RequirePermission(authz.ActionLeadsMoveBetweenFunnels, "lead"), funnelHandler.MoveLeadToFunnel)
+		}
+	}
+
+	if funnelHandler != nil {
+		apiLeads := r.Group("/api/v1/leads")
+		{
+			apiLeads.PATCH("/:id/funnel", middleware.RequirePermission(authz.ActionLeadsMoveBetweenFunnels, "lead"), funnelHandler.MoveLeadToFunnel)
+		}
 	}
 
 	// DEALS
@@ -327,7 +349,6 @@ func SetupRoutes(
 	tasks := r.Group("/tasks",
 		middleware.RequireRoles(
 			authz.RoleSales,
-			authz.RoleOperations,
 			authz.RoleControl,
 			authz.RoleManagement,
 			authz.RoleSystemAdmin,
@@ -351,7 +372,6 @@ func SetupRoutes(
 	reports := r.Group("/reports",
 		middleware.RequireRoles(
 			authz.RoleSales,
-			authz.RoleOperations,
 			authz.RoleManagement,
 			authz.RoleControl,
 			authz.RoleAdminStaff,
@@ -365,4 +385,13 @@ func SetupRoutes(
 	}
 
 	return r
+}
+
+func registerFunnelsRoutes(group *gin.RouterGroup, funnelHandler *handlers.FunnelHandler) {
+	group.GET("", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.List)
+	group.GET("/:id", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.GetByID)
+	group.POST("", middleware.RequirePermission(authz.ActionFunnelsCreate, "funnel"), funnelHandler.Create)
+	group.PATCH("/reorder", middleware.RequirePermission(authz.ActionFunnelsReorder, "funnel"), funnelHandler.Reorder)
+	group.PATCH("/:id", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), funnelHandler.Update)
+	group.DELETE("/:id", middleware.RequirePermission(authz.ActionFunnelsDelete, "funnel"), funnelHandler.Delete)
 }

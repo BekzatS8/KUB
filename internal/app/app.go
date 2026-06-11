@@ -107,6 +107,8 @@ func Run() {
 
 	// === Repos ===
 	roleRepo := repositories.NewRoleRepository(db)
+	permissionRepo := repositories.NewPermissionRepository(db)
+	funnelRepo := repositories.NewFunnelRepository(db)
 	userRepo := repositories.NewUserRepository(db)
 	branchRepo := repositories.NewBranchRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
@@ -182,6 +184,8 @@ func Run() {
 	}
 
 	roleService := services.NewRoleService(roleRepo)
+	permissionService := services.NewPermissionService(permissionRepo)
+	funnelService := services.NewFunnelService(funnelRepo, permissionRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
 	branchService := services.NewBranchService(branchRepo)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
@@ -290,6 +294,8 @@ func Run() {
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
 	roleHandler := handlers.NewRoleHandler(roleService)
+	permissionHandler := handlers.NewPermissionHandler(permissionService)
+	funnelHandler := handlers.NewFunnelHandler(funnelService)
 	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
@@ -386,6 +392,8 @@ func Run() {
 		signConfirmHandler,
 		telegramSignHandler,
 		reportHandler,
+		permissionHandler,
+		funnelHandler,
 		verifyHandler,
 		integrationsHandler,
 		chatHandler,

@@ -60,6 +60,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var source sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var funnelID sql.NullInt64
 	var status sql.NullString
 	var isArchived bool
 	var archivedAt sql.NullTime
@@ -76,6 +77,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&lead.OwnerID,
 		&branchID,
 		&branchName,
+		&funnelID,
 		&status,
 		&isArchived,
 		&archivedAt,
@@ -94,6 +96,10 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	}
 	if branchName.Valid {
 		lead.BranchName = branchName.String
+	}
+	if funnelID.Valid {
+		v := int(funnelID.Int64)
+		lead.FunnelID = &v
 	}
 	lead.Status = normalizeLeadStatus(status)
 	lead.IsArchived = isArchived
@@ -176,7 +182,7 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 
 func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE l.id = $1 AND %s
 	`
 	row := r.db.QueryRow(fmt.Sprintf(query, leadArchiveWhere(scope)), id)
@@ -240,7 +246,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
+	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -285,7 +291,7 @@ func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE %s%s
 		ORDER BY %s %s
@@ -337,7 +343,7 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE owner_id = $1 AND %s%s
 		ORDER BY %s %s

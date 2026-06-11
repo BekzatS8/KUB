@@ -33,7 +33,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	email := strings.TrimSpace(req.Email)
 	log.Printf("[auth][login] attempt email=%q", email)
 
-	user, err := h.userService.GetUserByEmail(email)
+	user, err := h.userService.GetAuthUserByEmail(email)
 	if err != nil || user == nil {
 		log.Printf("[auth][login] user not found by email=%q: err=%v", email, err)
 		unauthorized(c, "Invalid email or password")

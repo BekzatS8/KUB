@@ -25,9 +25,9 @@ func NewRoleRepository(db *sql.DB) RoleRepository {
 }
 
 func (r *roleRepository) GetByID(id int) (*models.Role, error) {
-	query := `SELECT id, name, description FROM roles WHERE id = $1`
+	query := `SELECT id, name, COALESCE(code, ''), description FROM roles WHERE id = $1`
 	role := &models.Role{}
-	err := r.DB.QueryRow(query, id).Scan(&role.ID, &role.Name, &role.Description)
+	err := r.DB.QueryRow(query, id).Scan(&role.ID, &role.Name, &role.Code, &role.Description)
 	if err != nil {
 		return nil, err
 	}
@@ -35,9 +35,9 @@ func (r *roleRepository) GetByID(id int) (*models.Role, error) {
 }
 
 func (r *roleRepository) GetByName(name string) (*models.Role, error) {
-	query := `SELECT id, name, description FROM roles WHERE name = $1`
+	query := `SELECT id, name, COALESCE(code, ''), description FROM roles WHERE name = $1`
 	role := &models.Role{}
-	err := r.DB.QueryRow(query, name).Scan(&role.ID, &role.Name, &role.Description)
+	err := r.DB.QueryRow(query, name).Scan(&role.ID, &role.Name, &role.Code, &role.Description)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (r *roleRepository) GetByName(name string) (*models.Role, error) {
 }
 
 func (r *roleRepository) List(limit, offset int) ([]*models.Role, error) {
-	query := `SELECT id, name, description FROM roles ORDER BY id LIMIT $1 OFFSET $2`
+	query := `SELECT id, name, COALESCE(code, ''), description FROM roles ORDER BY id LIMIT $1 OFFSET $2`
 	rows, err := r.DB.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (r *roleRepository) List(limit, offset int) ([]*models.Role, error) {
 	var roles []*models.Role
 	for rows.Next() {
 		r := &models.Role{}
-		if err := rows.Scan(&r.ID, &r.Name, &r.Description); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Code, &r.Description); err != nil {
 			return nil, err
 		}
 		roles = append(roles, r)
@@ -65,16 +65,16 @@ func (r *roleRepository) List(limit, offset int) ([]*models.Role, error) {
 
 func (r *roleRepository) Create(role *models.Role) error {
 	query := `
-		INSERT INTO roles (name, description)
-		VALUES ($1, $2)
+		INSERT INTO roles (name, code, description)
+		VALUES ($1, NULLIF($2, ''), $3)
 		RETURNING id
 	`
-	return r.DB.QueryRow(query, role.Name, role.Description).Scan(&role.ID)
+	return r.DB.QueryRow(query, role.Name, role.Code, role.Description).Scan(&role.ID)
 }
 
 func (r *roleRepository) Update(role *models.Role) error {
-	query := `UPDATE roles SET name = $1, description = $2 WHERE id = $3`
-	result, err := r.DB.Exec(query, role.Name, role.Description, role.ID)
+	query := `UPDATE roles SET name = $1, code = NULLIF($2, ''), description = $3 WHERE id = $4`
+	result, err := r.DB.Exec(query, role.Name, role.Code, role.Description, role.ID)
 	if err != nil {
 		return err
 	}
@@ -119,6 +119,7 @@ func (r *roleRepository) GetRolesWithUserCounts() ([]map[string]interface{}, err
 		SELECT
 			r.id,
 			r.name,
+			COALESCE(r.code, '') AS code,
 			r.description,
 			COUNT(u.id) AS user_count
 		FROM
@@ -138,14 +139,16 @@ func (r *roleRepository) GetRolesWithUserCounts() ([]map[string]interface{}, err
 	for rows.Next() {
 		var roleID int
 		var roleName string
+		var roleCode string
 		var roleDescription string
 		var userCount int
-		if err := rows.Scan(&roleID, &roleName, &roleDescription, &userCount); err != nil {
+		if err := rows.Scan(&roleID, &roleName, &roleCode, &roleDescription, &userCount); err != nil {
 			return nil, err
 		}
 		rolesWithCounts = append(rolesWithCounts, map[string]interface{}{
 			"id":          roleID,
 			"name":        roleName,
+			"code":        roleCode,
 			"description": roleDescription,
 			"user_count":  userCount,
 		})

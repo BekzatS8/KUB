@@ -158,12 +158,14 @@ func validateRequiredCreateUserFields(req createUserRequest) string {
 		return "Некорректный email"
 	case req.Password == "":
 		return "Введите пароль"
+	case req.MiddleName == "":
+		return "Укажите отчество"
+	case req.Phone != "" && !userPhoneE164Pattern.MatchString(req.Phone):
+		return "Телефон должен быть в международном формате, например +77001234567"
 	case req.RoleID == 0:
 		return "Выберите роль"
 	case req.Position == "":
 		return "Укажите должность"
-	case !branchIDSelected(req.BranchID):
-		return "Выберите филиал"
 	default:
 		return ""
 	}
@@ -206,6 +208,9 @@ func (h *UserHandler) validateRequiredBranch(branchID *int) string {
 }
 
 func (h *UserHandler) validateBranchForRole(roleID int, branchID *int) string {
+	if roleID == authz.RoleSystemAdmin {
+		return ""
+	}
 	return h.validateRequiredBranch(branchID)
 }
 

@@ -28,8 +28,11 @@ func (r *reportTestUserRepo) List(limit, offset int) ([]*models.User, error) {
 	return nil, nil
 }
 func (r *reportTestUserRepo) GetByEmail(email string) (*models.User, error) { return nil, nil }
-func (r *reportTestUserRepo) GetCount() (int, error)                        { return 0, nil }
-func (r *reportTestUserRepo) GetCountByRole(roleID int) (int, error)        { return 0, nil }
+func (r *reportTestUserRepo) GetAuthByEmail(email string) (*models.User, error) {
+	return nil, nil
+}
+func (r *reportTestUserRepo) GetCount() (int, error)                 { return 0, nil }
+func (r *reportTestUserRepo) GetCountByRole(roleID int) (int, error) { return 0, nil }
 func (r *reportTestUserRepo) UpdatePassword(userID int, passwordHash string) error {
 	return nil
 }
@@ -47,7 +50,11 @@ func (r *reportTestUserRepo) VerifyUser(userID int) error { return nil }
 func (r *reportTestUserRepo) UpdateTelegramLink(userID int, chatID int64, enable bool) error {
 	return nil
 }
-func (r *reportTestUserRepo) GetByIDSimple(id int) (*models.User, error) { return nil, nil }
+func (r *reportTestUserRepo) GetByIDSimple(id int) (*models.User, error)                              { return nil, nil }
+func (r *reportTestUserRepo) UpdateProfile(int, *models.User) error                                  { return nil }
+func (r *reportTestUserRepo) UpdateAvatar(int, string, string, string) error                         { return nil }
+func (r *reportTestUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error     { return nil }
+func (r *reportTestUserRepo) DeleteAvatar(int) error                                                 { return nil }
 func (r *reportTestUserRepo) GetTelegramSettings(ctx context.Context, userID int64) (chatID int64, notify bool, err error) {
 	return 0, false, nil
 }

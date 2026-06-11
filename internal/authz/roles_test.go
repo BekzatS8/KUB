@@ -26,10 +26,13 @@ func TestSystemAdminCanManageSystem(t *testing.T) {
 func TestCanManageIntegrationsForAllKnownRoles(t *testing.T) {
 	allowed := []int{
 		RoleSales,
-		RoleOperations,
 		RoleControl,
 		RoleManagement,
 		RoleSystemAdmin,
+		RoleVisa,
+		RolePartner,
+		RoleHR,
+		RoleLegal,
 	}
 
 	for _, roleID := range allowed {
@@ -51,13 +54,19 @@ func TestControlRestrictions(t *testing.T) {
 	}
 }
 
-func TestOperationsAndSalesScopes(t *testing.T) {
-	if !CanProcessDocuments(RoleOperations) {
-		t.Fatalf("operations must process documents")
+func TestReservedOperationsRoleIsNotActive(t *testing.T) {
+	if IsKnownRole(RoleOperations) {
+		t.Fatalf("legacy operations role_id=20 must not be active")
+	}
+	if CanManageIntegrations(RoleOperations) || CanViewAllBusinessData(RoleOperations) || CanProcessDocuments(RoleOperations) || CanWorkWithLeads(RoleOperations) || CanAccessTasks(RoleOperations) || CanUseChat(RoleOperations) {
+		t.Fatalf("legacy operations role_id=20 must not receive active role permissions")
 	}
 	if CanManageSystem(RoleOperations) {
 		t.Fatalf("operations must not manage system")
 	}
+}
+
+func TestSalesScopes(t *testing.T) {
 	if !CanWorkWithLeads(RoleSales) {
 		t.Fatalf("sales must work with leads")
 	}

@@ -12,6 +12,7 @@ type Deals struct {
 	OwnerID       int        `json:"owner_id"`
 	BranchID      *int       `json:"branch_id,omitempty"`
 	BranchName    string     `json:"branch_name,omitempty"`
+	FunnelID      *int       `json:"funnel_id,omitempty"`
 	Amount        float64    `json:"amount"`
 	Currency      string     `json:"currency"`
 	Status        string     `json:"status"`

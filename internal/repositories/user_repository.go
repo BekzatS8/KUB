@@ -16,6 +16,7 @@ type UserRepository interface {
 	Delete(id int) error
 	List(limit, offset int) ([]*models.User, error)
 	GetByEmail(email string) (*models.User, error)
+	GetAuthByEmail(email string) (*models.User, error)
 	GetCount() (int, error)
 	GetCountByRole(roleID int) (int, error)
 	UpdateProfile(userID int, profile *models.User) error
@@ -179,6 +180,41 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 		FROM users WHERE email=$1 AND COALESCE(is_active, TRUE) = TRUE
 	`
 	u, d := &models.User{}, &userDBFields{}
+	if err := r.DB.QueryRow(q, email).Scan(d.dest(u)...); err != nil {
+		return nil, err
+	}
+	d.apply(u)
+	return u, nil
+}
+
+func (r *userRepository) GetAuthByEmail(email string) (*models.User, error) {
+	const q = `
+		SELECT
+			id,
+			COALESCE(company_name, ''),
+			COALESCE(bin_iin, ''),
+			COALESCE(first_name, ''),
+			COALESCE(last_name, ''),
+			COALESCE(middle_name, ''),
+			COALESCE(position, ''),
+			email,
+			password_hash,
+			role_id,
+			branch_id,
+			COALESCE(is_active, TRUE),
+			refresh_token,
+			refresh_expires_at,
+			COALESCE(refresh_revoked, FALSE),
+			COALESCE(phone, ''),
+			COALESCE(is_verified, FALSE),
+			verified_at,
+			COALESCE(telegram_chat_id,0),
+			COALESCE(notify_tasks_telegram,TRUE)
+		FROM users
+		WHERE email=$1
+		  AND COALESCE(is_active, TRUE) = TRUE
+	`
+	u, d := &models.User{}, &userAuthDBFields{}
 	if err := r.DB.QueryRow(q, email).Scan(d.dest(u)...); err != nil {
 		return nil, err
 	}
@@ -424,6 +460,7 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 }
 
 type userDBFields struct {
+	companyName, binIin                       sql.NullString
 	firstName, lastName, middleName, position sql.NullString
 	address, extraInfo                        sql.NullString
 	avatarURL, avatarPath, avatarOriginalPath sql.NullString
@@ -438,7 +475,7 @@ type userDBFields struct {
 
 func (d *userDBFields) dest(u *models.User) []interface{} {
 	return []interface{}{
-		&u.ID, &u.CompanyName, &u.BinIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
+		&u.ID, &d.companyName, &d.binIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
 		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.isActive,
 		&d.rt, &d.rte, &d.rr,
 		&d.phone, &d.address, &d.extraInfo, &d.avatarURL, &d.avatarPath, &d.avatarOriginalPath,
@@ -449,6 +486,12 @@ func (d *userDBFields) dest(u *models.User) []interface{} {
 }
 
 func (d *userDBFields) apply(u *models.User) {
+	if d.companyName.Valid {
+		u.CompanyName = d.companyName.String
+	}
+	if d.binIin.Valid {
+		u.BinIin = d.binIin.String
+	}
 	if d.firstName.Valid {
 		u.FirstName = d.firstName.String
 	}
@@ -526,6 +569,85 @@ func (d *userDBFields) apply(u *models.User) {
 	if d.updatedAt.Valid {
 		v := d.updatedAt.Time
 		u.UpdatedAt = &v
+	}
+	if d.tgChatID.Valid {
+		u.TelegramChatID = d.tgChatID.Int64
+	}
+	u.IIN = u.BinIin
+	if d.tgNotify.Valid {
+		u.NotifyTasksTelegram = d.tgNotify.Bool
+	}
+}
+
+type userAuthDBFields struct {
+	companyName, binIin                       sql.NullString
+	firstName, lastName, middleName, position sql.NullString
+	roleID, branchID                          sql.NullInt64
+	isActive, rr, isVerified, tgNotify        sql.NullBool
+	rt, phone                                 sql.NullString
+	rte, verifiedAt                           sql.NullTime
+	tgChatID                                  sql.NullInt64
+}
+
+func (d *userAuthDBFields) dest(u *models.User) []interface{} {
+	return []interface{}{
+		&u.ID, &d.companyName, &d.binIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
+		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.isActive,
+		&d.rt, &d.rte, &d.rr,
+		&d.phone, &d.isVerified, &d.verifiedAt,
+		&d.tgChatID, &d.tgNotify,
+	}
+}
+
+func (d *userAuthDBFields) apply(u *models.User) {
+	if d.companyName.Valid {
+		u.CompanyName = d.companyName.String
+	}
+	if d.binIin.Valid {
+		u.BinIin = d.binIin.String
+	}
+	if d.firstName.Valid {
+		u.FirstName = d.firstName.String
+	}
+	if d.lastName.Valid {
+		u.LastName = d.lastName.String
+	}
+	if d.middleName.Valid {
+		u.MiddleName = d.middleName.String
+	}
+	if d.position.Valid {
+		u.Position = d.position.String
+	}
+	if d.roleID.Valid {
+		u.RoleID = int(d.roleID.Int64)
+	}
+	if d.branchID.Valid {
+		bid := int(d.branchID.Int64)
+		u.BranchID = &bid
+	}
+	if d.isActive.Valid {
+		u.IsActive = d.isActive.Bool
+	}
+	if d.rt.Valid {
+		v := d.rt.String
+		u.RefreshToken = &v
+	}
+	if d.rte.Valid {
+		v := d.rte.Time
+		u.RefreshExpiresAt = &v
+	}
+	if d.rr.Valid {
+		u.RefreshRevoked = d.rr.Bool
+	}
+	if d.phone.Valid {
+		u.Phone = d.phone.String
+	}
+	if d.isVerified.Valid {
+		u.IsVerified = d.isVerified.Bool
+	}
+	if d.verifiedAt.Valid {
+		v := d.verifiedAt.Time
+		u.VerifiedAt = &v
 	}
 	if d.tgChatID.Valid {
 		u.TelegramChatID = d.tgChatID.Int64

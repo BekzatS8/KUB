@@ -13,24 +13,29 @@ type docScopeUserRepoStub struct {
 	user *models.User
 }
 
-func (r *docScopeUserRepoStub) Create(*models.User) error                                { return nil }
-func (r *docScopeUserRepoStub) GetByID(int) (*models.User, error)                        { return r.user, nil }
-func (r *docScopeUserRepoStub) Update(*models.User) error                                { return nil }
-func (r *docScopeUserRepoStub) Delete(int) error                                         { return nil }
-func (r *docScopeUserRepoStub) List(int, int) ([]*models.User, error)                    { return nil, nil }
-func (r *docScopeUserRepoStub) GetByEmail(string) (*models.User, error)                  { return nil, nil }
-func (r *docScopeUserRepoStub) GetCount() (int, error)                                   { return 0, nil }
-func (r *docScopeUserRepoStub) GetCountByRole(int) (int, error)                          { return 0, nil }
-func (r *docScopeUserRepoStub) UpdatePassword(int, string) error                         { return nil }
-func (r *docScopeUserRepoStub) UpdateRefresh(int, string, time.Time) error               { return nil }
+func (r *docScopeUserRepoStub) Create(*models.User) error                   { return nil }
+func (r *docScopeUserRepoStub) GetByID(int) (*models.User, error)           { return r.user, nil }
+func (r *docScopeUserRepoStub) Update(*models.User) error                   { return nil }
+func (r *docScopeUserRepoStub) Delete(int) error                            { return nil }
+func (r *docScopeUserRepoStub) List(int, int) ([]*models.User, error)       { return nil, nil }
+func (r *docScopeUserRepoStub) GetByEmail(string) (*models.User, error)     { return nil, nil }
+func (r *docScopeUserRepoStub) GetAuthByEmail(string) (*models.User, error) { return nil, nil }
+func (r *docScopeUserRepoStub) GetCount() (int, error)                      { return 0, nil }
+func (r *docScopeUserRepoStub) GetCountByRole(int) (int, error)             { return 0, nil }
+func (r *docScopeUserRepoStub) UpdatePassword(int, string) error            { return nil }
+func (r *docScopeUserRepoStub) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *docScopeUserRepoStub) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
 }
-func (r *docScopeUserRepoStub) ClearRefresh(int) error                            { return nil }
-func (r *docScopeUserRepoStub) GetByRefreshToken(string) (*models.User, error)   { return nil, nil }
-func (r *docScopeUserRepoStub) VerifyUser(int) error                              { return nil }
-func (r *docScopeUserRepoStub) UpdateTelegramLink(int, int64, bool) error         { return nil }
-func (r *docScopeUserRepoStub) GetByIDSimple(int) (*models.User, error)           { return nil, nil }
+func (r *docScopeUserRepoStub) ClearRefresh(int) error                         { return nil }
+func (r *docScopeUserRepoStub) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
+func (r *docScopeUserRepoStub) VerifyUser(int) error                           { return nil }
+func (r *docScopeUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
+func (r *docScopeUserRepoStub) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *docScopeUserRepoStub) UpdateProfile(int, *models.User) error                              { return nil }
+func (r *docScopeUserRepoStub) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (r *docScopeUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (r *docScopeUserRepoStub) DeleteAvatar(int) error                                             { return nil }
 func (r *docScopeUserRepoStub) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
@@ -71,4 +76,3 @@ func TestResolveListBranchScope_AdminRoleKeepsRequestedBranch(t *testing.T) {
 		t.Fatalf("expected requested branch 12, got %+v", got)
 	}
 }
-

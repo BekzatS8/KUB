@@ -20,8 +20,12 @@ type taskBranchServiceStub struct {
 	updateStatusCall int
 }
 
-func (s *taskBranchServiceStub) Create(context.Context, *models.Task) (*models.Task, error) { return nil, nil }
-func (s *taskBranchServiceStub) GetByID(context.Context, int64) (*models.Task, error)        { return s.task, nil }
+func (s *taskBranchServiceStub) Create(context.Context, *models.Task) (*models.Task, error) {
+	return nil, nil
+}
+func (s *taskBranchServiceStub) GetByID(context.Context, int64) (*models.Task, error) {
+	return s.task, nil
+}
 func (s *taskBranchServiceStub) GetByIDWithArchiveScope(context.Context, int64, repositories.ArchiveScope) (*models.Task, error) {
 	return s.task, nil
 }
@@ -61,22 +65,27 @@ func (r *taskBranchUserRepoStub) GetByID(id int) (*models.User, error) {
 	}
 	return nil, nil
 }
-func (r *taskBranchUserRepoStub) Update(*models.User) error                         { return nil }
-func (r *taskBranchUserRepoStub) Delete(int) error                                  { return nil }
-func (r *taskBranchUserRepoStub) List(int, int) ([]*models.User, error)             { return nil, nil }
-func (r *taskBranchUserRepoStub) GetByEmail(string) (*models.User, error)           { return nil, nil }
-func (r *taskBranchUserRepoStub) GetCount() (int, error)                            { return 0, nil }
-func (r *taskBranchUserRepoStub) GetCountByRole(int) (int, error)                   { return 0, nil }
-func (r *taskBranchUserRepoStub) UpdatePassword(int, string) error                  { return nil }
-func (r *taskBranchUserRepoStub) UpdateRefresh(int, string, time.Time) error        { return nil }
+func (r *taskBranchUserRepoStub) Update(*models.User) error                   { return nil }
+func (r *taskBranchUserRepoStub) Delete(int) error                            { return nil }
+func (r *taskBranchUserRepoStub) List(int, int) ([]*models.User, error)       { return nil, nil }
+func (r *taskBranchUserRepoStub) GetByEmail(string) (*models.User, error)     { return nil, nil }
+func (r *taskBranchUserRepoStub) GetAuthByEmail(string) (*models.User, error) { return nil, nil }
+func (r *taskBranchUserRepoStub) GetCount() (int, error)                      { return 0, nil }
+func (r *taskBranchUserRepoStub) GetCountByRole(int) (int, error)             { return 0, nil }
+func (r *taskBranchUserRepoStub) UpdatePassword(int, string) error            { return nil }
+func (r *taskBranchUserRepoStub) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *taskBranchUserRepoStub) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
 }
-func (r *taskBranchUserRepoStub) ClearRefresh(int) error                            { return nil }
-func (r *taskBranchUserRepoStub) GetByRefreshToken(string) (*models.User, error)   { return nil, nil }
-func (r *taskBranchUserRepoStub) VerifyUser(int) error                              { return nil }
-func (r *taskBranchUserRepoStub) UpdateTelegramLink(int, int64, bool) error         { return nil }
-func (r *taskBranchUserRepoStub) GetByIDSimple(int) (*models.User, error)           { return nil, nil }
+func (r *taskBranchUserRepoStub) ClearRefresh(int) error                         { return nil }
+func (r *taskBranchUserRepoStub) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
+func (r *taskBranchUserRepoStub) VerifyUser(int) error                           { return nil }
+func (r *taskBranchUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
+func (r *taskBranchUserRepoStub) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *taskBranchUserRepoStub) UpdateProfile(int, *models.User) error                              { return nil }
+func (r *taskBranchUserRepoStub) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (r *taskBranchUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (r *taskBranchUserRepoStub) DeleteAvatar(int) error                                             { return nil }
 func (r *taskBranchUserRepoStub) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }

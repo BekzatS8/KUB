@@ -17,6 +17,7 @@ type UserService interface {
 	DeleteUser(id int) error
 	ListUsers(limit, offset int) ([]*models.User, error)
 	GetUserByEmail(email string) (*models.User, error)
+	GetAuthUserByEmail(email string) (*models.User, error)
 	GetUserCount() (int, error)
 	GetUserCountByRole(roleID int) (int, error)
 	UpdateProfile(userID int, profile *models.User) error
@@ -127,6 +128,10 @@ func (s *userService) ListUsers(limit, offset int) ([]*models.User, error) {
 
 func (s *userService) GetUserByEmail(email string) (*models.User, error) {
 	return s.repo.GetByEmail(email)
+}
+
+func (s *userService) GetAuthUserByEmail(email string) (*models.User, error) {
+	return s.repo.GetAuthByEmail(email)
 }
 
 func (s *userService) GetUserCount() (int, error) {

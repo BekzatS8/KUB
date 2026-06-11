@@ -306,14 +306,15 @@ func (r *chatTestUserRepo) GetByID(id int) (*models.User, error) {
 	}
 	return nil, nil
 }
-func (r *chatTestUserRepo) Update(*models.User) error                  { return nil }
-func (r *chatTestUserRepo) Delete(int) error                           { return nil }
-func (r *chatTestUserRepo) List(int, int) ([]*models.User, error)      { return nil, nil }
-func (r *chatTestUserRepo) GetByEmail(string) (*models.User, error)    { return nil, nil }
-func (r *chatTestUserRepo) GetCount() (int, error)                     { return 0, nil }
-func (r *chatTestUserRepo) GetCountByRole(int) (int, error)            { return 0, nil }
-func (r *chatTestUserRepo) UpdatePassword(int, string) error           { return nil }
-func (r *chatTestUserRepo) UpdateRefresh(int, string, time.Time) error { return nil }
+func (r *chatTestUserRepo) Update(*models.User) error                   { return nil }
+func (r *chatTestUserRepo) Delete(int) error                            { return nil }
+func (r *chatTestUserRepo) List(int, int) ([]*models.User, error)       { return nil, nil }
+func (r *chatTestUserRepo) GetByEmail(string) (*models.User, error)     { return nil, nil }
+func (r *chatTestUserRepo) GetAuthByEmail(string) (*models.User, error) { return nil, nil }
+func (r *chatTestUserRepo) GetCount() (int, error)                      { return 0, nil }
+func (r *chatTestUserRepo) GetCountByRole(int) (int, error)             { return 0, nil }
+func (r *chatTestUserRepo) UpdatePassword(int, string) error            { return nil }
+func (r *chatTestUserRepo) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *chatTestUserRepo) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
 }
@@ -321,15 +322,19 @@ func (r *chatTestUserRepo) ClearRefresh(int) error                         { ret
 func (r *chatTestUserRepo) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (r *chatTestUserRepo) VerifyUser(int) error                           { return nil }
 func (r *chatTestUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (r *chatTestUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *chatTestUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *chatTestUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
+func (r *chatTestUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (r *chatTestUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (r *chatTestUserRepo) DeleteAvatar(int) error                                             { return nil }
 func (r *chatTestUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
 func (r *chatTestUserRepo) GetByChatID(context.Context, int64) (*models.User, error) { return nil, nil }
 
 func TestChatDirectory_AccessibleForSalesOperationsControl(t *testing.T) {
-	repo := &chatDirectoryRepoStub{items: []*models.ChatUserDirectoryItem{{UserID: 2, DisplayName: "Ops", RoleCode: "operations", RoleName: "operations", Email: "ops@kub.local"}}}
-	roles := []int{authz.RoleSales, authz.RoleOperations, authz.RoleControl}
+	repo := &chatDirectoryRepoStub{items: []*models.ChatUserDirectoryItem{{UserID: 2, DisplayName: "Sales", RoleCode: "sales", RoleName: "sales", Email: "sales@kub.local"}}}
+	roles := []int{authz.RoleSales, authz.RoleControl, authz.RoleManagement}
 	for _, role := range roles {
 		r := setupChatDirectoryRouter(role, repo)
 		w := httptest.NewRecorder()
@@ -375,7 +380,7 @@ func TestChatDirectory_QueryAndExistingPersonalChatID(t *testing.T) {
 		{UserID: 2, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local", ExistingPersonalChatID: &chatID},
 		{UserID: 3, DisplayName: "Someone Else", RoleCode: "sales", RoleName: "sales", Email: "other@kub.local"},
 	}}
-	r := setupChatDirectoryRouter(authz.RoleOperations, repo)
+	r := setupChatDirectoryRouter(authz.RoleSales, repo)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/chats/users?q=aigerim", nil)
 	r.ServeHTTP(w, req)
@@ -448,7 +453,7 @@ func TestSearchChats_ByCounterpartyDisplayName_Works(t *testing.T) {
 			7: {UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local"},
 		},
 	}
-	r := setupChatDirectoryRouter(authz.RoleOperations, repo)
+	r := setupChatDirectoryRouter(authz.RoleSales, repo)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/chats/search?q=Aigerim", nil)
 	r.ServeHTTP(w, req)
@@ -526,7 +531,7 @@ func TestGetUserStatus_ForbidsForeignBranch(t *testing.T) {
 }
 
 func TestCreatePersonalChat_SalesAndOperationsAllowed(t *testing.T) {
-	for _, role := range []int{authz.RoleSales, authz.RoleOperations} {
+	for _, role := range []int{authz.RoleSales, authz.RoleVisa} {
 		repo := &chatDirectoryRepoStub{}
 		r := setupChatDirectoryRouter(role, repo)
 		w := httptest.NewRecorder()

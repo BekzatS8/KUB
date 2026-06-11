@@ -1,0 +1,16 @@
+BEGIN;
+
+ALTER TABLE deals DROP COLUMN IF EXISTS funnel_id;
+ALTER TABLE leads DROP COLUMN IF EXISTS funnel_id;
+
+DROP TABLE IF EXISTS funnels;
+DROP TABLE IF EXISTS role_permissions;
+DROP TABLE IF EXISTS permissions;
+
+ALTER TABLE users DROP COLUMN IF EXISTS department_id;
+DROP TABLE IF EXISTS departments;
+
+DROP INDEX IF EXISTS roles_code_uq;
+ALTER TABLE roles DROP COLUMN IF EXISTS code;
+
+COMMIT;

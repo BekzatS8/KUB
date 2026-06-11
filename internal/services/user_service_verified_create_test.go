@@ -18,15 +18,16 @@ func (r *captureUserRepo) Create(user *models.User) error {
 	user.ID = 42
 	return nil
 }
-func (r *captureUserRepo) GetByID(int) (*models.User, error)          { return nil, nil }
-func (r *captureUserRepo) Update(*models.User) error                  { return nil }
-func (r *captureUserRepo) Delete(int) error                           { return nil }
-func (r *captureUserRepo) List(int, int) ([]*models.User, error)      { return nil, nil }
-func (r *captureUserRepo) GetByEmail(string) (*models.User, error)    { return nil, nil }
-func (r *captureUserRepo) GetCount() (int, error)                     { return 0, nil }
-func (r *captureUserRepo) GetCountByRole(int) (int, error)            { return 0, nil }
-func (r *captureUserRepo) UpdatePassword(int, string) error           { return nil }
-func (r *captureUserRepo) UpdateRefresh(int, string, time.Time) error { return nil }
+func (r *captureUserRepo) GetByID(int) (*models.User, error)           { return nil, nil }
+func (r *captureUserRepo) Update(*models.User) error                   { return nil }
+func (r *captureUserRepo) Delete(int) error                            { return nil }
+func (r *captureUserRepo) List(int, int) ([]*models.User, error)       { return nil, nil }
+func (r *captureUserRepo) GetByEmail(string) (*models.User, error)     { return nil, nil }
+func (r *captureUserRepo) GetAuthByEmail(string) (*models.User, error) { return nil, nil }
+func (r *captureUserRepo) GetCount() (int, error)                      { return 0, nil }
+func (r *captureUserRepo) GetCountByRole(int) (int, error)             { return 0, nil }
+func (r *captureUserRepo) UpdatePassword(int, string) error            { return nil }
+func (r *captureUserRepo) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *captureUserRepo) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
 }
@@ -34,7 +35,11 @@ func (r *captureUserRepo) ClearRefresh(int) error                         { retu
 func (r *captureUserRepo) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (r *captureUserRepo) VerifyUser(int) error                           { return nil }
 func (r *captureUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (r *captureUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *captureUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *captureUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
+func (r *captureUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
+func (r *captureUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
+func (r *captureUserRepo) DeleteAvatar(int) error                                             { return nil }
 func (r *captureUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
