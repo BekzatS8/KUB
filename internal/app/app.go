@@ -111,6 +111,7 @@ func Run() {
 	funnelRepo := repositories.NewFunnelRepository(db)
 	userRepo := repositories.NewUserRepository(db)
 	branchRepo := repositories.NewBranchRepository(db)
+	orgRepo := repositories.NewOrganizationRepository(db)
 	leadRepo := repositories.NewLeadRepository(db)
 	dealRepo := repositories.NewDealRepository(db)
 	clientRepo := repositories.NewClientRepository(db)
@@ -125,6 +126,7 @@ func Run() {
 	signatureConfirmRepo := repositories.NewSignatureConfirmationRepository(db)
 	publicDocLinkRepo := repositories.NewPublicDocumentLinkRepository(db)
 	wazzupRepo := repositories.NewWazzupRepository(db)
+	telephonyRepo := repositories.NewTelephonyRepository(db)
 
 	// === Services (общие) ===
 	accessTokenTTL := readDurationEnv("ACCESS_TOKEN_TTL", 2*time.Hour)
@@ -164,6 +166,11 @@ func Run() {
 		wazzupHandler       *handlers.WazzupHandler
 	)
 
+	// Telephony (always initialized — webhook secret may be empty in dev)
+	telephonySvc := services.NewTelephonyService(telephonyRepo, userRepo, cfg.Binotel.WebhookSecret)
+	telephonyHandler := handlers.NewTelephonyHandler(telephonySvc)
+	log.Printf("[BOOT] telephony: binotel webhook_secret_set=%v", strings.TrimSpace(cfg.Binotel.WebhookSecret) != "")
+
 	// Telegram
 	if cfg.Telegram.Enable && cfg.Telegram.BotToken != "" {
 		log.Printf("[BOOT] Telegram enabled: true (token len=%d)", len(cfg.Telegram.BotToken))
@@ -182,6 +189,8 @@ func Run() {
 	} else {
 		log.Printf("[BOOT] Telegram disabled or token is empty — integrations handler will be nil")
 	}
+
+	orgService := services.NewOrganizationService(orgRepo)
 
 	roleService := services.NewRoleService(roleRepo)
 	permissionService := services.NewPermissionService(permissionRepo)
@@ -324,6 +333,7 @@ func Run() {
 		log.Fatalf("[BOOT] failed to init public signing ui handler: %v", err)
 	}
 	reportHandler := handlers.NewReportHandler(reportService)
+	orgHandler := handlers.NewOrganizationHandler(orgService)
 	if cfg.Wazzup.Enable {
 		wazzupClient := wazzupintegration.NewHTTPClient(
 			cfg.Wazzup.APIBaseURL,
@@ -401,6 +411,8 @@ func Run() {
 		docPublicLinkHandler,
 		publicSigningUIHandler,
 		wazzupHandler,
+		telephonyHandler,
+		orgHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

@@ -1,37 +1,42 @@
 -- =============================================================================
--- PRODUCTION SAFETY CHECK: users with legacy operations role_id=20
--- Run this BEFORE deploying migration 034 to production.
--- DO NOT execute the UPDATE automatically — verify the count and target role first.
+-- DOCUMENTATION / POST-DEPLOY CHECKLIST
+-- Role operations / role_id=20 — REMOVED
+-- =============================================================================
+--
+-- CONTEXT:
+--   role_id=20 / code='operations' was a legacy role that has been removed.
+--   Migration 034 handles the full cleanup:
+--     1. Clears code='operations' from any row in roles.
+--     2. Migrates any remaining users with role_id=20 → role_id=60 (visa) before
+--        deleting the role row (idempotent; no-op if no such users exist).
+--     3. Deletes role_permissions WHERE role_id = 20.
+--     4. Deletes the role row WHERE id = 20 OR code = 'operations'.
+--
+-- ACTIVE ROLES AFTER MIGRATION 034:
+--   id=10  code='sales'
+--   id=30  code='quality_control'
+--   id=40  code='management'
+--   id=50  code='admin'
+--   id=60  code='visa'
+--   id=70  code='partner'
+--   id=80  code='hr'
+--   id=90  code='legal'
+--
+-- =============================================================================
+-- POST-DEPLOY VERIFICATION QUERIES (run after migration 034)
 -- =============================================================================
 
--- Step 1: Check how many users still have role_id=20
-SELECT COUNT(*) AS operations_user_count
+-- Expected: 0 rows
+SELECT COUNT(*) AS users_with_legacy_role
 FROM users
 WHERE role_id = 20;
 
--- Step 2: List them for manual review
-SELECT id, email, first_name, last_name, role_id, branch_id, is_active
-FROM users
-WHERE role_id = 20
-ORDER BY id;
-
--- =============================================================================
--- Step 3: Reassign to appropriate active role.
--- Choose ONE of the options below based on what operations staff should become:
--- =============================================================================
-
--- OPTION A: Reassign to sales (role_id=10) — typical for operations who work with leads
--- UPDATE users SET role_id = 10 WHERE role_id = 20;
-
--- OPTION B: NOT APPLICABLE — in production role_id=20 IS the visa dept (vds).
--- Users at role_id=20 are already visa users and should stay at role_id=20.
--- After migration 034 their role code becomes 'visa'. No reassignment needed.
-
--- OPTION C: Reassign per-user individually (safest, use after Step 2 review)
--- UPDATE users SET role_id = <target_role_id> WHERE id = <user_id>;
-
--- =============================================================================
--- Step 4: Verify no operations users remain
 -- Expected: 0 rows
--- =============================================================================
--- SELECT id, email, role_id FROM users WHERE role_id = 20;
+SELECT *
+FROM roles
+WHERE id = 20 OR code = 'operations';
+
+-- Expected: exactly 8 rows (ids 10,30,40,50,60,70,80,90)
+SELECT id, name, description, code
+FROM roles
+ORDER BY id;

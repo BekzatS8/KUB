@@ -1,69 +1,42 @@
 package authz
 
 const (
-	RoleLegal       = 1  // lawyer in production (id=1, name='lawyer')
-	RoleHR          = 2  // hr in production (id=2, name='hr')
-	RolePartner     = 3  // bdm in production (id=3, name='bdm')
-	RoleSales       = 10 // sales, unchanged
-	RoleVisa        = 20 // vds in production (id=20, name='vds')
-	RoleControl     = 30 // audit in production (id=30, name='audit')
-	RoleManagement  = 40 // unchanged
-	RoleSystemAdmin = 50 // unchanged
+	RoleSales       = 10
+	RoleControl     = 30 // quality_control
+	RoleManagement  = 40
+	RoleSystemAdmin = 50
+	RoleVisa        = 60
+	RolePartner     = 70
+	RoleHR          = 80
+	RoleLegal       = 90
 
 	// Backward-compatible alias: historically id=50 was treated as admin-staff.
 	RoleAdminStaff = RoleSystemAdmin
-
-	// RoleOperations is a deprecated alias for RoleVisa.
-	// In production, role_id=20 is the visa department (vds).
-	// All existing service code using RoleOperations was correctly handling
-	// visa users at id=20. No service files need to change.
-	RoleOperations = RoleVisa
 )
 
 type RoleMeta struct {
 	ID             int
 	Code           string
 	LegacyName     string
+	DisplayName    string
 	IsSystemRole   bool
 	IsBusinessRole bool
 	ReadOnly       bool
 }
 
 var Roles = map[int]RoleMeta{
-	RoleLegal: {
-		ID:             RoleLegal,
-		Code:           "legal",
-		LegacyName:     "lawyer",
-		IsBusinessRole: true,
-	},
-	RoleHR: {
-		ID:             RoleHR,
-		Code:           "hr",
-		LegacyName:     "hr",
-		IsBusinessRole: true,
-	},
-	RolePartner: {
-		ID:             RolePartner,
-		Code:           "partner",
-		LegacyName:     "bdm",
-		IsBusinessRole: true,
-	},
 	RoleSales: {
 		ID:             RoleSales,
 		Code:           "sales",
 		LegacyName:     "sales",
-		IsBusinessRole: true,
-	},
-	RoleVisa: {
-		ID:             RoleVisa,
-		Code:           "visa",
-		LegacyName:     "vds",
+		DisplayName:    "Менеджер по продажам (МОП)",
 		IsBusinessRole: true,
 	},
 	RoleControl: {
 		ID:             RoleControl,
 		Code:           "quality_control",
 		LegacyName:     "audit",
+		DisplayName:    "Отдел контроля качества",
 		IsBusinessRole: true,
 		ReadOnly:       true,
 	},
@@ -71,13 +44,43 @@ var Roles = map[int]RoleMeta{
 		ID:             RoleManagement,
 		Code:           "management",
 		LegacyName:     "management",
+		DisplayName:    "Руководство",
 		IsBusinessRole: true,
 	},
 	RoleSystemAdmin: {
-		ID:           RoleSystemAdmin,
-		Code:         "admin",
-		LegacyName:   "admin",
+		ID:          RoleSystemAdmin,
+		Code:        "admin",
+		LegacyName:  "admin",
+		DisplayName: "Администратор",
 		IsSystemRole: true,
+	},
+	RoleVisa: {
+		ID:             RoleVisa,
+		Code:           "visa",
+		LegacyName:     "visa",
+		DisplayName:    "Визовый отдел",
+		IsBusinessRole: true,
+	},
+	RolePartner: {
+		ID:             RolePartner,
+		Code:           "partner",
+		LegacyName:     "partner",
+		DisplayName:    "Менеджер по партнёрам",
+		IsBusinessRole: true,
+	},
+	RoleHR: {
+		ID:             RoleHR,
+		Code:           "hr",
+		LegacyName:     "hr",
+		DisplayName:    "Отдел кадров",
+		IsBusinessRole: true,
+	},
+	RoleLegal: {
+		ID:             RoleLegal,
+		Code:           "legal",
+		LegacyName:     "legal",
+		DisplayName:    "Юрист",
+		IsBusinessRole: true,
 	},
 }
 
@@ -164,7 +167,10 @@ func CanAccessAllBusinessDataIncludingAdmin(roleID int) bool {
 }
 
 func CanProcessDocuments(roleID int) bool {
-	return roleID == RoleManagement || roleID == RoleSystemAdmin || roleID == RoleVisa || roleID == RolePartner || roleID == RoleHR || roleID == RoleLegal
+	return roleID == RoleManagement || roleID == RoleSystemAdmin ||
+		roleID == RoleVisa || roleID == RolePartner ||
+		roleID == RoleHR || roleID == RoleLegal ||
+		roleID == RoleControl // quality_control: their primary job is reviewing/approving documents
 }
 
 func CanWorkWithLeads(roleID int) bool {

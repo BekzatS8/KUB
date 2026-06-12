@@ -15,6 +15,7 @@ type User struct {
 	PasswordHash string `json:"-"` // не отдаём
 	RoleID       int    `json:"role_id"`
 	BranchID     *int   `json:"branch_id,omitempty"`
+	DepartmentID *int   `json:"department_id,omitempty"`
 	IsActive     bool   `json:"is_active"`
 	IsActiveSet  bool   `json:"-"`
 

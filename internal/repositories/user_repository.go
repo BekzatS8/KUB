@@ -31,6 +31,7 @@ type UserRepository interface {
 	VerifyUser(userID int) error
 	UpdateTelegramLink(userID int, chatID int64, enable bool) error
 	GetByIDSimple(id int) (*models.User, error)
+	GetDepartmentIDByCode(code string) (*int, error)
 	GetTelegramSettings(ctx context.Context, userID int64) (chatID int64, notify bool, err error)
 	GetByChatID(ctx context.Context, chatID int64) (*models.User, error)
 }
@@ -72,7 +73,7 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 	const q = `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, password_hash, role_id, branch_id, is_active,
+			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -139,7 +140,7 @@ func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
 	const q = `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, '' as password_hash, role_id, branch_id, is_active,
+			email, '' as password_hash, role_id, branch_id, department_id, is_active,
 			NULL as refresh_token, NULL as refresh_expires_at, FALSE as refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -171,7 +172,7 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 	const q = `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, password_hash, role_id, branch_id, is_active,
+			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -329,7 +330,7 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 		  AND refresh_revoked = FALSE
 		RETURNING
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, password_hash, role_id, branch_id, is_active,
+			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -355,7 +356,7 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 	const q = `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, password_hash, role_id, branch_id, is_active,
+			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -440,7 +441,7 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 	const q = `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
-			email, password_hash, role_id, branch_id, is_active,
+			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
@@ -459,12 +460,24 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 	return u, nil
 }
 
+func (r *userRepository) GetDepartmentIDByCode(code string) (*int, error) {
+	var id int
+	err := r.DB.QueryRow(`SELECT id FROM departments WHERE code = $1 AND is_active = TRUE LIMIT 1`, code).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
 type userDBFields struct {
 	companyName, binIin                       sql.NullString
 	firstName, lastName, middleName, position sql.NullString
 	address, extraInfo                        sql.NullString
 	avatarURL, avatarPath, avatarOriginalPath sql.NullString
-	roleID, branchID                          sql.NullInt64
+	roleID, branchID, departmentID            sql.NullInt64
 	isActive, rr, isVerified, tgNotify        sql.NullBool
 	rt, phone                                 sql.NullString
 	avatarCropX, avatarCropY                  sql.NullFloat64
@@ -476,7 +489,7 @@ type userDBFields struct {
 func (d *userDBFields) dest(u *models.User) []interface{} {
 	return []interface{}{
 		&u.ID, &d.companyName, &d.binIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
-		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.isActive,
+		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.departmentID, &d.isActive,
 		&d.rt, &d.rte, &d.rr,
 		&d.phone, &d.address, &d.extraInfo, &d.avatarURL, &d.avatarPath, &d.avatarOriginalPath,
 		&d.avatarCropX, &d.avatarCropY, &d.avatarCropScale, &d.avatarCropSize,
@@ -510,6 +523,10 @@ func (d *userDBFields) apply(u *models.User) {
 	if d.branchID.Valid {
 		bid := int(d.branchID.Int64)
 		u.BranchID = &bid
+	}
+	if d.departmentID.Valid {
+		did := int(d.departmentID.Int64)
+		u.DepartmentID = &did
 	}
 	if d.isActive.Valid {
 		u.IsActive = d.isActive.Bool

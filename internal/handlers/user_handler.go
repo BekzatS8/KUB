@@ -101,7 +101,7 @@ func rolePayload(roleID int) gin.H {
 	if !ok {
 		return gin.H{"id": roleID}
 	}
-	return gin.H{"id": roleID, "code": meta.Code, "legacy_name": meta.LegacyName}
+	return gin.H{"id": roleID, "code": meta.Code, "legacy_name": meta.LegacyName, "display_name": meta.DisplayName}
 }
 
 func userFullName(u *models.User) string {
@@ -859,6 +859,12 @@ func (h *UserHandler) Register(c *gin.Context) {
 		return
 	}
 	trimCreateUserRequest(&req)
+	// Register always creates a sales (branch-scoped) user; branch_id is required so the
+	// new user's pipeline is immediately visible under scope filtering.
+	if msg := h.validateBranchForRole(authz.RoleSales, req.BranchID); msg != "" {
+		badRequest(c, msg)
+		return
+	}
 	user := &models.User{
 		CompanyName: req.CompanyName,
 		BinIin:      req.BinIin,
@@ -866,7 +872,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 		LastName:    req.LastName,
 		MiddleName:  req.MiddleName,
 		Position:    req.Position,
-		BranchID:    nil,
+		BranchID:    req.BranchID,
 		Email:       req.Email,
 		Phone:       req.Phone,
 		RoleID:      authz.RoleSales,

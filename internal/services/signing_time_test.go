@@ -152,6 +152,7 @@ func (f *fakeUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool,
 	return 0, false, nil
 }
 func (f *fakeUserRepo) GetByChatID(context.Context, int64) (*models.User, error) { return nil, nil }
+func (f *fakeUserRepo) GetDepartmentIDByCode(string) (*int, error)               { return nil, nil }
 
 type fakeDocLookup struct{}
 

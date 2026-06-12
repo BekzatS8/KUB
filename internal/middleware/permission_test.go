@@ -105,6 +105,49 @@ func TestRequirePermission_LeadsMoveBetweenFunnels(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_TelephonyView(t *testing.T) {
+	// All active roles have telephony.view — all should get 200.
+	allowed := []struct {
+		roleID int
+		label  string
+	}{
+		{authz.RoleSystemAdmin, "admin"},
+		{authz.RoleManagement, "management"},
+		{authz.RoleControl, "quality_control"},
+		{authz.RoleSales, "sales"},
+		{authz.RoleVisa, "visa"},
+		{authz.RolePartner, "partner"},
+		{authz.RoleHR, "hr"},
+		{authz.RoleLegal, "legal"},
+	}
+	for _, tc := range allowed {
+		r := gin.New()
+		r.Use(func(c *gin.Context) { c.Set("role_id", tc.roleID); c.Set("user_id", 1); c.Next() })
+		r.GET("/telephony/calls", RequirePermission("telephony.view", "telephony"), func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/telephony/calls", nil)
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("role %s (id=%d): GET /telephony/calls: want 200 got %d", tc.label, tc.roleID, w.Code)
+		}
+	}
+
+	// Unknown role has no telephony.view — should get 403.
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("role_id", 999); c.Set("user_id", 1); c.Next() })
+	r.GET("/telephony/calls", RequirePermission("telephony.view", "telephony"), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/telephony/calls", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("unknown role (id=999): GET /telephony/calls: want 403 got %d", w.Code)
+	}
+}
+
 func TestRequirePermission_NoRoleInContext(t *testing.T) {
 	r := gin.New()
 	// No role set in context

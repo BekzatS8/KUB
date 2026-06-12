@@ -35,6 +35,8 @@ func SetupRoutes(
 	docPublicLinkHandler *handlers.DocumentPublicLinkHandler,
 	publicSigningUIHandler *handlers.PublicSigningUIHandler,
 	wazzupHandler *handlers.WazzupHandler,
+	telephonyHandler *handlers.TelephonyHandler, // может быть nil
+	orgHandler *handlers.OrganizationHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -108,6 +110,11 @@ func SetupRoutes(
 		r.GET("/integrations/wazzup/crm/:token/users/:id", wazzupHandler.CRMUserByID)
 	}
 
+	// PUBLIC: Binotel webhook (no JWT — Binotel calls this server-to-server)
+	if telephonyHandler != nil {
+		r.POST("/api/v1/integrations/binotel/webhook", telephonyHandler.BinotelWebhook)
+	}
+
 	// =====================
 	// PROTECTED (JWT)
 	// =====================
@@ -152,7 +159,8 @@ func SetupRoutes(
 	}
 
 	if wazzupHandler != nil {
-		wazzup := r.Group("/integrations/wazzup")
+		// messenger.view guard: hr/legal have no messenger.view → 403
+		wazzup := r.Group("/integrations/wazzup", middleware.RequirePermission("messenger.view", "messenger"))
 		{
 			wazzup.GET("/status", wazzupHandler.Status)
 			wazzup.GET("/channels", wazzupHandler.Channels)
@@ -162,6 +170,24 @@ func SetupRoutes(
 			wazzup.POST("/setup", wazzupHandler.Setup)
 			wazzup.POST("/iframe", wazzupHandler.Iframe)
 			wazzup.POST("/send", wazzupHandler.SendMessage)
+		}
+	}
+
+	// TELEPHONY — JWT + telephony.view
+	if telephonyHandler != nil {
+		tGroup := r.Group("/api/v1/telephony", middleware.RequirePermission("telephony.view", "telephony"))
+		{
+			tGroup.GET("/calls", telephonyHandler.ListCalls)
+			tGroup.GET("/calls/:id", telephonyHandler.GetCall)
+		}
+		// Per-entity call history (uses existing entity id param)
+		clientCalls := r.Group("/api/v1/clients", middleware.RequirePermission("telephony.view", "telephony"))
+		{
+			clientCalls.GET("/:id/calls", telephonyHandler.ListClientCalls)
+		}
+		leadCalls := r.Group("/api/v1/leads", middleware.RequirePermission("telephony.view", "telephony"))
+		{
+			leadCalls.GET("/:id/calls", telephonyHandler.ListLeadCalls)
 		}
 	}
 
@@ -196,6 +222,12 @@ func SetupRoutes(
 		branches.POST("", branchHandler.Create)
 		branches.PUT("/:id", branchHandler.Update)
 		branches.DELETE("/:id", branchHandler.Delete)
+	}
+
+	// ORGANIZATION (singleton settings)
+	if orgHandler != nil {
+		r.GET("/api/v1/organization", orgHandler.Get)
+		r.PUT("/api/v1/organization", orgHandler.Update)
 	}
 
 	// CLIENTS
@@ -262,48 +294,48 @@ func SetupRoutes(
 		}
 	}
 
-	// DEALS
+	// DEALS — guarded per action; visa/partner have no deals.* permissions → 403
 	deals := r.Group("/deals")
 	{
-		deals.POST("", dealHandler.Create)
-		deals.GET("/:id", dealHandler.GetByID)
-		deals.PUT("/:id", dealHandler.Update)
-		deals.DELETE("/:id", dealHandler.Delete)
-		deals.POST("/:id/archive", dealHandler.Archive)
-		deals.POST("/:id/unarchive", dealHandler.Unarchive)
-		deals.GET("", dealHandler.List)
-		deals.GET("/my", dealHandler.ListMy)
-		deals.POST("/:id/status", dealHandler.UpdateStatus)
+		deals.POST("", middleware.RequirePermission("deals.create", "deal"), dealHandler.Create)
+		deals.GET("/:id", middleware.RequirePermission("deals.view", "deal"), dealHandler.GetByID)
+		deals.PUT("/:id", middleware.RequirePermission("deals.update", "deal"), dealHandler.Update)
+		deals.DELETE("/:id", middleware.RequirePermission("deals.delete", "deal"), dealHandler.Delete)
+		deals.POST("/:id/archive", middleware.RequirePermission("deals.update", "deal"), dealHandler.Archive)
+		deals.POST("/:id/unarchive", middleware.RequirePermission("deals.update", "deal"), dealHandler.Unarchive)
+		deals.GET("", middleware.RequirePermission("deals.view", "deal"), dealHandler.List)
+		deals.GET("/my", middleware.RequirePermission("deals.view", "deal"), dealHandler.ListMy)
+		deals.POST("/:id/status", middleware.RequirePermission("deals.update", "deal"), dealHandler.UpdateStatus)
 	}
 
-	// DOCUMENTS
+	// DOCUMENTS — RequirePermission guard per endpoint; public signing routes are above (no JWT)
 	docs := r.Group("/documents")
 	{
-		docs.GET("", documentHandler.ListDocuments)
-		docs.GET("/types", documentHandler.ListDocumentTypes)
-		docs.POST("", documentHandler.CreateDocument)
-		docs.POST("/upload", documentHandler.Upload)
-		docs.GET("/:id", documentHandler.GetDocument)
-		docs.DELETE("/:id", documentHandler.DeleteDocument)
-		docs.POST("/:id/archive", documentHandler.ArchiveDocument)
-		docs.POST("/:id/unarchive", documentHandler.UnarchiveDocument)
-		docs.POST("/create-from-lead", documentHandler.CreateDocumentFromLead)
-		docs.POST("/create-from-client", documentHandler.CreateDocumentFromClient)
-		docs.GET("/deal/:dealid", documentHandler.ListDocumentsByDeal)
-		docs.GET("/:id/file", documentHandler.ServeFile)
-		docs.GET("/:id/download", documentHandler.Download)
-		docs.POST("/:id/submit", documentHandler.Submit)
-		docs.POST("/:id/review", documentHandler.Review)
-		docs.POST("/:id/send-for-signature", documentHandler.SendForSignature)
-		docs.POST("/:id/sign", documentHandler.Sign)
+		docs.GET("", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocuments)
+		docs.GET("/types", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocumentTypes)
+		docs.POST("", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocument)
+		docs.POST("/upload", middleware.RequirePermission("documents.create", "document"), documentHandler.Upload)
+		docs.GET("/:id", middleware.RequirePermission("documents.view", "document"), documentHandler.GetDocument)
+		docs.DELETE("/:id", middleware.RequirePermission("documents.delete", "document"), documentHandler.DeleteDocument)
+		docs.POST("/:id/archive", middleware.RequirePermission("documents.update", "document"), documentHandler.ArchiveDocument)
+		docs.POST("/:id/unarchive", middleware.RequirePermission("documents.update", "document"), documentHandler.UnarchiveDocument)
+		docs.POST("/create-from-lead", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocumentFromLead)
+		docs.POST("/create-from-client", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocumentFromClient)
+		docs.GET("/deal/:dealid", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocumentsByDeal)
+		docs.GET("/:id/file", middleware.RequirePermission("documents.view", "document"), documentHandler.ServeFile)
+		docs.GET("/:id/download", middleware.RequirePermission("documents.download", "document"), documentHandler.Download)
+		docs.POST("/:id/submit", middleware.RequirePermission("documents.update", "document"), documentHandler.Submit)
+		docs.POST("/:id/review", middleware.RequirePermission("documents.update", "document"), documentHandler.Review)
+		docs.POST("/:id/send-for-signature", middleware.RequirePermission("documents.send", "document"), documentHandler.SendForSignature)
+		docs.POST("/:id/sign", middleware.RequirePermission("documents.update", "document"), documentHandler.Sign)
 		if signConfirmHandler != nil {
-			docs.POST("/:id/sign/start", signConfirmHandler.StartSigning)
-			docs.POST("/:id/sign/start/email", signConfirmHandler.StartSigningEmail)
-			docs.POST("/:id/sign/start/sms", signConfirmHandler.StartSigningSMS)
-			docs.GET("/:id/sign/contact-options", signConfirmHandler.ContactOptions)
-			docs.GET("/:id/sign/status", signConfirmHandler.Status)
+			docs.POST("/:id/sign/start", middleware.RequirePermission("documents.send", "document"), signConfirmHandler.StartSigning)
+			docs.POST("/:id/sign/start/email", middleware.RequirePermission("documents.send", "document"), signConfirmHandler.StartSigningEmail)
+			docs.POST("/:id/sign/start/sms", middleware.RequirePermission("documents.send", "document"), signConfirmHandler.StartSigningSMS)
+			docs.GET("/:id/sign/contact-options", middleware.RequirePermission("documents.view", "document"), signConfirmHandler.ContactOptions)
+			docs.GET("/:id/sign/status", middleware.RequirePermission("documents.view", "document"), signConfirmHandler.Status)
 			if docPublicLinkHandler != nil {
-				docs.POST("/:id/generate-sign-link", docPublicLinkHandler.GenerateSignLink)
+				docs.POST("/:id/generate-sign-link", middleware.RequirePermission("documents.send", "document"), docPublicLinkHandler.GenerateSignLink)
 			}
 		}
 	}
@@ -328,14 +360,14 @@ func SetupRoutes(
 		chats.POST("/:id/upload", chatHandler.UploadAttachment)
 		chats.POST("/:id/attachments", chatHandler.UploadAttachmentAlias)
 
-		chats.DELETE("/:id", chatHandler.DeleteChat)
+		chats.DELETE("/:id", middleware.RequirePermission("chat.delete", "chat"), chatHandler.DeleteChat)
 
 		chats.GET("/:id/info", chatHandler.GetChatInfo)
 		chats.GET("/:id/search", chatHandler.SearchMessages)
 		chats.GET("/:id/messages", chatHandler.ListMessages)
 		chats.POST("/:id/messages", chatHandler.SendMessage)
 		chats.PATCH("/:id/messages/:message_id", chatHandler.EditMessage)
-		chats.DELETE("/:id/messages/:message_id", chatHandler.DeleteMessage)
+		chats.DELETE("/:id/messages/:message_id", middleware.RequirePermission("chat.delete", "chat"), chatHandler.DeleteMessage)
 		chats.POST("/:id/messages/:message_id/pin", chatHandler.PinMessage)
 		chats.DELETE("/:id/messages/:message_id/pin", chatHandler.UnpinMessage)
 		chats.POST("/:id/messages/:message_id/favorite", chatHandler.FavoriteMessage)
@@ -352,6 +384,10 @@ func SetupRoutes(
 			authz.RoleControl,
 			authz.RoleManagement,
 			authz.RoleSystemAdmin,
+			authz.RoleVisa,
+			authz.RolePartner,
+			authz.RoleHR,
+			authz.RoleLegal,
 		),
 	)
 	{
@@ -368,15 +404,8 @@ func SetupRoutes(
 		tasks.POST("/:id/unarchive", taskHandler.Unarchive)
 	}
 
-	// REPORTS
-	reports := r.Group("/reports",
-		middleware.RequireRoles(
-			authz.RoleSales,
-			authz.RoleManagement,
-			authz.RoleControl,
-			authz.RoleAdminStaff,
-		),
-	)
+	// REPORTS — requires reports.view (admin, management, quality_control per permission matrix)
+	reports := r.Group("/reports", middleware.RequirePermission("reports.view", "reports"))
 	{
 		reports.GET("/funnel", reportHandler.GetFunnel)
 		reports.GET("/leads", reportHandler.GetLeadsSummary)

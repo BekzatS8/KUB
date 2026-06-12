@@ -1,0 +1,11 @@
+-- Migration 041 down — no-op (intentionally empty)
+--
+-- Rationale: backfill is a one-way data repair. Rolling back would mean
+-- setting branch_id = NULL on records that previously had NULL, but there
+-- is no safe way to determine which records were NULL *before* this migration
+-- ran versus those that already had a branch_id from earlier migrations
+-- (027, 030, 031). Resetting branch_id to NULL would silently hide data from
+-- all branch-scoped roles, which is worse than the original state.
+--
+-- To undo the effect of this migration manually, use the pre-migration
+-- snapshot from docs/diagnostic_branch_null.sql (§2) as a reference.

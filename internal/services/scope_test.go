@@ -1,0 +1,315 @@
+package services
+
+import (
+	"testing"
+
+	"turcompany/internal/authz"
+	"turcompany/internal/models"
+)
+
+// ─── resolveLeadScope ────────────────────────────────────────────────────────
+
+func TestResolveLeadScope_AdminAndManagementReturnAll(t *testing.T) {
+	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement} {
+		scope, err := resolveLeadScope(1, roleID, nil)
+		if err != nil {
+			t.Errorf("role %d: unexpected error: %v", roleID, err)
+		}
+		if scope.Kind != ScopeKindAll {
+			t.Errorf("role %d: expected ScopeKindAll, got %v", roleID, scope.Kind)
+		}
+	}
+}
+
+func TestResolveLeadScope_SalesVisaControlReturnBranch(t *testing.T) {
+	branchID := 3
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+		scope, err := resolveLeadScope(100, roleID, userRepo)
+		if err != nil {
+			t.Errorf("role %d: unexpected error: %v", roleID, err)
+		}
+		if scope.Kind != ScopeKindBranch {
+			t.Errorf("role %d: expected ScopeKindBranch, got %v", roleID, scope.Kind)
+		}
+		if scope.BranchID == nil || *scope.BranchID != branchID {
+			t.Errorf("role %d: expected branchID=%d, got %+v", roleID, branchID, scope.BranchID)
+		}
+	}
+}
+
+func TestResolveLeadScope_PartnerReturnsOwn(t *testing.T) {
+	const partnerUserID = 42
+	scope, err := resolveLeadScope(partnerUserID, authz.RolePartner, nil)
+	if err != nil {
+		t.Fatalf("partner: unexpected error: %v", err)
+	}
+	if scope.Kind != ScopeKindOwn {
+		t.Fatalf("partner: expected ScopeKindOwn, got %v", scope.Kind)
+	}
+	if scope.UserID != partnerUserID {
+		t.Fatalf("partner: expected UserID=%d, got %d", partnerUserID, scope.UserID)
+	}
+}
+
+func TestResolveLeadScope_HRAndLegalAndUnknownReturnForbidden(t *testing.T) {
+	for _, roleID := range []int{authz.RoleHR, authz.RoleLegal, 999} {
+		scope, err := resolveLeadScope(1, roleID, nil)
+		if err == nil {
+			t.Errorf("role %d: expected ErrForbidden, got nil", roleID)
+		}
+		if scope.Kind != ScopeKindForbidden {
+			t.Errorf("role %d: expected ScopeKindForbidden, got %v", roleID, scope.Kind)
+		}
+	}
+}
+
+// ─── resolveClientScope ──────────────────────────────────────────────────────
+
+func TestResolveClientScope_AdminManagementLegalReturnAll(t *testing.T) {
+	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleLegal} {
+		scope, err := resolveClientScope(1, roleID, nil)
+		if err != nil {
+			t.Errorf("role %d: unexpected error: %v", roleID, err)
+		}
+		if scope.Kind != ScopeKindAll {
+			t.Errorf("role %d: expected ScopeKindAll, got %v", roleID, scope.Kind)
+		}
+	}
+}
+
+func TestResolveClientScope_SalesVisaControlReturnBranch(t *testing.T) {
+	branchID := 5
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+		scope, err := resolveClientScope(100, roleID, userRepo)
+		if err != nil {
+			t.Errorf("role %d: unexpected error: %v", roleID, err)
+		}
+		if scope.Kind != ScopeKindBranch {
+			t.Errorf("role %d: expected ScopeKindBranch, got %v", roleID, scope.Kind)
+		}
+		if scope.BranchID == nil || *scope.BranchID != branchID {
+			t.Errorf("role %d: expected branchID=%d, got %+v", roleID, branchID, scope.BranchID)
+		}
+	}
+}
+
+func TestResolveClientScope_PartnerReturnsOwn(t *testing.T) {
+	const partnerUserID = 77
+	scope, err := resolveClientScope(partnerUserID, authz.RolePartner, nil)
+	if err != nil {
+		t.Fatalf("partner: unexpected error: %v", err)
+	}
+	if scope.Kind != ScopeKindOwn {
+		t.Fatalf("partner: expected ScopeKindOwn, got %v", scope.Kind)
+	}
+	if scope.UserID != partnerUserID {
+		t.Fatalf("partner: expected UserID=%d, got %d", partnerUserID, scope.UserID)
+	}
+}
+
+func TestResolveClientScope_HRAndUnknownReturnForbidden(t *testing.T) {
+	for _, roleID := range []int{authz.RoleHR, 999} {
+		scope, err := resolveClientScope(1, roleID, nil)
+		if err == nil {
+			t.Errorf("role %d: expected ErrForbidden, got nil", roleID)
+		}
+		if scope.Kind != ScopeKindForbidden {
+			t.Errorf("role %d: expected ScopeKindForbidden, got %v", roleID, scope.Kind)
+		}
+	}
+}
+
+// ─── leadMatchesScope ────────────────────────────────────────────────────────
+
+func TestLeadMatchesScope_AllScopeMatchesAnyLead(t *testing.T) {
+	b := 99
+	lead := &models.Leads{ID: 1, OwnerID: 5, BranchID: &b}
+	scope := DataScope{Kind: ScopeKindAll}
+	if !leadMatchesScope(scope, lead) {
+		t.Error("ScopeKindAll must match any lead")
+	}
+}
+
+func TestLeadMatchesScope_OwnScopeMatchesOwnerOnly(t *testing.T) {
+	const partnerID = 42
+	ownLead := &models.Leads{ID: 1, OwnerID: partnerID}
+	foreignLead := &models.Leads{ID: 2, OwnerID: 99}
+	scope := DataScope{Kind: ScopeKindOwn, UserID: partnerID}
+
+	if !leadMatchesScope(scope, ownLead) {
+		t.Error("partner must match own lead")
+	}
+	if leadMatchesScope(scope, foreignLead) {
+		t.Error("partner must NOT match foreign lead")
+	}
+}
+
+func TestLeadMatchesScope_BranchScopeMatchesSameBranchOnly(t *testing.T) {
+	branchA, branchB := 3, 7
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: &branchA}
+
+	sameBranchLead := &models.Leads{ID: 1, BranchID: &branchA}
+	otherBranchLead := &models.Leads{ID: 2, BranchID: &branchB}
+	noBranchLead := &models.Leads{ID: 3, BranchID: nil}
+
+	if !leadMatchesScope(scope, sameBranchLead) {
+		t.Error("branch scope must match same-branch lead")
+	}
+	if leadMatchesScope(scope, otherBranchLead) {
+		t.Error("branch scope must NOT match different-branch lead")
+	}
+	if leadMatchesScope(scope, noBranchLead) {
+		t.Error("branch scope must NOT match lead with no branch")
+	}
+}
+
+func TestLeadMatchesScope_ForbiddenScopeMatchesNothing(t *testing.T) {
+	b := 1
+	lead := &models.Leads{ID: 1, OwnerID: 1, BranchID: &b}
+	scope := DataScope{Kind: ScopeKindForbidden}
+	if leadMatchesScope(scope, lead) {
+		t.Error("ScopeKindForbidden must never match")
+	}
+}
+
+func TestLeadMatchesScope_NilLeadReturnsFalse(t *testing.T) {
+	scope := DataScope{Kind: ScopeKindAll}
+	if leadMatchesScope(scope, nil) {
+		t.Error("nil lead must return false for any scope")
+	}
+}
+
+// ─── clientMatchesScope ──────────────────────────────────────────────────────
+
+func TestClientMatchesScope_AllScopeMatchesAnyClient(t *testing.T) {
+	b := 99
+	client := &models.Client{ID: 1, OwnerID: 5, BranchID: &b}
+	scope := DataScope{Kind: ScopeKindAll}
+	if !clientMatchesScope(scope, client) {
+		t.Error("ScopeKindAll must match any client")
+	}
+}
+
+func TestClientMatchesScope_OwnScopeMatchesOwnerOnly(t *testing.T) {
+	const partnerID = 42
+	ownClient := &models.Client{ID: 1, OwnerID: partnerID}
+	foreignClient := &models.Client{ID: 2, OwnerID: 99}
+	scope := DataScope{Kind: ScopeKindOwn, UserID: partnerID}
+
+	if !clientMatchesScope(scope, ownClient) {
+		t.Error("partner must match own client")
+	}
+	if clientMatchesScope(scope, foreignClient) {
+		t.Error("partner must NOT match foreign client")
+	}
+}
+
+func TestClientMatchesScope_BranchScopeMatchesSameBranchOnly(t *testing.T) {
+	branchA, branchB := 3, 7
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: &branchA}
+
+	sameBranchClient := &models.Client{ID: 1, BranchID: &branchA}
+	otherBranchClient := &models.Client{ID: 2, BranchID: &branchB}
+	noBranchClient := &models.Client{ID: 3, BranchID: nil}
+
+	if !clientMatchesScope(scope, sameBranchClient) {
+		t.Error("branch scope must match same-branch client")
+	}
+	if clientMatchesScope(scope, otherBranchClient) {
+		t.Error("branch scope must NOT match different-branch client")
+	}
+	if clientMatchesScope(scope, noBranchClient) {
+		t.Error("branch scope must NOT match client with no branch")
+	}
+}
+
+func TestClientMatchesScope_ForbiddenScopeMatchesNothing(t *testing.T) {
+	b := 1
+	client := &models.Client{ID: 1, OwnerID: 1, BranchID: &b}
+	scope := DataScope{Kind: ScopeKindForbidden}
+	if clientMatchesScope(scope, client) {
+		t.Error("ScopeKindForbidden must never match")
+	}
+}
+
+func TestClientMatchesScope_NilClientReturnsFalse(t *testing.T) {
+	scope := DataScope{Kind: ScopeKindAll}
+	if clientMatchesScope(scope, nil) {
+		t.Error("nil client must return false for any scope")
+	}
+}
+
+// ─── cross-entity scope isolation ────────────────────────────────────────────
+
+// TestLegalScopeLeadVsClient verifies that legal has All scope for clients but Forbidden for leads.
+func TestLegalScopeLeadVsClient(t *testing.T) {
+	leadScope, err := resolveLeadScope(1, authz.RoleLegal, nil)
+	if err == nil || leadScope.Kind != ScopeKindForbidden {
+		t.Errorf("legal must be Forbidden for leads, got kind=%v err=%v", leadScope.Kind, err)
+	}
+
+	clientScope, err := resolveClientScope(1, authz.RoleLegal, nil)
+	if err != nil || clientScope.Kind != ScopeKindAll {
+		t.Errorf("legal must be All for clients, got kind=%v err=%v", clientScope.Kind, err)
+	}
+}
+
+// TestHRScopeAlwaysForbidden verifies HR is Forbidden for both leads and clients.
+func TestHRScopeAlwaysForbidden(t *testing.T) {
+	leadScope, err := resolveLeadScope(1, authz.RoleHR, nil)
+	if err == nil || leadScope.Kind != ScopeKindForbidden {
+		t.Errorf("hr must be Forbidden for leads, got kind=%v err=%v", leadScope.Kind, err)
+	}
+
+	clientScope, err := resolveClientScope(1, authz.RoleHR, nil)
+	if err == nil || clientScope.Kind != ScopeKindForbidden {
+		t.Errorf("hr must be Forbidden for clients, got kind=%v err=%v", clientScope.Kind, err)
+	}
+}
+
+// TestPartnerScopeIsOwnForBothEntities verifies partner gets Own scope for both leads and clients.
+func TestPartnerScopeIsOwnForBothEntities(t *testing.T) {
+	const partnerID = 55
+
+	leadScope, err := resolveLeadScope(partnerID, authz.RolePartner, nil)
+	if err != nil || leadScope.Kind != ScopeKindOwn || leadScope.UserID != partnerID {
+		t.Errorf("partner must be Own(%d) for leads, got %+v err=%v", partnerID, leadScope, err)
+	}
+
+	clientScope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
+	if err != nil || clientScope.Kind != ScopeKindOwn || clientScope.UserID != partnerID {
+		t.Errorf("partner must be Own(%d) for clients, got %+v err=%v", partnerID, clientScope, err)
+	}
+}
+
+// TestQualityControlScopeIsBranch verifies quality_control (RoleControl) is branch-scoped
+// for both leads and clients, confirming read-only branch restriction is preserved.
+func TestQualityControlScopeIsBranch(t *testing.T) {
+	branchID := 11
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+	const qcUserID = 200
+
+	leadScope, err := resolveLeadScope(qcUserID, authz.RoleControl, userRepo)
+	if err != nil || leadScope.Kind != ScopeKindBranch || leadScope.BranchID == nil || *leadScope.BranchID != branchID {
+		t.Errorf("quality_control must be Branch(%d) for leads, got %+v err=%v", branchID, leadScope, err)
+	}
+
+	clientScope, err := resolveClientScope(qcUserID, authz.RoleControl, userRepo)
+	if err != nil || clientScope.Kind != ScopeKindBranch || clientScope.BranchID == nil || *clientScope.BranchID != branchID {
+		t.Errorf("quality_control must be Branch(%d) for clients, got %+v err=%v", branchID, clientScope, err)
+	}
+}
+
+// TestResolveUserBranch_NilRepoReturnsForbidden verifies that missing userRepo is safe.
+func TestResolveUserBranch_NilRepoReturnsForbidden(t *testing.T) {
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+		_, err := resolveLeadScope(1, roleID, nil)
+		if err == nil {
+			t.Errorf("role %d: expected error when userRepo is nil, got nil", roleID)
+		}
+	}
+}

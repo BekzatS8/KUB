@@ -92,8 +92,9 @@ func (r *taskBranchUserRepoStub) GetTelegramSettings(context.Context, int64) (in
 func (r *taskBranchUserRepoStub) GetByChatID(context.Context, int64) (*models.User, error) {
 	return nil, nil
 }
+func (r *taskBranchUserRepoStub) GetDepartmentIDByCode(string) (*int, error) { return nil, nil }
 
-func TestTaskHandler_GetByID_OperationsForbiddenForForeignBranch(t *testing.T) {
+func TestTaskHandler_GetByID_VisaForbiddenForForeignBranch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	branchB := int64(2)
 	svc := &taskBranchServiceStub{task: &models.Task{ID: 99, CreatorID: 11, AssigneeID: 11, BranchID: &branchB}}
@@ -105,7 +106,7 @@ func TestTaskHandler_GetByID_OperationsForbiddenForForeignBranch(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/tasks/99", nil)
 	c.Params = gin.Params{{Key: "id", Value: "99"}}
 	c.Set("user_id", 10)
-	c.Set("role_id", authz.RoleOperations)
+	c.Set("role_id", authz.RoleVisa)
 
 	h.GetByID(c)
 
@@ -114,7 +115,7 @@ func TestTaskHandler_GetByID_OperationsForbiddenForForeignBranch(t *testing.T) {
 	}
 }
 
-func TestTaskHandler_ChangeStatus_OperationsAllowedForOwnBranch(t *testing.T) {
+func TestTaskHandler_ChangeStatus_VisaAllowedForOwnBranch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	branch := int64(3)
 	svc := &taskBranchServiceStub{
@@ -129,7 +130,7 @@ func TestTaskHandler_ChangeStatus_OperationsAllowedForOwnBranch(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Params = gin.Params{{Key: "id", Value: "55"}}
 	c.Set("user_id", 10)
-	c.Set("role_id", authz.RoleOperations)
+	c.Set("role_id", authz.RoleVisa)
 
 	h.ChangeStatus(c)
 

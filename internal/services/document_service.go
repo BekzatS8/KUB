@@ -98,7 +98,7 @@ func (s *DocumentService) SetUserRepo(userRepo repositories.UserRepository) {
 
 func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
 	switch roleID {
-	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+	case authz.RoleSales, authz.RoleVisa, authz.RoleControl, authz.RolePartner:
 		if s.UserRepo == nil {
 			return nil, ErrForbidden
 		}
@@ -107,7 +107,7 @@ func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
 			return nil, ErrForbidden
 		}
 		return u.BranchID, nil
-	case authz.RoleManagement, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleHR, authz.RoleLegal:
 		return nil, nil
 	default:
 		return nil, ErrForbidden
@@ -364,8 +364,8 @@ func isSupportedDocType(value string) bool {
 
 // PrepareForSignature подготавливает документ к юридически значимой подписи
 func (s *DocumentService) PrepareForSignature(id int64, userID, roleID int) error {
-	if authz.IsReadOnly(roleID) {
-		return errors.New("read-only role")
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.send") {
+		return errors.New("forbidden")
 	}
 
 	doc, err := s.DocRepo.GetByID(id)
@@ -447,8 +447,8 @@ func (s *DocumentService) GetLegalConsentText(docType string) string {
 // ====================== CRUD ======================
 
 func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID int) (int64, error) {
-	if authz.IsReadOnly(roleID) {
-		return 0, errors.New("read-only role")
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.create") {
+		return 0, errors.New("forbidden")
 	}
 
 	if doc.DealID == 0 {
@@ -486,8 +486,8 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 
 // UploadDocument сохраняет присланный файл и создает запись документа.
 func (s *DocumentService) UploadDocument(dealID int64, docType string, file *multipart.FileHeader, userID, roleID int) (*models.Document, error) {
-	if authz.IsReadOnly(roleID) {
-		return nil, errors.New("read-only role")
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.create") {
+		return nil, errors.New("forbidden")
 	}
 	if dealID == 0 {
 		return nil, errors.New("deal not found")
@@ -560,7 +560,7 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	if err != nil || doc == nil {
 		return nil, err
 	}
-	if roleID != authz.RoleSales && roleID != authz.RoleOperations && roleID != authz.RoleControl {
+	if roleID != authz.RoleSales && roleID != authz.RoleVisa && roleID != authz.RoleControl {
 		return doc, nil
 	}
 	if s.DealRepo == nil {
@@ -584,7 +584,7 @@ func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID i
 	if err != nil || doc == nil {
 		return nil, err
 	}
-	if roleID != authz.RoleSales && roleID != authz.RoleOperations && roleID != authz.RoleControl {
+	if roleID != authz.RoleSales && roleID != authz.RoleVisa && roleID != authz.RoleControl {
 		return doc, nil
 	}
 	if s.DealRepo == nil {
@@ -852,7 +852,7 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 }
 
 func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason string) error {
-	if !authz.CanArchiveBusinessEntity(roleID) {
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.update") {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
@@ -873,7 +873,7 @@ func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason s
 }
 
 func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error {
-	if !authz.CanArchiveBusinessEntity(roleID) {
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.update") {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
@@ -896,8 +896,8 @@ func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error 
 // ================== Статусы ==================
 
 func (s *DocumentService) Submit(id int64, userID, roleID int) error {
-	if authz.IsReadOnly(roleID) {
-		return errors.New("read-only role")
+	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.update") {
+		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)
 	if err != nil || doc == nil {

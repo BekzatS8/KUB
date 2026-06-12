@@ -54,26 +54,6 @@ func (s *ClientService) currentUserBranch(userID int) (*int, error) {
 	return u.BranchID, nil
 }
 
-func (s *ClientService) branchScopeForRole(userID, roleID int) (*int, error) {
-	switch roleID {
-	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
-		return s.currentUserBranch(userID)
-	case authz.RoleManagement, authz.RoleSystemAdmin:
-		return nil, nil
-	default:
-		return nil, ErrForbidden
-	}
-}
-
-func sameBranch(required *int, client *models.Client) bool {
-	if required == nil {
-		return true
-	}
-	if client == nil || client.BranchID == nil {
-		return false
-	}
-	return *required == *client.BranchID
-}
 
 type ClientProfilePayload struct {
 	Client             *models.Client
@@ -645,7 +625,7 @@ func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, err
 		return 0, err
 	}
 	var userBranchID *int
-	if roleID == authz.RoleSales || roleID == authz.RoleOperations {
+	if roleID == authz.RoleSales || roleID == authz.RoleVisa {
 		var err error
 		userBranchID, err = s.currentUserBranch(userID)
 		if err != nil {
@@ -654,7 +634,7 @@ func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, err
 	} else {
 		userBranchID, _ = s.currentUserBranch(userID)
 	}
-	if roleID == authz.RoleSales {
+	if roleID == authz.RoleSales || roleID == authz.RolePartner {
 		c.OwnerID = userID
 	}
 	if c.OwnerID == 0 {
@@ -663,7 +643,9 @@ func (s *ClientService) Create(c *models.Client, userID, roleID int) (int64, err
 	if roleID == authz.RoleSales && c.OwnerID != userID {
 		return 0, ErrForbidden
 	}
-	c.BranchID = userBranchID
+	if roleID != authz.RolePartner {
+		c.BranchID = userBranchID
+	}
 	if err := s.normalizeAndValidate(c); err != nil {
 		return 0, err
 	}
@@ -688,11 +670,11 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	if current == nil {
 		return ErrClientNotFound
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return err
 	}
-	if !sameBranch(branchScope, current) {
+	if !clientMatchesScope(dataScope, current) {
 		return ErrForbidden
 	}
 	if roleID == authz.RoleSales && current.OwnerID != userID {
@@ -724,33 +706,42 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 }
 
 func (s *ClientService) GetByID(id int, userID, roleID int) (*models.Client, error) {
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
-	if scopeErr != nil {
-		return nil, scopeErr
-	}
-	client, err := s.Repo.GetByIDWithBranchScope(id, branchScope, repositories.ArchiveScopeActiveOnly)
-	if err != nil || client == nil {
-		return client, err
-	}
-	if roleID == authz.RoleSales && client.OwnerID != userID {
-		return nil, ErrForbidden
-	}
-	return client, nil
+	return s.getClientByIDWithScope(id, userID, roleID, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *ClientService) GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Client, error) {
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
-	if scopeErr != nil {
-		return nil, scopeErr
+func (s *ClientService) GetByIDWithArchiveScope(id int, userID, roleID int, archiveScope repositories.ArchiveScope) (*models.Client, error) {
+	return s.getClientByIDWithScope(id, userID, roleID, archiveScope)
+}
+
+func (s *ClientService) getClientByIDWithScope(id int, userID, roleID int, archiveScope repositories.ArchiveScope) (*models.Client, error) {
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	if err != nil {
+		return nil, err
 	}
-	client, err := s.Repo.GetByIDWithBranchScope(id, branchScope, scope)
-	if err != nil || client == nil {
-		return client, err
-	}
-	if roleID == authz.RoleSales && client.OwnerID != userID {
+	switch dataScope.Kind {
+	case ScopeKindBranch:
+		client, err := s.Repo.GetByIDWithBranchScope(id, dataScope.BranchID, archiveScope)
+		if err != nil || client == nil {
+			return client, err
+		}
+		if roleID == authz.RoleSales && client.OwnerID != userID {
+			return nil, ErrForbidden
+		}
+		return client, nil
+	case ScopeKindOwn:
+		client, err := s.Repo.GetByIDWithArchiveScope(id, archiveScope)
+		if err != nil || client == nil {
+			return client, err
+		}
+		if !clientMatchesScope(dataScope, client) {
+			return nil, ErrForbidden
+		}
+		return client, nil
+	case ScopeKindAll:
+		return s.Repo.GetByIDWithArchiveScope(id, archiveScope)
+	default:
 		return nil, ErrForbidden
 	}
-	return client, nil
 }
 
 func (s *ClientService) Delete(id int, userID, roleID int) error {
@@ -764,11 +755,11 @@ func (s *ClientService) Delete(id int, userID, roleID int) error {
 	if current == nil {
 		return ErrClientNotFound
 	}
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	dataScope, scopeErr := resolveClientScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
 		return scopeErr
 	}
-	if !sameBranch(branchScope, current) {
+	if !clientMatchesScope(dataScope, current) {
 		return ErrForbidden
 	}
 	if roleID == authz.RoleSales && current.OwnerID != userID {
@@ -785,7 +776,7 @@ func (s *ClientService) Delete(id int, userID, roleID int) error {
 }
 
 func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, userID, roleID int) (*models.Client, error) {
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +786,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 		if err != nil {
 			return nil, err
 		}
-		if existing != nil && sameBranch(branchScope, existing) {
+		if existing != nil && clientMatchesScope(dataScope, existing) {
 			return existing, nil
 		}
 	}
@@ -810,7 +801,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 		if err != nil {
 			return nil, err
 		}
-		if existing != nil && sameBranch(branchScope, existing) {
+		if existing != nil && clientMatchesScope(dataScope, existing) {
 			return existing, nil
 		}
 	}
@@ -820,7 +811,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 		if err != nil {
 			return nil, err
 		}
-		if existing != nil && sameBranch(branchScope, existing) {
+		if existing != nil && clientMatchesScope(dataScope, existing) {
 			return existing, nil
 		}
 	}
@@ -833,7 +824,16 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 		return nil, err
 	}
 
-	fallback.BranchID = branchScope
+	switch dataScope.Kind {
+	case ScopeKindBranch:
+		fallback.BranchID = dataScope.BranchID
+	case ScopeKindOwn:
+		fallback.OwnerID = userID
+	case ScopeKindAll:
+		if branchID, berr := resolveUserBranch(userID, s.UserRepo); berr == nil {
+			fallback.BranchID = branchID
+		}
+	}
 	id, err := s.Repo.Create(fallback)
 	if err != nil {
 		if repositories.IsSQLState(err, repositories.SQLStateUniqueViolation) {
@@ -842,7 +842,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 				if lookupErr != nil {
 					return nil, lookupErr
 				}
-				if existing != nil && sameBranch(branchScope, existing) {
+				if existing != nil && clientMatchesScope(dataScope, existing) {
 					return existing, nil
 				}
 			}
@@ -851,7 +851,7 @@ func (s *ClientService) GetOrCreateByBIN(bin string, fallback *models.Client, us
 				if lookupErr != nil {
 					return nil, lookupErr
 				}
-				if existing != nil && sameBranch(branchScope, existing) {
+				if existing != nil && clientMatchesScope(dataScope, existing) {
 					return existing, nil
 				}
 			}
@@ -911,135 +911,121 @@ func (s *ClientService) ListMine(userID, limit, offset int, clientType string) (
 	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, repositories.ClientListFilter{ClientType: clientType}, repositories.ArchiveScopeActiveOnly)
 }
 
-func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
-	}
-	if branchScope != nil {
-		filter.BranchID = branchScope
 	}
 	if err := s.validateClientListFilter(&filter); err != nil {
 		return nil, err
 	}
 	filter.ClientType = models.ClientTypeIndividual
-	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+	return listClientsForScope(s.Repo, dataScope, limit, offset, filter, archiveScope)
 }
 
-func (s *ClientService) ListIndividualsForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error) {
-	items, err := s.ListIndividualsForRole(userID, roleID, limit, offset, filter, scope)
+func (s *ClientService) ListIndividualsForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
+	items, err := s.ListIndividualsForRole(userID, roleID, limit, offset, filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := s.Repo.CountWithFilterAndArchiveScope(nil, models.ClientTypeIndividual, repositories.ClientListFilter{Query: filter.Query, BranchID: branchScope}, scope)
+	total, err := countClientsForScope(s.Repo, dataScope, models.ClientTypeIndividual, repositories.ClientListFilter{Query: filter.Query}, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil
 }
 
-func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
-	}
-	if branchScope != nil {
-		filter.BranchID = branchScope
 	}
 	if err := s.validateClientListFilter(&filter); err != nil {
 		return nil, err
 	}
 	filter.ClientType = models.ClientTypeLegal
-	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+	return listClientsForScope(s.Repo, dataScope, limit, offset, filter, archiveScope)
 }
 
-func (s *ClientService) ListCompaniesForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error) {
-	items, err := s.ListCompaniesForRole(userID, roleID, limit, offset, filter, scope)
+func (s *ClientService) ListCompaniesForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
+	items, err := s.ListCompaniesForRole(userID, roleID, limit, offset, filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := s.Repo.CountWithFilterAndArchiveScope(nil, models.ClientTypeLegal, repositories.ClientListFilter{Query: filter.Query, BranchID: branchScope}, scope)
+	total, err := countClientsForScope(s.Repo, dataScope, models.ClientTypeLegal, repositories.ClientListFilter{Query: filter.Query}, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil
 }
 
-func (s *ClientService) ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
+func (s *ClientService) ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
 	if roleID == authz.RoleSales {
 		return nil, ErrForbidden
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
-	}
-	if branchScope != nil {
-		filter.BranchID = branchScope
 	}
 	if err := s.validateClientListFilter(&filter); err != nil {
 		return nil, err
 	}
-	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, scope)
+	return listClientsForScope(s.Repo, dataScope, limit, offset, filter, archiveScope)
 }
 
-func (s *ClientService) ListForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error) {
-	items, err := s.ListForRole(userID, roleID, limit, offset, filter, scope)
+func (s *ClientService) ListForRoleWithTotal(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
+	items, err := s.ListForRole(userID, roleID, limit, offset, filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
-	branchScope, err := s.branchScopeForRole(userID, roleID)
+	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
-	if branchScope != nil {
-		filter.BranchID = branchScope
-	}
-	total, err := s.Repo.CountWithFilterAndArchiveScope(nil, "", filter, scope)
+	total, err := countClientsForScope(s.Repo, dataScope, "", filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil
 }
 
-func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, error) {
-	branchScope, err := s.branchScopeForRole(userID, authz.RoleSales)
+func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
+	branchID, err := resolveUserBranch(userID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
-	if branchScope != nil {
-		filter.BranchID = branchScope
-	}
+	filter.BranchID = branchID
 	if err := s.validateClientListFilter(&filter); err != nil {
 		return nil, err
 	}
-	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, filter, scope)
+	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, filter, archiveScope)
 }
 
-func (s *ClientService) ListMineWithArchiveScopeAndTotal(userID, limit, offset int, filter repositories.ClientListFilter, scope repositories.ArchiveScope) ([]*models.Client, int, error) {
-	items, err := s.ListMineWithArchiveScope(userID, limit, offset, filter, scope)
+func (s *ClientService) ListMineWithArchiveScopeAndTotal(userID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
+	items, err := s.ListMineWithArchiveScope(userID, limit, offset, filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
-	branchScope, err := s.branchScopeForRole(userID, authz.RoleSales)
+	branchID, err := resolveUserBranch(userID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
-	filter.BranchID = branchScope
-	total, err := s.Repo.CountWithFilterAndArchiveScope(&userID, "", filter, scope)
+	filter.BranchID = branchID
+	total, err := s.Repo.CountWithFilterAndArchiveScope(&userID, "", filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1070,11 +1056,11 @@ func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) err
 	if client == nil {
 		return ErrClientNotFound
 	}
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	dataScope, scopeErr := resolveClientScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
 		return scopeErr
 	}
-	if !sameBranch(branchScope, client) {
+	if !clientMatchesScope(dataScope, client) {
 		return ErrForbidden
 	}
 	if roleID == authz.RoleSales && client.OwnerID != userID {
@@ -1097,11 +1083,11 @@ func (s *ClientService) UnarchiveClient(id, userID, roleID int) error {
 	if client == nil {
 		return ErrClientNotFound
 	}
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	dataScope, scopeErr := resolveClientScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
 		return scopeErr
 	}
-	if !sameBranch(branchScope, client) {
+	if !clientMatchesScope(dataScope, client) {
 		return ErrForbidden
 	}
 	if roleID == authz.RoleSales && client.OwnerID != userID {
@@ -1338,11 +1324,11 @@ func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int
 	if current == nil {
 		return nil, ErrClientNotFound
 	}
-	branchScope, scopeErr := s.branchScopeForRole(userID, roleID)
+	dataScope, scopeErr := resolveClientScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
 		return nil, scopeErr
 	}
-	if !sameBranch(branchScope, current) {
+	if !clientMatchesScope(dataScope, current) {
 		return nil, ErrForbidden
 	}
 	if roleID == authz.RoleSales && current.OwnerID != userID {

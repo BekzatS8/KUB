@@ -267,11 +267,11 @@ func setupChatDirectoryRouter(roleID int, repo repositories.ChatRepository) *gin
 	userRepo := &chatTestUserRepo{
 		users: map[int]*models.User{
 			1: {ID: 1, RoleID: roleID, BranchID: chatTestBranchID(), IsVerified: true, Email: "me@kub.local"},
-			2: {ID: 2, RoleID: authz.RoleOperations, BranchID: chatTestBranchID(), IsVerified: true, Email: "u2@kub.local"},
+			2: {ID: 2, RoleID: authz.RoleVisa, BranchID: chatTestBranchID(), IsVerified: true, Email: "u2@kub.local"},
 			3: {ID: 3, RoleID: authz.RoleSales, BranchID: chatTestBranchID(), IsVerified: true, Email: "u3@kub.local"},
 			4: {ID: 4, RoleID: authz.RoleControl, BranchID: chatTestBranchID(), IsVerified: true, Email: "u4@kub.local"},
-			7: {ID: 7, RoleID: authz.RoleOperations, BranchID: chatTestBranchID(), IsVerified: true, Email: "u7@kub.local"},
-			8: {ID: 8, RoleID: authz.RoleOperations, BranchID: chatTestBranchIDValue(2), IsVerified: true, Email: "u8@kub.local"},
+			7: {ID: 7, RoleID: authz.RoleVisa, BranchID: chatTestBranchID(), IsVerified: true, Email: "u7@kub.local"},
+			8: {ID: 8, RoleID: authz.RoleVisa, BranchID: chatTestBranchIDValue(2), IsVerified: true, Email: "u8@kub.local"},
 			9: {ID: 9, RoleID: authz.RoleSales, BranchID: chatTestBranchID(), IsVerified: false, Email: "u9@kub.local"},
 		},
 	}
@@ -331,8 +331,9 @@ func (r *chatTestUserRepo) GetTelegramSettings(context.Context, int64) (int64, b
 	return 0, false, nil
 }
 func (r *chatTestUserRepo) GetByChatID(context.Context, int64) (*models.User, error) { return nil, nil }
+func (r *chatTestUserRepo) GetDepartmentIDByCode(string) (*int, error)               { return nil, nil }
 
-func TestChatDirectory_AccessibleForSalesOperationsControl(t *testing.T) {
+func TestChatDirectory_AccessibleForSalesVisaControl(t *testing.T) {
 	repo := &chatDirectoryRepoStub{items: []*models.ChatUserDirectoryItem{{UserID: 2, DisplayName: "Sales", RoleCode: "sales", RoleName: "sales", Email: "sales@kub.local"}}}
 	roles := []int{authz.RoleSales, authz.RoleControl, authz.RoleManagement}
 	for _, role := range roles {
@@ -349,7 +350,7 @@ func TestChatDirectory_AccessibleForSalesOperationsControl(t *testing.T) {
 func TestChatDirectory_ExcludesCurrentUserAndNoSensitiveFields(t *testing.T) {
 	repo := &chatDirectoryRepoStub{items: []*models.ChatUserDirectoryItem{
 		{UserID: 1, DisplayName: "Self", RoleCode: "sales", RoleName: "sales", Email: "self@kub.local"},
-		{UserID: 2, DisplayName: "Other", RoleCode: "operations", RoleName: "operations", Email: "ops@kub.local"},
+		{UserID: 2, DisplayName: "Other", RoleCode: "visa", RoleName: "visa", Email: "ops@kub.local"},
 	}}
 	r := setupChatDirectoryRouter(authz.RoleSales, repo)
 	w := httptest.NewRecorder()
@@ -377,7 +378,7 @@ func TestChatDirectory_ExcludesCurrentUserAndNoSensitiveFields(t *testing.T) {
 func TestChatDirectory_QueryAndExistingPersonalChatID(t *testing.T) {
 	chatID := 12
 	repo := &chatDirectoryRepoStub{items: []*models.ChatUserDirectoryItem{
-		{UserID: 2, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local", ExistingPersonalChatID: &chatID},
+		{UserID: 2, DisplayName: "Aigerim Tulegenova", RoleCode: "visa", RoleName: "visa", Email: "aigerim@kub.local", ExistingPersonalChatID: &chatID},
 		{UserID: 3, DisplayName: "Someone Else", RoleCode: "sales", RoleName: "sales", Email: "other@kub.local"},
 	}}
 	r := setupChatDirectoryRouter(authz.RoleSales, repo)
@@ -411,7 +412,7 @@ func TestListChats_PersonalContainsCounterparty_AndKeepsLegacyFields(t *testing.
 		},
 		profiles: map[int]*models.ChatVisibleProfile{
 			1: {UserID: 1, DisplayName: "Me", RoleCode: "sales", RoleName: "sales", Email: "me@kub.local"},
-			7: {UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local"},
+			7: {UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "visa", RoleName: "visa", Email: "aigerim@kub.local"},
 		},
 		statusByID: map[int]struct {
 			online   bool
@@ -450,7 +451,7 @@ func TestSearchChats_ByCounterpartyDisplayName_Works(t *testing.T) {
 			{ID: 12, IsGroup: false, Name: "", Members: []int{1, 7}, LastMessageText: "hello"},
 		},
 		profiles: map[int]*models.ChatVisibleProfile{
-			7: {UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local"},
+			7: {UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "visa", RoleName: "visa", Email: "aigerim@kub.local"},
 		},
 	}
 	r := setupChatDirectoryRouter(authz.RoleSales, repo)
@@ -472,8 +473,8 @@ func TestListChats_GroupContainsParticipantsPreview(t *testing.T) {
 		},
 		profiles: map[int]*models.ChatVisibleProfile{
 			1: {UserID: 1, DisplayName: "Me", RoleCode: "sales", RoleName: "sales", Email: "me@kub.local"},
-			2: {UserID: 2, DisplayName: "User2", RoleCode: "operations", RoleName: "operations", Email: "u2@kub.local"},
-			3: {UserID: 3, DisplayName: "User3", RoleCode: "operations", RoleName: "operations", Email: "u3@kub.local"},
+			2: {UserID: 2, DisplayName: "User2", RoleCode: "visa", RoleName: "visa", Email: "u2@kub.local"},
+			3: {UserID: 3, DisplayName: "User3", RoleCode: "visa", RoleName: "visa", Email: "u3@kub.local"},
 			4: {UserID: 4, DisplayName: "User4", RoleCode: "control", RoleName: "control", Email: "u4@kub.local"},
 		},
 		statusByID: map[int]struct {
@@ -500,7 +501,7 @@ func TestGetChatInfo_ReturnsParticipantsWithSafeMeaningfulFields(t *testing.T) {
 			Chat: models.ChatInfoMeta{ID: 12, IsGroup: false, Name: ""},
 			Participants: []models.ChatInfoParticipant{
 				{UserID: 1, DisplayName: "Me", RoleCode: "sales", RoleName: "sales", Email: "me@kub.local"},
-				{UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "operations", RoleName: "operations", Email: "aigerim@kub.local"},
+				{UserID: 7, DisplayName: "Aigerim Tulegenova", RoleCode: "visa", RoleName: "visa", Email: "aigerim@kub.local"},
 			},
 		},
 	}
@@ -514,7 +515,7 @@ func TestGetChatInfo_ReturnsParticipantsWithSafeMeaningfulFields(t *testing.T) {
 	if strings.Contains(w.Body.String(), "\"email\":\"\"") {
 		t.Fatalf("expected no fake empty email fields: %s", w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "\"display_name\":\"Aigerim Tulegenova\"") || !strings.Contains(w.Body.String(), "\"role_code\":\"operations\"") {
+	if !strings.Contains(w.Body.String(), "\"display_name\":\"Aigerim Tulegenova\"") || !strings.Contains(w.Body.String(), "\"role_code\":\"visa\"") {
 		t.Fatalf("expected participant safe fields in response: %s", w.Body.String())
 	}
 }
@@ -530,7 +531,7 @@ func TestGetUserStatus_ForbidsForeignBranch(t *testing.T) {
 	}
 }
 
-func TestCreatePersonalChat_SalesAndOperationsAllowed(t *testing.T) {
+func TestCreatePersonalChat_SalesAndVisaAllowed(t *testing.T) {
 	for _, role := range []int{authz.RoleSales, authz.RoleVisa} {
 		repo := &chatDirectoryRepoStub{}
 		r := setupChatDirectoryRouter(role, repo)

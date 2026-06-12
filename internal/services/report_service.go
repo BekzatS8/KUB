@@ -33,9 +33,7 @@ func (s *ReportService) resolveFilters(userID, roleID int, requestedBranchID *in
 			return nil, nil, ErrForbidden
 		}
 		return &userID, u.BranchID, nil
-	case authz.RoleOperations:
-		fallthrough
-	case authz.RoleControl:
+	case authz.RoleVisa, authz.RoleControl:
 		if s.UserRepo == nil {
 			return nil, nil, ErrForbidden
 		}

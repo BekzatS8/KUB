@@ -34,6 +34,13 @@ type TelegramConfig struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
+type BinotelConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	WebhookSecret string `yaml:"webhook_secret"`
+	APIKey        string `yaml:"api_key"`
+	APISecret     string `yaml:"api_secret"`
+}
+
 type WazzupConfig struct {
 	Enable             bool   `yaml:"enable"`
 	APIBaseURL         string `yaml:"api_base_url"`
@@ -94,6 +101,7 @@ type Config struct {
 
 	Telegram  TelegramConfig  `yaml:"telegram"`
 	Wazzup    WazzupConfig    `yaml:"wazzup"`
+	Binotel   BinotelConfig   `yaml:"binotel"`
 	Frontend  FrontendConfig  `yaml:"frontend"`
 	Documents DocumentsConfig `yaml:"documents"`
 	CORS      CORSConfig      `yaml:"cors"`
@@ -456,6 +464,12 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("MOBIZON_FROM"), &cfg.Mobizon.From)
 	setInt(os.Getenv("MOBIZON_TIMEOUT_SECONDS"), &cfg.Mobizon.TimeoutSeconds)
 	setInt(os.Getenv("MOBIZON_RETRIES"), &cfg.Mobizon.Retries)
+	setString(os.Getenv("BINOTEL_WEBHOOK_SECRET"), &cfg.Binotel.WebhookSecret)
+	setString(os.Getenv("BINOTEL_API_KEY"), &cfg.Binotel.APIKey)
+	setString(os.Getenv("BINOTEL_API_SECRET"), &cfg.Binotel.APISecret)
+	if val := strings.TrimSpace(os.Getenv("BINOTEL_ENABLED")); val != "" {
+		cfg.Binotel.Enabled = parseBoolEnvValue(val)
+	}
 	setString(os.Getenv("TELEGRAM_APITOKEN"), &cfg.Telegram.BotToken)
 	setString(os.Getenv("TELEGRAM_WEBHOOK_URL"), &cfg.Telegram.WebhookURL)
 	setString(os.Getenv("WAZZUP_API_BASE_URL"), &cfg.Wazzup.APIBaseURL)

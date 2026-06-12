@@ -44,6 +44,7 @@ func (r *captureUserRepo) GetTelegramSettings(context.Context, int64) (int64, bo
 	return 0, false, nil
 }
 func (r *captureUserRepo) GetByChatID(context.Context, int64) (*models.User, error) { return nil, nil }
+func (r *captureUserRepo) GetDepartmentIDByCode(string) (*int, error)               { return nil, nil }
 
 type noopMailService struct{}
 

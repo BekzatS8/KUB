@@ -188,7 +188,7 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 			return
 		}
 		filter.BranchID = &branchID
-	case authz.RoleOperations, authz.RoleControl:
+	case authz.RoleVisa, authz.RoleControl:
 		branchID, ok := h.taskUserBranchID(userID)
 		if !ok {
 			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)
@@ -843,7 +843,7 @@ func isTransitionAllowed(from, to models.TaskStatus) bool {
 
 func canViewTask(roleID int, uid int64, t *models.Task) bool {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleOperations, authz.RoleControl, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleVisa, authz.RoleControl, authz.RoleSystemAdmin:
 		return true
 	case authz.RoleSales:
 		return isOwnTask(uid, t)
@@ -857,7 +857,7 @@ func canModifyTask(roleID int, uid int64, t *models.Task) bool {
 		return false
 	}
 	switch roleID {
-	case authz.RoleManagement, authz.RoleOperations, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleVisa, authz.RoleSystemAdmin:
 		return true
 	case authz.RoleSales:
 		return isOwnTask(uid, t)
@@ -880,7 +880,7 @@ func (h *TaskHandler) hasTaskBranchAccess(roleID int, uid int64, t *models.Task)
 	switch roleID {
 	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales, authz.RoleOperations, authz.RoleControl:
+	case authz.RoleSales, authz.RoleVisa, authz.RoleControl:
 		if h.users == nil || t.BranchID == nil {
 			return false
 		}
@@ -909,7 +909,7 @@ func (h *TaskHandler) canAssignTaskWithinBranch(roleID int, actorID, assigneeID 
 	switch roleID {
 	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales, authz.RoleOperations:
+	case authz.RoleSales, authz.RoleVisa:
 		if h.users == nil {
 			return false
 		}

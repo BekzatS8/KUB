@@ -98,6 +98,8 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		publicSigningUIHandler,
 		nil,
+		nil,
+		nil,
 		middleware.NewAuthMiddleware([]byte("test-secret")),
 	)
 

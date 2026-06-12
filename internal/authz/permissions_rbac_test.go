@@ -66,13 +66,11 @@ func TestLeadsMoveBetweenFunnelsPermissions(t *testing.T) {
 }
 
 // TestLegacyOperationsCodeHasNoPermissions ensures the string code "operations" gives no permissions.
-// RoleOperations is now an alias for RoleVisa (id=20, code="visa"). The string "operations" is not
-// a valid active code, so HasPermission("operations", ...) must always return false.
+// role_id=20 / code "operations" is a deleted legacy role. HasPermission("operations", ...) must always return false.
 func TestLegacyOperationsCodeHasNoPermissions(t *testing.T) {
-	// RoleOperations is an alias for RoleVisa=20, which is active
-	code := RoleCodeByID(RoleOperations)
-	if code != "visa" {
-		t.Errorf("RoleOperations (id=20) must resolve to 'visa', got %q", code)
+	// role_id=20 must not be a known role
+	if IsKnownRole(20) {
+		t.Errorf("role_id=20 (legacy operations) must NOT be a known role")
 	}
 
 	// The string code "operations" is not in baseRolePermissions — must return false for all actions
@@ -96,6 +94,92 @@ func TestAllActiveRolesHaveAtLeastOnePermission(t *testing.T) {
 	}
 }
 
+// TestVisaHasNoDealsPermissions ensures visa dept cannot access sales deals.
+func TestVisaHasNoDealsPermissions(t *testing.T) {
+	for _, action := range []string{"deals.view", "deals.create", "deals.update", "deals.delete"} {
+		if HasPermission("visa", action) {
+			t.Errorf("visa must NOT have permission %q", action)
+		}
+	}
+}
+
+// TestPartnerHasNoDealsPermissions ensures partner dept cannot access sales deals.
+func TestPartnerHasNoDealsPermissions(t *testing.T) {
+	for _, action := range []string{"deals.view", "deals.create", "deals.update", "deals.delete"} {
+		if HasPermission("partner", action) {
+			t.Errorf("partner must NOT have permission %q", action)
+		}
+	}
+}
+
+// TestHRHasNoMessengerView ensures HR cannot access Wazzup/messenger.
+func TestHRHasNoMessengerView(t *testing.T) {
+	if HasPermission("hr", "messenger.view") {
+		t.Error("hr must NOT have messenger.view")
+	}
+}
+
+// TestLegalHasNoMessengerView ensures Legal cannot access Wazzup/messenger.
+func TestLegalHasNoMessengerView(t *testing.T) {
+	if HasPermission("legal", "messenger.view") {
+		t.Error("legal must NOT have messenger.view")
+	}
+}
+
+// TestQualityControlDocumentPermissions ensures QC can create/update/send docs (own dept) but cannot delete.
+func TestQualityControlDocumentPermissions(t *testing.T) {
+	allowed := []string{"documents.create", "documents.update", "documents.send", "documents.download", "documents.view"}
+	for _, action := range allowed {
+		if !HasPermission("quality_control", action) {
+			t.Errorf("quality_control must have permission %q", action)
+		}
+	}
+	if HasPermission("quality_control", "documents.delete") {
+		t.Error("quality_control must NOT have documents.delete")
+	}
+}
+
+// TestSalesHasNoDeleteOrExportPermissions ensures sales cannot delete entities or export clients.
+func TestSalesHasNoDeleteOrExportPermissions(t *testing.T) {
+	denied := []string{
+		"leads.delete", "deals.delete", "clients.delete", "documents.delete",
+		"tasks.delete", "chat.delete", "clients.export",
+		"funnels.create", "funnels.update", "funnels.delete", "funnels.reorder",
+	}
+	for _, action := range denied {
+		if HasPermission("sales", action) {
+			t.Errorf("sales must NOT have permission %q", action)
+		}
+	}
+}
+
+// TestManagementHasLeadsMoveButNoFunnelsManagement ensures management can move leads but not manage funnel structure.
+func TestManagementHasLeadsMoveButNoFunnelsManagement(t *testing.T) {
+	if !HasPermission("management", "leads.move_between_funnels") {
+		t.Error("management must have leads.move_between_funnels")
+	}
+	if !HasPermission("management", "leads.transfer_manager") {
+		t.Error("management must have leads.transfer_manager")
+	}
+	for _, action := range []string{"funnels.create", "funnels.update", "funnels.delete", "funnels.reorder"} {
+		if HasPermission("management", action) {
+			t.Errorf("management must NOT have %q", action)
+		}
+	}
+	if HasPermission("management", "clients.export") {
+		t.Error("management must NOT have clients.export")
+	}
+}
+
+// TestAdminHasAllPermissions ensures admin has every defined action.
+func TestAdminHasAllPermissions(t *testing.T) {
+	for _, action := range allActions {
+		if !HasPermission("admin", action) {
+			t.Errorf("admin must have permission %q", action)
+		}
+	}
+}
+
 // TestNormalizeRoleCodeCoversActiveRoles ensures all active role codes survive normalization unchanged.
 func TestNormalizeRoleCodeCoversActiveRoles(t *testing.T) {
 	activeCodes := []string{"admin", "management", "quality_control", "sales", "visa", "partner", "hr", "legal"}
@@ -103,6 +187,23 @@ func TestNormalizeRoleCodeCoversActiveRoles(t *testing.T) {
 		got := NormalizeRoleCode(code)
 		if got == "" {
 			t.Errorf("NormalizeRoleCode(%q) returned empty string", code)
+		}
+	}
+}
+
+// TestTelephonyViewPermissions verifies that all active business roles have telephony.view,
+// and that unknown / legacy roles do not.
+func TestTelephonyViewPermissions(t *testing.T) {
+	hasView := []string{"admin", "management", "quality_control", "sales", "visa", "partner", "hr", "legal"}
+	for _, role := range hasView {
+		if !HasPermission(role, "telephony.view") {
+			t.Errorf("role %q must have telephony.view", role)
+		}
+	}
+	noView := []string{"", "operations", "unknown_role"}
+	for _, role := range noView {
+		if HasPermission(role, "telephony.view") {
+			t.Errorf("role %q must NOT have telephony.view", role)
 		}
 	}
 }
@@ -125,11 +226,11 @@ func TestCanUsesCombinedRoleIDAndCode(t *testing.T) {
 	if Can(UserContext{RoleID: RoleSales}, ActionFunnelsCreate, "funnel") {
 		t.Error("sales by role_id must NOT be allowed funnels.create via ID fallback")
 	}
-	// visa/operations (role_id=20): can VIEW funnels but NOT create them
-	if !Can(UserContext{RoleID: RoleOperations}, ActionFunnelsView, "funnel") {
-		t.Error("visa/operations role_id=20 must be allowed funnels.view")
+	// visa (role_id=60): can VIEW funnels but NOT create them
+	if !Can(UserContext{RoleID: RoleVisa}, ActionFunnelsView, "funnel") {
+		t.Error("visa role_id=60 must be allowed funnels.view")
 	}
-	if Can(UserContext{RoleID: RoleOperations}, ActionFunnelsCreate, "funnel") {
-		t.Error("visa/operations role_id=20 must NOT be allowed funnels.create")
+	if Can(UserContext{RoleID: RoleVisa}, ActionFunnelsCreate, "funnel") {
+		t.Error("visa role_id=60 must NOT be allowed funnels.create")
 	}
 }

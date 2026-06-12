@@ -225,7 +225,7 @@ func TestLeadList_InvalidFilterParams(t *testing.T) {
 func TestDealDelete_NonAdminForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &DealHandler{Service: &dealHandlerStubService{}}
-	c, w := ctx(http.MethodDelete, "/deals/1", "", authz.RoleOperations)
+	c, w := ctx(http.MethodDelete, "/deals/1", "", authz.RoleVisa)
 	h.Delete(c)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", w.Code)

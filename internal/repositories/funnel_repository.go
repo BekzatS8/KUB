@@ -223,7 +223,7 @@ func (r *FunnelRepository) GetLeadFunnelAccess(leadID int) (*LeadFunnelAccess, e
 }
 
 func (r *FunnelRepository) MoveLeadToFunnel(leadID, funnelID int) error {
-	result, err := r.db.Exec(`UPDATE leads SET funnel_id=$1 WHERE id=$2`, funnelID, leadID)
+	result, err := r.db.Exec(`UPDATE leads SET funnel_id=$1, department_id=(SELECT department_id FROM funnels WHERE id=$1) WHERE id=$2`, funnelID, leadID)
 	if err != nil {
 		return err
 	}

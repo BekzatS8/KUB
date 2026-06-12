@@ -192,7 +192,7 @@ func TestRegister_IgnoresIsVerifiedAndKeepsPublicFlowUnverified(t *testing.T) {
 	r := gin.New()
 	r.POST("/register", h.Register)
 
-	body := `{"company_name":"Acme","bin_iin":"123456789012","email":"public@example.com","password":"Passw0rd","phone":"+77001112233","is_verified":true}`
+	body := `{"company_name":"Acme","bin_iin":"123456789012","email":"public@example.com","password":"Passw0rd","phone":"+77001112233","branch_id":1,"is_verified":true}`
 	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -206,6 +206,81 @@ func TestRegister_IgnoresIsVerifiedAndKeepsPublicFlowUnverified(t *testing.T) {
 	}
 	if svc.createdUser.IsVerified {
 		t.Fatal("expected /register to always create unverified users")
+	}
+}
+
+func TestRegister_RequiresBranchID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubUserService{}
+	h := NewUserHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.POST("/register", h.Register)
+
+	body := `{"company_name":"Acme","email":"no-branch@example.com","password":"Passw0rd","phone":"+77001112233"}`
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for register without branch_id, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "филиал") {
+		t.Fatalf("expected branch error message, got %s", w.Body.String())
+	}
+	if svc.createdUser != nil {
+		t.Fatalf("service must not be called when branch_id is missing, got %+v", svc.createdUser)
+	}
+}
+
+func TestRegister_WithBranchIDSucceeds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubUserService{}
+	h := NewUserHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.POST("/register", h.Register)
+
+	body := `{"company_name":"Acme","email":"with-branch@example.com","password":"Passw0rd","phone":"+77001112233","branch_id":7}`
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for register with branch_id, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.createdUser == nil {
+		t.Fatal("expected service to be called")
+	}
+	if svc.createdUser.BranchID == nil || *svc.createdUser.BranchID != 7 {
+		t.Fatalf("expected branch_id=7 stored on user, got %+v", svc.createdUser.BranchID)
+	}
+	if svc.createdUser.RoleID != authz.RoleSales {
+		t.Fatalf("Register must always assign RoleSales(%d), got %d", authz.RoleSales, svc.createdUser.RoleID)
+	}
+}
+
+func TestRegister_ZeroBranchIDRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &stubUserService{}
+	h := NewUserHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.POST("/register", h.Register)
+
+	body := `{"company_name":"Acme","email":"zero-branch@example.com","password":"Passw0rd","phone":"+77001112233","branch_id":0}`
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for register with branch_id=0, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.createdUser != nil {
+		t.Fatalf("service must not be called when branch_id=0, got %+v", svc.createdUser)
 	}
 }
 

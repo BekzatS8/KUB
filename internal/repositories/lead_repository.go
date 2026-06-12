@@ -19,12 +19,13 @@ type LeadRepository struct {
 }
 
 type LeadListFilter struct {
-	Query       string
-	Status      string
-	StatusGroup string
-	SortBy      string
-	Order       string
-	BranchID    *int
+	Query        string
+	Status       string
+	StatusGroup  string
+	SortBy       string
+	Order        string
+	BranchID     *int
+	DepartmentID *int
 }
 
 type ArchiveScope string
@@ -60,6 +61,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var source sql.NullString
 	var branchID sql.NullInt64
 	var branchName sql.NullString
+	var departmentID sql.NullInt64
 	var funnelID sql.NullInt64
 	var status sql.NullString
 	var isArchived bool
@@ -77,6 +79,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&lead.OwnerID,
 		&branchID,
 		&branchName,
+		&departmentID,
 		&funnelID,
 		&status,
 		&isArchived,
@@ -96,6 +99,10 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	}
 	if branchName.Valid {
 		lead.BranchName = branchName.String
+	}
+	if departmentID.Valid {
+		v := int(departmentID.Int64)
+		lead.DepartmentID = &v
 	}
 	if funnelID.Valid {
 		v := int(funnelID.Int64)
@@ -129,8 +136,13 @@ func leadArchiveWhere(scope ArchiveScope) string {
 // Создание лида с возвратом ID + created_at из БД
 func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, owner_id, branch_id, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO leads (title, description, owner_id, branch_id, funnel_id, status, department_id)
+		VALUES ($1, $2, $3, $4, $5, $6,
+			COALESCE(
+				(SELECT f.department_id FROM funnels f WHERE f.id = $5),
+				(SELECT u.department_id FROM users u WHERE u.id = $3)
+			)
+		)
 		RETURNING id, created_at
 	`
 
@@ -141,6 +153,7 @@ func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 		lead.Description,
 		lead.OwnerID,
 		lead.BranchID,
+		lead.FunnelID,
 		lead.Status,
 	).Scan(&id, &lead.CreatedAt)
 	if err != nil {
@@ -182,7 +195,7 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 
 func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE l.id = $1 AND %s
 	`
 	row := r.db.QueryRow(fmt.Sprintf(query, leadArchiveWhere(scope)), id)
@@ -246,7 +259,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
+	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
 	args := []interface{}{}
 	i := 1
 
@@ -291,7 +304,7 @@ func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE %s%s
 		ORDER BY %s %s
@@ -343,7 +356,7 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE owner_id = $1 AND %s%s
 		ORDER BY %s %s
@@ -432,6 +445,14 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 	if filter.BranchID != nil {
 		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
 		args = append(args, *filter.BranchID)
+		idx++
+	}
+	if filter.DepartmentID != nil {
+		// Мягкий fallback: запись с department_id IS NULL видна в своём филиале
+		// (легаси-данные до backfill).
+		// TODO: убрать OR l.department_id IS NULL после полного backfill на проде.
+		where += fmt.Sprintf(" AND (l.department_id = $%d OR l.department_id IS NULL)", idx)
+		args = append(args, *filter.DepartmentID)
 		idx++
 	}
 
@@ -616,8 +637,13 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
 
 	err = tx.QueryRow(`
-		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at, department_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+			COALESCE(
+				(SELECT f.department_id FROM funnels f JOIN leads l ON l.funnel_id = f.id WHERE l.id = $1 LIMIT 1),
+				(SELECT u.department_id FROM users u WHERE u.id = $3)
+			)
+		)
 		ON CONFLICT (lead_id) DO NOTHING
 		RETURNING id
 	`,

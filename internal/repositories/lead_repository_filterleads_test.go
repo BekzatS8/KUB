@@ -44,7 +44,7 @@ func (c *leadFilterCheckConn) Query(query string, args []driver.Value) (driver.R
 }
 
 func (r *leadFilterCheckRows) Columns() []string {
-	return []string{"id", "title", "description", "phone", "source", "created_at", "owner_id", "branch_id", "branch_name", "funnel_id", "status", "is_archived", "archived_at", "archived_by", "archive_reason"}
+	return []string{"id", "title", "description", "phone", "source", "created_at", "owner_id", "branch_id", "branch_name", "department_id", "funnel_id", "status", "is_archived", "archived_at", "archived_by", "archive_reason"}
 }
 func (r *leadFilterCheckRows) Close() error { return nil }
 func (r *leadFilterCheckRows) Next(dest []driver.Value) error {
@@ -53,7 +53,7 @@ func (r *leadFilterCheckRows) Next(dest []driver.Value) error {
 	}
 	r.done = true
 	now := time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC)
-	row := []driver.Value{1, "t", "d", "7700", "web", now, 10, 20, "Main", nil, "new", false, nil, nil, ""}
+	row := []driver.Value{1, "t", "d", "7700", "web", now, 10, 20, "Main", nil, nil, "new", false, nil, nil, ""}
 	for i := range dest {
 		dest[i] = row[i]
 	}

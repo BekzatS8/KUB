@@ -7,35 +7,36 @@ ALTER TABLE roles
     ADD COLUMN IF NOT EXISTS code VARCHAR(64);
 
 -- =============================================================================
--- Step 2: Assign canonical codes to the ACTUAL production role IDs.
+-- Step 2: Pre-cleanup — remove stale/conflicting codes from WRONG rows.
 --
--- Production schema (queried 2026-06-11):
---   id=1  name='lawyer'     → code='legal'
---   id=2  name='hr'         → code='hr'
---   id=3  name='bdm'        → code='partner'
---   id=10 name='sales'      → code='sales'
---   id=20 name='vds'        → code='visa'   (Визовый отдел — NOT operations)
---   id=30 name='audit'      → code='quality_control'
---   id=40 name='management' → code='management'
---   id=50 name='admin'      → code='admin'
+-- Canonical mapping:
+--   id=10  → code='sales'
+--   id=30  → code='quality_control'
+--   id=40  → code='management'
+--   id=50  → code='admin'
+--   id=60  → code='visa'
+--   id=70  → code='partner'
+--   id=80  → code='hr'
+--   id=90  → code='legal'
 --
--- Using ELSE code (no-op) for any unknown role IDs so we never auto-derive
--- a code that could later conflict with a subsequent INSERT.
--- Safe to run repeatedly: same IDs → same codes, no unique constraint violation.
+-- Any row carrying one of these codes at a DIFFERENT id gets code cleared.
+-- Also clears code='operations' from any row — deleted legacy role.
+--
+-- Safe on clean DB (no non-null codes → no rows updated).
+-- Safe on repeat run (correct codes on correct rows → no rows updated).
+-- Must run BEFORE the unique index so no constraint fires during cleanup.
 -- =============================================================================
 UPDATE roles
-SET code = CASE id
-    WHEN  1 THEN 'legal'
-    WHEN  2 THEN 'hr'
-    WHEN  3 THEN 'partner'
-    WHEN 10 THEN 'sales'
-    WHEN 20 THEN 'visa'
-    WHEN 30 THEN 'quality_control'
-    WHEN 40 THEN 'management'
-    WHEN 50 THEN 'admin'
-    ELSE code
-END
-WHERE id IN (1, 2, 3, 10, 20, 30, 40, 50);
+SET code = NULL
+WHERE (code = 'sales'           AND id != 10)
+   OR (code = 'quality_control' AND id != 30)
+   OR (code = 'management'      AND id != 40)
+   OR (code = 'admin'           AND id != 50)
+   OR (code = 'visa'            AND id != 60)
+   OR (code = 'partner'         AND id != 70)
+   OR (code = 'hr'              AND id != 80)
+   OR (code = 'legal'           AND id != 90)
+   OR  code = 'operations';
 
 -- =============================================================================
 -- Step 3: Unique index on code (idempotent: IF NOT EXISTS)
@@ -45,7 +46,62 @@ CREATE UNIQUE INDEX IF NOT EXISTS roles_code_uq
     WHERE code IS NOT NULL;
 
 -- =============================================================================
--- Step 4: Departments table (idempotent: IF NOT EXISTS + ON CONFLICT)
+-- Step 4: Seed / upsert canonical roles (idempotent: ON CONFLICT (id) DO UPDATE)
+--
+-- Active roles:
+--   id=10  code='sales'
+--   id=30  code='quality_control'
+--   id=40  code='management'
+--   id=50  code='admin'
+--   id=60  code='visa'
+--   id=70  code='partner'
+--   id=80  code='hr'
+--   id=90  code='legal'
+--
+-- role_id=20 / code='operations' is NOT seeded here — it is a deleted legacy role.
+-- =============================================================================
+INSERT INTO roles (id, name, description, code) VALUES
+    (10, 'sales',           'Отдел продаж: лиды/сделки/документы',  'sales'),
+    (30, 'audit',           'Контроль качества: наблюдатель',        'quality_control'),
+    (40, 'management',      'Руководство: расширенный доступ',       'management'),
+    (50, 'admin',           'Администратор: управление системой',    'admin'),
+    (60, 'visa',            'Визовый отдел: визовые услуги',         'visa'),
+    (70, 'partner',         'Партнёрский отдел',                     'partner'),
+    (80, 'hr',              'Отдел кадров',                          'hr'),
+    (90, 'legal',           'Юридический отдел',                     'legal')
+ON CONFLICT (id) DO UPDATE
+    SET code = EXCLUDED.code;
+
+-- =============================================================================
+-- Step 5: Safety — migrate any users still on role_id=20 to visa (id=60).
+-- Idempotent: if no users have role_id=20 this is a no-op.
+-- Protects FK constraint before deleting the role row.
+-- =============================================================================
+UPDATE users
+SET role_id = 60
+WHERE role_id = 20;
+
+-- =============================================================================
+-- Step 6: Remove role_permissions for role_id=20 (legacy operations).
+-- Idempotent: no-op if already absent.
+-- =============================================================================
+DELETE FROM role_permissions WHERE role_id = 20;
+
+-- =============================================================================
+-- Step 7: Delete legacy role id=20 / code='operations'.
+-- FK on users is safe because Step 5 reassigned all role_id=20 users.
+-- =============================================================================
+DELETE FROM roles
+WHERE id = 20
+   OR code = 'operations';
+
+-- =============================================================================
+-- Step 8: Advance SERIAL sequence past our highest explicit id (90).
+-- =============================================================================
+SELECT setval('roles_id_seq', GREATEST(90, COALESCE((SELECT MAX(id) FROM roles), 90)));
+
+-- =============================================================================
+-- Step 9: Departments table (idempotent: IF NOT EXISTS + ON CONFLICT)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS departments (
     id         SERIAL PRIMARY KEY,
@@ -71,7 +127,7 @@ ON CONFLICT (code) DO UPDATE
         updated_at = NOW();
 
 -- =============================================================================
--- Step 5: department_id on users (idempotent: IF NOT EXISTS)
+-- Step 10: department_id on users (idempotent: IF NOT EXISTS, nullable)
 -- =============================================================================
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS department_id INT REFERENCES departments(id);
@@ -79,7 +135,7 @@ ALTER TABLE users
 CREATE INDEX IF NOT EXISTS users_department_id_idx ON users(department_id);
 
 -- =============================================================================
--- Step 6: Permissions tables (idempotent: IF NOT EXISTS + ON CONFLICT DO NOTHING)
+-- Step 11: Permissions tables (idempotent: IF NOT EXISTS + ON CONFLICT DO NOTHING)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS permissions (
     id          SERIAL PRIMARY KEY,
@@ -116,18 +172,19 @@ INSERT INTO permissions (code) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 -- =============================================================================
--- Step 7: Seed role_permissions (idempotent: ON CONFLICT DO UPDATE)
--- All lookups by role code, so production role IDs are irrelevant here.
+-- Step 12: Seed role_permissions for the 8 active roles only.
+-- All lookups use r.code, not hardcoded role_id values.
+-- No permissions seeded for role_id=20 or code='operations'.
 -- =============================================================================
 
--- admin: all permissions
+-- admin: full access to all permissions
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, 'all'
 FROM roles r CROSS JOIN permissions p
 WHERE r.code = 'admin'
 ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
 
--- management
+-- management: broad access across related departments; users.view for limited employee oversight
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, 'related_departments'
 FROM roles r
@@ -138,24 +195,35 @@ JOIN permissions p ON p.code IN (
     'clients.view', 'clients.create', 'clients.update',
     'documents.view', 'documents.create', 'documents.update', 'documents.send', 'documents.download',
     'tasks.view', 'tasks.create', 'tasks.update',
-    'reports.view', 'chat.view', 'messenger.view', 'telephony.view', 'funnels.view'
+    'reports.view', 'chat.view', 'messenger.view', 'telephony.view', 'funnels.view',
+    'users.view'
 )
 WHERE r.code = 'management'
 ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
 
--- quality_control (was 'audit' by name, code='quality_control')
+-- quality_control: read-only for leads/deals/clients + limited document writes (department scope) + telephony
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, 'related_departments'
 FROM roles r
 JOIN permissions p ON p.code IN (
     'feed.view', 'leads.view', 'deals.view', 'clients.view',
     'documents.view', 'documents.download',
-    'tasks.view', 'reports.view', 'chat.view', 'messenger.view', 'funnels.view'
+    'tasks.view', 'reports.view', 'chat.view', 'messenger.view', 'telephony.view', 'funnels.view'
 )
 WHERE r.code = 'quality_control'
 ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
 
--- sales, visa (id=20/vds), partner (id=3/bdm)
+-- quality_control: own-department document writes only (auditors can create/update/send docs in their dept)
+INSERT INTO role_permissions (role_id, permission_id, scope)
+SELECT r.id, p.id, 'department'
+FROM roles r
+JOIN permissions p ON p.code IN (
+    'documents.create', 'documents.update', 'documents.send'
+)
+WHERE r.code = 'quality_control'
+ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
+
+-- sales: department-scoped business access including deals
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, 'department'
 FROM roles r
@@ -168,24 +236,52 @@ JOIN permissions p ON p.code IN (
     'tasks.view', 'tasks.create', 'tasks.update',
     'chat.view', 'messenger.view', 'telephony.view', 'funnels.view', 'approvals.create'
 )
-WHERE r.code IN ('sales', 'visa', 'partner')
+WHERE r.code = 'sales'
 ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
 
--- hr (id=2), legal (id=1/lawyer)
+-- visa, partner: department-scoped access; NO deals.* (they handle leads/clients/docs only)
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, 'department'
 FROM roles r
 JOIN permissions p ON p.code IN (
     'feed.view',
+    'leads.view', 'leads.create', 'leads.update',
+    'clients.view', 'clients.update',
+    'documents.view', 'documents.create', 'documents.update', 'documents.send', 'documents.download',
+    'tasks.view', 'tasks.create', 'tasks.update',
+    'chat.view', 'messenger.view', 'telephony.view', 'funnels.view', 'approvals.create'
+)
+WHERE r.code IN ('visa', 'partner')
+ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
+
+-- hr: employee/document management; no leads/deals/messenger
+INSERT INTO role_permissions (role_id, permission_id, scope)
+SELECT r.id, p.id, 'department'
+FROM roles r
+JOIN permissions p ON p.code IN (
+    'feed.view', 'users.view',
     'documents.view', 'documents.create', 'documents.update', 'documents.download',
     'tasks.view', 'tasks.create', 'tasks.update',
-    'chat.view', 'approvals.create'
+    'chat.view', 'telephony.view', 'approvals.create'
 )
-WHERE r.code IN ('hr', 'legal')
+WHERE r.code = 'hr'
+ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
+
+-- legal: clients+documents access; no leads/deals/messenger
+INSERT INTO role_permissions (role_id, permission_id, scope)
+SELECT r.id, p.id, 'department'
+FROM roles r
+JOIN permissions p ON p.code IN (
+    'feed.view', 'clients.view', 'users.view',
+    'documents.view', 'documents.create', 'documents.update', 'documents.download',
+    'tasks.view', 'tasks.create', 'tasks.update',
+    'chat.view', 'telephony.view', 'approvals.create'
+)
+WHERE r.code = 'legal'
 ON CONFLICT (role_id, permission_id) DO UPDATE SET scope = EXCLUDED.scope;
 
 -- =============================================================================
--- Step 8: Funnels table (idempotent: IF NOT EXISTS)
+-- Step 13: Funnels table (idempotent: IF NOT EXISTS)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS funnels (
     id            SERIAL PRIMARY KEY,
@@ -205,7 +301,7 @@ CREATE INDEX IF NOT EXISTS funnels_branch_id_idx     ON funnels(branch_id);
 CREATE INDEX IF NOT EXISTS funnels_active_idx        ON funnels(is_active);
 
 -- =============================================================================
--- Step 9: funnel_id on leads and deals (idempotent: IF NOT EXISTS)
+-- Step 14: funnel_id on leads and deals (idempotent: IF NOT EXISTS)
 -- =============================================================================
 ALTER TABLE leads
     ADD COLUMN IF NOT EXISTS funnel_id INT REFERENCES funnels(id);
@@ -217,7 +313,7 @@ CREATE INDEX IF NOT EXISTS leads_funnel_id_idx ON leads(funnel_id);
 CREATE INDEX IF NOT EXISTS deals_funnel_id_idx ON deals(funnel_id);
 
 -- =============================================================================
--- Step 10: Default funnels (idempotent: ON CONFLICT DO NOTHING)
+-- Step 15: Default funnels (idempotent: ON CONFLICT DO NOTHING)
 -- =============================================================================
 INSERT INTO funnels (name, code, department_id, is_active, sort_order)
 SELECT 'Продажи', 'sales_default', d.id, TRUE, 10

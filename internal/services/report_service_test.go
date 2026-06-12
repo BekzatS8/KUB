@@ -61,6 +61,7 @@ func (r *reportTestUserRepo) GetTelegramSettings(ctx context.Context, userID int
 func (r *reportTestUserRepo) GetByChatID(ctx context.Context, chatID int64) (*models.User, error) {
 	return nil, nil
 }
+func (r *reportTestUserRepo) GetDepartmentIDByCode(string) (*int, error) { return nil, nil }
 
 func TestResolveFilters_SalesAndOperationsBoundToOwnBranch(t *testing.T) {
 	branchID := 2
@@ -80,15 +81,15 @@ func TestResolveFilters_SalesAndOperationsBoundToOwnBranch(t *testing.T) {
 		t.Fatalf("sales must use own branch, got branch=%v", scopedBranchID)
 	}
 
-	ownerID, scopedBranchID, err = svc.resolveFilters(77, authz.RoleOperations, &requested)
+	ownerID, scopedBranchID, err = svc.resolveFilters(77, authz.RoleVisa, &requested)
 	if err != nil {
-		t.Fatalf("operations resolve failed: %v", err)
+		t.Fatalf("visa resolve failed: %v", err)
 	}
 	if ownerID != nil {
-		t.Fatalf("operations must not be owner-scoped")
+		t.Fatalf("visa must not be owner-scoped")
 	}
 	if scopedBranchID == nil || *scopedBranchID != branchID {
-		t.Fatalf("operations must use own branch, got branch=%v", scopedBranchID)
+		t.Fatalf("visa must use own branch, got branch=%v", scopedBranchID)
 	}
 }
 
@@ -131,8 +132,8 @@ func TestResolveFilters_DeniesWhenBranchContextMissing(t *testing.T) {
 	if _, _, err := svc.resolveFilters(1, authz.RoleSales, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("sales without branch context must be forbidden, got %v", err)
 	}
-	if _, _, err := svc.resolveFilters(1, authz.RoleOperations, nil); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("operations without branch context must be forbidden, got %v", err)
+	if _, _, err := svc.resolveFilters(1, authz.RoleVisa, nil); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("visa without branch context must be forbidden, got %v", err)
 	}
 	if _, _, err := svc.resolveFilters(1, authz.RoleControl, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("control without branch context must be forbidden, got %v", err)
