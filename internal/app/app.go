@@ -334,6 +334,7 @@ func Run() {
 	}
 	reportHandler := handlers.NewReportHandler(reportService)
 	orgHandler := handlers.NewOrganizationHandler(orgService)
+	signHistoryHandler := handlers.NewDocumentSignHistoryHandler(documentService, signSessionRepo, signatureConfirmRepo)
 	if cfg.Wazzup.Enable {
 		wazzupClient := wazzupintegration.NewHTTPClient(
 			cfg.Wazzup.APIBaseURL,
@@ -413,6 +414,7 @@ func Run() {
 		wazzupHandler,
 		telephonyHandler,
 		orgHandler,
+		signHistoryHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

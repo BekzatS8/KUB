@@ -37,6 +37,7 @@ func SetupRoutes(
 	wazzupHandler *handlers.WazzupHandler,
 	telephonyHandler *handlers.TelephonyHandler, // может быть nil
 	orgHandler *handlers.OrganizationHandler,
+	signHistoryHandler *handlers.DocumentSignHistoryHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -113,6 +114,11 @@ func SetupRoutes(
 	// PUBLIC: Binotel webhook (no JWT — Binotel calls this server-to-server)
 	if telephonyHandler != nil {
 		r.POST("/api/v1/integrations/binotel/webhook", telephonyHandler.BinotelWebhook)
+	}
+
+	// PUBLIC: Organization contacts (no JWT — for external websites/landing pages)
+	if orgHandler != nil {
+		r.GET("/api/v1/public/organization/contacts", orgHandler.GetPublicContacts)
 	}
 
 	// =====================
@@ -337,6 +343,9 @@ func SetupRoutes(
 			if docPublicLinkHandler != nil {
 				docs.POST("/:id/generate-sign-link", middleware.RequirePermission("documents.send", "document"), docPublicLinkHandler.GenerateSignLink)
 			}
+		}
+		if signHistoryHandler != nil {
+			docs.GET("/:id/sign/history", middleware.RequirePermission("documents.view", "document"), signHistoryHandler.GetSignHistory)
 		}
 	}
 

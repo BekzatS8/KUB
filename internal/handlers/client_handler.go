@@ -55,9 +55,10 @@ type createClientRequest struct {
 	BinIin     string `json:"bin_iin"`
 	IIN        string `json:"iin"`
 
-	IDNumber       string `json:"id_number"`
-	PassportSeries string `json:"passport_series"`
-	PassportNumber string `json:"passport_number"`
+	IDNumber         string `json:"id_number"`
+	PassportIdentity string `json:"passport_identity"` // единое поле (серия и номер)
+	PassportSeries   string `json:"passport_series"`   // deprecated: используйте passport_identity
+	PassportNumber   string `json:"passport_number"`   // deprecated: используйте passport_identity
 
 	Phone               string `json:"phone"`
 	Email               string `json:"email"`
@@ -118,9 +119,10 @@ type updateClientRequest struct {
 	BinIin     string `json:"bin_iin"`
 	IIN        string `json:"iin"`
 
-	IDNumber       string `json:"id_number"`
-	PassportSeries string `json:"passport_series"`
-	PassportNumber string `json:"passport_number"`
+	IDNumber         string `json:"id_number"`
+	PassportIdentity string `json:"passport_identity"` // единое поле
+	PassportSeries   string `json:"passport_series"`   // deprecated
+	PassportNumber   string `json:"passport_number"`   // deprecated
 
 	Phone               string `json:"phone"`
 	Email               string `json:"email"`
@@ -181,9 +183,10 @@ type patchClientRequest struct {
 	BinIin     *string `json:"bin_iin"`
 	IIN        *string `json:"iin"`
 
-	IDNumber       *string `json:"id_number"`
-	PassportSeries *string `json:"passport_series"`
-	PassportNumber *string `json:"passport_number"`
+	IDNumber         *string `json:"id_number"`
+	PassportIdentity *string `json:"passport_identity"` // единое поле
+	PassportSeries   *string `json:"passport_series"`   // deprecated
+	PassportNumber   *string `json:"passport_number"`   // deprecated
 
 	Phone               *string `json:"phone"`
 	Email               *string `json:"email"`
@@ -294,7 +297,11 @@ func collectMissingRedFields(req createClientRequest) []string {
 }
 
 func buildClientFromCreateRequest(req createClientRequest, userID int, birthDate, passportIssueDate, passportExpireDate, driverLicenseIssueDate, driverLicenseExpireDate *time.Time) *models.Client {
-	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, DriverLicenseIssueDate: driverLicenseIssueDate, DriverLicenseExpireDate: driverLicenseExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, EducationLevel: req.EducationLevel, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
+	passIdentity := req.PassportIdentity
+	if passIdentity == "" && (req.PassportSeries != "" || req.PassportNumber != "") {
+		passIdentity = strings.TrimSpace(req.PassportSeries + " " + req.PassportNumber)
+	}
+	client := &models.Client{OwnerID: userID, Name: req.Name, BinIin: req.BinIin, Address: req.Address, ContactInfo: req.ContactInfo, ClientType: req.ClientType, LastName: req.LastName, FirstName: req.FirstName, MiddleName: req.MiddleName, IIN: req.IIN, IDNumber: req.IDNumber, PassportIdentity: passIdentity, PassportSeries: req.PassportSeries, PassportNumber: req.PassportNumber, Phone: req.Phone, Email: req.Email, RegistrationAddress: req.RegistrationAddress, ActualAddress: req.ActualAddress, Country: req.Country, TripPurpose: req.TripPurpose, BirthDate: birthDate, BirthPlace: req.BirthPlace, Citizenship: req.Citizenship, Sex: req.Sex, MaritalStatus: req.MaritalStatus, PassportIssueDate: passportIssueDate, PassportExpireDate: passportExpireDate, DriverLicenseIssueDate: driverLicenseIssueDate, DriverLicenseExpireDate: driverLicenseExpireDate, PreviousLastName: req.PreviousLastName, SpouseName: req.SpouseName, SpouseContacts: req.SpouseContacts, HasChildren: req.HasChildren, ChildrenList: req.ChildrenList, Education: req.Education, EducationLevel: req.EducationLevel, Job: req.Job, TripsLast5Years: req.TripsLast5Years, RelativesInDestination: req.RelativesInDestination, TrustedPerson: req.TrustedPerson, Specialty: req.Specialty, TrustedPersonPhone: req.TrustedPersonPhone, DriverLicenseNumber: req.DriverLicenseNumber, EducationInstitutionName: req.EducationInstitutionName, EducationInstitutionAddress: req.EducationInstitutionAddress, Position: req.Position, VisasReceived: req.VisasReceived, VisaRefusals: req.VisaRefusals, Height: req.Height, Weight: req.Weight, DriverLicenseCategories: req.DriverLicenseCategories, TherapistName: req.TherapistName, ClinicName: req.ClinicName, DiseasesLast3Years: req.DiseasesLast3Years, AdditionalInfo: req.AdditionalInfo, CreatedAt: time.Now()}
 	client.IndividualProfile = req.IndividualProfile
 	client.LegalProfile = req.LegalProfile
 	return client
@@ -481,7 +488,12 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		current.ClientType = *req.ClientType
 	}
 	current.LastName, current.FirstName, current.MiddleName = req.LastName, req.FirstName, req.MiddleName
-	current.IIN, current.IDNumber, current.PassportSeries, current.PassportNumber = req.IIN, req.IDNumber, req.PassportSeries, req.PassportNumber
+	passIdentityUpd := req.PassportIdentity
+	if passIdentityUpd == "" && (req.PassportSeries != "" || req.PassportNumber != "") {
+		passIdentityUpd = strings.TrimSpace(req.PassportSeries + " " + req.PassportNumber)
+	}
+	current.IIN, current.IDNumber = req.IIN, req.IDNumber
+	current.PassportIdentity, current.PassportSeries, current.PassportNumber = passIdentityUpd, req.PassportSeries, req.PassportNumber
 	current.Phone, current.Email = req.Phone, req.Email
 	current.RegistrationAddress, current.ActualAddress = req.RegistrationAddress, req.ActualAddress
 	current.Country, current.TripPurpose, current.BirthDate = req.Country, req.TripPurpose, birthDate
@@ -760,8 +772,22 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 	addS("bin_iin", req.BinIin)
 	addS("iin", req.IIN)
 	addS("id_number", req.IDNumber)
+	addS("passport_identity", req.PassportIdentity)
 	addS("passport_series", req.PassportSeries)
 	addS("passport_number", req.PassportNumber)
+	// Backward compat: if only legacy fields arrive, compute passport_identity.
+	if req.PassportIdentity == nil && (req.PassportSeries != nil || req.PassportNumber != nil) {
+		series := ""
+		if req.PassportSeries != nil {
+			series = *req.PassportSeries
+		}
+		number := ""
+		if req.PassportNumber != nil {
+			number = *req.PassportNumber
+		}
+		v := strings.TrimSpace(series + " " + number)
+		updates["passport_identity"] = v
+	}
 	addS("phone", req.Phone)
 	addS("email", req.Email)
 	addS("address", req.Address)

@@ -226,7 +226,7 @@ func TestListByOwnerHandlesNullPrimaryEmail(t *testing.T) {
 }
 
 func testClientColumns() []string {
-	cols := make([]string, 80)
+	cols := make([]string, 81)
 	for i := range cols {
 		cols[i] = "c" + strconv.Itoa(i+1)
 	}
@@ -237,7 +237,7 @@ func testClientRowValues(id int, ownerID int, clientType string) []driver.Value 
 	now := time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC)
 	return []driver.Value{
 		id, ownerID, int64(1), clientType, "Display", "+70000000000", "x@example.com", "addr", "contact", now, now, false, nil, nil, "",
-		"Last", "First", "Middle", "123456789012", "ID1", "PS", "PN",
+		"Last", "First", "Middle", "123456789012", "ID1", "PS", "PN", "",
 		"Reg", "Act", "KZ", "Trip", now, "BirthPlace",
 		"Cit", "M", "Single", now, now, now, now,
 		"Prev", "Spouse", "SpousePhone", true, []byte(`["child"]`),

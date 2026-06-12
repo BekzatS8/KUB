@@ -354,6 +354,53 @@ func (r *SignatureConfirmationRepository) IncrementAttempts(ctx context.Context,
 	return attempts, nil
 }
 
+func (r *SignatureConfirmationRepository) ListByDocumentID(ctx context.Context, documentID int64) ([]*models.SignatureConfirmation, error) {
+	const q = `
+		SELECT id, document_id, user_id, channel, status, otp_hash, token_hash,
+		       attempts, created_at, expires_at, approved_at, rejected_at, meta
+		FROM signature_confirmations
+		WHERE document_id = $1
+		ORDER BY created_at ASC`
+	rows, err := r.DB.QueryContext(ctx, q, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("list confirmations by document: %w", err)
+	}
+	defer rows.Close()
+	var out []*models.SignatureConfirmation
+	for rows.Next() {
+		var conf models.SignatureConfirmation
+		var otpHash, tokenHash sql.NullString
+		var approvedAt, rejectedAt sql.NullTime
+		var metaBytes []byte
+		if err := rows.Scan(
+			&conf.ID, &conf.DocumentID, &conf.UserID, &conf.Channel, &conf.Status,
+			&otpHash, &tokenHash, &conf.Attempts, &conf.CreatedAt, &conf.ExpiresAt, &approvedAt, &rejectedAt, &metaBytes,
+		); err != nil {
+			return nil, fmt.Errorf("scan confirmation: %w", err)
+		}
+		if otpHash.Valid {
+			conf.OTPHash = &otpHash.String
+		}
+		if tokenHash.Valid {
+			conf.TokenHash = &tokenHash.String
+		}
+		if approvedAt.Valid {
+			conf.ApprovedAt = &approvedAt.Time
+		}
+		if rejectedAt.Valid {
+			conf.RejectedAt = &rejectedAt.Time
+		}
+		if len(metaBytes) > 0 {
+			conf.Meta = metaBytes
+		}
+		out = append(out, &conf)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate confirmations: %w", err)
+	}
+	return out, nil
+}
+
 func scanSignatureConfirmation(row *sql.Row) (*models.SignatureConfirmation, error) {
 	var confirmation models.SignatureConfirmation
 	var otpHash sql.NullString

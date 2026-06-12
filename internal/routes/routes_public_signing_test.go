@@ -100,6 +100,7 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil, // signHistoryHandler
 		middleware.NewAuthMiddleware([]byte("test-secret")),
 	)
 

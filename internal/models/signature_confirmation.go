@@ -14,6 +14,7 @@ type SignatureConfirmation struct {
 	OTPHash    *string         `json:"-"`
 	TokenHash  *string         `json:"-"`
 	Attempts   int             `json:"attempts"`
+	CreatedAt  time.Time       `json:"created_at"`
 	ExpiresAt  time.Time       `json:"expires_at"`
 	ApprovedAt *time.Time      `json:"approved_at,omitempty"`
 	RejectedAt *time.Time      `json:"rejected_at,omitempty"`

@@ -121,6 +121,14 @@ func buildClientPlaceholders(
 	// --- ПАСПОРТ / УДОСТОВЕРЕНИЕ ---
 	if client != nil {
 		ph["CLIENT_ID_NUMBER"] = strings.TrimSpace(client.IDNumber) // номер удост-ния
+
+		// Unified passport field (migration 043).
+		passIdentity := strings.TrimSpace(client.PassportIdentity)
+		if passIdentity == "" {
+			passIdentity = strings.TrimSpace(client.PassportSeries + " " + client.PassportNumber)
+		}
+		ph["CLIENT_PASSPORT_IDENTITY"] = passIdentity
+		// Backward-compat: old placeholders kept so existing templates still work.
 		ph["CLIENT_PASSPORT_SERIES"] = strings.TrimSpace(client.PassportSeries)
 		ph["CLIENT_PASSPORT_NUMBER"] = strings.TrimSpace(client.PassportNumber)
 	}

@@ -1583,7 +1583,9 @@ func validateClientFieldsForDocType(docType string, c *models.Client) (missing [
 		if req.Key == "id_number" && strings.TrimSpace(c.IDNumber) == "" {
 			add("id_number")
 		}
-		if req.Key == "passport_number" && strings.TrimSpace(c.PassportNumber) == "" {
+		if req.Key == "passport_number" &&
+			strings.TrimSpace(c.PassportIdentity) == "" &&
+			strings.TrimSpace(c.PassportNumber) == "" {
 			add("passport_number")
 		}
 	}
@@ -1676,7 +1678,12 @@ func resolveRequiredValue(req DocumentFieldRequirement, placeholders map[string]
 	case "id_number":
 		return placeholders["CLIENT_ID_NUMBER"]
 	case "passport_number":
+		if v := strings.TrimSpace(placeholders["CLIENT_PASSPORT_IDENTITY"]); v != "" {
+			return v
+		}
 		return placeholders["CLIENT_PASSPORT_NUMBER"]
+	case "passport_identity":
+		return placeholders["CLIENT_PASSPORT_IDENTITY"]
 	case "reason_code":
 		return placeholders["reason_code"]
 	case "signer_contact":

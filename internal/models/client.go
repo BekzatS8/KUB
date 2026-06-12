@@ -24,10 +24,11 @@ type Client struct {
 	FirstName  string `json:"first_name"`  // Имя
 	MiddleName string `json:"middle_name"` // Отчество
 
-	IIN            string `json:"iin"`             // ИИН
-	IDNumber       string `json:"id_number"`       // № удостоверения
-	PassportSeries string `json:"passport_series"` // Серия паспорта
-	PassportNumber string `json:"passport_number"` // № паспорта
+	IIN              string `json:"iin"`               // ИИН
+	IDNumber         string `json:"id_number"`         // № удостоверения
+	PassportIdentity string `json:"passport_identity"` // Серия и номер паспорта (единое поле)
+	PassportSeries   string `json:"passport_series"`   // Deprecated: использовать passport_identity
+	PassportNumber   string `json:"passport_number"`   // Deprecated: использовать passport_identity
 
 	Phone                   string     `json:"phone"`
 	Email                   string     `json:"email"`
@@ -106,8 +107,9 @@ type ClientIndividualProfile struct {
 	MiddleName                  string          `json:"middle_name"`
 	IIN                         string          `json:"iin"`
 	IDNumber                    string          `json:"id_number"`
-	PassportSeries              string          `json:"passport_series"`
-	PassportNumber              string          `json:"passport_number"`
+	PassportIdentity            string          `json:"passport_identity"` // единое поле
+	PassportSeries              string          `json:"passport_series"`   // deprecated
+	PassportNumber              string          `json:"passport_number"`   // deprecated
 	RegistrationAddress         string          `json:"registration_address"`
 	ActualAddress               string          `json:"actual_address"`
 	Country                     string          `json:"country,omitempty"`

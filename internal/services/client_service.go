@@ -220,8 +220,13 @@ func normalizeIndividualAliases(c *models.Client) {
 	ip.MiddleName = trim(ip.MiddleName)
 	ip.IIN = trim(ip.IIN)
 	ip.IDNumber = trim(ip.IDNumber)
+	ip.PassportIdentity = trim(ip.PassportIdentity)
 	ip.PassportSeries = trim(ip.PassportSeries)
 	ip.PassportNumber = trim(ip.PassportNumber)
+	// Ensure identity field is populated from legacy parts when only they are given.
+	if ip.PassportIdentity == "" && (ip.PassportSeries != "" || ip.PassportNumber != "") {
+		ip.PassportIdentity = strings.TrimSpace(ip.PassportSeries + " " + ip.PassportNumber)
+	}
 	ip.RegistrationAddress = trim(ip.RegistrationAddress)
 	ip.ActualAddress = trim(ip.ActualAddress)
 	ip.Country = trim(ip.Country)
@@ -266,6 +271,9 @@ func normalizeIndividualAliases(c *models.Client) {
 	}
 	if ip.IDNumber != "" {
 		c.IDNumber = ip.IDNumber
+	}
+	if ip.PassportIdentity != "" {
+		c.PassportIdentity = ip.PassportIdentity
 	}
 	if ip.PassportSeries != "" {
 		c.PassportSeries = ip.PassportSeries
@@ -1145,7 +1153,7 @@ func missingYellowFieldsIndividual(client *models.Client, hasPhoto35x45 bool) []
 	if client.IDNumber == "" {
 		missing = append(missing, "id_number")
 	}
-	if client.PassportNumber == "" {
+	if client.PassportIdentity == "" && client.PassportNumber == "" {
 		missing = append(missing, "passport_number")
 	}
 	if client.PassportIssueDate == nil {

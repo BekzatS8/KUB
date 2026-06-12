@@ -360,6 +360,57 @@ func (r *SignSessionRepository) Update(ctx context.Context, session *models.Sign
 	return nil
 }
 
+func (r *SignSessionRepository) ListByDocumentID(ctx context.Context, documentID int64) ([]*models.SignSession, error) {
+	const q = `
+		SELECT id, document_id, phone_e164, code_hash, token_hash, signer_email, doc_hash, expires_at,
+		       attempts, status, verified_at, signed_at, signed_ip, signed_user_agent,
+		       created_at, updated_at
+		FROM sign_sessions
+		WHERE document_id = $1
+		ORDER BY created_at ASC`
+	rows, err := r.DB.QueryContext(ctx, q, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("list sign sessions by document: %w", err)
+	}
+	defer rows.Close()
+	var out []*models.SignSession
+	for rows.Next() {
+		var s models.SignSession
+		var phoneE164, codeHash, signerEmail, docHash, signedIP, signedUA sql.NullString
+		var verifiedAt, signedAt sql.NullTime
+		if err := rows.Scan(
+			&s.ID, &s.DocumentID, &phoneE164, &codeHash, &s.TokenHash, &signerEmail, &docHash,
+			&s.ExpiresAt, &s.Attempts, &s.Status, &verifiedAt, &signedAt, &signedIP, &signedUA,
+			&s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan sign session: %w", err)
+		}
+		if phoneE164.Valid {
+			s.PhoneE164 = phoneE164.String
+		}
+		if signerEmail.Valid {
+			s.SignerEmail = signerEmail.String
+		}
+		if verifiedAt.Valid {
+			s.VerifiedAt = &verifiedAt.Time
+		}
+		if signedAt.Valid {
+			s.SignedAt = &signedAt.Time
+		}
+		if signedIP.Valid {
+			s.SignedIP = signedIP.String
+		}
+		if signedUA.Valid {
+			s.SignedUserAgent = signedUA.String
+		}
+		out = append(out, &s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sign sessions: %w", err)
+	}
+	return out, nil
+}
+
 func (r *SignSessionRepository) IncrementAttempts(ctx context.Context, id int64) (int, error) {
 	const q = `
 		UPDATE sign_sessions
