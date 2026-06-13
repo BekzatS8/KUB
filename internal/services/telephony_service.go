@@ -20,16 +20,38 @@ type userBranchLookup interface {
 	GetByID(id int) (*models.User, error)
 }
 
+// clientAccessChecker (declared in client_files_service.go) resolves whether the
+// caller may access a specific client via the canonical client-scope rules.
+// Satisfied by *ClientService.GetByID (resolveClientScope + clientMatchesScope).
+
+// leadAccessChecker resolves whether the caller may access a specific lead,
+// using the canonical lead-scope rules. Satisfied by *LeadService.GetByID,
+// which applies resolveLeadScope + leadMatchesScope and returns ErrForbidden
+// (or a nil lead) when the caller has no access.
+type leadAccessChecker interface {
+	GetByID(id, userID, roleID int) (*models.Leads, error)
+}
+
 // TelephonyService handles business logic for telephony / Binotel integration.
 type TelephonyService struct {
-	repo     repositories.TelephonyRepository
-	userRepo userBranchLookup
-	secret   string // BINOTEL_WEBHOOK_SECRET — empty means no check in dev
+	repo         repositories.TelephonyRepository
+	userRepo     userBranchLookup
+	clientAccess clientAccessChecker
+	leadAccess   leadAccessChecker
+	secret       string // BINOTEL_WEBHOOK_SECRET — empty means no check in dev
 }
 
 // NewTelephonyService constructs a TelephonyService.
 func NewTelephonyService(repo repositories.TelephonyRepository, userRepo userBranchLookup, webhookSecret string) *TelephonyService {
 	return &TelephonyService{repo: repo, userRepo: userRepo, secret: webhookSecret}
+}
+
+// SetAccessCheckers wires the per-entity access checkers used to enforce client/
+// lead ownership on the call-history endpoints. Kept separate from the constructor
+// so wiring stays additive (ClientService/LeadService are built after telephony).
+func (s *TelephonyService) SetAccessCheckers(clientAccess clientAccessChecker, leadAccess leadAccessChecker) {
+	s.clientAccess = clientAccess
+	s.leadAccess = leadAccess
 }
 
 // WebhookSecret returns the configured secret (used by the handler for validation).
@@ -212,7 +234,16 @@ func (s *TelephonyService) GetCall(ctx context.Context, userID, roleID int, id i
 }
 
 // ListClientCalls returns calls linked to a client, scoped to the caller's branch.
+//
+// Ownership is enforced FIRST: the caller must be able to access this specific
+// client under the canonical client-scope rules (same check as GET /clients/:id).
+// This blocks an own-scoped role (partner) — or any role — from reading the call
+// history of a client they don't own/can't see by guessing the client_id.
 func (s *TelephonyService) ListClientCalls(ctx context.Context, userID, roleID int, clientID int64, limit, offset int) ([]*models.TelephonyCallResponse, int, error) {
+	if err := s.ensureClientAccess(userID, roleID, clientID); err != nil {
+		return nil, 0, err
+	}
+
 	branchID, err := s.branchScopeForRole(userID, roleID)
 	if err != nil {
 		return nil, 0, err
@@ -232,7 +263,14 @@ func (s *TelephonyService) ListClientCalls(ctx context.Context, userID, roleID i
 }
 
 // ListLeadCalls returns calls linked to a lead, scoped to the caller's branch.
+//
+// Ownership is enforced FIRST via the canonical lead-scope rules (same check as
+// GET /leads/:id) — see ListClientCalls.
 func (s *TelephonyService) ListLeadCalls(ctx context.Context, userID, roleID int, leadID int64, limit, offset int) ([]*models.TelephonyCallResponse, int, error) {
+	if err := s.ensureLeadAccess(userID, roleID, leadID); err != nil {
+		return nil, 0, err
+	}
+
 	branchID, err := s.branchScopeForRole(userID, roleID)
 	if err != nil {
 		return nil, 0, err
@@ -249,6 +287,39 @@ func (s *TelephonyService) ListLeadCalls(ctx context.Context, userID, roleID int
 		filter.BranchID = branchID
 	}
 	return s.repo.List(ctx, filter)
+}
+
+// ensureClientAccess returns nil only when the caller may access this client
+// under the canonical client-scope rules. Fails closed: a missing checker, an
+// out-of-scope client (nil), or ErrForbidden all deny access. A non-scope error
+// (e.g. DB failure) is propagated as-is.
+func (s *TelephonyService) ensureClientAccess(userID, roleID int, clientID int64) error {
+	if s.clientAccess == nil {
+		return ErrForbidden
+	}
+	client, err := s.clientAccess.GetByID(int(clientID), userID, roleID)
+	if err != nil {
+		return err
+	}
+	if client == nil {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// ensureLeadAccess is the lead counterpart of ensureClientAccess.
+func (s *TelephonyService) ensureLeadAccess(userID, roleID int, leadID int64) error {
+	if s.leadAccess == nil {
+		return ErrForbidden
+	}
+	lead, err := s.leadAccess.GetByID(int(leadID), userID, roleID)
+	if err != nil {
+		return err
+	}
+	if lead == nil {
+		return ErrForbidden
+	}
+	return nil
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

@@ -114,6 +114,18 @@ func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
 	}
 }
 
+// isHiddenDocVisible returns false when doc.IsHidden=true and the caller
+// is neither the system admin nor the document's author.
+func isHiddenDocVisible(doc *models.Document, userID, roleID int) bool {
+	if !doc.IsHidden {
+		return true
+	}
+	if roleID == authz.RoleSystemAdmin {
+		return true
+	}
+	return doc.CreatedBy != nil && *doc.CreatedBy == userID
+}
+
 func documentBranchIDFromDeal(deal *models.Deals) *int64 {
 	if deal == nil || deal.BranchID == nil {
 		return nil
@@ -481,6 +493,12 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 	// просто нормализуем путь, НИЧЕГО не генерируем
 	doc.FilePath = filepath.Base(strings.TrimSpace(doc.FilePath))
 
+	createdBy := userID
+	doc.CreatedBy = &createdBy
+	if roleID == authz.RolePartner {
+		doc.IsHidden = true
+	}
+
 	return s.DocRepo.Create(doc)
 }
 
@@ -536,12 +554,15 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 		return nil, fmt.Errorf("save file: %w", err)
 	}
 
+	createdBy := userID
 	doc := &models.Document{
-		DealID:   dealID,
-		BranchID: nil,
-		DocType:  docType,
-		FilePath: finalName,
-		Status:   "draft",
+		DealID:    dealID,
+		BranchID:  nil,
+		DocType:   docType,
+		FilePath:  finalName,
+		Status:    "draft",
+		CreatedBy: &createdBy,
+		IsHidden:  roleID == authz.RolePartner,
 	}
 	if deal.BranchID != nil {
 		v := int64(*deal.BranchID)
@@ -559,6 +580,9 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	doc, err := s.DocRepo.GetByID(id)
 	if err != nil || doc == nil {
 		return nil, err
+	}
+	if !isHiddenDocVisible(doc, userID, roleID) {
+		return nil, errors.New("forbidden")
 	}
 	if roleID != authz.RoleSales && roleID != authz.RoleVisa && roleID != authz.RoleControl {
 		return doc, nil
@@ -583,6 +607,9 @@ func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID i
 	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, scope)
 	if err != nil || doc == nil {
 		return nil, err
+	}
+	if !isHiddenDocVisible(doc, userID, roleID) {
+		return nil, errors.New("forbidden")
 	}
 	if roleID != authz.RoleSales && roleID != authz.RoleVisa && roleID != authz.RoleControl {
 		return doc, nil
@@ -774,6 +801,9 @@ func (s *DocumentService) ListDocumentsByDealWithFilter(dealID int64, userID, ro
 	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
 		return nil, err
 	}
+	if roleID != authz.RoleSystemAdmin {
+		filter.HiddenVisibilityUserID = &userID
+	}
 	if repo, ok := s.DocRepo.(documentFilterRepo); ok {
 		return repo.ListDocumentsByDealWithFilterAndArchiveScope(dealID, filter, scope)
 	}
@@ -803,6 +833,9 @@ func (s *DocumentService) ListDocumentsByDealWithFilterAndTotal(dealID int64, us
 	}
 	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
 		return nil, 0, err
+	}
+	if roleID != authz.RoleSystemAdmin {
+		filter.HiddenVisibilityUserID = &userID
 	}
 	repo, ok := s.DocRepo.(documentFilterRepo)
 	if !ok {
@@ -859,6 +892,9 @@ func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason s
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
+	if !isHiddenDocVisible(doc, userID, roleID) {
+		return errors.New("forbidden")
+	}
 	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return errors.New("not found")
@@ -879,6 +915,9 @@ func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error 
 	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
 	if err != nil || doc == nil {
 		return errors.New("not found")
+	}
+	if !isHiddenDocVisible(doc, userID, roleID) {
+		return errors.New("forbidden")
 	}
 	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
 	if derr != nil || deal == nil {
@@ -1137,6 +1176,9 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	if err != nil || doc == nil {
 		return "", "", errors.New("not found")
 	}
+	if !isHiddenDocVisible(doc, userID, roleID) {
+		return "", "", errors.New("forbidden")
+	}
 	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return "", "", errors.New("not found")
@@ -1295,6 +1337,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 
 	relPath = normalizeStoragePath(relPath)
 
+	createdByLead := userID
 	doc := &models.Document{
 		DealID:      int64(deal.ID),
 		DocType:     docType,
@@ -1302,6 +1345,8 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 		FilePath:    relPath,
 		FilePathPdf: relPath,
 		BranchID:    documentBranchIDFromDeal(deal),
+		CreatedBy:   &createdByLead,
+		IsHidden:    roleID == authz.RolePartner,
 	}
 	id, ierr := s.DocRepo.Create(doc)
 	if ierr != nil {
@@ -1419,6 +1464,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 
 		excelRelPath = normalizeStoragePath(excelRelPath)
 
+		createdByExcel := userID
 		doc := &models.Document{
 			DealID:       getDealID64(deal),
 			DocType:      docType,
@@ -1427,6 +1473,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 			FilePathPdf:  normalizeStoragePath(excelPDFPath),
 			FilePathDocx: "",
 			BranchID:     documentBranchIDFromDeal(deal),
+			CreatedBy:    &createdByExcel,
+			IsHidden:     roleID == authz.RolePartner,
 		}
 
 		id, err := s.DocRepo.Create(doc)
@@ -1458,6 +1506,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 			mainPath = docxRelPath
 		}
 
+		createdByDocx := userID
 		doc := &models.Document{
 			DealID:       getDealID64(deal),
 			DocType:      docType,
@@ -1466,6 +1515,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 			FilePathPdf:  pdfRelPath,
 			FilePathDocx: docxRelPath,
 			BranchID:     documentBranchIDFromDeal(deal),
+			CreatedBy:    &createdByDocx,
+			IsHidden:     roleID == authz.RolePartner,
 		}
 
 		id, err := s.DocRepo.Create(doc)

@@ -45,19 +45,17 @@ func TestCharacterize_VisaLeadScope_IsBranch(t *testing.T) {
 	}
 }
 
-// TestCharacterize_QCLeadScope_IsBranch confirms qc is Branch-scoped (read-only observer).
-func TestCharacterize_QCLeadScope_IsBranch(t *testing.T) {
+// TestCharacterize_QCLeadScope_IsAll confirms qc is an all-funnel read observer
+// (Block C: widened from branch to all; read-only enforced separately).
+func TestCharacterize_QCLeadScope_IsAll(t *testing.T) {
 	branchID := 11
 	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 	scope, err := resolveLeadScope(1, authz.RoleControl, repo)
 	if err != nil {
 		t.Fatalf("qc: unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Errorf("qc lead scope: want ScopeKindBranch, got %v", scope.Kind)
-	}
-	if scope.BranchID == nil || *scope.BranchID != branchID {
-		t.Errorf("qc lead scope: want branchID=%d, got %v", branchID, scope.BranchID)
+	if scope.Kind != ScopeKindAll {
+		t.Errorf("qc lead scope: want ScopeKindAll, got %v", scope.Kind)
 	}
 }
 
@@ -74,15 +72,15 @@ func TestCharacterize_SalesDealScope_IsBranch(t *testing.T) {
 	}
 }
 
-// TestCharacterize_QCDealScope_IsBranch confirms qc deal scope is Branch.
-func TestCharacterize_QCDealScope_IsBranch(t *testing.T) {
+// TestCharacterize_QCDealScope_IsAll confirms qc deal scope is all-funnel (Block C).
+func TestCharacterize_QCDealScope_IsAll(t *testing.T) {
 	branchID := 9
 	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 	scope, err := resolveDealScope(1, authz.RoleControl, repo)
 	if err != nil {
 		t.Fatalf("qc deal: unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Errorf("qc deal scope: want ScopeKindBranch, got %v", scope.Kind)
+	if scope.Kind != ScopeKindAll {
+		t.Errorf("qc deal scope: want ScopeKindAll, got %v", scope.Kind)
 	}
 }

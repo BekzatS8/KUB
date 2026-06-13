@@ -171,6 +171,100 @@ func TestManagementHasLeadsMoveButNoFunnelsManagement(t *testing.T) {
 	}
 }
 
+// TestClientsRecordPermissions pins the target access model for the client record
+// (the actions enforced by RequirePermission on the /clients routes):
+//   - hr            : NO clients.view / create / update (no client access at all)
+//   - legal         : clients.view only (sees all; cannot create/update the record)
+//   - quality_control: clients.view only (read-only observer)
+//   - visa          : clients.view + update (edits in scope; no create)
+//   - sales/partner : clients.view + create + update (own/scope create+edit)
+//   - management/admin: clients.view + create + update
+func TestClientsRecordPermissions(t *testing.T) {
+	type want struct{ view, create, update bool }
+	cases := map[string]want{
+		"hr":              {view: false, create: false, update: false},
+		"legal":           {view: true, create: false, update: false},
+		"quality_control": {view: true, create: false, update: false},
+		"visa":            {view: true, create: false, update: true},
+		"sales":           {view: true, create: true, update: true},
+		"partner":         {view: true, create: true, update: true},
+		"management":      {view: true, create: true, update: true},
+		"admin":           {view: true, create: true, update: true},
+	}
+	for role, w := range cases {
+		if got := HasPermission(role, "clients.view"); got != w.view {
+			t.Errorf("role %q clients.view = %v, want %v", role, got, w.view)
+		}
+		if got := HasPermission(role, "clients.create"); got != w.create {
+			t.Errorf("role %q clients.create = %v, want %v", role, got, w.create)
+		}
+		if got := HasPermission(role, "clients.update"); got != w.update {
+			t.Errorf("role %q clients.update = %v, want %v", role, got, w.update)
+		}
+	}
+}
+
+// TestClientsDeleteIsAdminOnly ensures only admin holds clients.delete.
+func TestClientsDeleteIsAdminOnly(t *testing.T) {
+	if !HasPermission("admin", "clients.delete") {
+		t.Error("admin must have clients.delete")
+	}
+	for _, role := range []string{"management", "quality_control", "sales", "visa", "partner", "hr", "legal", ""} {
+		if HasPermission(role, "clients.delete") {
+			t.Errorf("role %q must NOT have clients.delete", role)
+		}
+	}
+}
+
+// TestDealsCreatePermissions pins the target model for "who can create a deal",
+// which is also the gate for converting a lead into a deal (PUT /leads/:id/convert*):
+//   - sales / management / admin : YES
+//   - visa / partner / quality_control / hr / legal : NO
+func TestDealsCreatePermissions(t *testing.T) {
+	canCreate := []string{"sales", "management", "admin"}
+	cannotCreate := []string{"visa", "partner", "quality_control", "hr", "legal", ""}
+
+	for _, role := range canCreate {
+		if !HasPermission(role, "deals.create") {
+			t.Errorf("role %q must have deals.create (lead→deal conversion)", role)
+		}
+	}
+	for _, role := range cannotCreate {
+		if HasPermission(role, "deals.create") {
+			t.Errorf("role %q must NOT have deals.create (must get 403 on convert)", role)
+		}
+	}
+}
+
+// TestBranchesPermissions pins the target model for branches (Block B):
+//   - branches.view   : admin + management (leadership oversight)
+//   - branches.create/update/delete : admin only
+func TestBranchesPermissions(t *testing.T) {
+	viewAllowed := []string{"admin", "management"}
+	viewDenied := []string{"sales", "visa", "partner", "quality_control", "hr", "legal", ""}
+	for _, role := range viewAllowed {
+		if !HasPermission(role, "branches.view") {
+			t.Errorf("role %q must have branches.view", role)
+		}
+	}
+	for _, role := range viewDenied {
+		if HasPermission(role, "branches.view") {
+			t.Errorf("role %q must NOT have branches.view", role)
+		}
+	}
+
+	for _, action := range []string{"branches.create", "branches.update", "branches.delete"} {
+		if !HasPermission("admin", action) {
+			t.Errorf("admin must have %q", action)
+		}
+		for _, role := range []string{"management", "sales", "visa", "partner", "quality_control", "hr", "legal"} {
+			if HasPermission(role, action) {
+				t.Errorf("role %q must NOT have %q (admin-only)", role, action)
+			}
+		}
+	}
+}
+
 // TestAdminHasAllPermissions ensures admin has every defined action.
 func TestAdminHasAllPermissions(t *testing.T) {
 	for _, action := range allActions {

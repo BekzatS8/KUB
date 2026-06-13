@@ -83,11 +83,12 @@ func TestResolveDealScope_AdminManagementAll(t *testing.T) {
 	}
 }
 
-// TestResolveDealScope_BranchRolesReturnBranch confirms sales/visa/qc get ScopeKindBranch.
+// TestResolveDealScope_BranchRolesReturnBranch confirms sales/visa get ScopeKindBranch.
+// (quality_control is now all-funnel — see TestResolveDealScope_ControlSeesAll.)
 func TestResolveDealScope_BranchRolesReturnBranch(t *testing.T) {
 	branchID := 5
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
 		scope, err := resolveDealScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -99,6 +100,18 @@ func TestResolveDealScope_BranchRolesReturnBranch(t *testing.T) {
 		if scope.BranchID == nil || *scope.BranchID != branchID {
 			t.Errorf("role %d: expected branchID=%d, got %v", roleID, branchID, scope.BranchID)
 		}
+	}
+}
+
+// TestResolveDealScope_ControlSeesAll confirms quality_control observes all deals
+// (Block C); no branch lookup needed, so a nil userRepo is fine.
+func TestResolveDealScope_ControlSeesAll(t *testing.T) {
+	scope, err := resolveDealScope(100, authz.RoleControl, nil)
+	if err != nil {
+		t.Fatalf("qc deal scope: unexpected error: %v", err)
+	}
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("qc must observe all deals (ScopeKindAll), got %v", scope.Kind)
 	}
 }
 

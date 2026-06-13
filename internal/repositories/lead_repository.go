@@ -11,8 +11,27 @@ import (
 
 	"github.com/lib/pq"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 )
+
+// resolveAutoLeadOwner returns a guaranteed non-zero owner_id for an auto-created
+// lead (inbound call / inbound message). It prefers the resolved manager/integration
+// user; when none is known it falls back — explicitly and logged, not silently — to
+// the lowest-id active system admin, so an inbound lead is never lost to a NULL or
+// invalid owner_id (which would otherwise violate the NOT NULL / FK constraint).
+func resolveAutoLeadOwner(ctx context.Context, db *sql.DB, preferred int) (int, error) {
+	if preferred > 0 {
+		return preferred, nil
+	}
+	const q = `SELECT id FROM users WHERE role_id = $1 AND COALESCE(is_active, TRUE) = TRUE ORDER BY id LIMIT 1`
+	var id int
+	if err := db.QueryRowContext(ctx, q, authz.RoleSystemAdmin).Scan(&id); err != nil {
+		return 0, fmt.Errorf("resolve auto-lead fallback owner: %w", err)
+	}
+	log.Printf("auto-lead: owner unresolved → explicit fallback to system admin user_id=%d", id)
+	return id, nil
+}
 
 type LeadRepository struct {
 	db *sql.DB
@@ -26,6 +45,9 @@ type LeadListFilter struct {
 	Order        string
 	BranchID     *int
 	DepartmentID *int
+	// ScopeUserID, when set alongside DepartmentID, widens the department filter so
+	// the owner still sees their own NULL-department leads (fail-closed for peers).
+	ScopeUserID *int
 }
 
 type ArchiveScope string
@@ -448,12 +470,18 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		idx++
 	}
 	if filter.DepartmentID != nil {
-		// Мягкий fallback: запись с department_id IS NULL видна в своём филиале
-		// (легаси-данные до backfill).
-		// TODO: убрать OR l.department_id IS NULL после полного backfill на проде.
-		where += fmt.Sprintf(" AND (l.department_id = $%d OR l.department_id IS NULL)", idx)
-		args = append(args, *filter.DepartmentID)
-		idx++
+		// fail-closed department scope: a lead is visible to a department-scoped role
+		// only if it belongs to that department, OR it has no department but the role
+		// owns it. NULL-department leads are NOT leaked across departments anymore.
+		if filter.ScopeUserID != nil {
+			where += fmt.Sprintf(" AND (l.department_id = $%d OR (l.department_id IS NULL AND l.owner_id = $%d))", idx, idx+1)
+			args = append(args, *filter.DepartmentID, *filter.ScopeUserID)
+			idx += 2
+		} else {
+			where += fmt.Sprintf(" AND l.department_id = $%d", idx)
+			args = append(args, *filter.DepartmentID)
+			idx++
+		}
 	}
 
 	return where, args

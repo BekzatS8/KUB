@@ -439,14 +439,24 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 	description := strings.TrimSpace(firstMessage)
 	normalizedPhone := normalizePhone(phone)
 	title := fmt.Sprintf("Лид из WhatsApp +%s", normalizedPhone)
+
+	// owner is always resolved to a real user (integration owner, else fallback admin)
+	// so the lead is never lost; department_id is inherited from that owner (A2).
+	resolvedOwner, err := resolveAutoLeadOwner(ctx, r.db, ownerID)
+	if err != nil {
+		return 0, fmt.Errorf("create lead from inbound: %w", err)
+	}
+
 	const q = `
-		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, status)
-		VALUES ($1, $2, $3, $4, $5, (SELECT branch_id FROM users WHERE id = $5), $6)
+		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status)
+		VALUES ($1, $2, $3, $4, $5,
+			(SELECT branch_id FROM users WHERE id = $5),
+			(SELECT department_id FROM users WHERE id = $5),
+			$6)
 		RETURNING id
 	`
 	var leadID int
-	err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, "whatsapp", ownerID, "new").Scan(&leadID)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, "whatsapp", resolvedOwner, "new").Scan(&leadID); err != nil {
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 	return leadID, nil

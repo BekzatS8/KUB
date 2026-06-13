@@ -294,6 +294,11 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	filter.BranchID = scopedBranchID
 
+	if roleID != authz.RoleSystemAdmin {
+		uid := userID
+		filter.HiddenVisibilityUserID = &uid
+	}
+
 	if paginate {
 		docs, total, err := h.Service.ListDocumentsWithFilterAndArchiveScopeAndTotal(size, offset, filter, scope)
 		if err != nil {

@@ -221,13 +221,15 @@ func SetupRoutes(
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 
+	// BRANCHES — read gated by branches.view (admin + management only);
+	// create/update/delete are admin-only (RequirePermission + handler role check).
 	branches := r.Group("/branches")
 	{
-		branches.GET("", branchHandler.List)
-		branches.GET("/:id", branchHandler.GetByID)
-		branches.POST("", branchHandler.Create)
-		branches.PUT("/:id", branchHandler.Update)
-		branches.DELETE("/:id", branchHandler.Delete)
+		branches.GET("", middleware.RequirePermission("branches.view", "branch"), branchHandler.List)
+		branches.GET("/:id", middleware.RequirePermission("branches.view", "branch"), branchHandler.GetByID)
+		branches.POST("", middleware.RequirePermission("branches.create", "branch"), branchHandler.Create)
+		branches.PUT("/:id", middleware.RequirePermission("branches.update", "branch"), branchHandler.Update)
+		branches.DELETE("/:id", middleware.RequirePermission("branches.delete", "branch"), branchHandler.Delete)
 	}
 
 	// ORGANIZATION (singleton settings)
@@ -236,20 +238,23 @@ func SetupRoutes(
 		r.PUT("/api/v1/organization", orgHandler.Update)
 	}
 
-	// CLIENTS
+	// CLIENTS — guarded per action (mirrors /deals). Action gate = RequirePermission;
+	// scope is still enforced in ClientService (getClientByIDWithScope + clientMatchesScope).
+	// hr has no clients.* → 403 on all; legal has clients.view only → reads pass, writes → 403.
+	// NOTE: /:id/profile and /:id/files/* stay service-enforced (ensureClientAccess) — untouched.
 	clients := r.Group("/clients")
 	{
-		clients.POST("", clientHandler.Create)
-		clients.GET("", clientHandler.List)
-		clients.GET("/individual", clientHandler.ListIndividuals)
-		clients.GET("/company", clientHandler.ListCompanies)
-		clients.GET("/my", clientHandler.ListMy)
-		clients.PUT("/:id", clientHandler.Update)
-		clients.PATCH("/:id", clientHandler.Patch)
-		clients.DELETE("/:id", clientHandler.Delete)
-		clients.POST("/:id/archive", clientHandler.Archive)
-		clients.POST("/:id/unarchive", clientHandler.Unarchive)
-		clients.GET("/:id/completeness", clientHandler.GetCompleteness)
+		clients.POST("", middleware.RequirePermission("clients.create", "client"), clientHandler.Create)
+		clients.GET("", middleware.RequirePermission("clients.view", "client"), clientHandler.List)
+		clients.GET("/individual", middleware.RequirePermission("clients.view", "client"), clientHandler.ListIndividuals)
+		clients.GET("/company", middleware.RequirePermission("clients.view", "client"), clientHandler.ListCompanies)
+		clients.GET("/my", middleware.RequirePermission("clients.view", "client"), clientHandler.ListMy)
+		clients.PUT("/:id", middleware.RequirePermission("clients.update", "client"), clientHandler.Update)
+		clients.PATCH("/:id", middleware.RequirePermission("clients.update", "client"), clientHandler.Patch)
+		clients.DELETE("/:id", middleware.RequirePermission("clients.delete", "client"), clientHandler.Delete)
+		clients.POST("/:id/archive", middleware.RequirePermission("clients.update", "client"), clientHandler.Archive)
+		clients.POST("/:id/unarchive", middleware.RequirePermission("clients.update", "client"), clientHandler.Unarchive)
+		clients.GET("/:id/completeness", middleware.RequirePermission("clients.view", "client"), clientHandler.GetCompleteness)
 		if clientProfileHandler != nil {
 			clients.GET("/:id/profile", clientProfileHandler.GetProfile)
 		}
@@ -258,7 +263,7 @@ func SetupRoutes(
 			clients.GET("/:id/files/primary", clientFilesHandler.ServePrimaryInline)
 			clients.GET("/:id/files/primary/download", clientFilesHandler.ServePrimaryDownload)
 		}
-		clients.GET("/:id", clientHandler.GetByID)
+		clients.GET("/:id", middleware.RequirePermission("clients.view", "client"), clientHandler.GetByID)
 	}
 
 	// ROLES (System admin)
@@ -282,8 +287,10 @@ func SetupRoutes(
 		leads.DELETE("/:id", leadHandler.Delete)
 		leads.POST("/:id/archive", leadHandler.Archive)
 		leads.POST("/:id/unarchive", leadHandler.Unarchive)
-		leads.PUT("/:id/convert", leadHandler.ConvertToDeal)
-		leads.PUT("/:id/convert-with-client", leadHandler.ConvertToDealWithClient)
+		// convert lead → deal is a deal-creation action: gate on deals.create
+		// (visa/partner/qc/hr/legal have no deals.create → 403, same as POST /deals).
+		leads.PUT("/:id/convert", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDeal)
+		leads.PUT("/:id/convert-with-client", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDealWithClient)
 		leads.GET("", leadHandler.List)
 		leads.GET("/my", leadHandler.ListMy)
 		leads.POST("/:id/assign", leadHandler.Assign)

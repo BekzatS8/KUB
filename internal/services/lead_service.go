@@ -225,6 +225,24 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 	return s.Repo.Delete(id)
 }
 
+// buildConvertedDeal assembles the Deal produced when converting a lead.
+// branch_id is INHERITED from the source lead, symmetric with DealService.Create
+// (deal_service.go: deal.BranchID = lead.BranchID). A lead with no branch yields a
+// nil branch — no synthetic branch is invented; we only remove the artificial loss.
+func buildConvertedDeal(leadID, clientID int, clientType string, ownerID int, amount float64, currency string, lead *models.Leads, createdAt time.Time) *models.Deals {
+	return &models.Deals{
+		LeadID:     leadID,
+		ClientID:   clientID,
+		ClientType: clientType,
+		OwnerID:    ownerID,
+		Amount:     amount,
+		Currency:   currency,
+		Status:     "new",
+		CreatedAt:  createdAt,
+		BranchID:   lead.BranchID,
+	}
+}
+
 func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int, clientType string) (*models.Deals, error) {
 	if authz.IsReadOnly(roleID) {
 		return nil, ErrReadOnly
@@ -269,16 +287,7 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 	if strings.ToLower(strings.TrimSpace(client.ClientType)) != normalizedClientType {
 		return nil, ErrClientTypeMismatch
 	}
-	deal := &models.Deals{
-		LeadID:     leadID,
-		ClientID:   clientID,
-		ClientType: normalizedClientType,
-		OwnerID:    ownerID,
-		Amount:     amount,
-		Currency:   currency,
-		Status:     "new",
-		CreatedAt:  time.Now(),
-	}
+	deal := buildConvertedDeal(leadID, clientID, normalizedClientType, ownerID, amount, currency, lead, time.Now())
 	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, client)
 	if err != nil {
 		if errors.Is(err, repositories.ErrClientNotFound) {

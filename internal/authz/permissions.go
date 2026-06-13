@@ -57,7 +57,7 @@ var baseRolePermissions = map[string][]Permission{
 			"clients.view", "clients.create", "clients.update",
 			"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
 			"tasks.view", "tasks.create", "tasks.update", "reports.view", "chat.view", "messenger.view", "telephony.view", "funnels.view",
-			"users.view",
+			"users.view", "branches.view",
 		),
 		Permission{Action: "approvals.create", Scope: ScopeOwn},
 	),
@@ -83,9 +83,12 @@ var baseRolePermissions = map[string][]Permission{
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// partner: no deals.* (partner dept works with leads/documents/clients only)
+	// partner does not send documents to clients (documents.send removed — hidden docs are internal only)
+	// partner creates/edits only OWN clients (service forces owner_id = self); clients.create is
+	// required so the /clients RequirePermission gate preserves partner's create-own ability.
 	"partner": permissionsForScope(ScopeDepartment,
-		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
-		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.create", "clients.update",
+		"documents.view", "documents.create", "documents.update", "documents.download",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// hr: employee/document management; no leads/deals/messenger

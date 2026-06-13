@@ -326,22 +326,35 @@ func (r *telephonyRepository) FindLeadByPhone(ctx context.Context, normalizedPho
 }
 
 // CreateLeadFromCall creates a new lead for an inbound call from an unknown number.
+// owner_id is always resolved to a real user (manager, else fallback admin) so the
+// lead is never lost; department_id is inherited from that owner's profile (A2:
+// avoids NULL-department leads leaking across departments).
 func (r *telephonyRepository) CreateLeadFromCall(ctx context.Context, phone, normalizedPhone string, ownerID *int, branchID *int) (int64, error) {
 	displayPhone := phone
 	if normalizedPhone != "" {
 		displayPhone = normalizedPhone
 	}
 	title := fmt.Sprintf("Входящий звонок +%s", displayPhone)
+
+	preferredOwner := 0
+	if ownerID != nil {
+		preferredOwner = *ownerID
+	}
+	resolvedOwner, err := resolveAutoLeadOwner(ctx, r.db, preferredOwner)
+	if err != nil {
+		return 0, fmt.Errorf("telephony: create lead from call: %w", err)
+	}
+
 	const q = `
-		INSERT INTO leads (title, phone, source, owner_id, branch_id, status)
+		INSERT INTO leads (title, phone, source, owner_id, branch_id, department_id, status)
 		VALUES ($1, $2, 'binotel', $3,
 			COALESCE($4, (SELECT branch_id FROM users WHERE id = $3)),
+			(SELECT department_id FROM users WHERE id = $3),
 			'new')
 		RETURNING id
 	`
 	var leadID int64
-	err := r.db.QueryRowContext(ctx, q, title, normalizedPhone, ownerID, branchID).Scan(&leadID)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, q, title, normalizedPhone, resolvedOwner, branchID).Scan(&leadID); err != nil {
 		return 0, fmt.Errorf("telephony: create lead from call: %w", err)
 	}
 	return leadID, nil

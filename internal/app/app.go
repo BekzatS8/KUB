@@ -201,6 +201,9 @@ func Run() {
 	clientService.SetUserRepo(userRepo)
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
+	// Enforce client/lead ownership on the telephony call-history endpoints
+	// (GET /clients/:id/calls, GET /leads/:id/calls) using the canonical scope checks.
+	telephonySvc.SetAccessCheckers(clientService, leadService)
 	dealService := services.NewDealService(dealRepo, clientRepo)
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)

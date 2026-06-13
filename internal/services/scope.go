@@ -76,20 +76,18 @@ func resolveUserBranch(userID int, userRepo repositories.UserRepository) (*int, 
 //   hr / legal / unknown           → Forbidden
 func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
+		// quality_control is an all-funnel READ observer across all departments/branches.
+		// Read-only is enforced separately (ReadOnlyGuard + service IsReadOnly checks).
 		return DataScope{Kind: ScopeKindAll}, nil
 	case authz.RoleSales, authz.RoleVisa:
 		branchID, deptID, err := resolveUserContext(userID, userRepo)
 		if err != nil {
 			return DataScope{Kind: ScopeKindForbidden}, err
 		}
-		return DataScope{Kind: ScopeKindBranch, BranchID: branchID, DepartmentID: deptID}, nil
-	case authz.RoleControl:
-		branchID, err := resolveUserBranch(userID, userRepo)
-		if err != nil {
-			return DataScope{Kind: ScopeKindForbidden}, err
-		}
-		return DataScope{Kind: ScopeKindBranch, BranchID: branchID}, nil
+		// UserID is carried so a department-scoped role can still see leads it owns
+		// (incl. department_id IS NULL ones) without leaking NULL-dept leads to peers.
+		return DataScope{Kind: ScopeKindBranch, BranchID: branchID, DepartmentID: deptID, UserID: userID}, nil
 	case authz.RolePartner:
 		return DataScope{Kind: ScopeKindOwn, UserID: userID}, nil
 	default:
@@ -106,9 +104,10 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 //   hr / unknown                   → Forbidden
 func resolveClientScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal:
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl:
+		// quality_control observes all clients (read-only enforced elsewhere).
 		return DataScope{Kind: ScopeKindAll}, nil
-	case authz.RoleSales, authz.RoleVisa, authz.RoleControl:
+	case authz.RoleSales, authz.RoleVisa:
 		branchID, err := resolveUserBranch(userID, userRepo)
 		if err != nil {
 			return DataScope{Kind: ScopeKindForbidden}, err
@@ -154,10 +153,23 @@ func listLeadsForScope(repo leadListRepo, scope DataScope, limit, offset int, fi
 	case ScopeKindBranch:
 		filter.BranchID = scope.BranchID
 		filter.DepartmentID = scope.DepartmentID
+		filter.ScopeUserID = scopeOwnerForDept(scope)
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	}
+}
+
+// scopeOwnerForDept returns the owning userID to widen a department-scoped lead
+// query with "OR (department_id IS NULL AND owner_id = userID)" — so the owner
+// still sees their own NULL-department leads without leaking them to peers.
+// Returns nil when the scope carries no department filter or no user.
+func scopeOwnerForDept(scope DataScope) *int {
+	if scope.DepartmentID == nil || scope.UserID == 0 {
+		return nil
+	}
+	uid := scope.UserID
+	return &uid
 }
 
 // countLeadsForScope executes the appropriate count query based on the
@@ -169,6 +181,7 @@ func countLeadsForScope(repo leadListRepo, scope DataScope, filter repositories.
 	case ScopeKindBranch:
 		filter.BranchID = scope.BranchID
 		filter.DepartmentID = scope.DepartmentID
+		filter.ScopeUserID = scopeOwnerForDept(scope)
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
@@ -223,8 +236,13 @@ func leadMatchesScope(scope DataScope, lead *models.Leads) bool {
 			}
 		}
 		if scope.DepartmentID != nil {
-			// NULL fallback: leads with no department are visible within the branch.
-			if lead.DepartmentID != nil && *lead.DepartmentID != *scope.DepartmentID {
+			// fail-closed: a department-scoped role sees a lead only if it belongs to
+			// that department, OR it has no department but the role owns it. A
+			// NULL-department lead is NOT leaked across departments — only branch-wide
+			// roles (DepartmentID==nil) and the owner see it.
+			sameDept := lead.DepartmentID != nil && *lead.DepartmentID == *scope.DepartmentID
+			ownsNullDept := lead.DepartmentID == nil && scope.UserID != 0 && lead.OwnerID == scope.UserID
+			if !sameDept && !ownsNullDept {
 				return false
 			}
 		}
@@ -245,8 +263,10 @@ func clientMatchesScope(scope DataScope, client *models.Client) bool {
 	case ScopeKindOwn:
 		return client.OwnerID == scope.UserID
 	case ScopeKindBranch:
+		// fail-closed: a branch-scoped check with no resolved branch must deny,
+		// never allow-all (defense-in-depth against a half-built scope).
 		if scope.BranchID == nil {
-			return true
+			return false
 		}
 		return client.BranchID != nil && *client.BranchID == *scope.BranchID
 	default:
@@ -275,7 +295,8 @@ type dealListRepo interface {
 //	partner / hr / legal / unknown    → Forbidden
 func resolveDealScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleSystemAdmin:
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
+		// quality_control observes all deals (read-only enforced elsewhere).
 		return DataScope{Kind: ScopeKindAll}, nil
 	case authz.RoleSales, authz.RoleVisa:
 		branchID, deptID, err := resolveUserContext(userID, userRepo)
@@ -283,12 +304,6 @@ func resolveDealScope(userID, roleID int, userRepo repositories.UserRepository) 
 			return DataScope{Kind: ScopeKindForbidden}, err
 		}
 		return DataScope{Kind: ScopeKindBranch, BranchID: branchID, DepartmentID: deptID}, nil
-	case authz.RoleControl:
-		branchID, err := resolveUserBranch(userID, userRepo)
-		if err != nil {
-			return DataScope{Kind: ScopeKindForbidden}, err
-		}
-		return DataScope{Kind: ScopeKindBranch, BranchID: branchID}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}

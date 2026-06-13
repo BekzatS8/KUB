@@ -145,6 +145,39 @@ func (r *stubUserRepo) GetByID(id int) (*models.User, error) {
 	return &models.User{ID: id, BranchID: r.branchID}, nil
 }
 
+// ── stub access checkers (model the canonical client/lead scope decision) ─────
+//
+// allowAll mirrors ScopeKindAll roles (admin/management; legal for clients).
+// allowed mirrors a role that may access exactly those entity IDs.
+// On deny, errOnDeny=ErrForbidden mirrors own-scope refusal; errOnDeny=nil with a
+// nil entity mirrors a branch-scope miss (GetByIDWith*Scope → nil,nil).
+
+type stubClientAccess struct {
+	allowAll  bool
+	allowed   map[int64]bool
+	errOnDeny error
+}
+
+func (s *stubClientAccess) GetByID(id, userID, roleID int) (*models.Client, error) {
+	if s.allowAll || s.allowed[int64(id)] {
+		return &models.Client{}, nil
+	}
+	return nil, s.errOnDeny
+}
+
+type stubLeadAccess struct {
+	allowAll  bool
+	allowed   map[int64]bool
+	errOnDeny error
+}
+
+func (s *stubLeadAccess) GetByID(id, userID, roleID int) (*models.Leads, error) {
+	if s.allowAll || s.allowed[int64(id)] {
+		return &models.Leads{}, nil
+	}
+	return nil, s.errOnDeny
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func newTestTelephonyHandler(repo repositories.TelephonyRepository, secret string) *TelephonyHandler {
@@ -154,6 +187,14 @@ func newTestTelephonyHandler(repo repositories.TelephonyRepository, secret strin
 
 func newTestTelephonyHandlerWithUser(repo repositories.TelephonyRepository, secret string, userBranchID *int) *TelephonyHandler {
 	svc := services.NewTelephonyService(repo, &stubUserRepo{branchID: userBranchID}, secret)
+	return NewTelephonyHandler(svc)
+}
+
+// newTestTelephonyHandlerWithAccess wires the client/lead ownership checkers used
+// by the call-history endpoints, alongside the branch-scoping user repo.
+func newTestTelephonyHandlerWithAccess(repo repositories.TelephonyRepository, userBranchID *int, clientAccess *stubClientAccess, leadAccess *stubLeadAccess) *TelephonyHandler {
+	svc := services.NewTelephonyService(repo, &stubUserRepo{branchID: userBranchID}, "")
+	svc.SetAccessCheckers(clientAccess, leadAccess)
 	return NewTelephonyHandler(svc)
 }
 
@@ -723,6 +764,8 @@ func TestGetCall_NotFound(t *testing.T) {
 
 // ── ListClientCalls scope tests ───────────────────────────────────────────────
 
+// TestListClientCalls_AdminSeesAll: admin has ScopeKindAll → client access granted,
+// and is branch-exempt → sees all calls of the client across branches.
 func TestListClientCalls_AdminSeesAll(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := newStubTelephonyRepo()
@@ -732,7 +775,8 @@ func TestListClientCalls_AdminSeesAll(t *testing.T) {
 		{ID: 2, ClientID: &clientID, BranchID: intPtr(2)},
 	}
 
-	h := newTestTelephonyHandler(repo, "")
+	h := newTestTelephonyHandlerWithAccess(repo, nil,
+		&stubClientAccess{allowAll: true}, &stubLeadAccess{})
 	r := gin.New()
 	r.GET("/api/v1/clients/:id/calls", func(c *gin.Context) {
 		c.Set("role_id", 50)
@@ -753,7 +797,9 @@ func TestListClientCalls_AdminSeesAll(t *testing.T) {
 	}
 }
 
-func TestListClientCalls_ScopedRoleOwnBranchOnly(t *testing.T) {
+// TestListClientCalls_ScopedRoleWithAccessBranchFiltered: a scoped role (sales)
+// that DOES have access to the client still gets its calls branch-filtered.
+func TestListClientCalls_ScopedRoleWithAccessBranchFiltered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := newStubTelephonyRepo()
 	clientID := int64(42)
@@ -762,7 +808,8 @@ func TestListClientCalls_ScopedRoleOwnBranchOnly(t *testing.T) {
 		{ID: 2, ClientID: &clientID, BranchID: intPtr(99)}, // foreign
 	}
 
-	h := newTestTelephonyHandlerWithUser(repo, "", intPtr(5)) // user branch = 5
+	h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+		&stubClientAccess{allowed: map[int64]bool{42: true}}, &stubLeadAccess{})
 	r := gin.New()
 	r.GET("/api/v1/clients/:id/calls", func(c *gin.Context) {
 		c.Set("role_id", 10) // sales
@@ -774,38 +821,70 @@ func TestListClientCalls_ScopedRoleOwnBranchOnly(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/clients/42/calls", nil))
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("sales ListClientCalls: want 200, got %d", w.Code)
+		t.Fatalf("sales with client access: want 200, got %d", w.Code)
 	}
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	total := int(resp["total"].(float64))
-	if total != 1 {
-		t.Fatalf("sales: want 1 call (own branch only), got total=%d", total)
+	if int(resp["total"].(float64)) != 1 {
+		t.Fatalf("sales: want 1 call (own branch only), got total=%v", resp["total"])
 	}
 }
 
-func TestListClientCalls_AllScopedRolesFiltered(t *testing.T) {
-	scopedRoles := []struct {
-		roleID int
-		label  string
+// TestListClientCalls_PartnerForeignClientForbidden is the P0 regression test:
+// partner (own-scoped) requests the call history of a client they do NOT own —
+// even though the call sits in the partner's own branch. Must be 403, no leak.
+func TestListClientCalls_PartnerForeignClientForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := newStubTelephonyRepo()
+	clientID := int64(42)
+	repo.upsertedCalls = []*models.TelephonyCall{
+		{ID: 1, ClientID: &clientID, BranchID: intPtr(5)}, // SAME branch as the partner
+	}
+
+	// partner branch 5; own-scope refusal of client 42 (mirrors clientMatchesScope→ErrForbidden).
+	h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+		&stubClientAccess{errOnDeny: services.ErrForbidden}, &stubLeadAccess{})
+	r := gin.New()
+	r.GET("/api/v1/clients/:id/calls", func(c *gin.Context) {
+		c.Set("role_id", 70) // partner
+		c.Set("user_id", 99)
+		h.ListClientCalls(c)
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/clients/42/calls", nil))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("partner foreign client: want 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestListClientCalls_NoClientAccessForbidden: every scoped role that cannot see a
+// given client (own-scope miss for partner, branch miss for sales/visa/qc, no
+// client access for hr) is denied BEFORE any call is returned. Covers both the
+// ErrForbidden deny path and the nil-entity (branch miss) deny path.
+func TestListClientCalls_NoClientAccessForbidden(t *testing.T) {
+	cases := []struct {
+		roleID  int
+		label   string
+		denyErr error // nil → mirrors branch-scope miss (nil,nil); ErrForbidden → own-scope refusal
 	}{
-		{10, "sales"},
-		{30, "quality_control"},
-		{60, "visa"},
-		{70, "partner"},
-		{80, "hr"},
-		{90, "legal"},
+		{70, "partner_own_miss", services.ErrForbidden},
+		{10, "sales_branch_miss", nil},
+		{60, "visa_branch_miss", nil},
+		{30, "quality_control_branch_miss", nil},
+		{80, "hr_no_access", services.ErrForbidden},
 	}
 	clientID := int64(42)
-	for _, tc := range scopedRoles {
+	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			repo := newStubTelephonyRepo()
 			repo.upsertedCalls = []*models.TelephonyCall{
-				{ID: 1, ClientID: &clientID, BranchID: intPtr(5)},   // own branch — visible
-				{ID: 2, ClientID: &clientID, BranchID: intPtr(100)}, // foreign — hidden
+				{ID: 1, ClientID: &clientID, BranchID: intPtr(5)}, // same branch as caller
 			}
-			h := newTestTelephonyHandlerWithUser(repo, "", intPtr(5))
+			h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+				&stubClientAccess{errOnDeny: tc.denyErr}, &stubLeadAccess{})
 			r := gin.New()
 			r.GET("/api/v1/clients/:id/calls", func(c *gin.Context) {
 				c.Set("role_id", tc.roleID)
@@ -814,14 +893,8 @@ func TestListClientCalls_AllScopedRolesFiltered(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/clients/42/calls", nil))
-			if w.Code != http.StatusOK {
-				t.Fatalf("role=%s: want 200, got %d", tc.label, w.Code)
-			}
-			var resp map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &resp)
-			total := int(resp["total"].(float64))
-			if total != 1 {
-				t.Fatalf("role=%s: want 1 (own branch), got %d", tc.label, total)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("role=%s without client access: want 403, got %d body=%s", tc.label, w.Code, w.Body.String())
 			}
 		})
 	}
@@ -838,7 +911,8 @@ func TestListLeadCalls_AdminSeesAll(t *testing.T) {
 		{ID: 2, LeadID: &leadID, BranchID: intPtr(2)},
 	}
 
-	h := newTestTelephonyHandler(repo, "")
+	h := newTestTelephonyHandlerWithAccess(repo, nil,
+		&stubClientAccess{}, &stubLeadAccess{allowAll: true})
 	r := gin.New()
 	r.GET("/api/v1/leads/:id/calls", func(c *gin.Context) {
 		c.Set("role_id", 50)
@@ -859,28 +933,92 @@ func TestListLeadCalls_AdminSeesAll(t *testing.T) {
 	}
 }
 
-func TestListLeadCalls_AllScopedRolesFiltered(t *testing.T) {
-	scopedRoles := []struct {
-		roleID int
-		label  string
+// TestListLeadCalls_ScopedRoleWithAccessBranchFiltered: a scoped role (sales) with
+// access to the lead gets its calls branch-filtered.
+func TestListLeadCalls_ScopedRoleWithAccessBranchFiltered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := newStubTelephonyRepo()
+	leadID := int64(77)
+	repo.upsertedCalls = []*models.TelephonyCall{
+		{ID: 1, LeadID: &leadID, BranchID: intPtr(5)},  // own branch
+		{ID: 2, LeadID: &leadID, BranchID: intPtr(99)}, // foreign
+	}
+
+	h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+		&stubClientAccess{}, &stubLeadAccess{allowed: map[int64]bool{77: true}})
+	r := gin.New()
+	r.GET("/api/v1/leads/:id/calls", func(c *gin.Context) {
+		c.Set("role_id", 10) // sales
+		c.Set("user_id", 99)
+		h.ListLeadCalls(c)
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/leads/77/calls", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("sales with lead access: want 200, got %d", w.Code)
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if int(resp["total"].(float64)) != 1 {
+		t.Fatalf("sales: want 1 call (own branch only), got total=%v", resp["total"])
+	}
+}
+
+// TestListLeadCalls_PartnerForeignLeadForbidden is the P0 regression test for the
+// lead path: partner requests calls of a lead they do NOT own (same branch) → 403.
+func TestListLeadCalls_PartnerForeignLeadForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := newStubTelephonyRepo()
+	leadID := int64(77)
+	repo.upsertedCalls = []*models.TelephonyCall{
+		{ID: 1, LeadID: &leadID, BranchID: intPtr(5)}, // SAME branch as the partner
+	}
+
+	h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+		&stubClientAccess{}, &stubLeadAccess{errOnDeny: services.ErrForbidden})
+	r := gin.New()
+	r.GET("/api/v1/leads/:id/calls", func(c *gin.Context) {
+		c.Set("role_id", 70) // partner
+		c.Set("user_id", 99)
+		h.ListLeadCalls(c)
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/leads/77/calls", nil))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("partner foreign lead: want 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestListLeadCalls_NoLeadAccessForbidden: every role without access to the given
+// lead is denied. For leads, hr AND legal have no lead access at all (resolveLeadScope
+// → Forbidden), alongside the own/branch misses for partner/sales/visa/qc.
+func TestListLeadCalls_NoLeadAccessForbidden(t *testing.T) {
+	cases := []struct {
+		roleID  int
+		label   string
+		denyErr error
 	}{
-		{10, "sales"},
-		{30, "quality_control"},
-		{60, "visa"},
-		{70, "partner"},
-		{80, "hr"},
-		{90, "legal"},
+		{70, "partner_own_miss", services.ErrForbidden},
+		{10, "sales_branch_miss", nil},
+		{60, "visa_branch_miss", nil},
+		{30, "quality_control_branch_miss", nil},
+		{80, "hr_no_access", services.ErrForbidden},
+		{90, "legal_no_lead_access", services.ErrForbidden},
 	}
 	leadID := int64(77)
-	for _, tc := range scopedRoles {
+	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			repo := newStubTelephonyRepo()
 			repo.upsertedCalls = []*models.TelephonyCall{
-				{ID: 1, LeadID: &leadID, BranchID: intPtr(5)},   // own — visible
-				{ID: 2, LeadID: &leadID, BranchID: intPtr(100)}, // foreign — hidden
+				{ID: 1, LeadID: &leadID, BranchID: intPtr(5)},
 			}
-			h := newTestTelephonyHandlerWithUser(repo, "", intPtr(5))
+			h := newTestTelephonyHandlerWithAccess(repo, intPtr(5),
+				&stubClientAccess{}, &stubLeadAccess{errOnDeny: tc.denyErr})
 			r := gin.New()
 			r.GET("/api/v1/leads/:id/calls", func(c *gin.Context) {
 				c.Set("role_id", tc.roleID)
@@ -889,14 +1027,8 @@ func TestListLeadCalls_AllScopedRolesFiltered(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/leads/77/calls", nil))
-			if w.Code != http.StatusOK {
-				t.Fatalf("role=%s: want 200, got %d", tc.label, w.Code)
-			}
-			var resp map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &resp)
-			total := int(resp["total"].(float64))
-			if total != 1 {
-				t.Fatalf("role=%s: want 1 (own branch), got %d", tc.label, total)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("role=%s without lead access: want 403, got %d body=%s", tc.label, w.Code, w.Body.String())
 			}
 		})
 	}

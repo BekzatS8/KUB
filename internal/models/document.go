@@ -24,4 +24,6 @@ type Document struct {
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 	ArchivedBy    *int       `json:"archived_by,omitempty"`
 	ArchiveReason string     `json:"archive_reason,omitempty"`
+	IsHidden      bool       `json:"is_hidden"`
+	CreatedBy     *int       `json:"created_by,omitempty"`
 }

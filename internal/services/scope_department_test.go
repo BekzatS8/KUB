@@ -124,7 +124,7 @@ func TestResolveLeadScope_Visa_HasDepartmentID(t *testing.T) {
 	}
 }
 
-func TestResolveLeadScope_QC_NoDepartmentID(t *testing.T) {
+func TestResolveLeadScope_QC_IsAllNoDepartmentID(t *testing.T) {
 	branchID := 10
 	repo := &deptScopeUserRepoStub{
 		user: &models.User{RoleID: authz.RoleControl, BranchID: &branchID},
@@ -133,8 +133,9 @@ func TestResolveLeadScope_QC_NoDepartmentID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Errorf("qc scope.Kind: want Branch, got %v", scope.Kind)
+	// Block C: qc observes all funnels — ScopeKindAll, no department restriction.
+	if scope.Kind != ScopeKindAll {
+		t.Errorf("qc scope.Kind: want All, got %v", scope.Kind)
 	}
 	if scope.DepartmentID != nil {
 		t.Errorf("qc must have no DepartmentID, got %v", scope.DepartmentID)
@@ -197,11 +198,31 @@ func TestLeadMatchesScope_SalesDoesNotSeeOwnDeptDifferentBranch(t *testing.T) {
 	}
 }
 
-func TestLeadMatchesScope_NullDepartmentVisibleWithinBranch(t *testing.T) {
-	scope := DataScope{Kind: ScopeKindBranch, BranchID: intPtr(1), DepartmentID: intPtr(2)}
-	lead := &models.Leads{BranchID: intPtr(1), DepartmentID: nil} // legacy record
+// Block A2 (fail-closed): a NULL-department lead is NOT visible to a department-scoped
+// peer who does not own it, but IS visible to its owner.
+func TestLeadMatchesScope_NullDepartmentHiddenFromNonOwnerPeer(t *testing.T) {
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: intPtr(1), DepartmentID: intPtr(2), UserID: 50}
+	lead := &models.Leads{BranchID: intPtr(1), DepartmentID: nil, OwnerID: 99} // not owned by 50
+	if leadMatchesScope(scope, lead) {
+		t.Error("NULL-department lead must NOT leak to a department-scoped non-owner")
+	}
+}
+
+func TestLeadMatchesScope_NullDepartmentVisibleToOwner(t *testing.T) {
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: intPtr(1), DepartmentID: intPtr(2), UserID: 50}
+	lead := &models.Leads{BranchID: intPtr(1), DepartmentID: nil, OwnerID: 50} // owned by caller
 	if !leadMatchesScope(scope, lead) {
-		t.Error("legacy lead with department_id=NULL must be visible within branch (soft fallback)")
+		t.Error("NULL-department lead must remain visible to its owner")
+	}
+}
+
+func TestLeadMatchesScope_NullDepartmentVisibleToBranchWideRole(t *testing.T) {
+	// branch-wide role (no DepartmentID) — e.g. management/qc-as-All path uses ScopeKindAll,
+	// but a Branch scope with nil DepartmentID must still see NULL-dept leads in branch.
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: intPtr(1)}
+	lead := &models.Leads{BranchID: intPtr(1), DepartmentID: nil, OwnerID: 99}
+	if !leadMatchesScope(scope, lead) {
+		t.Error("branch-wide role (no department filter) must see NULL-department leads")
 	}
 }
 

@@ -21,11 +21,12 @@ func TestResolveLeadScope_AdminAndManagementReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveLeadScope_SalesVisaControlReturnBranch(t *testing.T) {
+func TestResolveLeadScope_SalesVisaReturnBranch(t *testing.T) {
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+	// quality_control is no longer branch-scoped — see TestQualityControlScopeIsAll.
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
 		scope, err := resolveLeadScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -79,11 +80,12 @@ func TestResolveClientScope_AdminManagementLegalReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveClientScope_SalesVisaControlReturnBranch(t *testing.T) {
+func TestResolveClientScope_SalesVisaReturnBranch(t *testing.T) {
 	branchID := 5
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+	// quality_control is no longer branch-scoped — see TestQualityControlScopeIsAll.
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
 		scope, err := resolveClientScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -243,6 +245,34 @@ func TestClientMatchesScope_NilClientReturnsFalse(t *testing.T) {
 	}
 }
 
+// Block D: a branch scope with no resolved branch must fail closed (deny),
+// never allow-all. Hardening against a half-built scope.
+func TestClientMatchesScope_BranchScopeNilBranchFailsClosed(t *testing.T) {
+	scope := DataScope{Kind: ScopeKindBranch, BranchID: nil}
+	b := 7
+	client := &models.Client{ID: 1, BranchID: &b}
+	if clientMatchesScope(scope, client) {
+		t.Error("branch scope with nil BranchID must DENY (fail-closed), not allow-all")
+	}
+	clientNoBranch := &models.Client{ID: 2, BranchID: nil}
+	if clientMatchesScope(scope, clientNoBranch) {
+		t.Error("branch scope with nil BranchID must deny even a branchless client")
+	}
+}
+
+// Block C: quality_control remains read-only at the authz layer even though its READ
+// scope is now all-funnel. (HTTP ReadOnlyGuard + service IsReadOnly rely on this.)
+func TestQualityControl_StaysReadOnly(t *testing.T) {
+	if !authz.IsReadOnly(authz.RoleControl) {
+		t.Error("quality_control must remain read-only after widening its read scope")
+	}
+	for _, roleID := range []int{authz.RoleSales, authz.RoleManagement, authz.RoleSystemAdmin, authz.RolePartner} {
+		if authz.IsReadOnly(roleID) {
+			t.Errorf("role %d must NOT be read-only", roleID)
+		}
+	}
+}
+
 // ─── cross-entity scope isolation ────────────────────────────────────────────
 
 // TestLegalScopeLeadVsClient verifies that legal has All scope for clients but Forbidden for leads.
@@ -286,27 +316,28 @@ func TestPartnerScopeIsOwnForBothEntities(t *testing.T) {
 	}
 }
 
-// TestQualityControlScopeIsBranch verifies quality_control (RoleControl) is branch-scoped
-// for both leads and clients, confirming read-only branch restriction is preserved.
-func TestQualityControlScopeIsBranch(t *testing.T) {
-	branchID := 11
-	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+// TestQualityControlScopeIsAll verifies quality_control (RoleControl) is an all-funnel
+// READ observer for both leads and clients (Block C). Write access stays blocked by
+// ReadOnlyGuard + service IsReadOnly checks (verified in handler/service tests).
+func TestQualityControlScopeIsAll(t *testing.T) {
 	const qcUserID = 200
 
-	leadScope, err := resolveLeadScope(qcUserID, authz.RoleControl, userRepo)
-	if err != nil || leadScope.Kind != ScopeKindBranch || leadScope.BranchID == nil || *leadScope.BranchID != branchID {
-		t.Errorf("quality_control must be Branch(%d) for leads, got %+v err=%v", branchID, leadScope, err)
+	leadScope, err := resolveLeadScope(qcUserID, authz.RoleControl, nil)
+	if err != nil || leadScope.Kind != ScopeKindAll {
+		t.Errorf("quality_control must be All for leads, got %+v err=%v", leadScope, err)
 	}
 
-	clientScope, err := resolveClientScope(qcUserID, authz.RoleControl, userRepo)
-	if err != nil || clientScope.Kind != ScopeKindBranch || clientScope.BranchID == nil || *clientScope.BranchID != branchID {
-		t.Errorf("quality_control must be Branch(%d) for clients, got %+v err=%v", branchID, clientScope, err)
+	clientScope, err := resolveClientScope(qcUserID, authz.RoleControl, nil)
+	if err != nil || clientScope.Kind != ScopeKindAll {
+		t.Errorf("quality_control must be All for clients, got %+v err=%v", clientScope, err)
 	}
 }
 
-// TestResolveUserBranch_NilRepoReturnsForbidden verifies that missing userRepo is safe.
+// TestResolveUserBranch_NilRepoReturnsForbidden verifies that branch-scoped roles
+// (sales/visa) fail closed when userRepo is missing. quality_control is excluded —
+// it is now ScopeKindAll and needs no branch lookup.
 func TestResolveUserBranch_NilRepoReturnsForbidden(t *testing.T) {
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RoleControl} {
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
 		_, err := resolveLeadScope(1, roleID, nil)
 		if err == nil {
 			t.Errorf("role %d: expected error when userRepo is nil, got nil", roleID)

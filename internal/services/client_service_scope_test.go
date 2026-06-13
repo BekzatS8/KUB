@@ -7,7 +7,9 @@ import (
 	"turcompany/internal/models"
 )
 
-func TestClientBranchScope_ControlUsesOwnBranch(t *testing.T) {
+// Block C: quality_control observes ALL clients (read-only enforced elsewhere),
+// not just its own branch.
+func TestClientScope_ControlSeesAll(t *testing.T) {
 	branchID := 8
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
@@ -15,8 +17,8 @@ func TestClientBranchScope_ControlUsesOwnBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveClientScope failed: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch || scope.BranchID == nil || *scope.BranchID != branchID {
-		t.Fatalf("control must be scoped to own branch, got %+v", scope)
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("control must observe all clients (ScopeKindAll), got %+v", scope)
 	}
 }
 
