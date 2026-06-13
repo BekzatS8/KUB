@@ -109,6 +109,7 @@ func Run() {
 	roleRepo := repositories.NewRoleRepository(db)
 	permissionRepo := repositories.NewPermissionRepository(db)
 	funnelRepo := repositories.NewFunnelRepository(db)
+	funnelStageRepo := repositories.NewFunnelStageRepository(db)
 	userRepo := repositories.NewUserRepository(db)
 	branchRepo := repositories.NewBranchRepository(db)
 	orgRepo := repositories.NewOrganizationRepository(db)
@@ -195,6 +196,8 @@ func Run() {
 	roleService := services.NewRoleService(roleRepo)
 	permissionService := services.NewPermissionService(permissionRepo)
 	funnelService := services.NewFunnelService(funnelRepo, permissionRepo)
+	funnelStageService := services.NewFunnelStageService(funnelStageRepo, funnelRepo, permissionRepo)
+	funnelStageService.SetUserRepo(userRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
 	branchService := services.NewBranchService(branchRepo)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
@@ -206,6 +209,7 @@ func Run() {
 	telephonySvc.SetAccessCheckers(clientService, leadService)
 	dealService := services.NewDealService(dealRepo, clientRepo)
 	dealService.SetScopeDeps(leadRepo, userRepo)
+	dealService.SetStageRepo(funnelStageRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
@@ -308,6 +312,7 @@ func Run() {
 	roleHandler := handlers.NewRoleHandler(roleService)
 	permissionHandler := handlers.NewPermissionHandler(permissionService)
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
+	funnelStageHandler := handlers.NewFunnelStageHandler(funnelStageService)
 	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
@@ -408,6 +413,7 @@ func Run() {
 		reportHandler,
 		permissionHandler,
 		funnelHandler,
+		funnelStageHandler,
 		verifyHandler,
 		integrationsHandler,
 		chatHandler,

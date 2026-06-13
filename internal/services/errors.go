@@ -59,6 +59,9 @@ var (
 	ErrFileRequired                   = errors.New("file is required")
 	ErrAlreadyArchived                = errors.New("entity already archived")
 	ErrNotArchived                    = errors.New("entity is not archived")
+
+	ErrStageHasDeals          = errors.New("stage has deals, target stage required to reassign")
+	ErrInvalidStageTransition = errors.New("invalid stage transition")
 )
 
 type DealAlreadyExistsError struct {

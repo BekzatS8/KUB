@@ -84,6 +84,12 @@ func (s *stubDealPaginationService) UnarchiveDeal(int, int, int) error        { 
 func (s *stubDealPaginationService) GetByIDWithArchiveScope(int, int, int, repositories.ArchiveScope) (*models.Deals, error) {
 	return nil, nil
 }
+func (s *stubDealPaginationService) MoveStage(dealID, stageID int, comment string, userID, roleID int) error {
+	return nil
+}
+func (s *stubDealPaginationService) GetHistory(dealID, userID, roleID int) ([]*models.DealStageHistory, error) {
+	return nil, nil
+}
 func (s *stubDealPaginationService) ListForRoleWithTotal(int, int, int, int, repositories.ArchiveScope, repositories.DealListFilter) ([]*models.Deals, int, error) {
 	return []*models.Deals{}, 11, nil
 }

@@ -96,6 +96,7 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		publicSigningUIHandler,
 		nil,
 		nil,

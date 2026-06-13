@@ -40,6 +40,12 @@ func (s *stubDealService) UnarchiveDeal(id, userID, roleID int) error           
 func (s *stubDealService) GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Deals, error) {
 	return nil, nil
 }
+func (s *stubDealService) MoveStage(dealID, stageID int, comment string, userID, roleID int) error {
+	return nil
+}
+func (s *stubDealService) GetHistory(dealID, userID, roleID int) ([]*models.DealStageHistory, error) {
+	return nil, nil
+}
 
 func performCreate(t *testing.T, h *DealHandler, body string) *httptest.ResponseRecorder {
 	t.Helper()

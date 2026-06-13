@@ -32,6 +32,8 @@ type dealService interface {
 	ArchiveDeal(id, userID, roleID int, reason string) error
 	UnarchiveDeal(id, userID, roleID int) error
 	GetByIDWithArchiveScope(id int, userID, roleID int, scope repositories.ArchiveScope) (*models.Deals, error)
+	MoveStage(dealID, stageID int, comment string, userID, roleID int) error
+	GetHistory(dealID, userID, roleID int) ([]*models.DealStageHistory, error)
 }
 
 type dealPaginationService interface {
@@ -509,6 +511,76 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, deals)
+}
+
+// --- MoveStage ---
+type moveDealStageRequest struct {
+	StageID int    `json:"stage_id" binding:"required"`
+	Comment string `json:"comment"`
+}
+
+func (h *DealHandler) Move(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+
+	var req moveDealStageRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.StageID <= 0 {
+		badRequest(c, "Invalid payload")
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if authz.IsReadOnly(roleID) {
+		forbidden(c, "Read-only role")
+		return
+	}
+
+	if err := h.Service.MoveStage(id, req.StageID, req.Comment, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
+			forbidden(c, err.Error())
+			return
+		}
+		if errors.Is(err, services.ErrDealNotFound) || errors.Is(err, services.ErrNotFound) {
+			notFound(c, DealNotFoundCode, "Deal or stage not found")
+			return
+		}
+		if errors.Is(err, services.ErrInvalidState) {
+			conflict(c, InvalidStatusCode, "Invalid stage for this deal's funnel")
+			return
+		}
+		internalError(c, "Failed to move deal")
+		return
+	}
+
+	updated, _ := h.Service.GetByID(id, userID, roleID)
+	c.JSON(http.StatusOK, updated)
+}
+
+// --- History ---
+func (h *DealHandler) GetHistory(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	history, err := h.Service.GetHistory(id, userID, roleID)
+	if err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		if errors.Is(err, services.ErrDealNotFound) {
+			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		}
+		internalError(c, "Failed to load history")
+		return
+	}
+	c.JSON(http.StatusOK, history)
 }
 
 func dealListFilterFromQuery(c *gin.Context) (repositories.DealListFilter, error) {

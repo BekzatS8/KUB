@@ -796,6 +796,20 @@ func (r *DealRepository) UpdateStatus(id int, status string) error {
 	return err
 }
 
+// MoveStage updates a deal's stage (and derived status), assigning the deal to
+// funnelID if it didn't belong to a funnel yet.
+func (r *DealRepository) MoveStage(id, stageID, funnelID int, status string) error {
+	const q = `
+		UPDATE deals
+		SET stage_id = $1,
+		    funnel_id = COALESCE(funnel_id, $2),
+		    status = $3
+		WHERE id = $4
+	`
+	_, err := r.db.Exec(q, stageID, funnelID, status, id)
+	return err
+}
+
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `

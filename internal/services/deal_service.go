@@ -14,6 +14,7 @@ type DealService struct {
 	ClientRepo *repositories.ClientRepository
 	LeadRepo   *repositories.LeadRepository
 	UserRepo   repositories.UserRepository
+	StageRepo  *repositories.FunnelStageRepository
 }
 
 func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
@@ -27,6 +28,10 @@ func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositori
 func (s *DealService) SetScopeDeps(leadRepo *repositories.LeadRepository, userRepo repositories.UserRepository) {
 	s.LeadRepo = leadRepo
 	s.UserRepo = userRepo
+}
+
+func (s *DealService) SetStageRepo(stageRepo *repositories.FunnelStageRepository) {
+	s.StageRepo = stageRepo
 }
 
 func normalizeRequiredDealClientType(value string) (string, error) {
@@ -391,6 +396,99 @@ func (s *DealService) UpdateStatus(id int, to string, userID, roleID int) error 
 		return errors.New("invalid status transition")
 	}
 	return s.Repo.UpdateStatus(id, to)
+}
+
+// MoveStage moves a deal to a different funnel stage (kanban drag&drop) and
+// records the transition in deal_stage_history. The deal's status is kept in
+// sync with the stage type: moving into a "won"/"lost" stage sets the matching
+// status, while moving a previously won/lost/cancelled deal into a regular
+// stage resets it to "in_progress".
+func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, roleID int) error {
+	if authz.IsReadOnly(roleID) {
+		return ErrReadOnly
+	}
+	if s.StageRepo == nil {
+		return ErrInvalidState
+	}
+	deal, err := s.Repo.GetByID(dealID)
+	if err != nil {
+		return err
+	}
+	if deal == nil {
+		return ErrDealNotFound
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return ErrForbidden
+	}
+	dataScope, scopeErr := resolveDealScope(userID, roleID, s.UserRepo)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if !dealMatchesScope(dataScope, deal) {
+		return ErrForbidden
+	}
+
+	stage, err := s.StageRepo.GetByID(stageID)
+	if err != nil {
+		return err
+	}
+	if stage == nil {
+		return ErrNotFound
+	}
+	if deal.FunnelID != nil && *deal.FunnelID != stage.FunnelID {
+		return ErrInvalidState
+	}
+
+	newStatus := deal.Status
+	switch stage.Type {
+	case models.FunnelStageTypeWon:
+		newStatus = "won"
+	case models.FunnelStageTypeLost:
+		newStatus = "lost"
+	default:
+		if deal.Status == "won" || deal.Status == "lost" || deal.Status == "cancelled" {
+			newStatus = "in_progress"
+		}
+	}
+
+	if err := s.Repo.MoveStage(dealID, stageID, stage.FunnelID, newStatus); err != nil {
+		return err
+	}
+
+	history := &models.DealStageHistory{
+		DealID:      dealID,
+		FromStageID: deal.StageID,
+		ToStageID:   &stageID,
+		ChangedBy:   &userID,
+		Comment:     comment,
+	}
+	return s.StageRepo.InsertHistory(history)
+}
+
+// GetHistory returns the stage-transition history for a deal, enforcing the
+// same access scope as reading the deal itself.
+func (s *DealService) GetHistory(dealID, userID, roleID int) ([]*models.DealStageHistory, error) {
+	if s.StageRepo == nil {
+		return nil, ErrInvalidState
+	}
+	deal, err := s.Repo.GetByID(dealID)
+	if err != nil {
+		return nil, err
+	}
+	if deal == nil {
+		return nil, ErrDealNotFound
+	}
+	if roleID == authz.RoleSales && deal.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	dataScope, scopeErr := resolveDealScope(userID, roleID, s.UserRepo)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	if !dealMatchesScope(dataScope, deal) {
+		return nil, ErrForbidden
+	}
+	return s.StageRepo.ListHistory(dealID)
 }
 
 func (s *DealService) ArchiveDeal(id, userID, roleID int, reason string) error {

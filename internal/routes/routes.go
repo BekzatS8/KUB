@@ -28,6 +28,7 @@ func SetupRoutes(
 	reportHandler *handlers.ReportHandler,
 	permissionHandler *handlers.PermissionHandler,
 	funnelHandler *handlers.FunnelHandler,
+	funnelStageHandler *handlers.FunnelStageHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
@@ -153,6 +154,13 @@ func SetupRoutes(
 	if funnelHandler != nil {
 		registerFunnelsRoutes(r.Group("/funnels"), funnelHandler)
 		registerFunnelsRoutes(r.Group("/api/v1/funnels"), funnelHandler)
+	}
+
+	if funnelStageHandler != nil {
+		registerFunnelStagesRoutes(r.Group("/funnels"), funnelStageHandler)
+		registerFunnelStagesRoutes(r.Group("/api/v1/funnels"), funnelStageHandler)
+		registerStagesRoutes(r.Group("/stages"), funnelStageHandler)
+		registerStagesRoutes(r.Group("/api/v1/stages"), funnelStageHandler)
 	}
 
 	// PRIVATE (JWT): Telegram link endpoints
@@ -319,6 +327,8 @@ func SetupRoutes(
 		deals.GET("", middleware.RequirePermission("deals.view", "deal"), dealHandler.List)
 		deals.GET("/my", middleware.RequirePermission("deals.view", "deal"), dealHandler.ListMy)
 		deals.POST("/:id/status", middleware.RequirePermission("deals.update", "deal"), dealHandler.UpdateStatus)
+		deals.POST("/:id/move", middleware.RequirePermission("deals.update", "deal"), dealHandler.Move)
+		deals.GET("/:id/history", middleware.RequirePermission("deals.view", "deal"), dealHandler.GetHistory)
 	}
 
 	// DOCUMENTS — RequirePermission guard per endpoint; public signing routes are above (no JWT)
@@ -439,4 +449,21 @@ func registerFunnelsRoutes(group *gin.RouterGroup, funnelHandler *handlers.Funne
 	group.PATCH("/reorder", middleware.RequirePermission(authz.ActionFunnelsReorder, "funnel"), funnelHandler.Reorder)
 	group.PATCH("/:id", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), funnelHandler.Update)
 	group.DELETE("/:id", middleware.RequirePermission(authz.ActionFunnelsDelete, "funnel"), funnelHandler.Delete)
+}
+
+// registerFunnelStagesRoutes registers /:id/stages, /:id/stages/reorder and
+// /:id/board under a funnels group (kanban board + stage list/create/reorder).
+func registerFunnelStagesRoutes(group *gin.RouterGroup, h *handlers.FunnelStageHandler) {
+	group.GET("/:id/stages", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.ListStages)
+	group.POST("/:id/stages", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.CreateStage)
+	group.PATCH("/:id/stages/reorder", middleware.RequirePermission(authz.ActionFunnelsReorder, "funnel"), h.ReorderStages)
+	group.GET("/:id/board", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.Board)
+}
+
+// registerStagesRoutes registers top-level /stages/:id endpoints for updating,
+// deleting and duplicating individual funnel stages.
+func registerStagesRoutes(group *gin.RouterGroup, h *handlers.FunnelStageHandler) {
+	group.PATCH("/:id", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.UpdateStage)
+	group.DELETE("/:id", middleware.RequirePermission(authz.ActionFunnelsDelete, "funnel"), h.DeleteStage)
+	group.POST("/:id/duplicate", middleware.RequirePermission(authz.ActionFunnelsCreate, "funnel"), h.DuplicateStage)
 }
