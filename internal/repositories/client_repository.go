@@ -45,6 +45,7 @@ SELECT
 	c.archived_at,
 	c.archived_by,
 	COALESCE(c.archive_reason, '') AS archive_reason,
+	c.avatar_url, c.avatar_path, c.avatar_crop_x, c.avatar_crop_y, c.avatar_crop_scale, c.avatar_crop_size,
 	COALESCE(ip.last_name, c.last_name, ''), COALESCE(ip.first_name, c.first_name, ''), COALESCE(ip.middle_name, c.middle_name, ''), COALESCE(ip.iin, c.iin, ''), COALESCE(ip.id_number, c.id_number, ''), COALESCE(ip.passport_series, c.passport_series, ''), COALESCE(ip.passport_number, c.passport_number, ''), COALESCE(ip.passport_identity, ''),
 	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''), COALESCE(ip.country, c.country, ''), COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
 	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date), ip.driver_license_issue_date, ip.driver_license_expire_date,
@@ -117,12 +118,16 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 		archivedAt                              sql.NullTime
 		archivedBy                              sql.NullInt64
 		archiveReason                           sql.NullString
+		avatarURL, avatarPath                   sql.NullString
+		avatarCropX, avatarCropY                sql.NullFloat64
+		avatarCropScale, avatarCropSize         sql.NullFloat64
 	)
 	ip := &models.ClientIndividualProfile{}
 	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
 		&c.ID, &c.OwnerID, &branchID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
 		&c.IsArchived, &archivedAt, &archivedBy, &archiveReason,
+		&avatarURL, &avatarPath, &avatarCropX, &avatarCropY, &avatarCropScale, &avatarCropSize,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber, &ip.PassportIdentity,
 		&ip.RegistrationAddress, &ip.ActualAddress, &ip.Country, &ip.TripPurpose, &birthDate, &ip.BirthPlace,
 		&ip.Citizenship, &ip.Sex, &ip.MaritalStatus, &passIssue, &passExpire, &driverIssue, &driverExpire,
@@ -162,6 +167,31 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	}
 	if archiveReason.Valid {
 		c.ArchiveReason = archiveReason.String
+	}
+	// Avatar fields
+	if avatarURL.Valid {
+		v := avatarURL.String
+		c.AvatarURL = &v
+	}
+	if avatarPath.Valid {
+		v := avatarPath.String
+		c.AvatarPath = &v
+	}
+	if avatarCropX.Valid {
+		v := avatarCropX.Float64
+		c.AvatarCropX = &v
+	}
+	if avatarCropY.Valid {
+		v := avatarCropY.Float64
+		c.AvatarCropY = &v
+	}
+	if avatarCropScale.Valid {
+		v := avatarCropScale.Float64
+		c.AvatarCropScale = &v
+	}
+	if avatarCropSize.Valid {
+		v := avatarCropSize.Float64
+		c.AvatarCropSize = &v
 	}
 	c.BinIin = lp.BIN
 	if c.ClientType == models.ClientTypeIndividual {
@@ -452,6 +482,27 @@ func (r *ClientRepository) GetByEmail(email string) (*models.Client, error) {
 		return nil, nil
 	}
 	return c, err
+}
+
+// UpdateAvatar updates client avatar URL and path
+func (r *ClientRepository) UpdateAvatar(clientID int, avatarURL, avatarPath string) error {
+	q := `UPDATE clients SET avatar_url=$1, avatar_path=$2, avatar_crop_x=NULL, avatar_crop_y=NULL, avatar_crop_scale=NULL, avatar_crop_size=NULL, updated_at=NOW() WHERE id=$3`
+	_, err := r.db.Exec(q, nullString(avatarURL), nullString(avatarPath), clientID)
+	return err
+}
+
+// UpdateAvatarCrop updates client avatar crop coordinates
+func (r *ClientRepository) UpdateAvatarCrop(clientID int, cropX, cropY, cropScale, cropSize *float64) error {
+	q := `UPDATE clients SET avatar_crop_x=$1, avatar_crop_y=$2, avatar_crop_scale=$3, avatar_crop_size=$4, updated_at=NOW() WHERE id=$5`
+	_, err := r.db.Exec(q, cropX, cropY, cropScale, cropSize, clientID)
+	return err
+}
+
+// DeleteAvatar removes client avatar
+func (r *ClientRepository) DeleteAvatar(clientID int) error {
+	q := `UPDATE clients SET avatar_url=NULL, avatar_path=NULL, avatar_crop_x=NULL, avatar_crop_y=NULL, avatar_crop_scale=NULL, avatar_crop_size=NULL, updated_at=NOW() WHERE id=$1`
+	_, err := r.db.Exec(q, clientID)
+	return err
 }
 
 func (r *ClientRepository) ListAll(limit, offset int, clientType string) ([]*models.Client, error) {

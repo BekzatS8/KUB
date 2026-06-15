@@ -40,7 +40,7 @@ func documentArchiveWhere(scope ArchiveScope) string {
 }
 
 const documentBaseSelect = `
-	SELECT dcm.id, dcm.deal_id, dcm.branch_id, COALESCE(br.name,''), dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
+	SELECT dcm.id, dcm.deal_id, dcm.client_id, dcm.branch_id, COALESCE(br.name,''), dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
 	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
 	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,''),
@@ -62,10 +62,14 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
 	var archivedBy, createdBy sql.NullInt64
-	var branchID sql.NullInt64
+	var branchID, clientID sql.NullInt64
 	var branchName sql.NullString
-	if err := scanner.Scan(&d.ID, &d.DealID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy); err != nil {
+	if err := scanner.Scan(&d.ID, &d.DealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy); err != nil {
 		return nil, err
+	}
+	if clientID.Valid {
+		v := clientID.Int64
+		d.ClientID = &v
 	}
 	if branchID.Valid {
 		v := branchID.Int64
@@ -97,12 +101,12 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 
 func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 	const q = `
-		INSERT INTO documents (deal_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at`
 	var id int64
 	var createdAt sql.NullTime
-	if err := r.db.QueryRow(q, doc.DealID, doc.BranchID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.IsHidden, doc.CreatedBy).Scan(&id, &createdAt); err != nil {
+	if err := r.db.QueryRow(q, doc.DealID, doc.ClientID, doc.BranchID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.IsHidden, doc.CreatedBy).Scan(&id, &createdAt); err != nil {
 		return 0, fmt.Errorf("create document: %w", err)
 	}
 	doc.ID = id
@@ -118,7 +122,7 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 
 func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScope) (*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		SELECT id, deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
 		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
 		       is_archived, archived_at, archived_by, COALESCE(archive_reason,''),
@@ -128,13 +132,17 @@ func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScop
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
 	var archivedBy, createdBy sql.NullInt64
-	var branchID sql.NullInt64
-	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &branchID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy)
+	var branchID, clientID sql.NullInt64
+	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &clientID, &branchID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get document: %w", err)
+	}
+	if clientID.Valid {
+		v := clientID.Int64
+		d.ClientID = &v
 	}
 	if signedAt.Valid {
 		d.SignedAt = &signedAt.Time
@@ -330,7 +338,7 @@ func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, start
 		idx++
 	}
 	if filter.ClientID != nil {
-		conditions = append(conditions, fmt.Sprintf("d.client_id = $%d", idx))
+		conditions = append(conditions, fmt.Sprintf("(d.client_id = $%d OR dcm.client_id = $%d)", idx, idx))
 		args = append(args, *filter.ClientID)
 		idx++
 	}
@@ -390,6 +398,21 @@ func (r *DocumentRepository) UpdateSigningMeta(id int64, signMethod, signIP, sig
 	`, signMethod, signIP, signUserAgent, signMetadata, id)
 	if err != nil {
 		return fmt.Errorf("update signing meta: %w", err)
+	}
+	return nil
+}
+
+// ListByClientID returns documents for a client (via direct client_id column + deal client_id)
+func (r *DocumentRepository) ListByClientID(clientID int64, scope ArchiveScope) ([]*models.Document, error) {
+	filter := DocumentListFilter{ClientID: &clientID}
+	return r.ListDocumentsWithFilterAndArchiveScope(1000, 0, filter, scope)
+}
+
+// SetClientID sets the client_id on a document
+func (r *DocumentRepository) SetClientID(docID, clientID int64) error {
+	_, err := r.db.Exec(`UPDATE documents SET client_id = $1 WHERE id = $2`, clientID, docID)
+	if err != nil {
+		return fmt.Errorf("set document client_id: %w", err)
 	}
 	return nil
 }

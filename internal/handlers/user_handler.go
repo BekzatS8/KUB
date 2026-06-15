@@ -152,14 +152,14 @@ func trimUpdateUserRequest(req *updateUserRequest) {
 
 func validateRequiredCreateUserFields(req createUserRequest) string {
 	switch {
+	case req.FirstName == "":
+		return "Укажите имя"
 	case req.Email == "":
 		return "Заполните email"
 	case !validEmail(req.Email):
 		return "Некорректный email"
 	case req.Password == "":
 		return "Введите пароль"
-	case req.MiddleName == "":
-		return "Укажите отчество"
 	case req.Phone != "" && !userPhoneE164Pattern.MatchString(req.Phone):
 		return "Телефон должен быть в международном формате, например +77001234567"
 	case req.RoleID == 0:

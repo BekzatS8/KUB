@@ -16,6 +16,8 @@ func SetupRoutes(
 	clientHandler *handlers.ClientHandler,
 	clientFilesHandler *handlers.ClientFilesHandler,
 	clientProfileHandler *handlers.ClientProfileHandler,
+	clientAvatarHandler *handlers.ClientAvatarHandler,
+	clientDocsHandler *handlers.ClientDocumentsHandler,
 	roleHandler *handlers.RoleHandler,
 	leadHandler *handlers.LeadHandler,
 	dealHandler *handlers.DealHandler,
@@ -39,6 +41,7 @@ func SetupRoutes(
 	telephonyHandler *handlers.TelephonyHandler, // может быть nil
 	orgHandler *handlers.OrganizationHandler,
 	signHistoryHandler *handlers.DocumentSignHistoryHandler,
+	docVersionHandler *handlers.DocumentVersionHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -271,6 +274,16 @@ func SetupRoutes(
 			clients.GET("/:id/files/primary", clientFilesHandler.ServePrimaryInline)
 			clients.GET("/:id/files/primary/download", clientFilesHandler.ServePrimaryDownload)
 		}
+		if clientAvatarHandler != nil {
+			clients.POST("/:id/avatar", middleware.RequirePermission("clients.update", "client"), clientAvatarHandler.Upload)
+			clients.PATCH("/:id/avatar/crop", middleware.RequirePermission("clients.update", "client"), clientAvatarHandler.UpdateCrop)
+			clients.DELETE("/:id/avatar", middleware.RequirePermission("clients.update", "client"), clientAvatarHandler.Delete)
+			clients.GET("/:id/avatar/content", clientAvatarHandler.Serve)
+		}
+		if clientDocsHandler != nil {
+			clients.GET("/:id/documents", middleware.RequirePermission("documents.view", "client"), clientDocsHandler.ListDocuments)
+			clients.POST("/:id/documents", middleware.RequirePermission("documents.create", "client"), clientDocsHandler.CreateDocument)
+		}
 		clients.GET("/:id", middleware.RequirePermission("clients.view", "client"), clientHandler.GetByID)
 	}
 
@@ -363,6 +376,12 @@ func SetupRoutes(
 		}
 		if signHistoryHandler != nil {
 			docs.GET("/:id/sign/history", middleware.RequirePermission("documents.view", "document"), signHistoryHandler.GetSignHistory)
+		}
+		if docVersionHandler != nil {
+			docs.GET("/:id/versions", middleware.RequirePermission("documents.view", "document"), docVersionHandler.ListVersions)
+			docs.POST("/:id/versions", middleware.RequirePermission("documents.update", "document"), docVersionHandler.UploadVersion)
+			docs.GET("/:id/versions/:vid/file", middleware.RequirePermission("documents.view", "document"), docVersionHandler.ServeVersionFile)
+			docs.POST("/:id/versions/:vid/restore", middleware.RequirePermission("documents.update", "document"), docVersionHandler.RestoreVersion)
 		}
 	}
 

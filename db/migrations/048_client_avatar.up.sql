@@ -1,0 +1,11 @@
+-- 048: Add avatar fields to clients table
+BEGIN;
+
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_url       VARCHAR(255);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_path      VARCHAR(255);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_crop_x    DOUBLE PRECISION;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_crop_y    DOUBLE PRECISION;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_crop_scale DOUBLE PRECISION;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS avatar_crop_size  DOUBLE PRECISION;
+
+COMMIT;

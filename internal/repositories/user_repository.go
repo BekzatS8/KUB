@@ -48,10 +48,9 @@ func (r *userRepository) Create(user *models.User) error {
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at,
-			refresh_token, refresh_expires_at, refresh_revoked,
-			telegram_chat_id, notify_tasks_telegram
+			refresh_token, refresh_expires_at, refresh_revoked
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULL,NULL,FALSE,NULL,DEFAULT)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,FALSE,NULL,DEFAULT)
 		RETURNING id
 	`
 	isActive := user.IsActive

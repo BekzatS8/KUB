@@ -80,6 +80,14 @@ type Client struct {
 	ArchivedBy    *int       `json:"archived_by,omitempty"`
 	ArchiveReason string     `json:"archive_reason,omitempty"`
 
+	// Avatar
+	AvatarURL       *string  `json:"avatar_url,omitempty"`
+	AvatarPath      *string  `json:"-"`
+	AvatarCropX     *float64 `json:"avatar_crop_x,omitempty"`
+	AvatarCropY     *float64 `json:"avatar_crop_y,omitempty"`
+	AvatarCropScale *float64 `json:"avatar_crop_scale,omitempty"`
+	AvatarCropSize  *float64 `json:"avatar_crop_size,omitempty"`
+
 	IndividualProfile *ClientIndividualProfile `json:"individual_profile,omitempty"`
 	LegalProfile      *ClientLegalProfile      `json:"legal_profile,omitempty"`
 }

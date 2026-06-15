@@ -240,6 +240,12 @@ func Run() {
 	documentService.SetUserRepo(userRepo)
 	documentService.SetTimeProvider(nowProvider, serverTZ)
 
+	clientAvatarHandler := handlers.NewClientAvatarHandler(clientService, clientRepo, cfg.Files.RootDir)
+	clientDocsHandler := handlers.NewClientDocumentsHandler(documentService, clientRepo, documentRepo)
+
+	documentVersionRepo := repositories.NewDocumentVersionRepository(db)
+	docVersionHandler := handlers.NewDocumentVersionHandler(documentRepo, documentVersionRepo, documentService, cfg.Files.RootDir)
+
 	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)
 	if tgSvc != nil {
 		tgSvc.SetTaskService(taskService)
@@ -401,6 +407,8 @@ func Run() {
 		clientHandler,
 		clientFilesHandler,
 		clientProfileHandler,
+		clientAvatarHandler,
+		clientDocsHandler,
 		roleHandler,
 		leadHandler,
 		dealHandler,
@@ -424,6 +432,7 @@ func Run() {
 		telephonyHandler,
 		orgHandler,
 		signHistoryHandler,
+		docVersionHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
