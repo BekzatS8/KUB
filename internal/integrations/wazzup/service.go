@@ -139,7 +139,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 	if transport != "" && !isSupportedTransport(transport) {
 		return nil, fmt.Errorf("%w: unsupported transport", ErrBadRequest)
 	}
-	if transport != "" || channelID != "" {
+	if channelID != "" {
 		ch, err := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, channelID)
 		if err != nil {
 			return nil, err
@@ -186,7 +186,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		Transport: transport,
 		ChannelID: channelID,
 	}
-	if transport != "" || channelID != "" {
+	if transport != "" && channelID == "" {
 		resp.Message = "Wazzup returned global iframe only"
 	}
 	return resp, nil
