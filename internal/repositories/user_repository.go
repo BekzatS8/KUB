@@ -48,9 +48,9 @@ func (r *userRepository) Create(user *models.User) error {
 			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at,
-			refresh_token, refresh_expires_at, refresh_revoked
+			refresh_token, refresh_expires_at, refresh_revoked, department_id, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,FALSE,NULL,NULL,NULL,DEFAULT)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,FALSE,NULL,NULL,$24,NOW())
 		RETURNING id
 	`
 	isActive := user.IsActive
@@ -65,6 +65,7 @@ func (r *userRepository) Create(user *models.User) error {
 		nullableString(user.AvatarURL), nullableString(user.AvatarPath), nullableString(user.AvatarOriginalPath),
 		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
 		user.IsVerified, user.VerifiedAt,
+		user.DepartmentID,
 	).Scan(&user.ID)
 }
 
