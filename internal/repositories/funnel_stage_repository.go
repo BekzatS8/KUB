@@ -216,7 +216,9 @@ func (r *FunnelStageRepository) Duplicate(id int) (*models.FunnelStage, error) {
 // owner display names, for the kanban board. branchID/departmentID apply the
 // caller's scope restrictions (nil = unrestricted).
 func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
-	where := []string{"d.funnel_id = $1", "d.is_archived = FALSE"}
+	// Include deals that belong to this funnel OR have no funnel yet (so they
+	// appear in the "unassigned" column and can be dragged into a stage).
+	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE"}
 	args := []any{funnelID}
 
 	if branchID != nil {
