@@ -439,14 +439,30 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 		return ErrInvalidState
 	}
 
+	// validDealStatuses maps the standard deal status values recognised by the
+	// deals.status CHECK constraint. Used to derive status from stage.Code when
+	// the stage is of type "regular".
+	validDealStatuses := map[string]bool{
+		"new": true, "in_progress": true, "negotiation": true,
+		"won": true, "lost": true, "cancelled": true,
+	}
+
 	newStatus := deal.Status
 	switch stage.Type {
 	case models.FunnelStageTypeWon:
 		newStatus = "won"
 	case models.FunnelStageTypeLost:
 		newStatus = "lost"
-	default:
-		if deal.Status == "won" || deal.Status == "lost" || deal.Status == "cancelled" {
+	default: // regular
+		if validDealStatuses[stage.Code] {
+			// Stage code matches a standard status (e.g. "new", "in_progress",
+			// "negotiation") — keep them in sync so the kanban column reflects
+			// the actual deal status badge.
+			newStatus = stage.Code
+		} else {
+			// Custom-coded stage: always advance to in_progress.
+			// This covers reopening won/lost/cancelled deals AND advancing
+			// a "new" deal when dragged into any active stage column.
 			newStatus = "in_progress"
 		}
 	}

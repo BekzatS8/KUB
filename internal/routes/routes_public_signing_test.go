@@ -86,6 +86,8 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil, // taskHandler
+		nil, // signHandler
 		signConfirmHandler,
 		nil,
 		nil,
@@ -102,6 +104,7 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil, // signHistoryHandler
+		nil, // docVersionHandler
 		middleware.NewAuthMiddleware([]byte("test-secret")),
 	)
 
