@@ -298,6 +298,7 @@ func Run() {
 			TokenPepper: cfg.SignPublicTokenPepper,
 			TTLMinutes:  cfg.SignEmailTTLMinutes,
 			ServerTZ:    serverTZ,
+			UploadsDir:  cfg.Files.RootDir,
 		},
 		nowProvider,
 	)

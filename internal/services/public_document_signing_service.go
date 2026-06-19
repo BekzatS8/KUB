@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -241,7 +243,72 @@ func (s *PublicDocumentSigningService) SignPublicDocument(ctx context.Context, r
 	if err := s.docRepo.UpdateSigningMeta(link.DocumentID, "public_link", "", "", string(metaRaw)); err != nil {
 		return time.Time{}, "", 0, err
 	}
+
+	// Stamp the signature image onto the PDF (best-effort; never fails the signing flow).
+	if isImageSig && precomputedImagePath != "" {
+		s.stampSignatureOnDocument(link.DocumentID, filepath.Join(s.uploadsDir, precomputedImagePath))
+	}
+
 	return signedAt, createdEventID, link.DocumentID, nil
+}
+
+// stampSignatureOnDocument overlays the client signature image onto the document PDF.
+// Errors are logged but do not propagate — the signing record is already committed.
+func (s *PublicDocumentSigningService) stampSignatureOnDocument(docID int64, imgAbsPath string) {
+	log.Printf("[pdf_stamp] starting document_id=%d img=%s", docID, imgAbsPath)
+
+	if _, err := os.Stat(imgAbsPath); err != nil {
+		log.Printf("[pdf_stamp] signature image not ready document_id=%d: %v", docID, err)
+		return
+	}
+
+	doc, err := s.docRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		log.Printf("[pdf_stamp] document not found document_id=%d err=%v", docID, err)
+		return
+	}
+
+	pdfRel := strings.TrimSpace(doc.FilePathPdf)
+	if pdfRel == "" {
+		pdfRel = strings.TrimSpace(doc.FilePath)
+	}
+	if pdfRel == "" {
+		log.Printf("[pdf_stamp] no pdf path document_id=%d", docID)
+		return
+	}
+
+	pdfAbs := resolvePDFAbsPath(s.docService.FilesRoot, pdfRel)
+	if pdfAbs == "" {
+		log.Printf("[pdf_stamp] bad pdf path document_id=%d rel=%s", docID, pdfRel)
+		return
+	}
+	if strings.ToLower(filepath.Ext(pdfAbs)) != ".pdf" {
+		log.Printf("[pdf_stamp] not a pdf document_id=%d path=%s", docID, pdfAbs)
+		return
+	}
+
+	if err := StampSignatureOnPDF(pdfAbs, imgAbsPath, pdfAbs); err != nil {
+		log.Printf("[pdf_stamp] error document_id=%d: %v", docID, err)
+		return
+	}
+	log.Printf("[pdf_stamp] done document_id=%d", docID)
+}
+
+// resolvePDFAbsPath converts a storage-relative path to an absolute file system path.
+func resolvePDFAbsPath(filesRoot, rel string) string {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return ""
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	if strings.HasPrefix(rel, "files/") {
+		rel = strings.TrimPrefix(rel, "files/")
+	}
+	if strings.Contains(rel, "..") || rel == "" || rel == "." {
+		return ""
+	}
+	return filepath.Join(filesRoot, rel)
 }
 
 func (s *PublicDocumentSigningService) TokenPrefixForLog(raw string) string {

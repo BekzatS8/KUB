@@ -184,7 +184,8 @@ func buildClientPlaceholders(
 	ph["DOC_DATE_DAY"] = now.Format("02")                    // "07"
 	ph["DOC_DATE_MONTH_NUM"] = now.Format("01")              // "12"
 	ph["DOC_DATE_YEAR"] = now.Format("2006")                 // "2025"
-	ph["DOC_DATE_MONTH_TEXT"] = ruMonthGenitive(now.Month()) // "декабря"
+	ph["DOC_DATE_MONTH_TEXT"] = ruMonthGenitive(now.Month())    // "декабря"
+	ph["DOC_DATE_MONTH_TEXT_KZ"] = kzMonthGenitive(now.Month()) // "желтоқсанның"
 
 	ph["DOC_DATE_TEXT"] = fmt.Sprintf("%d %s %d г.",
 		now.Day(),
@@ -824,6 +825,38 @@ func splitContactInfo(s string) (phone, email string) {
 		email = strings.TrimSpace(parts[1])
 	}
 	return
+}
+
+// kzMonthGenitive — атау септігіндегі ай аты ("желтоқсан")
+func kzMonthGenitive(m time.Month) string {
+	switch m {
+	case time.January:
+		return "қаңтар"
+	case time.February:
+		return "ақпан"
+	case time.March:
+		return "наурыз"
+	case time.April:
+		return "сәуір"
+	case time.May:
+		return "мамыр"
+	case time.June:
+		return "маусым"
+	case time.July:
+		return "шілде"
+	case time.August:
+		return "тамыз"
+	case time.September:
+		return "қыркүйек"
+	case time.October:
+		return "қазан"
+	case time.November:
+		return "қараша"
+	case time.December:
+		return "желтоқсан"
+	default:
+		return ""
+	}
 }
 
 // ruMonthGenitive — название месяца в родительном падеже ("декабря")
