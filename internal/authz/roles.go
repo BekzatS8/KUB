@@ -225,3 +225,9 @@ func CanCreateChatGroup(roleID int) bool {
 func CanViewChatParticipantProfile(roleID int) bool {
 	return CanUseChat(roleID)
 }
+
+// CanManageFunnels controls who may create/edit/delete funnels, stages, and
+// funnel transition rules. Only system admins and management can do this.
+func CanManageFunnels(roleID int) bool {
+	return roleID == RoleSystemAdmin || roleID == RoleManagement
+}

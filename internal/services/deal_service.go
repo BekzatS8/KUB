@@ -10,11 +10,12 @@ import (
 )
 
 type DealService struct {
-	Repo       *repositories.DealRepository
-	ClientRepo *repositories.ClientRepository
-	LeadRepo   *repositories.LeadRepository
-	UserRepo   repositories.UserRepository
-	StageRepo  *repositories.FunnelStageRepository
+	Repo               *repositories.DealRepository
+	ClientRepo         *repositories.ClientRepository
+	LeadRepo           *repositories.LeadRepository
+	UserRepo           repositories.UserRepository
+	StageRepo          *repositories.FunnelStageRepository
+	TransitionRuleRepo *repositories.FunnelTransitionRuleRepository
 }
 
 func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
@@ -32,6 +33,10 @@ func (s *DealService) SetScopeDeps(leadRepo *repositories.LeadRepository, userRe
 
 func (s *DealService) SetStageRepo(stageRepo *repositories.FunnelStageRepository) {
 	s.StageRepo = stageRepo
+}
+
+func (s *DealService) SetTransitionRuleRepo(repo *repositories.FunnelTransitionRuleRepository) {
+	s.TransitionRuleRepo = repo
 }
 
 func normalizeRequiredDealClientType(value string) (string, error) {
@@ -478,7 +483,80 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 		ChangedBy:   &userID,
 		Comment:     comment,
 	}
-	return s.StageRepo.InsertHistory(history)
+	if err := s.StageRepo.InsertHistory(history); err != nil {
+		return err
+	}
+
+	// Apply admin-configured automatic cross-funnel transition rules.
+	// Pass depth=1 to guard against circular rule chains (max 10 hops).
+	_ = s.applyTransitionRules(dealID, stage.FunnelID, stageID, userID, 1)
+	return nil
+}
+
+// applyTransitionRules checks if any active transition rules fire for the given
+// (funnelID, stageID) and, if so, moves the deal accordingly. The depth guard
+// prevents infinite loops from misconfigured circular rules.
+func (s *DealService) applyTransitionRules(dealID, funnelID, stageID, changedBy, depth int) error {
+	if depth > 10 || s.TransitionRuleRepo == nil || s.StageRepo == nil {
+		return nil
+	}
+
+	rules, err := s.TransitionRuleRepo.FindActiveByTrigger(funnelID, stageID)
+	if err != nil || len(rules) == 0 {
+		return err
+	}
+
+	// Reload deal to have an up-to-date snapshot.
+	deal, err := s.Repo.GetByID(dealID)
+	if err != nil || deal == nil {
+		return err
+	}
+
+	// Apply the first matching active rule (rules are ordered by id).
+	rule := rules[0]
+	toStage, err := s.StageRepo.GetByID(rule.ToStageID)
+	if err != nil || toStage == nil {
+		return err
+	}
+
+	validDealStatuses := map[string]bool{
+		"new": true, "in_progress": true, "negotiation": true,
+		"won": true, "lost": true, "cancelled": true,
+	}
+	newStatus := deal.Status
+	switch toStage.Type {
+	case models.FunnelStageTypeWon:
+		newStatus = "won"
+	case models.FunnelStageTypeLost:
+		newStatus = "lost"
+	default:
+		if validDealStatuses[toStage.Code] {
+			newStatus = toStage.Code
+		} else {
+			newStatus = "in_progress"
+		}
+	}
+
+	if err := s.Repo.MoveStageAndFunnel(dealID, rule.ToStageID, rule.ToFunnelID, newStatus); err != nil {
+		return err
+	}
+
+	autoComment := "Автоматический переход: " + rule.Name
+	fromStageID := &stageID
+	toStageID := rule.ToStageID
+	history := &models.DealStageHistory{
+		DealID:      dealID,
+		FromStageID: fromStageID,
+		ToStageID:   &toStageID,
+		ChangedBy:   &changedBy,
+		Comment:     autoComment,
+	}
+	if err := s.StageRepo.InsertHistory(history); err != nil {
+		return err
+	}
+
+	// Recursively check if the new stage also triggers a rule.
+	return s.applyTransitionRules(dealID, rule.ToFunnelID, rule.ToStageID, changedBy, depth+1)
 }
 
 // GetHistory returns the stage-transition history for a deal, enforcing the
