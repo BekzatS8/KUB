@@ -42,6 +42,7 @@ type PublicDocumentSigningConfig struct {
 	TokenPepper string
 	TTLMinutes  int
 	ServerTZ    *time.Location
+	UploadsDir  string
 }
 
 type PublicDocumentSigningService struct {
@@ -52,6 +53,7 @@ type PublicDocumentSigningService struct {
 	pepper     string
 	ttlMinutes int
 	serverTZ   *time.Location
+	uploadsDir string
 	now        func() time.Time
 }
 
@@ -81,6 +83,7 @@ func NewPublicDocumentSigningService(
 		pepper:     strings.TrimSpace(cfg.TokenPepper),
 		ttlMinutes: ttl,
 		serverTZ:   serverTZ,
+		uploadsDir: strings.TrimSpace(cfg.UploadsDir),
 		now:        now,
 	}
 }
@@ -149,8 +152,19 @@ func (s *PublicDocumentSigningService) GetPublicDocument(ctx context.Context, ra
 	return res, link.ExpiresAt, nil
 }
 
+func isValidSignature(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if IsBase64Signature(s) {
+		return len(s) >= 100
+	}
+	return true
+}
+
 func (s *PublicDocumentSigningService) SignPublicDocument(ctx context.Context, rawToken string, payload PublicDocumentSignPayload, ip, ua string) (time.Time, string, int64, error) {
-	if strings.TrimSpace(payload.SignerName) == "" || strings.TrimSpace(payload.Signature) == "" {
+	if strings.TrimSpace(payload.SignerName) == "" || !isValidSignature(payload.Signature) {
 		return time.Time{}, "", 0, ErrPublicSignInvalidInput
 	}
 	tx, err := s.links.BeginTx(ctx)
@@ -187,17 +201,23 @@ func (s *PublicDocumentSigningService) SignPublicDocument(ctx context.Context, r
 			"phone": payload.SignerPhone,
 		},
 	})
+	isImageSig := IsBase64Signature(payload.Signature) && s.uploadsDir != ""
+	var precomputedImagePath string
+	if isImageSig {
+		precomputedImagePath = "signatures/sig_" + eventID + ".png"
+	}
 	signedAt, createdEventID, err := s.links.InsertSignatureTx(ctx, tx, repositories.PublicDocumentSignatureInsert{
-		DocumentID:  link.DocumentID,
-		LinkID:      link.ID,
-		SignerName:  strings.TrimSpace(payload.SignerName),
-		SignerEmail: strings.TrimSpace(payload.SignerEmail),
-		SignerPhone: strings.TrimSpace(payload.SignerPhone),
-		Signature:   strings.TrimSpace(payload.Signature),
-		IP:          strings.TrimSpace(ip),
-		UserAgent:   strings.TrimSpace(ua),
-		EventID:     eventID,
-		MetaJSON:    string(metaRaw),
+		DocumentID:         link.DocumentID,
+		LinkID:             link.ID,
+		SignerName:         strings.TrimSpace(payload.SignerName),
+		SignerEmail:        strings.TrimSpace(payload.SignerEmail),
+		SignerPhone:        strings.TrimSpace(payload.SignerPhone),
+		Signature:          strings.TrimSpace(payload.Signature),
+		IP:                 strings.TrimSpace(ip),
+		UserAgent:          strings.TrimSpace(ua),
+		EventID:            eventID,
+		MetaJSON:           string(metaRaw),
+		SignatureImagePath: precomputedImagePath,
 	})
 	if err != nil {
 		return time.Time{}, "", 0, err
@@ -207,6 +227,13 @@ func (s *PublicDocumentSigningService) SignPublicDocument(ctx context.Context, r
 	}
 	if err := tx.Commit(); err != nil {
 		return time.Time{}, "", 0, err
+	}
+	if isImageSig {
+		if savedPath, imgErr := SaveSignatureImage(payload.Signature, eventID, s.uploadsDir); imgErr != nil {
+			log.Printf("[sign][signature_image] failed to save image event=%s err=%v", eventID, imgErr)
+		} else {
+			log.Printf("[sign][signature_image] saved path=%s event=%s", savedPath, eventID)
+		}
 	}
 	if err := s.docService.FinalizeSigning(link.DocumentID); err != nil {
 		return time.Time{}, "", 0, err

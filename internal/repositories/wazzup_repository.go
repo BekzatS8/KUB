@@ -28,7 +28,8 @@ type WazzupRepository interface {
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
 	FindLeadByPhone(ctx context.Context, phone string) (leadID int, err error)
-	CreateLeadFromInbound(ctx context.Context, ownerID int, phone, firstMessage string) (leadID int, err error)
+	FindLeadByExternalChatID(ctx context.Context, transport, externalChatID string) (leadID int, err error)
+	CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (leadID int, err error)
 	UpdateLeadDescriptionIfEmpty(ctx context.Context, leadID int, firstMessage string) error
 	GetLeadPhoneByID(ctx context.Context, leadID int) (string, error)
 	GetClientPhoneByID(ctx context.Context, clientID int) (string, error)
@@ -435,13 +436,54 @@ func (r *wazzupRepository) FindLeadByPhone(ctx context.Context, phone string) (i
 	return leadID, nil
 }
 
-func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, phone, firstMessage string) (int, error) {
+func (r *wazzupRepository) FindLeadByExternalChatID(ctx context.Context, transport, externalChatID string) (int, error) {
+	const q = `
+		SELECT c.lead_ref_id
+		FROM chats c
+		WHERE c.external_provider = 'wazzup'
+		  AND c.external_transport = $1
+		  AND c.external_chat_id = $2
+		  AND c.lead_ref_id IS NOT NULL
+		ORDER BY c.id
+		LIMIT 1
+	`
+	var leadID int
+	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).Scan(&leadID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find lead by external chat id: %w", err)
+	}
+	return leadID, nil
+}
+
+func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (int, error) {
 	description := strings.TrimSpace(firstMessage)
 	normalizedPhone := normalizePhone(phone)
-	title := fmt.Sprintf("Лид из WhatsApp +%s", normalizedPhone)
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "" {
+		source = "whatsapp"
+	}
 
-	// owner is always resolved to a real user (integration owner, else fallback admin)
-	// so the lead is never lost; department_id is inherited from that owner (A2).
+	var title string
+	switch source {
+	case "telegram":
+		if phone != "" {
+			title = fmt.Sprintf("Лид из Telegram +%s", normalizedPhone)
+		} else {
+			title = "Лид из Telegram"
+		}
+	case "instagram":
+		if phone != "" {
+			title = fmt.Sprintf("Лид из Instagram +%s", normalizedPhone)
+		} else {
+			title = "Лид из Instagram"
+		}
+	default:
+		title = fmt.Sprintf("Лид из WhatsApp +%s", normalizedPhone)
+	}
+
 	resolvedOwner, err := resolveAutoLeadOwner(ctx, r.db, ownerID)
 	if err != nil {
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
@@ -449,14 +491,14 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 
 	const q = `
 		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status)
-		VALUES ($1, $2, $3, $4, $5,
+		VALUES ($1, $2, NULLIF($3, ''), $4, $5,
 			(SELECT branch_id FROM users WHERE id = $5),
 			(SELECT department_id FROM users WHERE id = $5),
 			$6)
 		RETURNING id
 	`
 	var leadID int
-	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, "whatsapp", resolvedOwner, "new").Scan(&leadID); err != nil {
+	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, source, resolvedOwner, "new").Scan(&leadID); err != nil {
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 	return leadID, nil

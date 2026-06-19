@@ -45,6 +45,7 @@ type LeadListFilter struct {
 	Order        string
 	BranchID     *int
 	DepartmentID *int
+	Source       string
 	// ScopeUserID, when set alongside DepartmentID, widens the department filter so
 	// the owner still sees their own NULL-department leads (fail-closed for peers).
 	ScopeUserID *int
@@ -158,11 +159,11 @@ func leadArchiveWhere(scope ArchiveScope) string {
 // Создание лида с возвратом ID + created_at из БД
 func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, owner_id, branch_id, funnel_id, status, department_id)
-		VALUES ($1, $2, $3, $4, $5, $6,
+		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, funnel_id, status, department_id)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8,
 			COALESCE(
-				(SELECT f.department_id FROM funnels f WHERE f.id = $5),
-				(SELECT u.department_id FROM users u WHERE u.id = $3)
+				(SELECT f.department_id FROM funnels f WHERE f.id = $7),
+				(SELECT u.department_id FROM users u WHERE u.id = $5)
 			)
 		)
 		RETURNING id, created_at
@@ -173,6 +174,8 @@ func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 		query,
 		lead.Title,
 		lead.Description,
+		lead.Phone,
+		lead.Source,
 		lead.OwnerID,
 		lead.BranchID,
 		lead.FunnelID,
@@ -190,15 +193,19 @@ func (r *LeadRepository) Update(lead *models.Leads) error {
 		UPDATE leads
 		SET title = $1,
 		    description = $2,
-		    owner_id = $3,
-		    branch_id = $4,
-		    status = $5
-		WHERE id = $6
+		    phone = NULLIF($3, ''),
+		    source = NULLIF($4, ''),
+		    owner_id = $5,
+		    branch_id = $6,
+		    status = $7
+		WHERE id = $8
 	`
 	_, err := r.db.Exec(
 		query,
 		lead.Title,
 		lead.Description,
+		lead.Phone,
+		lead.Source,
 		lead.OwnerID,
 		lead.BranchID,
 		lead.Status,
@@ -467,6 +474,11 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 	if filter.BranchID != nil {
 		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
 		args = append(args, *filter.BranchID)
+		idx++
+	}
+	if filter.Source != "" {
+		where += fmt.Sprintf(" AND COALESCE(l.source, '') = $%d", idx)
+		args = append(args, filter.Source)
 		idx++
 	}
 	if filter.DepartmentID != nil {

@@ -13,7 +13,7 @@ func AuditMiddleware(svc *services.AuditService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
-		c.Next() // выполняем запрос
+		c.Next()
 
 		// логируем только мутирующие запросы
 		switch c.Request.Method {
@@ -30,11 +30,13 @@ func AuditMiddleware(svc *services.AuditService) gin.HandlerFunc {
 		}
 
 		actorID := actorFromContext(c)
+		actorRoleID := roleFromContext(c)
 		ip := c.ClientIP()
 		ua := c.GetHeader("User-Agent")
 
 		svc.Log(c.Request.Context(), services.AuditEvent{
 			ActorUserID: actorID,
+			ActorRoleID: actorRoleID,
 			Action:      fmt.Sprintf("http.%s %s", c.Request.Method, path),
 			EntityType:  "http",
 			EntityID:    "",
@@ -49,7 +51,6 @@ func AuditMiddleware(svc *services.AuditService) gin.HandlerFunc {
 }
 
 func actorFromContext(c *gin.Context) *int {
-	// Подстройка под твой проект: AuthMiddleware обычно кладёт user_id / userID
 	keys := []string{"user_id", "userID", "userId", "uid"}
 	for _, k := range keys {
 		v, ok := c.Get(k)
@@ -80,4 +81,27 @@ func actorFromContext(c *gin.Context) *int {
 		}
 	}
 	return nil
+}
+
+func roleFromContext(c *gin.Context) int {
+	keys := []string{"role_id", "roleID", "roleId"}
+	for _, k := range keys {
+		v, ok := c.Get(k)
+		if !ok {
+			continue
+		}
+		switch t := v.(type) {
+		case int:
+			return t
+		case int64:
+			return int(t)
+		case float64:
+			return int(t)
+		case string:
+			if n, err := strconv.Atoi(t); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
 }

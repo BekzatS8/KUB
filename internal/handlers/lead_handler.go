@@ -673,6 +673,14 @@ func leadListFilterFromQuery(c *gin.Context) (repositories.LeadListFilter, error
 	if filter.StatusGroup != "" && filter.StatusGroup != "active" && filter.StatusGroup != "closed" && filter.StatusGroup != "all" {
 		return repositories.LeadListFilter{}, errors.New("Invalid status_group")
 	}
+	filter.Source = strings.ToLower(strings.TrimSpace(c.Query("source")))
+	if filter.Source != "" {
+		switch filter.Source {
+		case "whatsapp", "telegram", "instagram", "web", "phone", "manual":
+		default:
+			return repositories.LeadListFilter{}, errors.New("Invalid source")
+		}
+	}
 	filter.SortBy = strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
 	if filter.SortBy != "" && filter.SortBy != "created_at" && filter.SortBy != "status" && filter.SortBy != "title" {
 		return repositories.LeadListFilter{}, errors.New("Invalid sort_by")

@@ -98,15 +98,17 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 // resolveClientScope returns the DataScope for the clients entity.
 //
 // CLIENTS mapping (from permission matrix + ТЗ №2/№4):
-//   admin / management / sales / visa / partner / legal → All (общая база)
-//   quality_control                                     → All (read-only enforced elsewhere)
-//   hr / unknown                                        → Forbidden
+//   admin / management / sales / visa / legal → All (общая база)
+//   quality_control                            → All (read-only enforced elsewhere)
+//   partner                                    → Own(userID) — видит только своих клиентов
+//   hr / unknown                               → Forbidden
 func resolveClientScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleSales, authz.RoleVisa, authz.RolePartner,
+	case authz.RolePartner:
+		return DataScope{Kind: ScopeKindOwn, UserID: userID}, nil
+	case authz.RoleSales, authz.RoleVisa,
 		authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl:
 		// quality_control observes all clients (read-only enforced elsewhere).
-		// sales / visa / partner: общая база (all clients visible, no branch/owner filter).
 		return DataScope{Kind: ScopeKindAll}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden

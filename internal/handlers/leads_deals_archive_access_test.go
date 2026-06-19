@@ -204,6 +204,7 @@ func TestLeadList_InvalidFilterParams(t *testing.T) {
 		{name: "invalid order", url: "/leads?order=up"},
 		{name: "invalid status", url: "/leads?status=won"},
 		{name: "invalid status group", url: "/leads?status_group=completed"},
+		{name: "invalid source", url: "/leads?source=tiktok"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,6 +218,28 @@ func TestLeadList_InvalidFilterParams(t *testing.T) {
 			h.List(c)
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestLeadList_FiltersBySource(t *testing.T) {
+	for _, src := range []string{"telegram", "instagram", "whatsapp"} {
+		t.Run(src, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			s := &leadHandlerStubService{}
+			h := &LeadHandler{Service: s}
+			url := "/leads?source=" + src
+			c, w := ctx(http.MethodGet, url, "", authz.RoleManagement)
+			c.Request = httptest.NewRequest(http.MethodGet, url, nil)
+			c.Set("user_id", 100)
+			c.Set("role_id", authz.RoleManagement)
+			h.List(c)
+			if w.Code != http.StatusOK {
+				t.Fatalf("source=%s expected 200, got %d body=%s", src, w.Code, w.Body.String())
+			}
+			if s.listFilter.Source != src {
+				t.Fatalf("source=%s expected filter.Source=%s, got %s", src, src, s.listFilter.Source)
 			}
 		})
 	}

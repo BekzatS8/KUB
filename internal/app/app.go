@@ -397,6 +397,7 @@ func Run() {
 	}
 	auditSvc := services.NewAuditService(auditRepo)
 	router.Use(audit.AuditMiddleware(auditSvc))
+	feedHandler := handlers.NewFeedHandler(auditSvc)
 
 	// === Routes ===
 	log.Printf("[BOOT] mounting routes...")
@@ -433,6 +434,7 @@ func Run() {
 		orgHandler,
 		signHistoryHandler,
 		docVersionHandler,
+		feedHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

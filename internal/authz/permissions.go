@@ -84,12 +84,12 @@ var baseRolePermissions = map[string][]Permission{
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// partner: no deals.* (partner dept works with leads/documents/clients only)
-	// partner does not send or download documents — view only; hidden docs are internal only
+	// partner does not send or download documents; created docs are auto-marked is_hidden=true
 	// partner creates/edits only OWN clients (service forces owner_id = self); clients.create is
 	// required so the /clients RequirePermission gate preserves partner's create-own ability.
 	"partner": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.create", "clients.update",
-		"documents.view",
+		"documents.view", "documents.create", "documents.update",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// hr: employee/document management; no leads/deals/messenger

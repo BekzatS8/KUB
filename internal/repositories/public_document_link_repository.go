@@ -26,16 +26,17 @@ type PublicDocumentLink struct {
 }
 
 type PublicDocumentSignatureInsert struct {
-	DocumentID  int64
-	LinkID      int64
-	SignerName  string
-	SignerEmail string
-	SignerPhone string
-	Signature   string
-	IP          string
-	UserAgent   string
-	EventID     string
-	MetaJSON    string
+	DocumentID         int64
+	LinkID             int64
+	SignerName         string
+	SignerEmail        string
+	SignerPhone        string
+	Signature          string
+	IP                 string
+	UserAgent          string
+	EventID            string
+	MetaJSON           string
+	SignatureImagePath string
 }
 
 type PublicDocumentLinkRepository struct {
@@ -140,11 +141,11 @@ func (r *PublicDocumentLinkRepository) InsertSignatureTx(ctx context.Context, tx
 	var eventID string
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO public_document_signatures (
-			document_id, link_id, signer_name, signer_email, signer_phone, signature, ip, user_agent, event_id, meta
+			document_id, link_id, signer_name, signer_email, signer_phone, signature, ip, user_agent, event_id, meta, signature_image_path
 		)
-		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,NULLIF($7,'')::inet,NULLIF($8,''),$9::uuid,COALESCE(NULLIF($10,''),'{}')::jsonb)
+		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,NULLIF($7,'')::inet,NULLIF($8,''),$9::uuid,COALESCE(NULLIF($10,''),'{}')::jsonb,NULLIF($11,''))
 		RETURNING signed_at, event_id::text
-	`, input.DocumentID, input.LinkID, input.SignerName, input.SignerEmail, input.SignerPhone, input.Signature, input.IP, input.UserAgent, input.EventID, input.MetaJSON).Scan(&signedAt, &eventID)
+	`, input.DocumentID, input.LinkID, input.SignerName, input.SignerEmail, input.SignerPhone, input.Signature, input.IP, input.UserAgent, input.EventID, input.MetaJSON, input.SignatureImagePath).Scan(&signedAt, &eventID)
 	if err != nil {
 		return time.Time{}, "", fmt.Errorf("insert public document signature tx: %w", err)
 	}

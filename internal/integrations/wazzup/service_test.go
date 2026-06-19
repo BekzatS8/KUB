@@ -42,9 +42,10 @@ func (s stubRepo) GetStatus(context.Context) (*models.WazzupStatus, error) {
 func (s stubRepo) UpsertChannels(context.Context, int, []models.WazzupChannel) error { return nil }
 func (s stubRepo) ListChannels(context.Context, int) ([]models.WazzupChannel, error) { return nil, nil }
 func (s stubRepo) RegisterDedup(context.Context, int, string) (bool, error)          { return true, nil }
-func (s stubRepo) FindClientByPhone(context.Context, string) (int, error)            { return 0, nil }
-func (s stubRepo) FindLeadByPhone(context.Context, string) (int, error)              { return 0, nil }
-func (s stubRepo) CreateLeadFromInbound(context.Context, int, string, string) (int, error) {
+func (s stubRepo) FindClientByPhone(context.Context, string) (int, error)                 { return 0, nil }
+func (s stubRepo) FindLeadByPhone(context.Context, string) (int, error)                   { return 0, nil }
+func (s stubRepo) FindLeadByExternalChatID(context.Context, string, string) (int, error)  { return 0, nil }
+func (s stubRepo) CreateLeadFromInbound(context.Context, int, string, string, string) (int, error) {
 	return 123, nil
 }
 func (s stubRepo) UpdateLeadDescriptionIfEmpty(context.Context, int, string) error { return nil }

@@ -42,6 +42,7 @@ func SetupRoutes(
 	orgHandler *handlers.OrganizationHandler,
 	signHistoryHandler *handlers.DocumentSignHistoryHandler,
 	docVersionHandler *handlers.DocumentVersionHandler,
+	feedHandler *handlers.FeedHandler,
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -448,6 +449,11 @@ func SetupRoutes(
 		tasks.POST("/:id/remind-later", taskHandler.RemindLater)
 		tasks.POST("/:id/archive", taskHandler.Archive)
 		tasks.POST("/:id/unarchive", taskHandler.Unarchive)
+	}
+
+	// FEED — лента действий, видимость записей зависит от роли
+	if feedHandler != nil {
+		r.GET("/api/v1/feed", middleware.RequirePermission("feed.view", "feed"), feedHandler.List)
 	}
 
 	// REPORTS — requires reports.view (admin, management, quality_control per permission matrix)

@@ -378,7 +378,9 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 	var clientIDPtr *int
 	var leadIDPtr *int
 	phone := ""
-	if transport == "whatsapp" {
+
+	switch transport {
+	case "whatsapp":
 		phone = normalizePhone(externalChatID)
 		if phone != "" {
 			clientID, err := s.repo.FindClientByPhone(ctx, phone)
@@ -393,7 +395,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 				return 0, false, false, err
 			}
 			if leadID == 0 && clientID == 0 {
-				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, text)
+				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, "whatsapp", text)
 				if err != nil {
 					return 0, false, false, err
 				}
@@ -406,6 +408,49 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 			if leadID > 0 {
 				leadIDPtr = &leadID
 			}
+		}
+
+	case "telegram", "instagram":
+		// For Telegram/Instagram we identify contacts by externalChatID (not phone).
+		// First try to find an existing lead already linked to this chat.
+		leadID, err = s.repo.FindLeadByExternalChatID(ctx, transport, externalChatID)
+		if err != nil {
+			return 0, false, false, err
+		}
+		if leadID == 0 {
+			// Also check by phone if available (e.g. Telegram sometimes sends phone).
+			phoneCandidate := normalizePhone(firstNonEmpty(m.Username))
+			if phoneCandidate == "" {
+				phoneCandidate = normalizePhone(externalChatID)
+			}
+			if phoneCandidate != "" && len(phoneCandidate) >= 7 {
+				phone = phoneCandidate
+				cid, err := s.repo.FindClientByPhone(ctx, phone)
+				if err != nil {
+					return 0, false, false, err
+				}
+				if cid > 0 {
+					clientIDPtr = &cid
+				}
+				leadID, err = s.repo.FindLeadByPhone(ctx, phone)
+				if err != nil {
+					return 0, false, false, err
+				}
+			}
+		}
+		if leadID == 0 {
+			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, transport, text)
+			if err != nil {
+				return 0, false, false, err
+			}
+			leadCreated = true
+		} else {
+			if err := s.repo.UpdateLeadDescriptionIfEmpty(ctx, leadID, text); err != nil {
+				return 0, false, false, err
+			}
+		}
+		if leadID > 0 {
+			leadIDPtr = &leadID
 		}
 	}
 
