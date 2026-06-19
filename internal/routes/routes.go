@@ -221,15 +221,15 @@ func SetupRoutes(
 
 	users := r.Group("/users")
 	{
-		users.POST("", userHandler.CreateUser)
+		users.POST("", middleware.RequirePermission("users.create", "user"), userHandler.CreateUser)
 		users.GET("/me", userHandler.GetMyProfile)
-		users.GET("/count", userHandler.GetUserCount)
-		users.GET("/count/role/:role_id", userHandler.GetUserCountByRole)
-		users.GET("", userHandler.ListUsers)
+		users.GET("/count", middleware.RequirePermission("users.view", "user"), userHandler.GetUserCount)
+		users.GET("/count/role/:role_id", middleware.RequirePermission("users.view", "user"), userHandler.GetUserCountByRole)
+		users.GET("", middleware.RequirePermission("users.view", "user"), userHandler.ListUsers)
 		users.GET("/:id/avatar/content", userHandler.ServeUserAvatar)
-		users.GET("/:id", userHandler.GetUserByID)
-		users.PUT("/:id", userHandler.UpdateUser)
-		users.DELETE("/:id", userHandler.DeleteUser)
+		users.GET("/:id", middleware.RequirePermission("users.view", "user"), userHandler.GetUserByID)
+		users.PUT("/:id", middleware.RequirePermission("users.update", "user"), userHandler.UpdateUser)
+		users.DELETE("/:id", middleware.RequirePermission("users.delete", "user"), userHandler.DeleteUser)
 	}
 
 	// BRANCHES — read gated by branches.view (admin + management only);
@@ -302,20 +302,20 @@ func SetupRoutes(
 	// LEADS
 	leads := r.Group("/leads")
 	{
-		leads.POST("", leadHandler.Create)
-		leads.GET("/:id", leadHandler.GetByID)
-		leads.PUT("/:id", leadHandler.Update)
-		leads.DELETE("/:id", leadHandler.Delete)
-		leads.POST("/:id/archive", leadHandler.Archive)
-		leads.POST("/:id/unarchive", leadHandler.Unarchive)
+		leads.POST("", middleware.RequirePermission("leads.create", "lead"), leadHandler.Create)
+		leads.GET("/:id", middleware.RequirePermission("leads.view", "lead"), leadHandler.GetByID)
+		leads.PUT("/:id", middleware.RequirePermission("leads.update", "lead"), leadHandler.Update)
+		leads.DELETE("/:id", middleware.RequirePermission("leads.delete", "lead"), leadHandler.Delete)
+		leads.POST("/:id/archive", middleware.RequirePermission("leads.update", "lead"), leadHandler.Archive)
+		leads.POST("/:id/unarchive", middleware.RequirePermission("leads.update", "lead"), leadHandler.Unarchive)
 		// convert lead → deal is a deal-creation action: gate on deals.create
 		// (visa/partner/qc/hr/legal have no deals.create → 403, same as POST /deals).
 		leads.PUT("/:id/convert", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDeal)
 		leads.PUT("/:id/convert-with-client", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDealWithClient)
-		leads.GET("", leadHandler.List)
-		leads.GET("/my", leadHandler.ListMy)
-		leads.POST("/:id/assign", leadHandler.Assign)
-		leads.POST("/:id/status", leadHandler.UpdateStatus)
+		leads.GET("", middleware.RequirePermission("leads.view", "lead"), leadHandler.List)
+		leads.GET("/my", middleware.RequirePermission("leads.view", "lead"), leadHandler.ListMy)
+		leads.POST("/:id/assign", middleware.RequirePermission("leads.update", "lead"), leadHandler.Assign)
+		leads.POST("/:id/status", middleware.RequirePermission("leads.update", "lead"), leadHandler.UpdateStatus)
 		if funnelHandler != nil {
 			leads.PATCH("/:id/funnel", middleware.RequirePermission(authz.ActionLeadsMoveBetweenFunnels, "lead"), funnelHandler.MoveLeadToFunnel)
 		}

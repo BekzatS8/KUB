@@ -55,9 +55,10 @@ var baseRolePermissions = map[string][]Permission{
 			"feed.view", "leads.view", "leads.create", "leads.update", "leads.transfer_manager", "leads.move_between_funnels",
 			"deals.view", "deals.create", "deals.update",
 			"clients.view", "clients.create", "clients.update",
-			"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+			"documents.view", "documents.create", "documents.update", "documents.send",
 			"tasks.view", "tasks.create", "tasks.update", "reports.view", "chat.view", "messenger.view", "telephony.view", "funnels.view",
-			"users.view", "branches.view",
+			"users.view", "users.create", "users.update", "users.delete", "users.block",
+			"branches.view",
 		),
 		Permission{Action: "approvals.create", Scope: ScopeOwn},
 	),
@@ -73,34 +74,37 @@ var baseRolePermissions = map[string][]Permission{
 	),
 	"sales": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "deals.view", "deals.create", "deals.update",
-		"clients.view", "clients.create", "clients.update", "documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+		"clients.view", "clients.create", "clients.update", "documents.view", "documents.send",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// visa: no deals.* (visa dept handles leads/documents/clients only, not sales deals)
+	// visa: documents — view+send only (no create/update/download)
 	"visa": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
-		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+		"documents.view", "documents.send",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// partner: no deals.* (partner dept works with leads/documents/clients only)
-	// partner does not send documents to clients (documents.send removed — hidden docs are internal only)
+	// partner does not send or download documents — view only; hidden docs are internal only
 	// partner creates/edits only OWN clients (service forces owner_id = self); clients.create is
 	// required so the /clients RequirePermission gate preserves partner's create-own ability.
 	"partner": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.create", "clients.update",
-		"documents.view", "documents.create", "documents.update", "documents.download",
+		"documents.view",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// hr: employee/document management; no leads/deals/messenger
 	"hr": permissionsForScope(ScopeDepartment,
-		"feed.view", "users.view",
-		"documents.view", "documents.create", "documents.update", "documents.download",
+		"feed.view",
+		"users.view", "users.create", "users.update", "users.delete", "users.block",
+		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
 	),
-	// legal: clients+documents access; no leads/deals/messenger
+	// legal: clients+documents+users access; no leads/deals/messenger
 	"legal": permissionsForScope(ScopeDepartment,
-		"feed.view", "clients.view", "users.view",
-		"documents.view", "documents.create", "documents.update", "documents.download",
+		"feed.view", "clients.view",
+		"users.view", "users.create", "users.update", "users.delete", "users.block",
+		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
 	),
 }

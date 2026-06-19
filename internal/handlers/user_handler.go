@@ -896,7 +896,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 func allowedAvatarExt(ext string) bool {
 	switch strings.ToLower(ext) {
-	case ".jpg", ".jpeg", ".png", ".webp":
+	case ".jpg", ".jpeg", ".png", ".webp", ".pdf":
 		return true
 	default:
 		return false
@@ -911,6 +911,8 @@ func avatarContentType(ext string) string {
 		return "image/png"
 	case ".webp":
 		return "image/webp"
+	case ".pdf":
+		return "application/pdf"
 	default:
 		return "application/octet-stream"
 	}
@@ -921,6 +923,13 @@ func validateAvatarMime(file io.Reader, ext string) error {
 	n, err := file.Read(buf)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("Не удалось прочитать файл")
+	}
+	// PDF: check magic bytes %PDF
+	if strings.ToLower(ext) == ".pdf" {
+		if n >= 4 && string(buf[:4]) == "%PDF" {
+			return nil
+		}
+		return fmt.Errorf("Файл не является PDF")
 	}
 	mimeType := http.DetectContentType(buf[:n])
 	expected := avatarContentType(ext)
