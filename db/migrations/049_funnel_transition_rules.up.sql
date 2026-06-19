@@ -1,4 +1,4 @@
-CREATE TABLE funnel_transition_rules (
+CREATE TABLE IF NOT EXISTS funnel_transition_rules (
     id              SERIAL PRIMARY KEY,
     name            TEXT NOT NULL DEFAULT '',
     from_funnel_id  INT NOT NULL REFERENCES funnels(id) ON DELETE CASCADE,
@@ -11,5 +11,5 @@ CREATE TABLE funnel_transition_rules (
     CONSTRAINT uq_funnel_transition_rules UNIQUE (from_funnel_id, from_stage_id, to_funnel_id, to_stage_id)
 );
 
-CREATE INDEX idx_ftr_from ON funnel_transition_rules (from_funnel_id, from_stage_id)
+CREATE INDEX IF NOT EXISTS idx_ftr_from ON funnel_transition_rules (from_funnel_id, from_stage_id)
     WHERE is_active = TRUE;
