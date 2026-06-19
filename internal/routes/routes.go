@@ -385,8 +385,9 @@ func SetupRoutes(
 		}
 	}
 
-	// CHATS
-	chats := r.Group("/chats")
+	// CHATS — gated by chat.view; all roles currently have it, but the guard
+	// blocks future roles without it and provides explicit 403 over silent 200.
+	chats := r.Group("/chats", middleware.RequirePermission("chat.view", "chat"))
 	{
 		chats.GET("/users", chatHandler.ListChatDirectoryUsers)
 		chats.GET("", chatHandler.ListChats)
