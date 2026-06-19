@@ -31,6 +31,7 @@ func SetupRoutes(
 	permissionHandler *handlers.PermissionHandler,
 	funnelHandler *handlers.FunnelHandler,
 	funnelStageHandler *handlers.FunnelStageHandler,
+	funnelTransitionRuleHandler *handlers.FunnelTransitionRuleHandler,
 	verifyHandler *handlers.VerifyHandler,
 	integrationsHandler *handlers.IntegrationsHandler, // может быть nil
 	chatHandler *handlers.ChatHandler,
@@ -164,6 +165,11 @@ func SetupRoutes(
 		registerFunnelStagesRoutes(r.Group("/api/v1/funnels"), funnelStageHandler)
 		registerStagesRoutes(r.Group("/stages"), funnelStageHandler)
 		registerStagesRoutes(r.Group("/api/v1/stages"), funnelStageHandler)
+	}
+
+	if funnelTransitionRuleHandler != nil {
+		registerFunnelTransitionRulesRoutes(r.Group("/funnel-transition-rules"), funnelTransitionRuleHandler)
+		registerFunnelTransitionRulesRoutes(r.Group("/api/v1/funnel-transition-rules"), funnelTransitionRuleHandler)
 	}
 
 	// PRIVATE (JWT): Telegram link endpoints
@@ -485,4 +491,15 @@ func registerStagesRoutes(group *gin.RouterGroup, h *handlers.FunnelStageHandler
 	group.PATCH("/:id", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.UpdateStage)
 	group.DELETE("/:id", middleware.RequirePermission(authz.ActionFunnelsDelete, "funnel"), h.DeleteStage)
 	group.POST("/:id/duplicate", middleware.RequirePermission(authz.ActionFunnelsCreate, "funnel"), h.DuplicateStage)
+}
+
+// registerFunnelTransitionRulesRoutes registers CRUD endpoints for admin-configured
+// automatic cross-funnel transition rules.
+func registerFunnelTransitionRulesRoutes(group *gin.RouterGroup, h *handlers.FunnelTransitionRuleHandler) {
+	group.GET("", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.List)
+	group.GET("/:id", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.Get)
+	group.POST("", middleware.RequirePermission(authz.ActionFunnelsCreate, "funnel"), h.Create)
+	group.PUT("/:id", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.Update)
+	group.DELETE("/:id", middleware.RequirePermission(authz.ActionFunnelsDelete, "funnel"), h.Delete)
+	group.PATCH("/:id/toggle", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.ToggleActive)
 }

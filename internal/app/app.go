@@ -110,6 +110,7 @@ func Run() {
 	permissionRepo := repositories.NewPermissionRepository(db)
 	funnelRepo := repositories.NewFunnelRepository(db)
 	funnelStageRepo := repositories.NewFunnelStageRepository(db)
+	funnelTransitionRuleRepo := repositories.NewFunnelTransitionRuleRepository(db)
 	userRepo := repositories.NewUserRepository(db)
 	branchRepo := repositories.NewBranchRepository(db)
 	orgRepo := repositories.NewOrganizationRepository(db)
@@ -197,6 +198,7 @@ func Run() {
 	permissionService := services.NewPermissionService(permissionRepo)
 	funnelService := services.NewFunnelService(funnelRepo, permissionRepo)
 	funnelStageService := services.NewFunnelStageService(funnelStageRepo, funnelRepo, permissionRepo)
+	funnelTransitionRuleSvc := services.NewFunnelTransitionRuleService(funnelTransitionRuleRepo, funnelStageRepo)
 	funnelStageService.SetUserRepo(userRepo)
 	userService := services.NewUserService(userRepo, emailService, authService)
 	branchService := services.NewBranchService(branchRepo)
@@ -210,6 +212,7 @@ func Run() {
 	dealService := services.NewDealService(dealRepo, clientRepo)
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	dealService.SetStageRepo(funnelStageRepo)
+	dealService.SetTransitionRuleRepo(funnelTransitionRuleRepo)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
@@ -319,6 +322,7 @@ func Run() {
 	permissionHandler := handlers.NewPermissionHandler(permissionService)
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
 	funnelStageHandler := handlers.NewFunnelStageHandler(funnelStageService)
+	funnelTransitionRuleHandler := handlers.NewFunnelTransitionRuleHandler(funnelTransitionRuleSvc)
 	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
@@ -422,6 +426,7 @@ func Run() {
 		permissionHandler,
 		funnelHandler,
 		funnelStageHandler,
+		funnelTransitionRuleHandler,
 		verifyHandler,
 		integrationsHandler,
 		chatHandler,

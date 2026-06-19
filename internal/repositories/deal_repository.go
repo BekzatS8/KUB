@@ -810,6 +810,20 @@ func (r *DealRepository) MoveStage(id, stageID, funnelID int, status string) err
 	return err
 }
 
+// MoveStageAndFunnel forcibly updates a deal's funnel, stage, and status.
+// Used for admin-configured automatic cross-funnel transitions.
+func (r *DealRepository) MoveStageAndFunnel(id, stageID, funnelID int, status string) error {
+	const q = `
+		UPDATE deals
+		SET stage_id  = $1,
+		    funnel_id = $2,
+		    status    = $3
+		WHERE id = $4
+	`
+	_, err := r.db.Exec(q, stageID, funnelID, status, id)
+	return err
+}
+
 // GetLatestByClientID возвращает последнюю сделку по client_id
 func (r *DealRepository) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	query := `
