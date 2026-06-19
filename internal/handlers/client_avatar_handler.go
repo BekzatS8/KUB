@@ -49,7 +49,7 @@ func (h *ClientAvatarHandler) Upload(c *gin.Context) {
 
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
 	if !allowedAvatarExt(ext) {
-		badRequest(c, "Поддерживаются только JPG, JPEG, PNG и WebP")
+		badRequest(c, "Поддерживаются JPG, PNG, WebP и PDF")
 		return
 	}
 

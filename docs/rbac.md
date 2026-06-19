@@ -3,121 +3,154 @@
 ## Source of truth
 
 Единый источник ролей и policy-хелперов: `internal/authz/roles.go`.
+Матрица прав: `internal/authz/permissions.go`.
+Область видимости данных: `internal/services/scope.go`.
 
-## Роли и совместимость role_id
+## Роли и role_id
 
-| role_id | Канонический code         | Legacy name | Назначение |
-|--------:|---------------------------|-------------|------------|
-| 10      | `sales`                   | `sales`     | Лиды/сделки/договоры в своей зоне |
-| 20      | `operations`              | `operations`| Проверка и операционный документооборот |
-| 30      | `control`                 | `audit`     | Read-only по бизнес-данным своего филиала, без leadership данных |
-| 40      | `leadership`              | `management`| Полный доступ к бизнес-данным |
-| 50      | `system_admin`            | `admin`     | Суперпользователь: системное администрирование + полный доступ к бизнес-данным |
+| role_id | Канонический code  | Назначение |
+|--------:|--------------------|------------|
+| 10      | `sales`            | Отдел продаж: лиды/сделки/клиенты/документы в своём отделе |
+| 30      | `quality_control`  | Контроль качества: read-only по всем бизнес-данным; свои документы |
+| 40      | `management`       | Руководство: полный доступ к бизнес-данным ОП/ВО/ПО |
+| 50      | `admin`            | Суперпользователь: полный доступ ко всему |
+| 60      | `visa`             | Визовый отдел: лиды/клиенты/документы в своём отделе |
+| 70      | `partner`          | Партнёрский отдел: лиды/клиенты (только свои) |
+| 80      | `hr`               | Отдел кадров: пользователи + документы; без лидов/сделок |
+| 90      | `legal`            | Юридический: клиенты + пользователи + документы; без лидов/сделок |
 
-> Backward compatibility: исторический `RoleAdminStaff` оставлен как alias к `role_id=50`.
+> Legacy коды (`audit` → `quality_control`, `leadership` / `manager` → `management`,
+> `admin_staff` / `system_admin` → `admin`, `control` → `quality_control`) нормализуются
+> в `authz.NormalizeRoleCode`.
 
-## Ключевые политики (текущий фундамент)
+## Матрица прав по действиям
 
-- `CanManageSystem` — только `system_admin`.
-- `CanAssignRoles` — только `system_admin`.
-- `CanAccessLogs` — только `system_admin`.
-- `CanManageIntegrations` — любая аутентифицированная известная роль (`sales`, `operations`, `control`, `leadership`, `system_admin`); unknown role — denied.
-- `CanViewLeadershipData` — `leadership`, `system_admin`.
-- `CanViewAllBusinessData` — legacy helper; endpoint-level branch scope ограничивает `operations` и `control` своим филиалом.
-- `CanAccessAllBusinessDataIncludingAdmin` — legacy helper; endpoint-level branch scope остаётся source of truth для business data.
-- `CanArchiveBusinessEntity` — бизнес-роли, кроме read-only, плюс `system_admin`.
-- `CanHardDeleteBusinessEntity` — только `system_admin` (`role_id=50`).
+### Лиды и сделки
 
-## Этап 2 (реализовано для leads/deals)
+| Действие              | sales | visa | partner | quality_control | management | hr | legal | admin |
+|-----------------------|:-----:|:----:|:-------:|:---------------:|:----------:|:--:|:-----:|:-----:|
+| leads.view            | ✅ dept | ✅ dept | ✅ own | ✅ all (RO) | ✅ all | ❌ | ❌ | ✅ all |
+| leads.create          | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| leads.update          | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| leads.delete          | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| leads.transfer_manager| ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| leads.move_between_funnels | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| deals.view            | ✅ dept | ❌ | ❌ | ✅ all (RO) | ✅ all | ❌ | ❌ | ✅ |
+| deals.create          | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| deals.update          | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| deals.delete          | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-- Для `leads` и `deals` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
-- Старый запрет вида «system admin cannot access business entity» для `leads`/`deals` снят.
-- Для `leads`/`deals` hard delete (`DELETE /leads/:id`, `DELETE /deals/:id`) доступен только `role_id=50`.
-- Для `leads`/`deals` archive/unarchive доступны бизнес-ролям с правом изменения и `role_id=50`.
-- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
-- Добавлены явные endpoints:
-  - `POST /leads/:id/archive`
-  - `POST /leads/:id/unarchive`
-  - `POST /deals/:id/archive`
-  - `POST /deals/:id/unarchive`
-- `DELETE` не превращается в archive: не-admin получают `403 Forbidden`.
-- Для list в `leads`/`deals` добавлен query-параметр `archive`:
-  - по умолчанию `active` (только активные),
-  - `archive=archived` (только архив),
-  - `archive=all` (все записи).
+### Клиенты
 
-## Этап 3 (реализовано для clients/documents)
+| Действие         | sales | visa | partner | quality_control | management | hr | legal | admin |
+|------------------|:-----:|:----:|:-------:|:---------------:|:----------:|:--:|:-----:|:-----:|
+| clients.view     | ✅ all | ✅ all | ✅ all | ✅ all (RO) | ✅ all | ❌ | ✅ all | ✅ |
+| clients.create   | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| clients.update   | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| clients.delete   | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| clients.export   | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-- Для `clients` и `documents` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
-- Старые запреты для system_admin на business entities сняты именно для `clients`/`documents`.
-- `DELETE /clients/:id` и `DELETE /documents/:id` — только hard delete для `role_id=50`.
-- Для остальных business-ролей удаление переведено на явные действия archive/unarchive:
-  - `POST /clients/:id/archive`
-  - `POST /clients/:id/unarchive`
-  - `POST /documents/:id/archive`
-  - `POST /documents/:id/unarchive`
-- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
-- Для list endpoints поддержан `archive` filter:
-  - `archive=active` (или пусто) — только активные,
-  - `archive=archived` — только архивные,
-  - `archive=all` — все.
+> Область видимости клиентов: все роли с доступом видят **общую базу** (`ScopeKindAll`).
+> Исключение: `partner` — только свои клиенты (`ScopeKindOwn`) через сервисный слой.
 
-## Границы после этапа 3
+### Документы
 
-- `users` и `roles` по-прежнему вне archive scope.
-- `tasks` остаются на следующий этап.
+| Действие              | sales | visa | partner | quality_control         | management | hr   | legal | admin |
+|-----------------------|:-----:|:----:|:-------:|:-----------------------:|:----------:|:----:|:-----:|:-----:|
+| documents.view        | ✅ dept | ✅ dept | ✅ dept | ✅ all depts (RO) | ✅ related | ✅ dept | ✅ dept | ✅ |
+| documents.create      | ❌ | ❌ | ❌ | ✅ dept (свой отдел) | ✅ related | ✅ dept | ✅ dept | ✅ |
+| documents.update      | ❌ | ❌ | ❌ | ✅ dept | ✅ related | ✅ dept | ✅ dept | ✅ |
+| documents.send        | ✅ dept | ✅ dept | ❌ | ✅ dept | ✅ related | ✅ dept | ✅ dept | ✅ |
+| documents.download    | ❌ | ❌ | ❌ | ✅ **dept** (только свой отдел) | ❌ | ✅ dept | ✅ dept | ✅ |
+| documents.delete      | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-## Этап 4 (реализовано для tasks)
+> **quality_control**: `documents.download` ограничен `ScopeDepartment` (только свои документы),
+> в отличие от `documents.view` который имеет `ScopeRelatedDepartments`.
 
-- Для `tasks` системный администратор (`role_id=50`) имеет полный доступ как superuser (read/create/update/archive/unarchive/hard delete).
-- Убраны прежние self-only ограничения для `role_id=50`: это ограничение остаётся только для `sales` (`role_id=10`).
-- `DELETE /tasks/:id` — только hard delete для `role_id=50`; остальным ролям возвращается `403 Forbidden`.
-- Для soft lifecycle добавлены явные endpoints:
-  - `POST /tasks/:id/archive`
-  - `POST /tasks/:id/unarchive`
-- Read-only роль (`role_id=30`) не может archive/unarchive/hard delete.
-- Для list endpoint `GET /tasks` поддержан query-параметр `archive`:
-  - `archive=active` (или пусто) — только активные,
-  - `archive=archived` — только архивные,
-  - `archive=all` — все.
+### Пользователи
 
-## Границы после этапа 4
+| Действие         | sales | visa | partner | quality_control | management | hr | legal | admin |
+|------------------|:-----:|:----:|:-------:|:---------------:|:----------:|:--:|:-----:|:-----:|
+| users.view       | ❌ | ❌ | ❌ | ❌ | ✅ related | ✅ dept | ✅ dept | ✅ |
+| users.create     | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| users.update     | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| users.delete     | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| users.block      | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 
-- `users` и `roles` по-прежнему вне archive scope.
+### Остальное
 
-## Branch RBAC (single-company CRM)
+| Действие         | sales | visa | partner | quality_control | management | hr | legal | admin |
+|------------------|:-----:|:----:|:-------:|:---------------:|:----------:|:--:|:-----:|:-----:|
+| reports.view     | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| chat.view        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| chat.delete      | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| messenger.view   | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| telephony.view   | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| funnels.view     | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| branches.view    | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| approvals.create | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 
-- Архитектура CRM: **одна компания**, без tenant/company switching.
-- `branches` — филиалы внутри одной компании; `users.branch_id` определяет рабочий филиал сотрудника.
-- `company_name` / `bin_iin` в `users` считаются legacy-данными и не являются основной осью авторизации/профиля.
+## Область видимости данных (DataScope)
 
-### Branch endpoints policy
+Функции `resolveLeadScope`, `resolveClientScope`, `resolveDealScope` в `internal/services/scope.go`
+вычисляют область видимости записей для каждой роли:
 
-- `GET /branches` — `system_admin` и `leadership` видят все филиалы; остальные роли получают только свой филиал.
-- `GET /branches/:id`:
-  - `system_admin` и `leadership` — любой филиал;
-  - остальные роли — только свой филиал (`users.branch_id`), иначе `403`.
-- `POST /branches`, `PUT /branches/:id`, `DELETE /branches/:id` — только `system_admin`.
+| Сущность | sales | visa | partner | quality_control | management | hr | legal |
+|----------|-------|------|---------|-----------------|------------|----|-------|
+| Лиды     | Branch+Dept | Branch+Dept | Own | All (RO) | All | ❌ | ❌ |
+| Сделки   | Branch+Dept | Branch+Dept | ❌ | All (RO) | All | ❌ | ❌ |
+| Клиенты  | All | All | All (own service-side) | All (RO) | All | ❌ | All |
 
-## Branch access matrix (business entities)
+> `ReadOnlyGuard` middleware блокирует небезопасные HTTP-методы для `quality_control`.
 
-Вся бизнес-модель — single-company, а data-scope строится по `branch_id` для `leads`, `deals`, `tasks`, `documents`, `chats`.
+## Защита маршрутов
 
-| Роль | Доступ по филиалам |
-|---|---|
-| `sales` | Только свой филиал + свои записи (owner/self rules сохраняются) |
-| `operations` | Все данные своего филиала |
-| `control` | Read-only по своему филиалу |
-| `leadership` | Полный доступ по всем филиалам |
-| `system_admin` | Полный доступ по всем филиалам |
+Все защищённые маршруты проверяются через `middleware.RequirePermission(action, resource)`.
 
-Дополнительно для global ролей (`leadership`, `system_admin`) поддержан `branch_id` фильтр в list endpoints. Для `control` переданный `branch_id` игнорируется/заменяется на филиал пользователя.
+| Группа маршрутов | Защита |
+|-----------------|--------|
+| `/leads/**`     | `leads.view` / `leads.create` / `leads.update` / `leads.delete` / `deals.create` |
+| `/deals/**`     | `deals.view` / `deals.create` / `deals.update` / `deals.delete` |
+| `/clients/**`   | `clients.view` / `clients.create` / `clients.update` / `clients.delete` |
+| `/documents/**` | `documents.view` / `documents.create` / `documents.update` / `documents.delete` / `documents.send` / `documents.download` |
+| `/users/**`     | `users.view` / `users.create` / `users.update` / `users.delete` |
+| `/chats/**`     | `chat.view` (группа); `chat.delete` (удаление чата/сообщения) |
+| `/reports/**`   | `reports.view` |
+| `/branches/**`  | `branches.view` / `branches.create` / `branches.update` / `branches.delete` |
+| `/roles/**`     | `RequireRoles(admin)` |
+| `/integrations/wazzup/**` | `messenger.view` |
+| `/api/v1/telephony/**`    | `telephony.view` |
 
-### Reports branch filter
+## Этапы реализации
 
-- `GET /reports/funnel`, `GET /reports/leads`, `GET /reports/revenue`, `GET /reports/revenue/export` принимают optional `branch_id`.
-- `leadership` / `system_admin` могут использовать `branch_id` как фильтр по нужному филиалу.
-- `control` всегда ограничен своим `users.branch_id`, даже если передан чужой `branch_id`.
-- `sales` и `operations` не могут выбирать произвольный филиал через query:
-  - `sales`: всегда `owner_id=self` + `branch_id=users.branch_id`;
-  - `operations`: всегда `branch_id=users.branch_id`.
+### Этап 2 (leads/deals lifecycle)
+- `POST /leads/:id/archive`, `POST /leads/:id/unarchive`
+- `POST /deals/:id/archive`, `POST /deals/:id/unarchive`
+- Hard delete только для admin (`role_id=50`)
+- `archive` query-параметр: `active` | `archived` | `all`
+
+### Этап 3 (clients/documents lifecycle)
+- `POST /clients/:id/archive`, `POST /clients/:id/unarchive`
+- `POST /documents/:id/archive`, `POST /documents/:id/unarchive`
+- Hard delete только для admin
+- `archive` query-параметр на list endpoints
+
+### Этап 4 (tasks lifecycle)
+- `POST /tasks/:id/archive`, `POST /tasks/:id/unarchive`
+- Hard delete только для admin
+- `archive` query-параметр на `GET /tasks`
+
+## Ключевые политики
+
+- `CanManageSystem` — только `admin` (role_id=50)
+- `CanAssignRoles` — только `admin`
+- `CanAccessLogs` — только `admin`
+- `CanHardDeleteBusinessEntity` — только `admin`
+- `IsReadOnly` — `quality_control` (role_id=30): ReadOnlyGuard блокирует POST/PUT/PATCH/DELETE кроме разрешённых chat-эндпоинтов
+
+## Branch RBAC
+
+- Архитектура CRM: **одна компания**, филиалы (`branches`) = структурные подразделения.
+- `users.branch_id` определяет рабочий филиал сотрудника.
+- `GET /branches` — admin и management видят все; остальные — только свой.
+- `POST/PUT/DELETE /branches` — только admin.
