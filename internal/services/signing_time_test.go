@@ -75,6 +75,7 @@ func (f *fakeDocService) FinalizeSignedArtifact(*models.SignSession) error {
 	f.finalizeArtifactCalls++
 	return nil
 }
+func (f *fakeDocService) StampSessionSignature(int64, string) error { return nil }
 
 type fakeConfirmRepo struct {
 	createdExpiresAt time.Time
@@ -255,14 +256,14 @@ func TestSignByIDRepeatedFinalizeIsStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmailSession error: %v", err)
 	}
-	if _, err := svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua"); err != nil {
+	if _, err := svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua", ""); err != nil {
 		t.Fatalf("first SignByID failed: %v", err)
 	}
 	if docSvc.finalizeCalls != 1 || docSvc.finalizeArtifactCalls != 1 {
 		t.Fatalf("unexpected finalize calls after first sign: finalize=%d artifact=%d", docSvc.finalizeCalls, docSvc.finalizeArtifactCalls)
 	}
 
-	_, err = svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua")
+	_, err = svc.SignByID(context.Background(), session.ID, token, "127.0.0.1", "ua", "")
 	if !errors.Is(err, ErrSignSessionAlreadySigned) {
 		t.Fatalf("expected ErrSignSessionAlreadySigned, got %v", err)
 	}

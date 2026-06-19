@@ -1089,6 +1089,35 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 	return nil
 }
 
+func (s *DocumentService) StampSessionSignature(docID int64, signatureImageBase64 string) error {
+	if !IsBase64Signature(signatureImageBase64) {
+		return nil
+	}
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return fmt.Errorf("stamp_session: doc not found: %w", err)
+	}
+	signedRel := extractSignedPDFPath(doc.SignMetadata)
+	if signedRel == "" {
+		return fmt.Errorf("stamp_session: signed_pdf_path not found in metadata for document %d", docID)
+	}
+	signedAbs, err := s.resolveStoragePath(signedRel)
+	if err != nil {
+		return fmt.Errorf("stamp_session: resolve signed pdf path: %w", err)
+	}
+	eventID := fmt.Sprintf("sess_%d_%d", docID, time.Now().UnixNano())
+	savedRel, err := SaveSignatureImage(signatureImageBase64, eventID, s.FilesRoot)
+	if err != nil {
+		return fmt.Errorf("stamp_session: save signature image: %w", err)
+	}
+	imgAbs := filepath.Join(s.FilesRoot, savedRel)
+	if err := StampSignatureOnPDF(signedAbs, imgAbs, signedAbs); err != nil {
+		return fmt.Errorf("stamp_session: stamp pdf: %w", err)
+	}
+	log.Printf("[stamp_session] stamped document_id=%d signed_pdf=%s", docID, signedRel)
+	return nil
+}
+
 func (s *DocumentService) validateSessionDocumentHash(path string, expected string) error {
 	expected = strings.TrimSpace(expected)
 	if expected == "" {

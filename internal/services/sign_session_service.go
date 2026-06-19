@@ -67,6 +67,7 @@ type SignDocumentService interface {
 	EnsureSigningAllowed(docID int64, userID, roleID int) error
 	FinalizeSigning(docID int64) error
 	FinalizeSignedArtifact(session *models.SignSession) error
+	StampSessionSignature(docID int64, signatureImageBase64 string) error
 }
 
 type SignSessionService struct {
@@ -343,7 +344,7 @@ func (s *SignSessionService) ValidateSessionForPage(ctx context.Context, session
 	return s.validateByIDToken(ctx, sessionID, token)
 }
 
-func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, token, ip, userAgent string) (*models.SignSession, error) {
+func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, token, ip, userAgent, signatureImage string) (*models.SignSession, error) {
 	ctx, cancel := withTimeout(ctx)
 	defer cancel()
 	session, err := s.validateByIDToken(ctx, sessionID, token)
@@ -384,6 +385,13 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 	}
 
 	s.logSessionState("signed", session, "signed_success")
+
+	if strings.TrimSpace(signatureImage) != "" {
+		if stampErr := s.docService.StampSessionSignature(session.DocumentID, signatureImage); stampErr != nil {
+			log.Printf("[sign][session][stamp] document_id=%d err=%v", session.DocumentID, stampErr)
+		}
+	}
+
 	return session, nil
 }
 

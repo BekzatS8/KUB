@@ -15,11 +15,6 @@
     .status { margin:14px 0; padding:10px 12px; border-radius:8px; background:#eef2ff; }
     .error { background:#fef2f2; color:#991b1b; }
     .ok { background:#ecfdf3; color:#166534; }
-    .hint { margin:8px 0; padding-left:18px; }
-    .section { margin-top:18px; border-top:1px solid #eef2ff; padding-top:14px; }
-    input[type="text"] { width:100%; box-sizing:border-box; padding:11px; border:1px solid #d1d5db; border-radius:8px; margin-top:6px; }
-    button { margin-top:12px; padding:11px 16px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer; }
-    button[disabled] { opacity:.55; cursor:not-allowed; }
     .hidden { display:none; }
     .previewWrap { margin-top:10px; border:1px solid #dbe3ff; border-radius:8px; background:#f8faff; min-height:240px; overflow:hidden; }
     .previewFrame { width:100%; height:440px; border:0; background:#fff; }
@@ -27,12 +22,25 @@
     .checkboxRow input { margin-top:3px; }
     .checkboxRow label { line-height:1.4; }
     .linkBtn { display:inline-block; margin-top:10px; color:#1d4ed8; text-decoration:none; font-weight:600; }
+    input[type="text"] { width:100%; box-sizing:border-box; padding:11px; border:1px solid #d1d5db; border-radius:8px; margin-top:6px; }
+    .section { margin-top:18px; border-top:1px solid #eef2ff; padding-top:14px; }
+    /* Signature canvas */
+    .sigLabel { font-weight:600; margin-bottom:6px; display:block; }
+    .sigHint { color:#6b7280; font-size:13px; margin-bottom:8px; }
+    .canvasWrap { border:2px solid #d1d5db; border-radius:8px; background:#fff; touch-action:none; cursor:crosshair; overflow:hidden; }
+    .canvasWrap:focus-within { border-color:#2563eb; }
+    #sigCanvas { display:block; width:100%; height:160px; }
+    .canvasActions { display:flex; gap:10px; align-items:center; margin-top:8px; }
+    .btnClear { padding:8px 16px; background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:8px; cursor:pointer; font-size:14px; }
+    .btnClear:hover { background:#f9fafb; }
+    .btnSign { margin-top:12px; width:100%; padding:13px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-size:16px; font-weight:600; cursor:pointer; }
+    .btnSign:disabled { opacity:.55; cursor:not-allowed; }
   </style>
 </head>
 <body>
 <div class="card">
   <h1>Подписание документа</h1>
-  <p class="muted">Порядок действий: 1) проверьте документ, 2) подтвердите согласие, 3) введите код подтверждения, 4) завершите подпись.</p>
+  <p class="muted">Порядок действий: 1) проверьте документ, 2) подтвердите согласие, 3) введите код подтверждения, 4) нарисуйте подпись, 5) завершите подписание.</p>
 
   <div id="state" class="status">Загрузка данных ссылки…</div>
 
@@ -63,11 +71,20 @@
   <div id="confirmBox" class="hidden section">
     <label for="code">Код подтверждения</label>
     <input id="code" type="text" maxlength="6" autocomplete="one-time-code" placeholder="Например, 123456" />
-    <button id="confirmBtn">Подтвердить код</button>
+    <button id="confirmBtn" class="btnSign" style="margin-top:12px;">Подтвердить код</button>
   </div>
 
   <div id="signBox" class="hidden section">
-    <button id="signBtn">Подписать документ</button>
+    <h2>Ваша подпись</h2>
+    <span class="sigHint">Нарисуйте подпись ниже мышью или пальцем. Подпись будет вставлена в документ.</span>
+    <div class="canvasWrap">
+      <canvas id="sigCanvas"></canvas>
+    </div>
+    <div class="canvasActions">
+      <button class="btnClear" id="clearBtn" type="button">Очистить</button>
+      <span class="muted" id="sigStatus" style="font-size:13px;"></span>
+    </div>
+    <button id="signBtn" class="btnSign">Подписать документ</button>
   </div>
 </div>
 
@@ -75,6 +92,7 @@
 (() => {
   const initialToken = {{ .Token }};
   const channel = {{ .Channel }} || 'email';
+
   const state = document.getElementById('state');
   const docBox = document.getElementById('doc');
   const previewSection = document.getElementById('previewSection');
@@ -90,6 +108,8 @@
   const confirmBtn = document.getElementById('confirmBtn');
   const signBtn = document.getElementById('signBtn');
   const codeInput = document.getElementById('code');
+  const clearBtn = document.getElementById('clearBtn');
+  const sigStatus = document.getElementById('sigStatus');
 
   let token = new URLSearchParams(window.location.search).get('token') || initialToken || '';
   let docId = 0;
@@ -104,6 +124,64 @@
   const fallbackAgreementLabel = 'Я ознакомился с документом, проверил данные и согласен с его условиями.';
   const fallbackAgreementVersionMismatchMessage = 'Текст согласия изменился. Пожалуйста, откройте документ заново перед подписанием.';
 
+  // ── Canvas ──────────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('sigCanvas');
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  let hasMark = false;
+
+  function resizeCanvas() {
+    const wrap = canvas.parentElement;
+    const ratio = window.devicePixelRatio || 1;
+    const cssW = wrap.clientWidth;
+    const cssH = 160;
+    canvas.width  = cssW * ratio;
+    canvas.height = cssH * ratio;
+    canvas.style.width  = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    ctx.scale(ratio, ratio);
+    applyCtxStyle();
+  }
+
+  function applyCtxStyle() {
+    ctx.strokeStyle = '#1a1f36';
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+  }
+
+  function getXY(e) {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  }
+
+  canvas.addEventListener('mousedown',  e => { drawing = true; const p = getXY(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
+  canvas.addEventListener('mousemove',  e => { if (!drawing) return; const p = getXY(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasMark = true; updateSigStatus(); });
+  canvas.addEventListener('mouseup',    () => { drawing = false; });
+  canvas.addEventListener('mouseleave', () => { drawing = false; });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = getXY(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (!drawing) return; const p = getXY(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasMark = true; updateSigStatus(); }, { passive: false });
+  canvas.addEventListener('touchend',   () => { drawing = false; });
+
+  clearBtn.addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+    hasMark = false;
+    updateSigStatus();
+  });
+
+  function updateSigStatus() {
+    sigStatus.textContent = hasMark ? 'Подпись нарисована' : '';
+  }
+
+  function getSignatureDataURL() {
+    if (!hasMark) return '';
+    return canvas.toDataURL('image/png');
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   function setState(msg, type) {
     state.className = 'status' + (type ? (' ' + type) : '');
     state.textContent = msg;
@@ -122,28 +200,20 @@
     previewFallback.classList.add('hidden');
     previewOpenLink.classList.add('hidden');
     previewWrap.innerHTML = '';
-
-    if (!previewURL) {
-      previewFallback.classList.remove('hidden');
-      return;
-    }
-
+    if (!previewURL) { previewFallback.classList.remove('hidden'); return; }
     previewOpenLink.href = previewURL;
     previewOpenLink.classList.remove('hidden');
-
-    const normalizedType = (contentType || '').toLowerCase();
-    if (normalizedType.includes('pdf')) {
+    if ((contentType || '').toLowerCase().includes('pdf')) {
       const iframe = document.createElement('iframe');
       iframe.className = 'previewFrame';
       iframe.src = previewURL;
       iframe.title = 'Предпросмотр документа';
       previewWrap.appendChild(iframe);
       previewWrap.classList.remove('hidden');
-      return;
+    } else {
+      previewFallback.textContent = 'Предпросмотр встраивается только для PDF. Откройте документ по ссылке выше.';
+      previewFallback.classList.remove('hidden');
     }
-
-    previewFallback.textContent = 'Предпросмотр встраивается только для PDF. Откройте документ по ссылке выше.';
-    previewFallback.classList.remove('hidden');
   }
 
   function renderAgreement() {
@@ -156,64 +226,50 @@
   function mapConfirmError(payload) {
     const codeResp = payload.code || payload.error || '';
     const message = payload.message || '';
-
     if (codeResp === 'INVALID_CODE') return 'Неверный код подтверждения.';
     if (codeResp === 'EXPIRED') return 'Срок действия ссылки истек.';
     if (codeResp === 'ALREADY_USED') return 'Ссылка уже использована.';
-
-    if (message.includes('Agreement text version mismatch')) {
+    if (message.includes('Agreement text version mismatch'))
       return agreement?.version_mismatch_message || fallbackAgreementVersionMismatchMessage;
-    }
-    if (message.includes('Document version mismatch')) {
+    if (message.includes('Document version mismatch'))
       return 'Документ изменился после открытия. Пожалуйста, откройте его заново перед подписанием.';
-    }
-    if (message.includes('Document hash is required')) {
+    if (message.includes('Document hash is required'))
       return 'Не удалось проверить версию документа. Откройте документ заново.';
-    }
-    if (message.includes('Agreement text version is required')) {
+    if (message.includes('Agreement text version is required'))
       return 'Не удалось загрузить условия подтверждения. Обновите страницу.';
-    }
-    if (message.includes('Document review and agreement are required')) {
+    if (message.includes('Document review and agreement are required'))
       return 'Подтвердите, что вы ознакомились с документом и согласны с его условиями.';
-    }
-
     return message || 'Не удалось подтвердить код. Попробуйте еще раз.';
   }
 
+  // ── Verify link ─────────────────────────────────────────────────────────────
   async function verify() {
-    if (!token) {
-      setState('Ссылка повреждена: не найден token.', 'error');
-      return;
-    }
+    if (!token) { setState('Ссылка повреждена: не найден token.', 'error'); return; }
     setState('Проверяем ссылку…');
     try {
-      const verifyURL = `/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`;
-      const res = await fetch(verifyURL, { headers: { 'Accept': 'application/json' } });
+      const res = await fetch(`/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`, { headers: { 'Accept': 'application/json' } });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const code = payload.code || payload.error || 'UNKNOWN';
-        if (code === 'EXPIRED') setState('Ссылка истекла. Попросите отправить новую ссылку.', 'error');
+        if (code === 'EXPIRED')      setState('Ссылка истекла. Попросите отправить новую ссылку.', 'error');
         else if (code === 'ALREADY_USED') setState('Ссылка уже использована.', 'error');
         else setState('Ссылка недействительна или документ недоступен.', 'error');
         return;
       }
-      if (!payload.token_valid) {
-        setState('Ссылка недействительна.', 'error');
-        return;
-      }
+      if (!payload.token_valid) { setState('Ссылка недействительна.', 'error'); return; }
 
-      docId = payload.document?.id || 0;
-      previewURL = payload.document?.preview_url || '';
-      documentHashPreview = payload.document?.document_hash_preview || '';
-      agreement = payload.agreement || null;
-      fileName = payload.document?.file_name || '';
-      contentType = payload.document?.content_type || '';
+      docId                = payload.document?.id || 0;
+      previewURL           = payload.document?.preview_url || '';
+      documentHashPreview  = payload.document?.document_hash_preview || '';
+      agreement            = payload.agreement || null;
+      fileName             = payload.document?.file_name || '';
+      contentType          = payload.document?.content_type || '';
 
-      document.getElementById('docTitle').textContent = payload.document?.title || '—';
-      document.getElementById('docId').textContent = String(payload.document?.id || '—');
+      document.getElementById('docTitle').textContent  = payload.document?.title || '—';
+      document.getElementById('docId').textContent     = String(payload.document?.id || '—');
       document.getElementById('docStatus').textContent = payload.document?.status || '—';
       document.getElementById('expiresAt').textContent = toLocal(payload.confirmation?.expires_at);
-      document.getElementById('fileName').textContent = fileName || '—';
+      document.getElementById('fileName').textContent  = fileName || '—';
       document.getElementById('contentType').textContent = contentType || '—';
 
       docBox.classList.remove('hidden');
@@ -224,18 +280,25 @@
       if (payload.require_post_confirm !== false) {
         confirmBox.classList.remove('hidden');
       } else {
-        signBox.classList.remove('hidden');
+        showSignBox();
       }
-    } catch (e) {
+    } catch {
       setState('Ошибка сети при проверке ссылки. Попробуйте позже.', 'error');
     }
   }
 
+  function showSignBox() {
+    signBox.classList.remove('hidden');
+    // initialise canvas after it becomes visible so clientWidth is correct
+    requestAnimationFrame(resizeCanvas);
+  }
+
+  // ── Confirm code ─────────────────────────────────────────────────────────────
   confirmBtn.addEventListener('click', async () => {
-    const code = (codeInput.value || '').trim();
+    const code    = (codeInput.value || '').trim();
     const isAgreed = !!agreementCheckbox.checked;
-    if (!docId) return setState('Документ не определен.', 'error');
-    if (!code) return setState('Введите код подтверждения.', 'error');
+    if (!docId)    return setState('Документ не определен.', 'error');
+    if (!code)     return setState('Введите код подтверждения.', 'error');
     if (!isAgreed) return setState('Подтвердите, что вы ознакомились с документом и согласны с его условиями.', 'error');
     if (!documentHashPreview) return setState('Не удалось проверить версию документа. Откройте документ заново.', 'error');
     if (!(agreement?.version || '')) return setState('Не удалось загрузить условия подтверждения. Обновите страницу.', 'error');
@@ -256,47 +319,48 @@
         })
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setState(mapConfirmError(payload), 'error');
-        return;
-      }
-      sessionId = payload.session_id;
+      if (!res.ok) { setState(mapConfirmError(payload), 'error'); return; }
+      sessionId    = payload.session_id;
       sessionToken = payload.session_token;
-      if (!sessionId || !sessionToken) {
-        setState('Сервер не вернул данные сессии подписи.', 'error');
-        return;
-      }
+      if (!sessionId || !sessionToken) { setState('Сервер не вернул данные сессии подписи.', 'error'); return; }
       confirmBox.classList.add('hidden');
-      signBox.classList.remove('hidden');
-      setState('Код подтвержден. Теперь подпишите документ.', 'ok');
-    } catch (e) {
+      showSignBox();
+      setState('Код подтвержден. Нарисуйте подпись и нажмите «Подписать документ».', 'ok');
+    } catch {
       setState('Ошибка сети при подтверждении кода.', 'error');
     } finally {
       confirmBtn.disabled = false;
     }
   });
 
+  // ── Sign ─────────────────────────────────────────────────────────────────────
   signBtn.addEventListener('click', async () => {
     if (!sessionId || !sessionToken) return setState('Сессия подписи не найдена.', 'error');
+    if (!hasMark) return setState('Нарисуйте вашу подпись перед подписанием.', 'error');
+
     signBtn.disabled = true;
     setState('Подписываем документ…');
     try {
+      const sigDataURL = getSignatureDataURL();
+      const body = { token: sessionToken, agree: true };
+      if (sigDataURL) body.signature_image = sigDataURL;
+
       const res = await fetch(`/api/v1/sign/sessions/id/${sessionId}/sign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ token: sessionToken, agree: true })
+        body: JSON.stringify(body)
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = payload.error || 'UNKNOWN';
-        if (err === 'Session expired') setState('Сессия подписи истекла. Запросите новую ссылку.', 'error');
+        if (err === 'Session expired')       setState('Сессия подписи истекла. Запросите новую ссылку.', 'error');
         else if (err === 'Session already signed') setState('Документ уже подписан.', 'error');
         else setState('Не удалось завершить подпись. Попробуйте позже.', 'error');
         return;
       }
       setState('Документ успешно подписан. Спасибо!', 'ok');
       signBox.classList.add('hidden');
-    } catch (e) {
+    } catch {
       setState('Ошибка сети при подписании.', 'error');
     } finally {
       signBtn.disabled = false;

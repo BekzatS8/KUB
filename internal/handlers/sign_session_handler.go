@@ -120,9 +120,10 @@ func (h *SignSessionHandler) SignByID(c *gin.Context) {
 		return
 	}
 	var input struct {
-		Token    string `json:"token" binding:"required"`
-		Agree    *bool  `json:"agree"`
-		FullName string `json:"full_name"`
+		Token          string `json:"token" binding:"required"`
+		Agree          *bool  `json:"agree"`
+		FullName       string `json:"full_name"`
+		SignatureImage string `json:"signature_image"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		badRequest(c, "Invalid input")
@@ -132,7 +133,7 @@ func (h *SignSessionHandler) SignByID(c *gin.Context) {
 		badRequest(c, "Agreement required")
 		return
 	}
-	session, err := h.Service.SignByID(c.Request.Context(), sessionID, input.Token, c.ClientIP(), c.Request.UserAgent())
+	session, err := h.Service.SignByID(c.Request.Context(), sessionID, input.Token, c.ClientIP(), c.Request.UserAgent(), input.SignatureImage)
 	if err != nil {
 		handleSignSessionTokenError(c, err)
 		return
