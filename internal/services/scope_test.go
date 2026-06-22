@@ -21,12 +21,13 @@ func TestResolveLeadScope_AdminAndManagementReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveLeadScope_SalesVisaReturnBranch(t *testing.T) {
+func TestResolveLeadScope_SalesVisaPartnerReturnBranch(t *testing.T) {
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
 	// quality_control is no longer branch-scoped — see TestQualityControlScopeIsAll.
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
+	// partner is now department-scoped (same as sales/visa), not own-scoped.
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
 		scope, err := resolveLeadScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -37,20 +38,6 @@ func TestResolveLeadScope_SalesVisaReturnBranch(t *testing.T) {
 		if scope.BranchID == nil || *scope.BranchID != branchID {
 			t.Errorf("role %d: expected branchID=%d, got %+v", roleID, branchID, scope.BranchID)
 		}
-	}
-}
-
-func TestResolveLeadScope_PartnerReturnsOwn(t *testing.T) {
-	const partnerUserID = 42
-	scope, err := resolveLeadScope(partnerUserID, authz.RolePartner, nil)
-	if err != nil {
-		t.Fatalf("partner: unexpected error: %v", err)
-	}
-	if scope.Kind != ScopeKindOwn {
-		t.Fatalf("partner: expected ScopeKindOwn, got %v", scope.Kind)
-	}
-	if scope.UserID != partnerUserID {
-		t.Fatalf("partner: expected UserID=%d, got %d", partnerUserID, scope.UserID)
 	}
 }
 
@@ -68,8 +55,9 @@ func TestResolveLeadScope_HRAndLegalAndUnknownReturnForbidden(t *testing.T) {
 
 // ─── resolveClientScope ──────────────────────────────────────────────────────
 
-func TestResolveClientScope_AdminManagementLegalReturnAll(t *testing.T) {
-	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleLegal} {
+func TestResolveClientScope_AdminManagementLegalPartnerReturnAll(t *testing.T) {
+	// partner now uses общая база (ScopeKindAll) for clients.
+	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleLegal, authz.RolePartner} {
 		scope, err := resolveClientScope(1, roleID, nil)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -80,36 +68,16 @@ func TestResolveClientScope_AdminManagementLegalReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveClientScope_SalesVisaReturnBranch(t *testing.T) {
-	branchID := 5
-	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
-
-	// quality_control is no longer branch-scoped — see TestQualityControlScopeIsAll.
+func TestResolveClientScope_SalesVisaReturnAll(t *testing.T) {
+	// sales/visa have общая база (ScopeKindAll) for clients — no branch restriction.
 	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
-		scope, err := resolveClientScope(100, roleID, userRepo)
+		scope, err := resolveClientScope(100, roleID, nil)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
 		}
-		if scope.Kind != ScopeKindBranch {
-			t.Errorf("role %d: expected ScopeKindBranch, got %v", roleID, scope.Kind)
+		if scope.Kind != ScopeKindAll {
+			t.Errorf("role %d: expected ScopeKindAll for clients, got %v", roleID, scope.Kind)
 		}
-		if scope.BranchID == nil || *scope.BranchID != branchID {
-			t.Errorf("role %d: expected branchID=%d, got %+v", roleID, branchID, scope.BranchID)
-		}
-	}
-}
-
-func TestResolveClientScope_PartnerReturnsOwn(t *testing.T) {
-	const partnerUserID = 77
-	scope, err := resolveClientScope(partnerUserID, authz.RolePartner, nil)
-	if err != nil {
-		t.Fatalf("partner: unexpected error: %v", err)
-	}
-	if scope.Kind != ScopeKindOwn {
-		t.Fatalf("partner: expected ScopeKindOwn, got %v", scope.Kind)
-	}
-	if scope.UserID != partnerUserID {
-		t.Fatalf("partner: expected UserID=%d, got %d", partnerUserID, scope.UserID)
 	}
 }
 
@@ -301,18 +269,24 @@ func TestHRScopeAlwaysForbidden(t *testing.T) {
 	}
 }
 
-// TestPartnerScopeIsOwnForBothEntities verifies partner gets Own scope for both leads and clients.
-func TestPartnerScopeIsOwnForBothEntities(t *testing.T) {
+// TestPartnerScope_BranchLeadsAllClients verifies partner gets Branch scope for leads (dept-scoped)
+// and All scope for clients (общая база).
+func TestPartnerScope_BranchLeadsAllClients(t *testing.T) {
 	const partnerID = 55
+	branchID := 3
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
-	leadScope, err := resolveLeadScope(partnerID, authz.RolePartner, nil)
-	if err != nil || leadScope.Kind != ScopeKindOwn || leadScope.UserID != partnerID {
-		t.Errorf("partner must be Own(%d) for leads, got %+v err=%v", partnerID, leadScope, err)
+	leadScope, err := resolveLeadScope(partnerID, authz.RolePartner, userRepo)
+	if err != nil || leadScope.Kind != ScopeKindBranch {
+		t.Errorf("partner must be Branch-scoped for leads, got %+v err=%v", leadScope, err)
+	}
+	if leadScope.BranchID == nil || *leadScope.BranchID != branchID {
+		t.Errorf("partner leads: expected branchID=%d, got %v", branchID, leadScope.BranchID)
 	}
 
 	clientScope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
-	if err != nil || clientScope.Kind != ScopeKindOwn || clientScope.UserID != partnerID {
-		t.Errorf("partner must be Own(%d) for clients, got %+v err=%v", partnerID, clientScope, err)
+	if err != nil || clientScope.Kind != ScopeKindAll {
+		t.Errorf("partner must be All (общая база) for clients, got %+v err=%v", clientScope, err)
 	}
 }
 
@@ -334,10 +308,10 @@ func TestQualityControlScopeIsAll(t *testing.T) {
 }
 
 // TestResolveUserBranch_NilRepoReturnsForbidden verifies that branch-scoped roles
-// (sales/visa) fail closed when userRepo is missing. quality_control is excluded —
+// (sales/visa/partner) fail closed when userRepo is missing. quality_control is excluded —
 // it is now ScopeKindAll and needs no branch lookup.
 func TestResolveUserBranch_NilRepoReturnsForbidden(t *testing.T) {
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
 		_, err := resolveLeadScope(1, roleID, nil)
 		if err == nil {
 			t.Errorf("role %d: expected error when userRepo is nil, got nil", roleID)

@@ -27,8 +27,9 @@ type DataScope struct {
 // roleDeptCode maps role IDs that carry an implicit department to that
 // department's code. Used as fallback when users.department_id is NULL.
 var roleDeptCode = map[int]string{
-	authz.RoleSales: "sales",
-	authz.RoleVisa:  "visa",
+	authz.RoleSales:   "sales",
+	authz.RoleVisa:    "visa",
+	authz.RolePartner: "partner",
 }
 
 // resolveUserContext fetches branch and department for userID.
@@ -69,18 +70,17 @@ func resolveUserBranch(userID int, userRepo repositories.UserRepository) (*int, 
 
 // resolveLeadScope returns the DataScope for the leads entity.
 //
-// LEADS mapping (from permission matrix + ТЗ №2/№4):
-//   admin / management            → All
-//   sales / visa / quality_control → Branch(user.BranchID)
-//   partner                        → Own(userID)
-//   hr / legal / unknown           → Forbidden
+// LEADS mapping (from permission matrix + ТЗ):
+//   admin / management / quality_control → All
+//   sales / visa / partner               → Branch+Department(user.BranchID, user.DepartmentID)
+//   hr / legal / unknown                 → Forbidden
 func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
 	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
 		// quality_control is an all-funnel READ observer across all departments/branches.
 		// Read-only is enforced separately (ReadOnlyGuard + service IsReadOnly checks).
 		return DataScope{Kind: ScopeKindAll}, nil
-	case authz.RoleSales, authz.RoleVisa:
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
 		branchID, deptID, err := resolveUserContext(userID, userRepo)
 		if err != nil {
 			return DataScope{Kind: ScopeKindForbidden}, err
@@ -88,8 +88,6 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 		// UserID is carried so a department-scoped role can still see leads it owns
 		// (incl. department_id IS NULL ones) without leaking NULL-dept leads to peers.
 		return DataScope{Kind: ScopeKindBranch, BranchID: branchID, DepartmentID: deptID, UserID: userID}, nil
-	case authz.RolePartner:
-		return DataScope{Kind: ScopeKindOwn, UserID: userID}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}
@@ -97,16 +95,13 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 
 // resolveClientScope returns the DataScope for the clients entity.
 //
-// CLIENTS mapping (from permission matrix + ТЗ №2/№4):
-//   admin / management / sales / visa / legal → All (общая база)
-//   quality_control                            → All (read-only enforced elsewhere)
-//   partner                                    → Own(userID) — видит только своих клиентов
-//   hr / unknown                               → Forbidden
+// CLIENTS mapping (from permission matrix + ТЗ):
+//   admin / management / sales / visa / partner / legal → All (общая база)
+//   quality_control                                     → All (read-only enforced elsewhere)
+//   hr / unknown                                        → Forbidden
 func resolveClientScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RolePartner:
-		return DataScope{Kind: ScopeKindOwn, UserID: userID}, nil
-	case authz.RoleSales, authz.RoleVisa,
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner,
 		authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl:
 		// quality_control observes all clients (read-only enforced elsewhere).
 		return DataScope{Kind: ScopeKindAll}, nil

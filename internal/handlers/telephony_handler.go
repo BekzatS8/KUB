@@ -199,6 +199,43 @@ func (h *TelephonyHandler) ListLeadCalls(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": calls, "total": total})
 }
 
+// InitiateCall handles POST /api/v1/telephony/calls/initiate
+// Body: { "phone": "+77001234567", "manager_id": 5 }
+// manager_id is optional — if omitted the caller's own extension is used.
+// Requires telephony.view. Returns { "general_call_id": "..." }.
+func (h *TelephonyHandler) InitiateCall(c *gin.Context) {
+	roleIDVal, _ := c.Get("role_id")
+	roleIDInt, _ := roleIDVal.(int)
+	userIDVal, _ := c.Get("user_id")
+	userIDInt, _ := userIDVal.(int)
+
+	var body struct {
+		Phone     string `json:"phone"`
+		ManagerID *int   `json:"manager_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	phone := strings.TrimSpace(body.Phone)
+	if phone == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "phone is required"})
+		return
+	}
+
+	generalCallID, err := h.svc.InitiateCall(c.Request.Context(), userIDInt, roleIDInt, phone, body.ManagerID)
+	if err != nil {
+		log.Printf("telephony: initiate_call error: %v", err)
+		if errors.Is(err, services.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"general_call_id": generalCallID})
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func parseQueryInt(s string, def int) int {

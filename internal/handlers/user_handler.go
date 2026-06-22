@@ -27,6 +27,7 @@ type UserHandler struct {
 	service             services.UserService
 	branchService       services.BranchService
 	verificationService *services.UserVerificationService
+	approvalService     *services.UserApprovalService
 	filesRoot           string
 	store               storage.Storage
 }
@@ -75,6 +76,10 @@ func NewUserHandler(service services.UserService, branchService services.BranchS
 		root = strings.TrimSpace(filesRoot[0])
 	}
 	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService, filesRoot: root, store: store}
+}
+
+func (h *UserHandler) SetApprovalService(svc *services.UserApprovalService) {
+	h.approvalService = svc
 }
 
 type userResponse struct {
@@ -274,7 +279,14 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 }
 
 func (h *UserHandler) CreateUser(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
+	requesterID, roleID := getUserAndRole(c)
+
+	// Юрист может запросить создание — уходит на подтверждение к админу
+	if roleID == authz.RoleLegal {
+		h.createUserApprovalRequest(c, requesterID)
+		return
+	}
+
 	if !authz.CanAssignRoles(roleID) {
 		forbidden(c, "Только системный администратор может создавать пользователей")
 		return
@@ -312,7 +324,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		ExtraInfo:   req.ExtraInfo,
 		AvatarURL:   req.AvatarURL,
 		RoleID:      newRole,
-		IsVerified:  false,
+		IsVerified:  true,
 		IsActive:    true,
 		IsActiveSet: true,
 	}
@@ -332,12 +344,63 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		internalError(c, "Не удалось создать пользователя")
 		return
 	}
-	if h.verificationService != nil {
-		if err := h.verificationService.Send(user.ID, user.Email); err != nil {
-			log.Printf("[users][create] send user verification email failed: %v", err)
-		}
-	}
 	c.JSON(http.StatusCreated, h.userToResponse(user))
+}
+
+// createUserApprovalRequest — вызывается когда юрист создаёт пользователя.
+// Создаёт заявку для подтверждения админом вместо немедленного создания.
+func (h *UserHandler) createUserApprovalRequest(c *gin.Context, requesterID int) {
+	if h.approvalService == nil {
+		internalError(c, "Сервис подтверждений недоступен")
+		return
+	}
+	var req createUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Некорректные данные пользователя")
+		return
+	}
+	trimCreateUserRequest(&req)
+	if msg := validateRequiredCreateUserFields(req); msg != "" {
+		badRequest(c, msg)
+		return
+	}
+	if !authz.IsKnownRole(req.RoleID) {
+		badRequest(c, "Некорректная роль")
+		return
+	}
+	if msg := h.validateBranchForRole(req.RoleID, req.BranchID); msg != "" {
+		badRequest(c, msg)
+		return
+	}
+	user := &models.User{
+		CompanyName: req.CompanyName,
+		BinIin:      req.BinIin,
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		MiddleName:  req.MiddleName,
+		Position:    req.Position,
+		BranchID:    req.BranchID,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Address:     req.Address,
+		ExtraInfo:   req.ExtraInfo,
+		RoleID:      req.RoleID,
+	}
+	approval, err := h.approvalService.RequestCreate(c.Request.Context(), requesterID, user, req.Password)
+	if err != nil {
+		log.Printf("createUserApprovalRequest: service error: %v", err)
+		if errors.Is(err, services.ErrEmailAlreadyUsed) {
+			conflict(c, ConflictCode, "Этот email уже используется")
+			return
+		}
+		internalError(c, "Не удалось создать заявку")
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{
+		"pending":    true,
+		"request_id": approval.ID,
+		"message":    "Заявка на создание пользователя отправлена администратору на подтверждение",
+	})
 }
 
 func (h *UserHandler) GetMyProfile(c *gin.Context) {
@@ -722,14 +785,39 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 }
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	_, roleID := getUserAndRole(c)
-	if !authz.CanAssignRoles(roleID) {
-		forbidden(c, "Только системный администратор может удалять пользователей")
-		return
-	}
+	requesterID, roleID := getUserAndRole(c)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		badRequest(c, "Некорректный ID пользователя")
+		return
+	}
+
+	// Юрист не может удалять напрямую — создаёт заявку для админа
+	if roleID == authz.RoleLegal {
+		if h.approvalService == nil {
+			internalError(c, "Сервис подтверждений недоступен")
+			return
+		}
+		approval, err := h.approvalService.RequestDelete(c.Request.Context(), requesterID, id)
+		if err != nil {
+			log.Printf("DeleteUser legal: service error: %v", err)
+			if errors.Is(err, services.ErrNotFound) {
+				notFound(c, ClientNotFoundCode, "Пользователь не найден")
+				return
+			}
+			internalError(c, "Не удалось создать заявку на удаление")
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"pending":    true,
+			"request_id": approval.ID,
+			"message":    "Заявка на удаление пользователя отправлена администратору на подтверждение",
+		})
+		return
+	}
+
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Только системный администратор может удалять пользователей")
 		return
 	}
 	if err := h.service.DeleteUser(id); err != nil {
@@ -742,7 +830,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
+	if !authz.CanViewUsers(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -784,11 +872,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 func (h *UserHandler) GetUserCount(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
-		forbidden(c, "Forbidden")
-		return
-	}
-	if !authz.CanViewLeadershipData(roleID) {
+	if !authz.CanViewUsers(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -802,11 +886,7 @@ func (h *UserHandler) GetUserCount(c *gin.Context) {
 
 func (h *UserHandler) GetUserCountByRole(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) {
-		forbidden(c, "Forbidden")
-		return
-	}
-	if !authz.CanViewLeadershipData(roleID) {
+	if !authz.CanViewUsers(roleID) {
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -867,6 +947,86 @@ func (h *UserHandler) Register(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusCreated, gin.H{"user": h.userToResponse(user), "message": "Registered. Verification code sent.", "verification_sent": verificationSent})
+}
+
+func (h *UserHandler) ChangeUserPassword(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanAssignRoles(roleID) {
+		forbidden(c, "Только системный администратор может менять пароль пользователя")
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid user ID")
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Password) == "" {
+		badRequest(c, "Пароль не может быть пустым")
+		return
+	}
+	if err := h.service.AdminChangePassword(id, req.Password); err != nil {
+		log.Printf("ChangeUserPassword: %v", err)
+		internalError(c, "Не удалось изменить пароль")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Пароль успешно изменён"})
+}
+
+// BlockUser — POST /users/:id/block
+// Устанавливает is_active=false напрямую (без подтверждения), доступно юристу и выше.
+func (h *UserHandler) BlockUser(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Некорректный ID пользователя")
+		return
+	}
+	target, err := h.service.GetUserByID(id)
+	if err != nil || target == nil {
+		notFound(c, ClientNotFoundCode, "Пользователь не найден")
+		return
+	}
+	// Защита: не позволяем блокировать самого себя и тех, кто выше по роли
+	if target.RoleID == authz.RoleSystemAdmin && roleID != authz.RoleSystemAdmin {
+		forbidden(c, "Нельзя заблокировать администратора")
+		return
+	}
+	body := *target
+	body.IsActive = false
+	if err := h.service.UpdateUser(&body); err != nil {
+		log.Printf("BlockUser: service error: %v", err)
+		internalError(c, "Не удалось заблокировать пользователя")
+		return
+	}
+	updated, _ := h.service.GetUserByID(id)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
+}
+
+// UnblockUser — POST /users/:id/unblock
+// Устанавливает is_active=true напрямую, доступно юристу и выше.
+func (h *UserHandler) UnblockUser(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Некорректный ID пользователя")
+		return
+	}
+	target, err := h.service.GetUserByID(id)
+	if err != nil || target == nil {
+		notFound(c, ClientNotFoundCode, "Пользователь не найден")
+		return
+	}
+	body := *target
+	body.IsActive = true
+	if err := h.service.UpdateUser(&body); err != nil {
+		log.Printf("UnblockUser: service error: %v", err)
+		internalError(c, "Не удалось разблокировать пользователя")
+		return
+	}
+	updated, _ := h.service.GetUserByID(id)
+	c.JSON(http.StatusOK, h.userToResponse(updated))
 }
 
 func allowedAvatarExt(ext string) bool {

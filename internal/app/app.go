@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"turcompany/internal/docx"
+	binotelclient "turcompany/internal/integrations/binotel"
 	wazzupintegration "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/xlsx"
 
@@ -148,6 +149,7 @@ func Run() {
 	documentRepo := repositories.NewDocumentRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
 	verifRepo := repositories.NewUserVerificationRepository(db)
+	userApprovalRepo := repositories.NewUserApprovalRepository(db)
 	teleLinkRepo := repositories.NewTelegramLinkRepository(db)
 	chatRepo := repositories.NewChatRepository(db)
 	passwordResetRepo := repositories.NewPasswordResetRepository(db)
@@ -197,6 +199,12 @@ func Run() {
 
 	// Telephony (always initialized — webhook secret may be empty in dev)
 	telephonySvc := services.NewTelephonyService(telephonyRepo, userRepo, cfg.Binotel.WebhookSecret)
+	if cfg.Binotel.APIKey != "" && cfg.Binotel.APISecret != "" {
+		telephonySvc.SetBinotelClient(binotelclient.NewClient(cfg.Binotel.APIKey, cfg.Binotel.APISecret))
+		log.Printf("[BOOT] telephony: binotel REST client enabled (outgoing calls active)")
+	} else {
+		log.Printf("[BOOT] telephony: binotel REST client disabled (BINOTEL_API_KEY/BINOTEL_API_SECRET not set)")
+	}
 	telephonyHandler := handlers.NewTelephonyHandler(telephonySvc)
 	log.Printf("[BOOT] telephony: binotel webhook_secret_set=%v", strings.TrimSpace(cfg.Binotel.WebhookSecret) != "")
 
@@ -236,6 +244,7 @@ func Run() {
 	// Enforce client/lead ownership on the telephony call-history endpoints
 	// (GET /clients/:id/calls, GET /leads/:id/calls) using the canonical scope checks.
 	telephonySvc.SetAccessCheckers(clientService, leadService)
+	// AuditService is wired after auditSvc is created below — see telephonySvc.SetAuditService call.
 	dealService := services.NewDealService(dealRepo, clientRepo)
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	dealService.SetStageRepo(funnelStageRepo)
@@ -429,8 +438,17 @@ func Run() {
 		log.Printf("[BOOT] audit schema check: audit_logs table is missing; apply latest migrations")
 	}
 	auditSvc := services.NewAuditService(auditRepo)
+	telephonySvc.SetAuditService(auditSvc)
 	router.Use(audit.AuditMiddleware(auditSvc))
 	feedHandler := handlers.NewFeedHandler(auditSvc)
+
+	approvalSvc := services.NewUserApprovalService(userApprovalRepo, userService, authService, auditSvc)
+	approvalHandler := handlers.NewUserApprovalHandler(approvalSvc)
+	userHandler.SetApprovalService(approvalSvc)
+
+	feedEventRepo := repositories.NewFeedEventRepository(db)
+	feedEventSvc := services.NewFeedEventService(feedEventRepo, userRepo, clientService)
+	feedEventHandler := handlers.NewFeedEventHandler(feedEventSvc)
 
 	// === Routes ===
 	log.Printf("[BOOT] mounting routes...")
@@ -469,6 +487,8 @@ func Run() {
 		signHistoryHandler,
 		docVersionHandler,
 		feedHandler,
+		approvalHandler,
+		feedEventHandler,
 		middleware.NewAuthMiddleware(jwtSecret),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")

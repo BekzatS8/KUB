@@ -44,6 +44,8 @@ func SetupRoutes(
 	signHistoryHandler *handlers.DocumentSignHistoryHandler,
 	docVersionHandler *handlers.DocumentVersionHandler,
 	feedHandler *handlers.FeedHandler,
+	approvalHandler *handlers.UserApprovalHandler, // может быть nil
+	feedEventHandler *handlers.FeedEventHandler,   // может быть nil
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -203,6 +205,7 @@ func SetupRoutes(
 		{
 			tGroup.GET("/calls", telephonyHandler.ListCalls)
 			tGroup.GET("/calls/:id", telephonyHandler.GetCall)
+			tGroup.POST("/calls/initiate", telephonyHandler.InitiateCall)
 		}
 		// Per-entity call history (uses existing entity id param)
 		clientCalls := r.Group("/api/v1/clients", middleware.RequirePermission("telephony.view", "telephony"))
@@ -236,7 +239,21 @@ func SetupRoutes(
 		users.GET("/:id/avatar/content", userHandler.ServeUserAvatar)
 		users.GET("/:id", middleware.RequirePermission("users.view", "user"), userHandler.GetUserByID)
 		users.PUT("/:id", middleware.RequirePermission("users.update", "user"), userHandler.UpdateUser)
+		users.PUT("/:id/password", middleware.RequirePermission("users.update", "user"), userHandler.ChangeUserPassword)
 		users.DELETE("/:id", middleware.RequirePermission("users.delete", "user"), userHandler.DeleteUser)
+		// Блокировка/разблокировка — прямое действие для юриста (без подтверждения)
+		users.POST("/:id/block", middleware.RequirePermission("users.block", "user"), userHandler.BlockUser)
+		users.POST("/:id/unblock", middleware.RequirePermission("users.block", "user"), userHandler.UnblockUser)
+	}
+
+	// USER APPROVAL REQUESTS — запросы юриста на create/delete, одобряемые администратором
+	if approvalHandler != nil {
+		userReqs := r.Group("/api/v1/user-requests", middleware.RequireRoles(authz.RoleSystemAdmin))
+		{
+			userReqs.GET("", approvalHandler.List)
+			userReqs.POST("/:id/approve", approvalHandler.Approve)
+			userReqs.POST("/:id/reject", approvalHandler.Reject)
+		}
 	}
 
 	// BRANCHES — read gated by branches.view (admin + management only);
@@ -461,6 +478,17 @@ func SetupRoutes(
 	// FEED — лента действий, видимость записей зависит от роли
 	if feedHandler != nil {
 		r.GET("/api/v1/feed", middleware.RequirePermission("feed.view", "feed"), feedHandler.List)
+	}
+
+	// FEED EVENTS — запросы на подтверждение от визового и других отделов
+	if feedEventHandler != nil {
+		for _, prefix := range []string{"/feed-events", "/api/v1/feed-events"} {
+			fe := r.Group(prefix, middleware.RequirePermission("feed.view", "feed"))
+			fe.POST("", feedEventHandler.Create)
+			fe.GET("", feedEventHandler.List)
+			fe.POST("/:id/approve", feedEventHandler.Approve)
+			fe.POST("/:id/reject", feedEventHandler.Reject)
+		}
 	}
 
 	// REPORTS — requires reports.view (admin, management, quality_control per permission matrix)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"turcompany/internal/authz"
+	binotelclient "turcompany/internal/integrations/binotel"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -34,11 +35,13 @@ type leadAccessChecker interface {
 
 // TelephonyService handles business logic for telephony / Binotel integration.
 type TelephonyService struct {
-	repo         repositories.TelephonyRepository
-	userRepo     userBranchLookup
-	clientAccess clientAccessChecker
-	leadAccess   leadAccessChecker
-	secret       string // BINOTEL_WEBHOOK_SECRET — empty means no check in dev
+	repo          repositories.TelephonyRepository
+	userRepo      userBranchLookup
+	clientAccess  clientAccessChecker
+	leadAccess    leadAccessChecker
+	secret        string // BINOTEL_WEBHOOK_SECRET — empty means no check in dev
+	binotelClient *binotelclient.Client
+	audit         *AuditService
 }
 
 // NewTelephonyService constructs a TelephonyService.
@@ -54,8 +57,63 @@ func (s *TelephonyService) SetAccessCheckers(clientAccess clientAccessChecker, l
 	s.leadAccess = leadAccess
 }
 
+// SetBinotelClient wires the Binotel REST API client used for outgoing calls.
+func (s *TelephonyService) SetBinotelClient(c *binotelclient.Client) { s.binotelClient = c }
+
+// SetAuditService wires the audit logger for feed events (telephony.call.*).
+func (s *TelephonyService) SetAuditService(audit *AuditService) { s.audit = audit }
+
 // WebhookSecret returns the configured secret (used by the handler for validation).
 func (s *TelephonyService) WebhookSecret() string { return s.secret }
+
+// InitiateCall asks Binotel to ring internalNumber (manager's extension) and connect
+// it to externalPhone (client/lead number). The manager's extension is read from
+// users.phone in CRM — make sure managers have their Binotel extension set there.
+// managerID overrides the caller's own user; only admin/management may use it.
+func (s *TelephonyService) InitiateCall(ctx context.Context, callerUserID, callerRoleID int, externalPhone string, managerID *int) (string, error) {
+	if s.binotelClient == nil || !s.binotelClient.IsConfigured() {
+		return "", fmt.Errorf("telephony: binotel client not configured (set BINOTEL_API_KEY + BINOTEL_API_SECRET)")
+	}
+
+	// Resolve which manager's extension to dial from.
+	resolvedManagerID := callerUserID
+	if managerID != nil && *managerID > 0 && *managerID != callerUserID {
+		if callerRoleID != authz.RoleSystemAdmin && callerRoleID != authz.RoleManagement {
+			return "", ErrForbidden
+		}
+		resolvedManagerID = *managerID
+	}
+
+	if s.userRepo == nil {
+		return "", fmt.Errorf("telephony: user repo not configured")
+	}
+	user, err := s.userRepo.GetByID(resolvedManagerID)
+	if err != nil {
+		return "", fmt.Errorf("telephony: lookup manager: %w", err)
+	}
+	if user == nil {
+		return "", fmt.Errorf("telephony: manager id=%d not found", resolvedManagerID)
+	}
+	internalNumber := strings.TrimSpace(user.Phone)
+	if internalNumber == "" {
+		return "", fmt.Errorf("telephony: manager id=%d has no phone/extension configured in CRM", resolvedManagerID)
+	}
+
+	normalizedPhone := repositories.NormalizePhoneForTelephony(externalPhone)
+	if normalizedPhone == "" {
+		return "", fmt.Errorf("telephony: invalid external phone %q", externalPhone)
+	}
+
+	result, err := s.binotelClient.MakeCall(ctx, internalNumber, normalizedPhone)
+	if err != nil {
+		return "", fmt.Errorf("telephony: initiate call: %w", err)
+	}
+	log.Printf(
+		"integration=binotel operation=make_call manager_id=%d internal=%s external=%s general_call_id=%s",
+		resolvedManagerID, maskStr(internalNumber), maskPhone(normalizedPhone), maskStr(result.GeneralCallID),
+	)
+	return result.GeneralCallID, nil
+}
 
 // HandleBinotelWebhook processes an inbound Binotel webhook payload.
 // It is idempotent: repeated delivery of the same external_call_id is a no-op.
@@ -172,6 +230,36 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 		return 0, false, fmt.Errorf("telephony: handle webhook: %w", err)
 	}
 	log.Printf("integration=binotel operation=webhook status=ok call_id=%d is_new=%v", callID, isNew)
+
+	// 8. Feed event — write to audit log so the call appears in the activity feed.
+	if s.audit != nil {
+		action := "telephony.call.updated"
+		if isNew {
+			action = "telephony.call.received"
+		}
+		meta := map[string]any{
+			"direction": call.Direction,
+			"status":    call.Status,
+			"phone":     phone,
+		}
+		if call.LeadID != nil {
+			meta["lead_id"] = *call.LeadID
+		}
+		if call.ClientID != nil {
+			meta["client_id"] = *call.ClientID
+		}
+		if call.ManagerID != nil {
+			meta["manager_id"] = *call.ManagerID
+		}
+		s.audit.Log(ctx, AuditEvent{
+			ActorUserID: call.ManagerID,
+			Action:      action,
+			EntityType:  "telephony_call",
+			EntityID:    fmt.Sprintf("%d", callID),
+			Meta:        meta,
+		})
+	}
+
 	return callID, isNew, nil
 }
 

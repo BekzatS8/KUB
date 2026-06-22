@@ -166,6 +166,18 @@ func CanAccessAllBusinessDataIncludingAdmin(roleID int) bool {
 	return CanViewAllBusinessData(roleID) || roleID == RoleSystemAdmin
 }
 
+// CanViewUsers returns true for roles that have users.view permission.
+// This matches baseRolePermissions in permissions.go: management, admin,
+// quality_control (read-only), hr, and legal all carry users.view.
+func CanViewUsers(roleID int) bool {
+	switch roleID {
+	case RoleManagement, RoleSystemAdmin, RoleControl, RoleHR, RoleLegal:
+		return true
+	default:
+		return false
+	}
+}
+
 func CanProcessDocuments(roleID int) bool {
 	return roleID == RoleManagement || roleID == RoleSystemAdmin ||
 		roleID == RoleVisa || roleID == RolePartner ||

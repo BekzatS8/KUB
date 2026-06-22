@@ -300,11 +300,10 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	filter.BranchID = scopedBranchID
 
-	switch roleID {
-	case authz.RoleHR:
+	// HR always sees only their own scope.
+	// Legal now has access to all documents; scope filter is optional (via ?scope= param).
+	if roleID == authz.RoleHR {
 		filter.Scope = "hr"
-	case authz.RoleLegal:
-		filter.Scope = "legal"
 	}
 
 	if roleID != authz.RoleSystemAdmin {
@@ -338,6 +337,17 @@ func documentListFilterFromQuery(c *gin.Context) (repositories.DocumentListFilte
 		ClientType: strings.ToLower(strings.TrimSpace(c.Query("client_type"))),
 		SortBy:     strings.ToLower(strings.TrimSpace(c.Query("sort_by"))),
 		Order:      strings.ToLower(strings.TrimSpace(c.Query("order"))),
+		Scope:      strings.ToLower(strings.TrimSpace(c.Query("scope"))),
+	}
+	if filter.Scope != "" && filter.Scope != "hr" && filter.Scope != "legal" && filter.Scope != "deal" {
+		return repositories.DocumentListFilter{}, errors.New("Invalid scope")
+	}
+	if raw := strings.TrimSpace(c.Query("creator_role_id")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v <= 0 {
+			return repositories.DocumentListFilter{}, errors.New("Invalid creator_role_id")
+		}
+		filter.CreatorRoleID = &v
 	}
 	if filter.Status != "" && !isAllowedDocumentStatus(filter.Status) {
 		return repositories.DocumentListFilter{}, errors.New("Invalid status")

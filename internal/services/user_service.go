@@ -32,6 +32,8 @@ type UserService interface {
 
 	// verification
 	VerifyUser(userID int) error
+
+	AdminChangePassword(userID int, newPassword string) error
 }
 
 type userService struct {
@@ -108,6 +110,17 @@ func (s *userService) CreateUser(user *models.User) error {
 		}
 	}
 	return nil
+}
+
+func (s *userService) AdminChangePassword(userID int, newPassword string) error {
+	if strings.TrimSpace(newPassword) == "" {
+		return fmt.Errorf("password is required")
+	}
+	hashed, err := s.authService.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePassword(userID, hashed)
 }
 
 func (s *userService) GetUserByID(id int) (*models.User, error) {

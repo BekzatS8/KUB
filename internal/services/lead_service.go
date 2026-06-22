@@ -43,10 +43,9 @@ func (s *LeadService) Create(lead *models.Leads, userID, roleID int) (int64, err
 	}
 	switch scope.Kind {
 	case ScopeKindOwn:
-		// partner: force owner, no branch constraint
 		lead.OwnerID = userID
 	case ScopeKindBranch:
-		// sales/visa/control: bind to user's branch
+		// bind to user's branch so the new lead stays within the department scope
 		if scope.BranchID != nil {
 			lead.BranchID = scope.BranchID
 		}
