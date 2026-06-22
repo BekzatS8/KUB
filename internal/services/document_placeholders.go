@@ -271,6 +271,7 @@ func buildClientPlaceholders(
 	}
 
 	normalizeMoneyTextPlaceholders(ph)
+	buildKZTextPlaceholders(ph)
 
 	return ph
 }
@@ -463,6 +464,7 @@ func ensureBasePlaceholderKeys(ph map[string]string) {
 		"CLIENT_ADDRESS",
 		"CLIENT_PHONE",
 		"CLIENT_EMAIL",
+		"CLIENT_ZHN",
 		"DOC_DATE_TEXT",
 		"CONTRACT_NUMBER",
 		"CONTRACT_DATE_TEXT",
@@ -617,6 +619,20 @@ func applyPlaceholderAliases(ph map[string]string) {
 	copyAlias("DOC_DATE", "DOC_DATE_TEXT")
 	copyAlias("PAUSE_START_DATE_TEXT", "PAUSE_FROM_DATE")
 	copyAlias("PAUSE_END_DATE_TEXT", "PAUSE_TO_DATE")
+
+	// Короткие алиасы даты документа (используются в некоторых docx-шаблонах)
+	copyAlias("DAY", "DOC_DATE_DAY")
+	copyAlias("MONTH_RU", "DOC_DATE_MONTH_TEXT")
+	copyAlias("MONTH_KZ", "DOC_DATE_MONTH_TEXT_KZ")
+	copyAlias("YEAR", "DOC_DATE_YEAR")
+
+	// Словесная сумма — алиас для шаблонов, использующих TOTAL_AMOUNT_WORDS
+	copyAlias("TOTAL_AMOUNT_WORDS", "DEAL_TOTAL_KZT_TEXT")
+
+	// Части даты основного договора для аддендумов
+	copyAlias("MAIN_CONTRACT_DATE_DAY", "CONTRACT_DAY")
+	copyAlias("MAIN_CONTRACT_DATE_MONTH", "CONTRACT_MONTH_TEXT")
+	copyAlias("MAIN_CONTRACT_DATE_YEAR", "CONTRACT_YEAR")
 
 	copyCanon("REFUND_KZT", "REFUND_AMOUNT_NUM")
 	copyCanon("REFUND_KZT_TEXT", "REFUND_AMOUNT_TEXT")
@@ -1091,8 +1107,8 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-func amountToRuWords(tenge int64, tiyn int64) string {
-	return fmt.Sprintf("%s тенге %02d тиын", numToRuWordsInt(tenge), tiyn)
+func amountToRuWords(tenge int64, _ int64) string {
+	return numToRuWordsInt(tenge)
 }
 
 var (
@@ -1130,6 +1146,260 @@ func formatAmountWithSpaces(n int64) string {
 		parts = append([]string{s[start:i]}, parts...)
 	}
 	return strings.Join(parts, " ")
+}
+
+// ================== КАЗАХСКИЙ ТЕКСТ СУММ ==================
+
+// amountToKzWords: 1600000 -> "бір миллион алты жүз мың"
+func amountToKzWords(tenge int64, _ int64) string {
+	return numToKzWordsInt(tenge)
+}
+
+func numToKzWordsInt(n int64) string {
+	if n == 0 {
+		return "нөл"
+	}
+	if n < 0 {
+		return "минус " + numToKzWordsInt(-n)
+	}
+
+	units := []string{"", "бір", "екі", "үш", "төрт", "бес", "алты", "жеті", "сегіз", "тоғыз"}
+	teens := []string{"он", "он бір", "он екі", "он үш", "он төрт", "он бес", "он алты", "он жеті", "он сегіз", "он тоғыз"}
+	tens := []string{"", "он", "жиырма", "отыз", "қырық", "елу", "алпыс", "жетпіс", "сексен", "тоқсан"}
+
+	triadNames := []string{"", "мың", "миллион", "миллиард"}
+
+	var parts []string
+	triadIdx := 0
+
+	for n > 0 && triadIdx < len(triadNames) {
+		triad := int(n % 1000)
+		n /= 1000
+
+		if triad == 0 {
+			triadIdx++
+			continue
+		}
+
+		// 1000 = мың (без бір), 1100 = мың жүз
+		if triadIdx == 1 && triad == 1 {
+			parts = append([]string{"мың"}, parts...)
+			triadIdx++
+			continue
+		}
+
+		h := triad / 100
+		t := (triad / 10) % 10
+		u := triad % 10
+
+		var words []string
+		if h > 0 {
+			if h == 1 {
+				words = append(words, "жүз") // 100 = жүз (не бір жүз)
+			} else {
+				words = append(words, units[h]+" жүз")
+			}
+		}
+		if t == 1 {
+			words = append(words, teens[u])
+		} else {
+			if t > 0 {
+				words = append(words, tens[t])
+			}
+			if u > 0 {
+				words = append(words, units[u])
+			}
+		}
+		if triadNames[triadIdx] != "" {
+			words = append(words, triadNames[triadIdx])
+		}
+
+		parts = append([]string{strings.Join(words, " ")}, parts...)
+		triadIdx++
+	}
+
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+// buildKZTextPlaceholders добавляет _KZ варианты текстовых плейсхолдеров сумм.
+// Вызывается после ensureBasePlaceholderKeys.
+func buildKZTextPlaceholders(ph map[string]string) {
+	setKZ := func(numKey, textKZKey string) {
+		if strings.TrimSpace(ph[textKZKey]) != "" {
+			return
+		}
+		raw := strings.TrimSpace(ph[numKey])
+		if raw == "" {
+			ph[textKZKey] = ""
+			return
+		}
+		tenge, tiyn, _, err := NormalizeMoney(raw)
+		if err == nil {
+			ph[textKZKey] = amountToKzWords(tenge, tiyn)
+		}
+	}
+
+	setKZ("DEAL_TOTAL_KZT", "DEAL_TOTAL_KZT_TEXT_KZ")
+	setKZ("DEAL_PREPAY_KZT", "DEAL_PREPAY_KZT_TEXT_KZ")
+	setKZ("DEAL_REMAIN_KZT", "DEAL_REMAIN_KZT_TEXT_KZ")
+	setKZ("REFUND_KZT", "REFUND_KZT_TEXT_KZ")
+	setKZ("AMOUNT_KZT", "AMOUNT_KZT_TEXT_KZ")
+	setKZ("COURSE_TOTAL_KZT", "COURSE_TOTAL_KZT_TEXT_KZ")
+	setKZ("KOREA_FEE_KZT", "KOREA_FEE_KZT_TEXT_KZ")
+}
+
+// ================== UKABY DOCUMENT PLACEHOLDERS ==================
+
+// applyUKABYPlaceholders enriches ph with UKABY-specific placeholders
+// for contracts and addendums. Must be called after buildClientPlaceholders.
+func applyUKABYPlaceholders(docType string, ph map[string]string) {
+	// ADDENDUM_DATE_TEXT defaults to DOC_DATE_TEXT for all addendum types
+	if strings.TrimSpace(ph["ADDENDUM_DATE_TEXT"]) == "" {
+		ph["ADDENDUM_DATE_TEXT"] = strings.TrimSpace(ph["DOC_DATE_TEXT"])
+	}
+	if strings.TrimSpace(ph["ADDENDUM_DATE"]) == "" {
+		ph["ADDENDUM_DATE"] = strings.TrimSpace(ph["DOC_DATE"])
+	}
+
+	// Разбивка даты аддендума на части (используется в шаблонах addendum_*.docx)
+	if raw := strings.TrimSpace(ph["ADDENDUM_DATE"]); raw != "" {
+		if tm, ok := parseFlexibleDate(raw); ok {
+			if strings.TrimSpace(ph["ADDENDUM_DATE_DAY"]) == "" {
+				ph["ADDENDUM_DATE_DAY"] = tm.Format("02")
+			}
+			if strings.TrimSpace(ph["ADDENDUM_DATE_MONTH"]) == "" {
+				ph["ADDENDUM_DATE_MONTH"] = ruMonthGenitive(tm.Month())
+			}
+			if strings.TrimSpace(ph["ADDENDUM_DATE_YEAR"]) == "" {
+				ph["ADDENDUM_DATE_YEAR"] = tm.Format("2006")
+			}
+		}
+	}
+
+	// Разбивка даты основного договора на части (MAIN_CONTRACT_DATE_*)
+	if raw := strings.TrimSpace(ph["CONTRACT_DATE_RAW"]); raw != "" {
+		if tm, ok := parseFlexibleDate(raw); ok {
+			if strings.TrimSpace(ph["MAIN_CONTRACT_DATE_DAY"]) == "" {
+				ph["MAIN_CONTRACT_DATE_DAY"] = tm.Format("02")
+			}
+			if strings.TrimSpace(ph["MAIN_CONTRACT_DATE_MONTH"]) == "" {
+				ph["MAIN_CONTRACT_DATE_MONTH"] = ruMonthGenitive(tm.Month())
+			}
+			if strings.TrimSpace(ph["MAIN_CONTRACT_DATE_YEAR"]) == "" {
+				ph["MAIN_CONTRACT_DATE_YEAR"] = tm.Format("2006")
+			}
+		}
+	}
+
+	switch docType {
+	case "contract_ukaby_30_35_35":
+		applyUKABY303535Placeholders(ph)
+	case "addendum_c01_extension":
+		applyUKABYC01Placeholders(ph)
+	case "addendum_k01_korea":
+		applyUKABYK01Placeholders(ph)
+	}
+
+	// Алиасы предоплаты — вычисляются после UKABY-специфичных плейсхолдеров,
+	// чтобы DEAL_PREPAY_KZT уже был заполнен (в т.ч. для 30/35/35).
+	if strings.TrimSpace(ph["PREPAYMENT_NUM"]) == "" {
+		ph["PREPAYMENT_NUM"] = strings.TrimSpace(ph["DEAL_PREPAY_KZT"])
+	}
+	if strings.TrimSpace(ph["PREPAYMENT_WORDS"]) == "" {
+		ph["PREPAYMENT_WORDS"] = strings.TrimSpace(ph["DEAL_PREPAY_KZT_TEXT"])
+	}
+}
+
+// applyUKABY303535Placeholders adds 30%/35%/35% payment split placeholders.
+// Amounts are calculated from DEAL_TOTAL_KZT unless already set via extra.
+func applyUKABY303535Placeholders(ph map[string]string) {
+	raw := strings.TrimSpace(ph["DEAL_TOTAL_KZT"])
+	if raw == "" {
+		return
+	}
+	tenge, tiyn, _, err := NormalizeMoney(raw)
+	if err != nil || tenge <= 0 {
+		return
+	}
+	total := tenge*100 + tiyn // в тиынах
+
+	setPayment := func(numKey, textKey, textKZKey string, amount int64) {
+		if strings.TrimSpace(ph[numKey]) != "" {
+			return // уже задано через extra — не перезаписываем
+		}
+		t := amount / 100
+		ty := amount % 100
+		ph[numKey] = fmt.Sprintf("%s.%02d", formatAmountWithSpaces(t), ty)
+		if strings.TrimSpace(ph[textKey]) == "" {
+			ph[textKey] = amountToRuWords(t, ty)
+		}
+		if strings.TrimSpace(ph[textKZKey]) == "" {
+			ph[textKZKey] = amountToKzWords(t, ty)
+		}
+	}
+
+	p30 := total * 30 / 100
+	p35a := total * 35 / 100
+	p35b := total - p30 - p35a // остаток гарантирует что сумма точная
+
+	setPayment("PREPAYMENT_30", "PREPAYMENT_30_TEXT", "PREPAYMENT_30_TEXT_KZ", p30)
+	setPayment("PAYMENT_35_DAY15", "PAYMENT_35_DAY15_TEXT", "PAYMENT_35_DAY15_TEXT_KZ", p35a)
+	setPayment("PAYMENT_35_DAY30", "PAYMENT_35_DAY30_TEXT", "PAYMENT_35_DAY30_TEXT_KZ", p35b)
+
+	// алиасы для совместимости с шаблоном
+	if strings.TrimSpace(ph["DEAL_PREPAY_KZT"]) == "" {
+		ph["DEAL_PREPAY_KZT"] = ph["PREPAYMENT_30"]
+	}
+	if strings.TrimSpace(ph["DEAL_PREPAY_KZT_TEXT"]) == "" {
+		ph["DEAL_PREPAY_KZT_TEXT"] = ph["PREPAYMENT_30_TEXT"]
+	}
+}
+
+// applyUKABYC01Placeholders adds С-01 extension addendum placeholders.
+// Extension is fixed: 12 months additional, 30 months total.
+func applyUKABYC01Placeholders(ph map[string]string) {
+	if strings.TrimSpace(ph["ADDENDUM_NUMBER"]) == "" {
+		ph["ADDENDUM_NUMBER"] = "С-01"
+	}
+	if strings.TrimSpace(ph["EXTENSION_MONTHS"]) == "" {
+		ph["EXTENSION_MONTHS"] = "12"
+	}
+	if strings.TrimSpace(ph["TOTAL_MONTHS"]) == "" {
+		ph["TOTAL_MONTHS"] = "30"
+	}
+	// MAIN_CONTRACT_NUMBER и MAIN_CONTRACT_DATE_TEXT уже выставлены через applyPlaceholderAliases
+}
+
+// applyUKABYK01Placeholders adds К-01 Korea addendum placeholders.
+// Fixed amounts: 1 600 000 tenge additional fee, 500 000 tenge non-refundable base.
+func applyUKABYK01Placeholders(ph map[string]string) {
+	if strings.TrimSpace(ph["ADDENDUM_NUMBER"]) == "" {
+		ph["ADDENDUM_NUMBER"] = "К-01"
+	}
+
+	const additionalTenge int64 = 1_600_000
+	const baseTenge int64 = 500_000
+
+	if strings.TrimSpace(ph["KOREA_ADDITIONAL_PAYMENT"]) == "" {
+		ph["KOREA_ADDITIONAL_PAYMENT"] = fmt.Sprintf("%s.00", formatAmountWithSpaces(additionalTenge))
+	}
+	if strings.TrimSpace(ph["KOREA_ADDITIONAL_PAYMENT_TEXT"]) == "" {
+		ph["KOREA_ADDITIONAL_PAYMENT_TEXT"] = amountToRuWords(additionalTenge, 0)
+	}
+	if strings.TrimSpace(ph["KOREA_ADDITIONAL_PAYMENT_TEXT_KZ"]) == "" {
+		ph["KOREA_ADDITIONAL_PAYMENT_TEXT_KZ"] = amountToKzWords(additionalTenge, 0)
+	}
+	if strings.TrimSpace(ph["KOREA_BASE_PAYMENT"]) == "" {
+		ph["KOREA_BASE_PAYMENT"] = fmt.Sprintf("%s.00", formatAmountWithSpaces(baseTenge))
+	}
+	if strings.TrimSpace(ph["KOREA_BASE_PAYMENT_TEXT"]) == "" {
+		ph["KOREA_BASE_PAYMENT_TEXT"] = amountToRuWords(baseTenge, 0)
+	}
+	if strings.TrimSpace(ph["KOREA_BASE_PAYMENT_TEXT_KZ"]) == "" {
+		ph["KOREA_BASE_PAYMENT_TEXT_KZ"] = amountToKzWords(baseTenge, 0)
+	}
+
+	// KOREA_FEE_KZT — общая сумма (сделка) уже выставлена в ensureBasePlaceholderKeys
 }
 
 // numToRuWordsInt: 1600000 -> "один миллион шестьсот тысяч"

@@ -1464,6 +1464,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 	placeholders := buildClientPlaceholders(client, deal, mergedExtra, now)
 
 	applyReasonCheckboxes(docType, mergedExtra, placeholders)
+	applyUKABYPlaceholders(docType, placeholders)
 
 	missingClient := mapClientMissing(docType, validateClientFieldsForDocType(docType, client))
 	required := requiredFieldsForClientType(spec, client, selectedTemplate)
