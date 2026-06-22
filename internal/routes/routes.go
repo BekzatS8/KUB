@@ -358,6 +358,7 @@ func SetupRoutes(
 		docs.GET("/types", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocumentTypes)
 		docs.POST("", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocument)
 		docs.POST("/upload", middleware.RequirePermission("documents.create", "document"), documentHandler.Upload)
+		docs.POST("/upload-with-meta", middleware.RequirePermission("documents.create", "document"), documentHandler.UploadWithMeta)
 		docs.GET("/:id", middleware.RequirePermission("documents.view", "document"), documentHandler.GetDocument)
 		docs.DELETE("/:id", middleware.RequirePermission("documents.delete", "document"), documentHandler.DeleteDocument)
 		docs.POST("/:id/archive", middleware.RequirePermission("documents.update", "document"), documentHandler.ArchiveDocument)

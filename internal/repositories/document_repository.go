@@ -26,6 +26,7 @@ type DocumentListFilter struct {
 	// HiddenVisibilityUserID: nil = admin (all hidden docs shown);
 	// non-nil = exclude hidden docs unless created_by equals this user ID.
 	HiddenVisibilityUserID *int
+	Scope                  string
 }
 
 func documentArchiveWhere(scope ArchiveScope) string {
@@ -44,7 +45,8 @@ const documentBaseSelect = `
 	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
 	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,''),
-	       dcm.is_hidden, dcm.created_by
+	       dcm.is_hidden, dcm.created_by,
+	       COALESCE(dcm.scope,'deal'), COALESCE(dcm.title,''), COALESCE(dcm.description,''), dcm.target_user_id
 	FROM documents dcm
 	LEFT JOIN deals d ON d.id = dcm.deal_id
 	LEFT JOIN clients c ON c.id = d.client_id
@@ -64,7 +66,8 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 	var archivedBy, createdBy sql.NullInt64
 	var branchID, clientID sql.NullInt64
 	var branchName sql.NullString
-	if err := scanner.Scan(&d.ID, &d.DealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy); err != nil {
+	var targetUserID sql.NullInt64
+	if err := scanner.Scan(&d.ID, &d.DealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy, &d.Scope, &d.Title, &d.Description, &targetUserID); err != nil {
 		return nil, err
 	}
 	if clientID.Valid {
@@ -96,17 +99,25 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 		by := int(createdBy.Int64)
 		d.CreatedBy = &by
 	}
+	if targetUserID.Valid {
+		v := targetUserID.Int64
+		d.TargetUserID = &v
+	}
 	return &d, nil
 }
 
 func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
+	scope := doc.Scope
+	if scope == "" {
+		scope = "deal"
+	}
 	const q = `
-		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by, scope, title, description, target_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at`
 	var id int64
 	var createdAt sql.NullTime
-	if err := r.db.QueryRow(q, doc.DealID, doc.ClientID, doc.BranchID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.IsHidden, doc.CreatedBy).Scan(&id, &createdAt); err != nil {
+	if err := r.db.QueryRow(q, doc.DealID, doc.ClientID, doc.BranchID, doc.DocType, doc.FilePath, doc.FilePathDocx, doc.FilePathPdf, doc.Status, doc.IsHidden, doc.CreatedBy, scope, doc.Title, doc.Description, doc.TargetUserID).Scan(&id, &createdAt); err != nil {
 		return 0, fmt.Errorf("create document: %w", err)
 	}
 	doc.ID = id
@@ -126,14 +137,20 @@ func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScop
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
 		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
 		       is_archived, archived_at, archived_by, COALESCE(archive_reason,''),
-		       is_hidden, created_by
+		       is_hidden, created_by,
+		       COALESCE(scope,'deal'), COALESCE(title,''), COALESCE(description,''), target_user_id
 		FROM documents
 		WHERE id = $1 AND %s`
 	var d models.Document
 	var signedAt, createdAt, archivedAt sql.NullTime
-	var archivedBy, createdBy sql.NullInt64
+	var archivedBy, createdBy, targetUserID sql.NullInt64
 	var branchID, clientID sql.NullInt64
-	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(&d.ID, &d.DealID, &clientID, &branchID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy)
+	err := r.db.QueryRow(fmt.Sprintf(q, documentArchiveWhere(scope)), id).Scan(
+		&d.ID, &d.DealID, &clientID, &branchID, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status,
+		&signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy,
+		&d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy,
+		&d.Scope, &d.Title, &d.Description, &targetUserID,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -165,6 +182,10 @@ func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScop
 	if createdBy.Valid {
 		by := int(createdBy.Int64)
 		d.CreatedBy = &by
+	}
+	if targetUserID.Valid {
+		v := targetUserID.Int64
+		d.TargetUserID = &v
 	}
 	return &d, nil
 }
@@ -365,6 +386,11 @@ func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, start
 	if filter.HiddenVisibilityUserID != nil {
 		conditions = append(conditions, fmt.Sprintf("(dcm.is_hidden = FALSE OR dcm.created_by = $%d)", idx))
 		args = append(args, *filter.HiddenVisibilityUserID)
+		idx++
+	}
+	if filter.Scope != "" {
+		conditions = append(conditions, fmt.Sprintf("dcm.scope = $%d", idx))
+		args = append(args, filter.Scope)
 		idx++
 	}
 

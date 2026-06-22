@@ -92,6 +92,10 @@ func (h *DocumentHandler) CreateDocument(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleHR {
+		c.JSON(403, gin.H{"error": "document_generation_unavailable", "message": "Генерация документов для HR в разработке"})
+		return
+	}
 	id, err := h.Service.CreateDocument(&doc, userID, roleID)
 	if err != nil {
 		switch err.Error() {
@@ -294,6 +298,13 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	filter.BranchID = scopedBranchID
 
+	switch roleID {
+	case authz.RoleHR:
+		filter.Scope = "hr"
+	case authz.RoleLegal:
+		filter.Scope = "legal"
+	}
+
 	if roleID != authz.RoleSystemAdmin {
 		uid := userID
 		filter.HiddenVisibilityUserID = &uid
@@ -427,6 +438,10 @@ func (h *DocumentHandler) CreateDocumentFromClient(c *gin.Context) {
 	}
 
 	userID, roleID := getUserAndRole(c)
+	if roleID == authz.RoleHR {
+		c.JSON(403, gin.H{"error": "document_generation_unavailable", "message": "Генерация документов для HR в разработке"})
+		return
+	}
 
 	doc, err := h.Service.CreateDocumentFromClient(
 		req.ClientID,
@@ -781,4 +796,58 @@ func (h *DocumentHandler) Download(c *gin.Context) {
 	c.Header("Content-Type", ct)
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.FileAttachment(abs, name) // корректный attachment + filename
+}
+
+// POST /documents/upload-with-meta
+func (h *DocumentHandler) UploadWithMeta(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	scope := c.PostForm("scope")
+	if scope != "hr" && scope != "legal" {
+		badRequest(c, "scope must be hr or legal")
+		return
+	}
+	if (roleID == authz.RoleHR && scope != "hr") || (roleID == authz.RoleLegal && scope != "legal") {
+		forbidden(c, "Forbidden scope for your role")
+		return
+	}
+	if roleID != authz.RoleHR && roleID != authz.RoleLegal && roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	title := strings.TrimSpace(c.PostForm("title"))
+	if title == "" {
+		badRequest(c, "title is required")
+		return
+	}
+	description := strings.TrimSpace(c.PostForm("description"))
+	var targetUserID *int64
+	if raw := strings.TrimSpace(c.PostForm("target_user_id")); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || v <= 0 {
+			badRequest(c, "Invalid target_user_id")
+			return
+		}
+		targetUserID = &v
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		badRequest(c, "file is required")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowed := map[string]bool{".pdf": true, ".docx": true, ".xlsx": true, ".txt": true}
+	if !allowed[ext] {
+		badRequest(c, "Unsupported file type. Allowed: pdf, docx, xlsx, txt")
+		return
+	}
+	if file.Size > 50<<20 {
+		badRequest(c, "File too large. Max 50MB")
+		return
+	}
+	doc, saveErr := h.Service.UploadDocumentWithMeta(scope, title, description, targetUserID, file, userID, roleID)
+	if saveErr != nil {
+		internalError(c, "Failed to upload document")
+		return
+	}
+	c.JSON(http.StatusCreated, doc)
 }

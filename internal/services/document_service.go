@@ -576,6 +576,54 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 	return doc, nil
 }
 
+func (s *DocumentService) UploadDocumentWithMeta(scope, title, description string, targetUserID *int64, file *multipart.FileHeader, userID, roleID int) (*models.Document, error) {
+	safeName := filepath.Base(file.Filename)
+	if safeName == "" || safeName == "." {
+		return nil, errors.New("invalid filename")
+	}
+	dir := filepath.Join(s.FilesRoot, "scoped", scope)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("prepare scoped dir: %w", err)
+	}
+	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
+	dstPath := filepath.Join(dir, finalName)
+
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open upload: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return nil, fmt.Errorf("create file: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return nil, fmt.Errorf("save file: %w", err)
+	}
+
+	relPath := filepath.Join("scoped", scope, finalName)
+	createdBy := userID
+	doc := &models.Document{
+		Scope:        scope,
+		Title:        title,
+		Description:  description,
+		TargetUserID: targetUserID,
+		DocType:      "uploaded",
+		Status:       "draft",
+		FilePath:     relPath,
+		CreatedBy:    &createdBy,
+	}
+	id, err := s.DocRepo.Create(doc)
+	if err != nil {
+		return nil, err
+	}
+	doc.ID = id
+	return doc, nil
+}
+
 func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Document, error) {
 	doc, err := s.DocRepo.GetByID(id)
 	if err != nil || doc == nil {

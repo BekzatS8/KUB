@@ -27,4 +27,8 @@ type Document struct {
 	ArchiveReason string     `json:"archive_reason,omitempty"`
 	IsHidden      bool       `json:"is_hidden"`
 	CreatedBy     *int       `json:"created_by,omitempty"`
+	Scope         string     `json:"scope"`          // 'deal' | 'hr' | 'legal'
+	Title         string     `json:"title,omitempty"`
+	Description   string     `json:"description,omitempty"`
+	TargetUserID  *int64     `json:"target_user_id,omitempty"`
 }
