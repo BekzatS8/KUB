@@ -277,20 +277,14 @@ func (s *PublicDocumentSigningService) stampSignatureOnDocument(docID int64, img
 		return
 	}
 
-	pdfAbs := resolvePDFAbsPath(s.docService.FilesRoot, pdfRel)
-	if pdfAbs == "" {
-		log.Printf("[pdf_stamp] bad pdf path document_id=%d rel=%s", docID, pdfRel)
-		return
-	}
-	if strings.ToLower(filepath.Ext(pdfAbs)) != ".pdf" {
-		log.Printf("[pdf_stamp] not a pdf document_id=%d path=%s", docID, pdfAbs)
-		return
-	}
-
-	if err := StampSignatureOnPDF(pdfAbs, imgAbsPath, pdfAbs); err != nil {
+	if err := s.docService.StampPDFFromLocalImage(pdfRel, imgAbsPath); err != nil {
 		log.Printf("[pdf_stamp] error document_id=%d: %v", docID, err)
 		return
 	}
+
+	// Upload signature image to S3 (best-effort).
+	s.docService.uploadGeneratedFile("signatures/" + filepath.Base(imgAbsPath))
+
 	log.Printf("[pdf_stamp] done document_id=%d", docID)
 }
 

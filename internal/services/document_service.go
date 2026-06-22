@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1125,7 +1126,7 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 	if s.Store != nil {
 		f, err := os.Open(signedLocalAbs)
 		if err == nil {
-			if uploadErr := s.Store.Save(nil, f, signedKey); uploadErr != nil {
+			if uploadErr := s.Store.Save(context.Background(), f, signedKey); uploadErr != nil {
 				_ = f.Close()
 				log.Printf("[doc][sign] upload signed pdf to S3: %v", uploadErr)
 			} else {
@@ -1156,20 +1157,74 @@ func (s *DocumentService) StampSessionSignature(docID int64, signatureImageBase6
 	if signedRel == "" {
 		return fmt.Errorf("stamp_session: signed_pdf_path not found in metadata for document %d", docID)
 	}
-	signedAbs, err := s.resolveStoragePath(signedRel)
+	// Download signed PDF to local temp (handles both local and S3 modes).
+	signedKey := strings.TrimPrefix(strings.TrimPrefix(signedRel, "/"), "files/")
+	signedKey = filepath.ToSlash(signedKey)
+	signedLocal, cleanupSigned, err := s.downloadToTemp(signedKey)
 	if err != nil {
 		return fmt.Errorf("stamp_session: resolve signed pdf path: %w", err)
 	}
+	defer cleanupSigned()
+
 	eventID := fmt.Sprintf("sess_%d_%d", docID, time.Now().UnixNano())
 	savedRel, err := SaveSignatureImage(signatureImageBase64, eventID, s.FilesRoot)
 	if err != nil {
 		return fmt.Errorf("stamp_session: save signature image: %w", err)
 	}
 	imgAbs := filepath.Join(s.FilesRoot, savedRel)
-	if err := StampSignatureOnPDF(signedAbs, imgAbs, signedAbs); err != nil {
+	defer os.Remove(imgAbs)
+
+	if err := StampSignatureOnPDF(signedLocal, imgAbs, signedLocal); err != nil {
 		return fmt.Errorf("stamp_session: stamp pdf: %w", err)
 	}
+
+	// Upload stamped PDF back to S3 (overwrites the original).
+	if s.Store != nil {
+		f, err := os.Open(signedLocal)
+		if err == nil {
+			if uploadErr := s.Store.Save(context.Background(), f, signedKey); uploadErr != nil {
+				log.Printf("[stamp_session] upload stamped pdf to S3: %v", uploadErr)
+			}
+			_ = f.Close()
+		}
+		// Upload signature image to S3.
+		s.uploadGeneratedFile(savedRel)
+	}
+
 	log.Printf("[stamp_session] stamped document_id=%d signed_pdf=%s", docID, signedRel)
+	return nil
+}
+
+// StampPDFFromLocalImage stamps imgAbsPath onto the PDF identified by pdfRel,
+// handling S3 download/upload transparently.
+// Used by PublicDocumentSigningService which saves the image locally before calling this.
+func (s *DocumentService) StampPDFFromLocalImage(pdfRel, imgAbsPath string) error {
+	pdfKey := strings.TrimPrefix(strings.TrimPrefix(filepath.ToSlash(pdfRel), "/"), "files/")
+
+	// Get local path — download from S3 if needed.
+	pdfLocal, cleanup, err := s.downloadToTemp(pdfKey)
+	if err != nil || pdfLocal == "" {
+		return fmt.Errorf("stamp: resolve pdf %s: %w", pdfKey, err)
+	}
+	defer cleanup()
+
+	if strings.ToLower(filepath.Ext(pdfLocal)) != ".pdf" {
+		return fmt.Errorf("stamp: not a pdf: %s", pdfKey)
+	}
+	if err := StampSignatureOnPDF(pdfLocal, imgAbsPath, pdfLocal); err != nil {
+		return fmt.Errorf("stamp: stamp pdf: %w", err)
+	}
+
+	// Upload stamped PDF back to S3.
+	if s.Store != nil {
+		f, err := os.Open(pdfLocal)
+		if err == nil {
+			if upErr := s.Store.Save(context.Background(), f, pdfKey); upErr != nil {
+				log.Printf("[stamp] upload stamped pdf to S3: %v", upErr)
+			}
+			_ = f.Close()
+		}
+	}
 	return nil
 }
 
@@ -1336,7 +1391,7 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 // storeSave saves reader content under key; falls back to local disk when Store is nil.
 func (s *DocumentService) storeSave(key string, reader io.Reader) error {
 	if s.Store != nil {
-		return s.Store.Save(nil, reader, key)
+		return s.Store.Save(context.Background(), reader, key)
 	}
 	abs := filepath.Join(s.FilesRoot, key)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -1354,7 +1409,7 @@ func (s *DocumentService) storeSave(key string, reader io.Reader) error {
 // storeDelete deletes a stored file by key.
 func (s *DocumentService) storeDelete(key string) error {
 	if s.Store != nil {
-		return s.Store.Delete(nil, key)
+		return s.Store.Delete(context.Background(), key)
 	}
 	abs, err := s.resolveStoragePath(key)
 	if err != nil || abs == "" {
@@ -1374,7 +1429,7 @@ func (s *DocumentService) downloadToTemp(key string) (localPath string, cleanup 
 		abs, err := s.resolveStoragePath(key)
 		return abs, func() {}, err
 	}
-	reader, _, err := s.Store.Open(nil, key)
+	reader, _, err := s.Store.Open(context.Background(), key)
 	if err != nil {
 		return "", nil, fmt.Errorf("download from storage: %w", err)
 	}
@@ -1391,6 +1446,36 @@ func (s *DocumentService) downloadToTemp(key string) (localPath string, cleanup 
 	}
 	_ = tmp.Close()
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
+}
+
+// uploadGeneratedFile uploads a locally-generated file to S3 and deletes the local copy.
+// relPath accepts both "/pdf/file.pdf" and "pdf/file.pdf" formats.
+// No-op when S3 is not configured or the path is empty.
+func (s *DocumentService) uploadGeneratedFile(relPath string) {
+	if s.Store == nil || strings.TrimSpace(relPath) == "" {
+		return
+	}
+	key := strings.TrimPrefix(strings.TrimSpace(relPath), "/")
+	key = strings.TrimPrefix(key, "files/")
+	key = filepath.ToSlash(key)
+	if key == "" {
+		return
+	}
+	absPath := filepath.Join(s.FilesRoot, filepath.FromSlash(key))
+	f, err := os.Open(absPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[storage] uploadGeneratedFile: open %s: %v", key, err)
+		}
+		return
+	}
+	if err := s.Store.Save(context.Background(), f, key); err != nil {
+		_ = f.Close()
+		log.Printf("[storage] uploadGeneratedFile: upload %s: %v", key, err)
+		return
+	}
+	_ = f.Close()
+	_ = os.Remove(absPath)
 }
 
 func (s *DocumentService) resolveStoragePath(rel string) (string, error) {
@@ -1478,6 +1563,7 @@ func (s *DocumentService) CreateDocumentFromLead(leadID int, docType string, use
 	}
 
 	relPath = normalizeStoragePath(relPath)
+	s.uploadGeneratedFile(relPath)
 
 	createdByLead := userID
 	doc := &models.Document{
@@ -1606,6 +1692,9 @@ func (s *DocumentService) CreateDocumentFromClient(
 		}
 
 		excelRelPath = normalizeStoragePath(excelRelPath)
+		excelPDFPath = normalizeStoragePath(excelPDFPath)
+		s.uploadGeneratedFile(excelRelPath)
+		s.uploadGeneratedFile(excelPDFPath)
 
 		createdByExcel := userID
 		doc := &models.Document{
@@ -1613,7 +1702,7 @@ func (s *DocumentService) CreateDocumentFromClient(
 			DocType:      docType,
 			Status:       "draft",
 			FilePath:     excelRelPath,
-			FilePathPdf:  normalizeStoragePath(excelPDFPath),
+			FilePathPdf:  excelPDFPath,
 			FilePathDocx: "",
 			BranchID:     documentBranchIDFromDeal(deal),
 			CreatedBy:    &createdByExcel,
@@ -1644,6 +1733,8 @@ func (s *DocumentService) CreateDocumentFromClient(
 
 		docxRelPath = normalizeStoragePath(docxRelPath)
 		pdfRelPath = normalizeStoragePath(pdfRelPath)
+		s.uploadGeneratedFile(docxRelPath)
+		s.uploadGeneratedFile(pdfRelPath)
 		mainPath := pdfRelPath
 		if mainPath == "" {
 			mainPath = docxRelPath
