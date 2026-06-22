@@ -26,8 +26,11 @@ type ChatService struct {
 	storage   storage.Storage
 }
 
-func NewChatService(repo repositories.ChatRepository, filesRoot string, userRepo repositories.UserRepository) *ChatService {
-	return &ChatService{repo: repo, userRepo: userRepo, filesRoot: filesRoot, storage: storage.NewLocalStorage(filesRoot)}
+func NewChatService(repo repositories.ChatRepository, filesRoot string, userRepo repositories.UserRepository, store storage.Storage) *ChatService {
+	if store == nil {
+		store = storage.NewLocalStorage(filesRoot)
+	}
+	return &ChatService{repo: repo, userRepo: userRepo, filesRoot: filesRoot, storage: store}
 }
 
 func (s *ChatService) ListUserChats(userID int) ([]*models.Chat, error) {

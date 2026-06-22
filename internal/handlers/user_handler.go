@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -9,16 +10,17 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 )
 
 type UserHandler struct {
@@ -26,6 +28,7 @@ type UserHandler struct {
 	branchService       services.BranchService
 	verificationService *services.UserVerificationService
 	filesRoot           string
+	store               storage.Storage
 }
 
 type createUserRequest struct {
@@ -66,12 +69,12 @@ type updateUserRequest struct {
 
 var userPhoneE164Pattern = regexp.MustCompile(`^\+[1-9]\d{10,14}$`)
 
-func NewUserHandler(service services.UserService, branchService services.BranchService, verificationService *services.UserVerificationService, filesRoot ...string) *UserHandler {
+func NewUserHandler(service services.UserService, branchService services.BranchService, verificationService *services.UserVerificationService, store storage.Storage, filesRoot ...string) *UserHandler {
 	root := "files"
 	if len(filesRoot) > 0 && strings.TrimSpace(filesRoot[0]) != "" {
 		root = strings.TrimSpace(filesRoot[0])
 	}
-	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService, filesRoot: root}
+	return &UserHandler{service: service, branchService: branchService, verificationService: verificationService, filesRoot: root, store: store}
 }
 
 type userResponse struct {
@@ -479,37 +482,18 @@ func (h *UserHandler) UploadProfileAvatar(c *gin.Context) {
 		return
 	}
 	key := filepath.ToSlash(filepath.Join("avatars", "users", strconv.Itoa(userID), name+ext))
-	fullPath, err := h.resolveFilePath(key)
-	if err != nil {
-		internalError(c, "Не удалось сохранить фото")
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		internalError(c, "Не удалось сохранить фото")
-		return
-	}
-	out, err := os.Create(fullPath)
-	if err != nil {
-		internalError(c, "Не удалось сохранить фото")
-		return
-	}
-	if _, err := io.Copy(out, file); err != nil {
-		_ = out.Close()
-		internalError(c, "Не удалось сохранить фото")
-		return
-	}
-	if err := out.Close(); err != nil {
+	if err := h.store.Save(c.Request.Context(), file, key); err != nil {
 		internalError(c, "Не удалось сохранить фото")
 		return
 	}
 	avatarURL := fmt.Sprintf("/users/%d/avatar/content", userID)
 	if err := h.service.UpdateAvatar(userID, avatarURL, key, key); err != nil {
-		_ = os.Remove(fullPath)
+		_ = h.store.Delete(c.Request.Context(), key)
 		log.Printf("UploadProfileAvatar: service error: %v", err)
 		internalError(c, "Не удалось сохранить фото")
 		return
 	}
-	h.removeStoredFile(current.AvatarPath)
+	h.removeStoredFile(c.Request.Context(), current.AvatarPath)
 	updated, _ := h.service.GetUserByID(userID)
 	c.JSON(http.StatusOK, h.userToResponse(updated))
 }
@@ -558,7 +542,7 @@ func (h *UserHandler) DeleteProfileAvatar(c *gin.Context) {
 		internalError(c, "Не удалось удалить аватар")
 		return
 	}
-	h.removeStoredFile(current.AvatarPath)
+	h.removeStoredFile(c.Request.Context(), current.AvatarPath)
 	updated, _ := h.service.GetUserByID(userID)
 	c.JSON(http.StatusOK, h.userToResponse(updated))
 }
@@ -626,25 +610,16 @@ func (h *UserHandler) serveAvatarForUser(c *gin.Context, userID int) {
 		notFound(c, NotFoundCode, "Avatar not found")
 		return
 	}
-	fullPath, err := h.resolveFilePath(user.AvatarPath)
+	key := filepath.ToSlash(user.AvatarPath)
+	reader, _, err := h.store.Open(c.Request.Context(), key)
 	if err != nil {
 		notFound(c, NotFoundCode, "Avatar not found")
 		return
 	}
-	f, err := os.Open(fullPath)
-	if err != nil {
-		notFound(c, NotFoundCode, "Avatar not found")
-		return
-	}
-	defer f.Close()
-	stat, err := f.Stat()
-	if err != nil {
-		notFound(c, NotFoundCode, "Avatar not found")
-		return
-	}
+	defer reader.Close()
 	c.Header("Content-Type", avatarContentType(filepath.Ext(user.AvatarPath)))
 	c.Header("Content-Disposition", "inline")
-	http.ServeContent(c.Writer, c.Request, filepath.Base(user.AvatarPath), stat.ModTime(), f)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(user.AvatarPath), time.Time{}, reader)
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -949,34 +924,9 @@ func randomHex(bytesLen int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func (h *UserHandler) resolveFilePath(key string) (string, error) {
-	clean := filepath.Clean(strings.TrimSpace(key))
-	if clean == "." || clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid file key")
-	}
-	rootAbs, err := filepath.Abs(h.filesRoot)
-	if err != nil {
-		return "", err
-	}
-	fullAbs, err := filepath.Abs(filepath.Join(h.filesRoot, clean))
-	if err != nil {
-		return "", err
-	}
-	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid file key")
-	}
-	return fullAbs, nil
-}
-
-func (h *UserHandler) removeStoredFile(key string) {
+func (h *UserHandler) removeStoredFile(ctx context.Context, key string) {
 	if strings.TrimSpace(key) == "" {
 		return
 	}
-	fullPath, err := h.resolveFilePath(key)
-	if err != nil {
-		return
-	}
-	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("removeStoredFile: %v", err)
-	}
+	_ = h.store.Delete(ctx, key)
 }

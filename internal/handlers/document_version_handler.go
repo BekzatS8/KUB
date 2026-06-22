@@ -1,20 +1,21 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 )
 
 type DocumentVersionHandler struct {
@@ -22,6 +23,7 @@ type DocumentVersionHandler struct {
 	versionRepo *repositories.DocumentVersionRepository
 	docService  *services.DocumentService
 	filesRoot   string
+	store       storage.Storage
 }
 
 func NewDocumentVersionHandler(
@@ -29,12 +31,14 @@ func NewDocumentVersionHandler(
 	versionRepo *repositories.DocumentVersionRepository,
 	docService *services.DocumentService,
 	filesRoot string,
+	store storage.Storage,
 ) *DocumentVersionHandler {
 	return &DocumentVersionHandler{
 		docRepo:     docRepo,
 		versionRepo: versionRepo,
 		docService:  docService,
 		filesRoot:   filesRoot,
+		store:       store,
 	}
 }
 
@@ -101,8 +105,9 @@ func (h *DocumentVersionHandler) UploadVersion(c *gin.Context) {
 	if doc.FilePath != "" {
 		mimeType := detectMimeByPath(doc.FilePath)
 		size := int64(0)
-		if info, err := os.Stat(h.resolveFile(doc.FilePath)); err == nil {
-			size = info.Size()
+		if rc, sz, err := h.store.Open(c.Request.Context(), filepath.ToSlash(doc.FilePath)); err == nil {
+			size = sz
+			_ = rc.Close()
 		}
 		versionRecord := &models.DocumentVersion{
 			DocumentID:   docID,
@@ -127,7 +132,7 @@ func (h *DocumentVersionHandler) UploadVersion(c *gin.Context) {
 		fmt.Sprintf("v%d_%d%s", newVersionNum, docID, ext),
 	))
 
-	if err := h.saveFileFromHeader(fileHeader, key); err != nil {
+	if err := h.saveFileFromHeader(c.Request.Context(), fileHeader, key); err != nil {
 		internalError(c, "Не удалось сохранить файл")
 		return
 	}
@@ -145,7 +150,7 @@ func (h *DocumentVersionHandler) UploadVersion(c *gin.Context) {
 		doc.FilePathDocx = ""
 	}
 	if err := h.docRepo.Update(doc); err != nil {
-		h.removeStoredFile(key)
+		h.removeStoredFile(c.Request.Context(), key)
 		internalError(c, "Не удалось обновить документ")
 		return
 	}
@@ -168,7 +173,7 @@ func (h *DocumentVersionHandler) UploadVersion(c *gin.Context) {
 		newVersionRecord.FilePathDocx = key
 	}
 	if _, err := h.versionRepo.CreateVersion(c.Request.Context(), newVersionRecord); err != nil {
-		h.removeStoredFile(key)
+		h.removeStoredFile(c.Request.Context(), key)
 		internalError(c, "Не удалось создать запись версии")
 		return
 	}
@@ -204,28 +209,18 @@ func (h *DocumentVersionHandler) ServeVersionFile(c *gin.Context) {
 		return
 	}
 
-	absPath := h.resolveFile(filePath)
-	if absPath == "" {
-		notFound(c, NotFoundCode, "Файл версии не найден")
-		return
-	}
-	f, err := os.Open(absPath)
+	key := filepath.ToSlash(filePath)
+	reader, _, err := h.store.Open(c.Request.Context(), key)
 	if err != nil {
 		notFound(c, NotFoundCode, "Файл версии не найден")
 		return
 	}
-	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		notFound(c, NotFoundCode, "Файл версии не найден")
-		return
-	}
+	defer reader.Close()
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	c.Header("Content-Type", detectMimeByExt(ext))
 	c.Header("Content-Disposition", "inline")
-	http.ServeContent(c.Writer, c.Request, filepath.Base(filePath), stat.ModTime(), f)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(filePath), time.Time{}, reader)
 }
 
 // POST /documents/:id/versions/:vid/restore
@@ -264,8 +259,9 @@ func (h *DocumentVersionHandler) RestoreVersion(c *gin.Context) {
 	if doc.FilePath != "" {
 		mimeType := detectMimeByPath(doc.FilePath)
 		size := int64(0)
-		if info, err := os.Stat(h.resolveFile(doc.FilePath)); err == nil {
-			size = info.Size()
+		if rc, sz, err := h.store.Open(c.Request.Context(), filepath.ToSlash(doc.FilePath)); err == nil {
+			size = sz
+			_ = rc.Close()
 		}
 		currentAsVersion := &models.DocumentVersion{
 			DocumentID:   docID,
@@ -316,42 +312,20 @@ func (h *DocumentVersionHandler) RestoreVersion(c *gin.Context) {
 
 // --- Helpers ---
 
-func (h *DocumentVersionHandler) resolveFile(rel string) string {
-	clean := filepath.Clean(strings.TrimSpace(rel))
-	abs := filepath.Join(h.filesRoot, clean)
-
-	// Prevent path traversal: verify resolved path is within filesRoot
-	rel2, err := filepath.Rel(h.filesRoot, abs)
-	if err != nil || strings.HasPrefix(rel2, "..") || filepath.IsAbs(abs) {
-		return "" // invalid path
-	}
-	return abs
-}
-
-func (h *DocumentVersionHandler) saveFileFromHeader(fileHeader *multipart.FileHeader, key string) error {
-	absPath := h.resolveFile(key)
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return err
-	}
+func (h *DocumentVersionHandler) saveFileFromHeader(ctx context.Context, fileHeader *multipart.FileHeader, key string) error {
 	src, err := fileHeader.Open()
 	if err != nil {
 		return err
 	}
 	defer src.Close()
-	dst, err := os.Create(absPath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	_, err = io.Copy(dst, src)
-	return err
+	return h.store.Save(ctx, src, key)
 }
 
-func (h *DocumentVersionHandler) removeStoredFile(key string) {
+func (h *DocumentVersionHandler) removeStoredFile(ctx context.Context, key string) {
 	if key == "" {
 		return
 	}
-	_ = os.Remove(h.resolveFile(key))
+	_ = h.store.Delete(ctx, key)
 }
 
 func detectMimeByExt(ext string) string {

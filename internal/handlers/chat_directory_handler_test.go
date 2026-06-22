@@ -275,7 +275,7 @@ func setupChatDirectoryRouter(roleID int, repo repositories.ChatRepository) *gin
 			9: {ID: 9, RoleID: authz.RoleSales, BranchID: chatTestBranchID(), IsVerified: false, Email: "u9@kub.local"},
 		},
 	}
-	svc := services.NewChatService(repo, "", userRepo)
+	svc := services.NewChatService(repo, "", userRepo, nil)
 	h := NewChatHandler(svc, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {

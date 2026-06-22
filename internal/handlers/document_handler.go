@@ -20,10 +20,12 @@ import (
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 )
 
 type DocumentHandler struct {
 	Service *services.DocumentService
+	store   storage.Storage
 }
 
 // createFromClientRequest — схема payload для POST /documents/create-from-client.
@@ -78,8 +80,8 @@ func truncateForDebugLog(body []byte, limit int) string {
 	return string(body[:limit]) + "...(truncated)"
 }
 
-func NewDocumentHandler(service *services.DocumentService) *DocumentHandler {
-	return &DocumentHandler{Service: service}
+func NewDocumentHandler(service *services.DocumentService, store storage.Storage) *DocumentHandler {
+	return &DocumentHandler{Service: service, store: store}
 }
 
 // ===== CRUD =====
@@ -747,6 +749,16 @@ func (h *DocumentHandler) ServeFile(c *gin.Context) {
 
 	c.Header("Content-Type", ct)
 	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, name))
+	if h.store != nil {
+		reader, _, err := h.store.Open(c.Request.Context(), abs)
+		if err != nil {
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		}
+		defer reader.Close()
+		http.ServeContent(c.Writer, c.Request, name, time.Time{}, reader)
+		return
+	}
 	c.File(abs)
 }
 
@@ -795,7 +807,18 @@ func (h *DocumentHandler) Download(c *gin.Context) {
 
 	c.Header("Content-Type", ct)
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.FileAttachment(abs, name) // корректный attachment + filename
+	if h.store != nil {
+		reader, _, err := h.store.Open(c.Request.Context(), abs)
+		if err != nil {
+			notFound(c, DocumentNotFound, "Document not found")
+			return
+		}
+		defer reader.Close()
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+		http.ServeContent(c.Writer, c.Request, name, time.Time{}, reader)
+		return
+	}
+	c.FileAttachment(abs, name)
 }
 
 // POST /documents/upload-with-meta

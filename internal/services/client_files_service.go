@@ -2,20 +2,17 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"mime"
 	"mime/multipart"
-	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
+	"turcompany/internal/storage"
 )
 
 type clientAccessChecker interface {
@@ -31,6 +28,7 @@ type ClientFilesService struct {
 	RootDir  string
 	Clients  clientAccessChecker
 	FileRepo clientFileStore
+	Store    storage.Storage
 }
 
 var individualClientFileCategories = []string{
@@ -49,8 +47,8 @@ var legalClientFileCategories = []string{
 	"corporate_other",
 }
 
-func NewClientFilesService(rootDir string, clients clientAccessChecker, fileRepo clientFileStore) *ClientFilesService {
-	return &ClientFilesService{RootDir: rootDir, Clients: clients, FileRepo: fileRepo}
+func NewClientFilesService(rootDir string, clients clientAccessChecker, fileRepo clientFileStore, store storage.Storage) *ClientFilesService {
+	return &ClientFilesService{RootDir: rootDir, Clients: clients, FileRepo: fileRepo, Store: store}
 }
 
 func normalizeClientFileCategory(category string) string {
@@ -118,13 +116,6 @@ func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, 
 	generated := fmt.Sprintf("%s_%d_%08x%s", safeBase, time.Now().UnixNano(), rand.Uint32(), ext)
 
 	relPath := filepath.ToSlash(filepath.Join("clients", fmt.Sprintf("%d", clientID), category, generated))
-	absPath, err := s.safeAbsPath(relPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return nil, fmt.Errorf("create client file directory: %w", err)
-	}
 
 	src, err := fileHeader.Open()
 	if err != nil {
@@ -132,25 +123,15 @@ func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, 
 	}
 	defer src.Close()
 
-	dst, err := os.Create(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("create client file: %w", err)
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		_ = dst.Close()
-		_ = os.Remove(absPath)
-		return nil, fmt.Errorf("write client file: %w", err)
-	}
-	if err := dst.Close(); err != nil {
-		_ = os.Remove(absPath)
-		return nil, fmt.Errorf("close client file: %w", err)
+	// Detect mime before saving (read first 512 bytes then re-open or use header)
+	mimeType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+
+	if err := s.Store.Save(ctx, src, relPath); err != nil {
+		return nil, fmt.Errorf("save client file: %w", err)
 	}
 
-	mimeType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
 	if mimeType == "" {
-		if detected, detectErr := detectMimeFromFile(absPath); detectErr == nil {
-			mimeType = detected
-		}
+		mimeType = mime.TypeByExtension(ext)
 	}
 	if mimeType == "" {
 		mimeType = mime.TypeByExtension(ext)
@@ -165,13 +146,14 @@ func (s *ClientFilesService) UploadPrimary(ctx context.Context, userID, roleID, 
 
 	rec, err := s.FileRepo.UpsertPrimary(ctx, int64(clientID), category, relPath, mimePtr, &size, &uploadedBy)
 	if err != nil {
-		_ = os.Remove(absPath)
+		_ = s.Store.Delete(ctx, relPath)
 		return nil, err
 	}
 	return rec, nil
 }
 
-func (s *ClientFilesService) ResolvePrimaryPath(ctx context.Context, userID, roleID, clientID int, category string) (absPath string, fileName string, mimeType string, err error) {
+// ResolvePrimaryPath returns the storage key, file name, and MIME type for a client file.
+func (s *ClientFilesService) ResolvePrimaryPath(ctx context.Context, userID, roleID, clientID int, category string) (key string, fileName string, mimeType string, err error) {
 	if _, err = s.ensureClientAccess(clientID, userID, roleID); err != nil {
 		return "", "", "", err
 	}
@@ -181,21 +163,14 @@ func (s *ClientFilesService) ResolvePrimaryPath(ctx context.Context, userID, rol
 		return "", "", "", err
 	}
 
-	absPath, err = s.safeAbsPath(rec.FilePath)
-	if err != nil {
-		return "", "", "", err
-	}
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		return "", "", "", statErr
-	}
-
-	fileName = filepath.Base(rec.FilePath)
+	key = filepath.ToSlash(rec.FilePath)
+	fileName = filepath.Base(key)
 	if rec.Mime != nil {
 		mimeType = *rec.Mime
 	} else {
 		mimeType = mime.TypeByExtension(strings.ToLower(filepath.Ext(fileName)))
 	}
-	return absPath, fileName, mimeType, nil
+	return key, fileName, mimeType, nil
 }
 
 func (s *ClientFilesService) ensureClientAccess(clientID, userID, roleID int) (*models.Client, error) {
@@ -209,32 +184,3 @@ func (s *ClientFilesService) ensureClientAccess(clientID, userID, roleID int) (*
 	return client, nil
 }
 
-func (s *ClientFilesService) safeAbsPath(rel string) (string, error) {
-	root := filepath.Clean(s.RootDir)
-	joined := filepath.Clean(filepath.Join(root, rel))
-	relToRoot, err := filepath.Rel(root, joined)
-	if err != nil {
-		return "", err
-	}
-	if strings.HasPrefix(relToRoot, "..") || filepath.IsAbs(relToRoot) {
-		return "", ErrClientFilePathTraversal
-	}
-	return joined, nil
-}
-
-func detectMimeFromFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	buf := make([]byte, 512)
-	n, err := f.Read(buf)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	if n == 0 {
-		return "", nil
-	}
-	return http.DetectContentType(buf[:n]), nil
-}

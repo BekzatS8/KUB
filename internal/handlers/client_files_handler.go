@@ -5,19 +5,22 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 )
 
 type ClientFilesHandler struct {
 	Service *services.ClientFilesService
+	Store   storage.Storage
 }
 
-func NewClientFilesHandler(service *services.ClientFilesService) *ClientFilesHandler {
-	return &ClientFilesHandler{Service: service}
+func NewClientFilesHandler(service *services.ClientFilesService, store storage.Storage) *ClientFilesHandler {
+	return &ClientFilesHandler{Service: service, Store: store}
 }
 
 // POST /clients/:id/files
@@ -80,7 +83,7 @@ func (h *ClientFilesHandler) servePrimary(c *gin.Context, download bool) {
 	}
 	userID, roleID := getUserAndRole(c)
 
-	absPath, fileName, mimeType, err := h.Service.ResolvePrimaryPath(c.Request.Context(), userID, roleID, clientID, category)
+	key, fileName, mimeType, err := h.Service.ResolvePrimaryPath(c.Request.Context(), userID, roleID, clientID, category)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrForbidden), errors.Is(err, services.ErrReadOnly):
@@ -96,13 +99,26 @@ func (h *ClientFilesHandler) servePrimary(c *gin.Context, download bool) {
 		}
 		return
 	}
+
+	reader, size, err := h.Store.Open(c.Request.Context(), key)
+	if err != nil {
+		notFound(c, NotFoundCode, "Файл клиента не найден")
+		return
+	}
+	defer reader.Close()
+
 	if mimeType != "" {
 		c.Header("Content-Type", mimeType)
 	}
 	if download {
-		c.FileAttachment(absPath, fileName)
-		return
+		c.Header("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	} else {
+		c.Header("Content-Disposition", "inline")
 	}
-	c.Header("Content-Disposition", "inline")
-	c.File(absPath)
+	c.Header("Content-Length", http.CanonicalHeaderKey(itoa(size)))
+	http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, reader)
+}
+
+func itoa(n int64) string {
+	return strconv.FormatInt(n, 10)
 }

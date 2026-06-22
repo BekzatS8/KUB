@@ -62,7 +62,7 @@ func (s *stubUserService) VerifyUser(int) error                                 
 func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -105,7 +105,7 @@ func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 func TestCreateUser_WithIsVerifiedTruePassesFlag(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -156,7 +156,7 @@ func TestCreateUser_RequiresFullNameAndInternationalPhone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			svc := &stubUserService{}
-			h := NewUserHandler(svc, nil, nil)
+			h := NewUserHandler(svc, nil, nil, nil)
 
 			r := gin.New()
 			r.Use(func(c *gin.Context) {
@@ -187,7 +187,7 @@ func TestCreateUser_RequiresFullNameAndInternationalPhone(t *testing.T) {
 func TestRegister_IgnoresIsVerifiedAndKeepsPublicFlowUnverified(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.POST("/register", h.Register)
@@ -212,7 +212,7 @@ func TestRegister_IgnoresIsVerifiedAndKeepsPublicFlowUnverified(t *testing.T) {
 func TestRegister_RequiresBranchID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.POST("/register", h.Register)
@@ -237,7 +237,7 @@ func TestRegister_RequiresBranchID(t *testing.T) {
 func TestRegister_WithBranchIDSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.POST("/register", h.Register)
@@ -265,7 +265,7 @@ func TestRegister_WithBranchIDSucceeds(t *testing.T) {
 func TestRegister_ZeroBranchIDRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 
 	r := gin.New()
 	r.POST("/register", h.Register)
@@ -351,7 +351,7 @@ func TestLogin_InactiveUserCannotLogin(t *testing.T) {
 func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
@@ -371,7 +371,7 @@ func TestCreateUser_WithBranchIDPassed(t *testing.T) {
 func TestCreateUser_RequiresBranchForNonAdminRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
@@ -393,7 +393,7 @@ func TestCreateUser_RequiresBranchForNonAdminRole(t *testing.T) {
 func TestCreateUser_AllowsSystemAdminWithoutBranch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.POST("/users", h.CreateUser)
@@ -423,7 +423,7 @@ func TestUserProfileShapeIncludesLegacyAndFullName(t *testing.T) {
 		Email: "u@example.com", Phone: "+7700", RoleID: authz.RoleSales, IsActive: true,
 		IsVerified: true, BranchID: &branchID, CompanyName: "Legacy Co", BinIin: "123", NotifyTasksTelegram: true,
 	}}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 10); c.Set("role_id", authz.RoleSales); c.Next() })
 	r.GET("/users/me", h.GetMyProfile)
@@ -445,7 +445,7 @@ func TestUpdateUser_WithBranchID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	initialBranch := 1
 	svc := &stubUserService{byID: &models.User{ID: 7, Email: "u@e.c", Phone: "+7", RoleID: authz.RoleSales, IsActive: true, BranchID: &initialBranch}}
-	h := NewUserHandler(svc, nil, nil)
+	h := NewUserHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", 1); c.Set("role_id", authz.RoleSystemAdmin); c.Next() })
 	r.PUT("/users/:id", h.UpdateUser)

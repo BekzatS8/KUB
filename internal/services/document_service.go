@@ -28,6 +28,7 @@ import (
 	"turcompany/internal/models"
 	"turcompany/internal/pdf"
 	"turcompany/internal/repositories"
+	"turcompany/internal/storage"
 	"turcompany/internal/xlsx"
 )
 
@@ -88,12 +89,17 @@ type DocumentService struct {
 	PDFGen    pdf.Generator // генератор PDF (internal/pdf, txt-шаблоны/старые контракты)
 	DocxGen   docx.Generator
 	XlsxGen   xlsx.Generator
+	Store     storage.Storage // nil = local disk only
 	now       func() time.Time
 	displayTZ *time.Location
 }
 
 func (s *DocumentService) SetUserRepo(userRepo repositories.UserRepository) {
 	s.UserRepo = userRepo
+}
+
+func (s *DocumentService) SetStore(store storage.Storage) {
+	s.Store = store
 }
 
 func (s *DocumentService) branchScopeForRole(userID, roleID int) (*int, error) {
@@ -532,11 +538,7 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 	if safeName == "" || safeName == "." {
 		return nil, errors.New("invalid filename")
 	}
-	if err := os.MkdirAll(s.FilesRoot, 0o755); err != nil {
-		return nil, fmt.Errorf("prepare files dir: %w", err)
-	}
 	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
-	dstPath := filepath.Join(s.FilesRoot, finalName)
 
 	src, err := file.Open()
 	if err != nil {
@@ -544,13 +546,7 @@ func (s *DocumentService) UploadDocument(dealID int64, docType string, file *mul
 	}
 	defer src.Close()
 
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
+	if err := s.storeSave(finalName, src); err != nil {
 		return nil, fmt.Errorf("save file: %w", err)
 	}
 
@@ -581,12 +577,8 @@ func (s *DocumentService) UploadDocumentWithMeta(scope, title, description strin
 	if safeName == "" || safeName == "." {
 		return nil, errors.New("invalid filename")
 	}
-	dir := filepath.Join(s.FilesRoot, "scoped", scope)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("prepare scoped dir: %w", err)
-	}
 	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
-	dstPath := filepath.Join(dir, finalName)
+	relPath := filepath.ToSlash(filepath.Join("scoped", scope, finalName))
 
 	src, err := file.Open()
 	if err != nil {
@@ -594,17 +586,9 @@ func (s *DocumentService) UploadDocumentWithMeta(scope, title, description strin
 	}
 	defer src.Close()
 
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
+	if err := s.storeSave(relPath, src); err != nil {
 		return nil, fmt.Errorf("save file: %w", err)
 	}
-
-	relPath := filepath.Join("scoped", scope, finalName)
 	createdBy := userID
 	doc := &models.Document{
 		Scope:        scope,
@@ -1090,34 +1074,42 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 	if originalRel == "" {
 		originalRel = strings.TrimSpace(doc.FilePath)
 	}
-	originalAbs, err := s.resolveStoragePath(originalRel)
-	if err != nil || originalAbs == "" {
+	// Download original to local temp if needed (S3 mode).
+	originalLocal, cleanupOrig, err := s.downloadToTemp(originalRel)
+	if err != nil || originalLocal == "" {
 		return errors.New("bad filepath")
 	}
-	if strings.ToLower(filepath.Ext(originalAbs)) != ".pdf" {
+	defer cleanupOrig()
+
+	if strings.ToLower(filepath.Ext(originalLocal)) != ".pdf" {
 		return errors.New("file not found")
 	}
-	if _, err := os.Stat(originalAbs); err != nil {
+	if _, err := os.Stat(originalLocal); err != nil {
 		return errors.New("file not found")
 	}
-	if err := s.validateSessionDocumentHash(originalAbs, session.DocHash); err != nil {
+	if err := s.validateSessionDocumentHash(originalLocal, session.DocHash); err != nil {
 		return err
 	}
 
 	if doc.Status == "signed" {
 		if signedRel := extractSignedPDFPath(doc.SignMetadata); signedRel != "" {
-			if signedAbs, err := s.resolveStoragePath(signedRel); err == nil && signedAbs != "" {
-				if info, statErr := os.Stat(signedAbs); statErr == nil && !info.IsDir() {
-					return nil
+			// In local mode check file exists; in S3 mode trust DB record.
+			if s.Store == nil {
+				if signedAbs, err := s.resolveStoragePath(signedRel); err == nil && signedAbs != "" {
+					if info, statErr := os.Stat(signedAbs); statErr == nil && !info.IsDir() {
+						return nil
+					}
 				}
+			} else {
+				return nil
 			}
 		}
 	}
 
-	base := strings.TrimSuffix(filepath.Base(originalAbs), filepath.Ext(originalAbs))
+	base := strings.TrimSuffix(filepath.Base(originalLocal), filepath.Ext(originalLocal))
 	signedName := base + "_signed.pdf"
-	signedAbs := filepath.Join(s.FilesRoot, "pdf", signedName)
-	signedRel := "/pdf/" + signedName
+	signedLocalAbs := filepath.Join(s.FilesRoot, "pdf", signedName)
+	signedKey := "pdf/" + signedName
 
 	signPageAbs := filepath.Join(s.FilesRoot, "pdf", fmt.Sprintf("%s_sign_page_%d.pdf", base, time.Now().UnixNano()))
 	if err := s.buildSigningPagePDF(doc, session, signPageAbs); err != nil {
@@ -1125,10 +1117,25 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 	}
 	defer os.Remove(signPageAbs)
 
-	if err := mergePDFsFunc(originalAbs, signPageAbs, signedAbs); err != nil {
+	if err := mergePDFsFunc(originalLocal, signPageAbs, signedLocalAbs); err != nil {
 		return err
 	}
 
+	// Upload merged PDF to S3 if enabled.
+	if s.Store != nil {
+		f, err := os.Open(signedLocalAbs)
+		if err == nil {
+			if uploadErr := s.Store.Save(nil, f, signedKey); uploadErr != nil {
+				_ = f.Close()
+				log.Printf("[doc][sign] upload signed pdf to S3: %v", uploadErr)
+			} else {
+				_ = f.Close()
+				_ = os.Remove(signedLocalAbs)
+			}
+		}
+	}
+
+	signedRel := "/pdf/" + signedName
 	meta := map[string]any{"signed_pdf_path": signedRel}
 	metaRaw, _ := json.Marshal(meta)
 	if err := s.DocRepo.UpdateSigningMeta(doc.ID, "email_otp", session.SignedIP, session.SignedUserAgent, string(metaRaw)); err != nil {
@@ -1313,12 +1320,77 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 		return "", "", errors.New("bad filepath")
 	}
 
+	// With S3 storage, we return the key directly (no local stat check).
+	if s.Store != nil {
+		return rel, filepath.Base(rel), nil
+	}
+
 	abs := filepath.Join(s.FilesRoot, rel)
 	info, statErr := os.Stat(abs)
 	if statErr != nil || info.IsDir() {
 		return "", "", errors.New("file not found")
 	}
 	return abs, filepath.Base(abs), nil
+}
+
+// storeSave saves reader content under key; falls back to local disk when Store is nil.
+func (s *DocumentService) storeSave(key string, reader io.Reader) error {
+	if s.Store != nil {
+		return s.Store.Save(nil, reader, key)
+	}
+	abs := filepath.Join(s.FilesRoot, key)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(abs)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, reader)
+	return err
+}
+
+// storeDelete deletes a stored file by key.
+func (s *DocumentService) storeDelete(key string) error {
+	if s.Store != nil {
+		return s.Store.Delete(nil, key)
+	}
+	abs, err := s.resolveStoragePath(key)
+	if err != nil || abs == "" {
+		return nil
+	}
+	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// downloadToTemp downloads a stored file to a local temp file and returns its path.
+// The caller must call the returned cleanup func when done.
+// If Store is nil (local mode), returns the abs path directly (no copy needed).
+func (s *DocumentService) downloadToTemp(key string) (localPath string, cleanup func(), err error) {
+	if s.Store == nil {
+		abs, err := s.resolveStoragePath(key)
+		return abs, func() {}, err
+	}
+	reader, _, err := s.Store.Open(nil, key)
+	if err != nil {
+		return "", nil, fmt.Errorf("download from storage: %w", err)
+	}
+	defer reader.Close()
+
+	ext := filepath.Ext(key)
+	tmp, err := os.CreateTemp("", "doc_proc_*"+ext)
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := io.Copy(tmp, reader); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", nil, err
+	}
+	_ = tmp.Close()
+	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
 }
 
 func (s *DocumentService) resolveStoragePath(rel string) (string, error) {
@@ -1352,14 +1424,7 @@ func (s *DocumentService) deleteDocumentFiles(doc *models.Document) error {
 		unique[rel] = struct{}{}
 	}
 	for rel := range unique {
-		abs, err := s.resolveStoragePath(rel)
-		if err != nil {
-			return err
-		}
-		if abs == "" {
-			continue
-		}
-		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		if err := s.storeDelete(rel); err != nil {
 			return fmt.Errorf("file delete failed: %w", err)
 		}
 	}

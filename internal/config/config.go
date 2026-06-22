@@ -17,6 +17,16 @@ type FilesConfig struct {
 	RootDir string `yaml:"root_dir"`
 }
 
+type S3Config struct {
+	Enabled   bool   `yaml:"enabled"`
+	Endpoint  string `yaml:"endpoint"`
+	Region    string `yaml:"region"`
+	Bucket    string `yaml:"bucket"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+	UseSSL    bool   `yaml:"use_ssl"`
+}
+
 type TemplatesConfig struct {
 	DocxDir string `yaml:"docx_dir"`
 	XlsxDir string `yaml:"xlsx_dir"`
@@ -96,6 +106,7 @@ type Config struct {
 	} `yaml:"email"`
 
 	Files       FilesConfig       `yaml:"files"`
+	S3          S3Config          `yaml:"s3"`
 	Templates   TemplatesConfig   `yaml:"templates"`
 	LibreOffice LibreOfficeConfig `yaml:"libreoffice"`
 
@@ -436,6 +447,21 @@ func applyEnvOverrides(cfg *Config) {
 			*target = intVal
 		}
 	}
+	// S3 / object storage
+	setString(os.Getenv("S3_ENDPOINT"), &cfg.S3.Endpoint)
+	setString(os.Getenv("S3_REGION"), &cfg.S3.Region)
+	setString(os.Getenv("S3_BUCKET"), &cfg.S3.Bucket)
+	setString(os.Getenv("S3_ACCESS_KEY"), &cfg.S3.AccessKey)
+	setString(os.Getenv("S3_SECRET_KEY"), &cfg.S3.SecretKey)
+	if val := strings.TrimSpace(os.Getenv("S3_ENABLED")); val != "" {
+		cfg.S3.Enabled = parseBoolEnvValue(val)
+	} else if cfg.S3.Endpoint != "" && cfg.S3.Bucket != "" && cfg.S3.AccessKey != "" {
+		cfg.S3.Enabled = true
+	}
+	if val := strings.TrimSpace(os.Getenv("S3_USE_SSL")); val != "" {
+		cfg.S3.UseSSL = parseBoolEnvValue(val)
+	}
+
 	setString(os.Getenv("SIGN_BASE_URL"), &cfg.SignBaseURL)
 	setString(os.Getenv("PUBLIC_BASE_URL"), &cfg.PublicBaseURL)
 	setString(os.Getenv("SIGN_PUBLIC_BASE_URL"), &cfg.PublicBaseURL)

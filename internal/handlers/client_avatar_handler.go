@@ -2,28 +2,29 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/repositories"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 )
 
 type ClientAvatarHandler struct {
 	service    *services.ClientService
 	clientRepo *repositories.ClientRepository
 	filesRoot  string
+	store      storage.Storage
 }
 
-func NewClientAvatarHandler(service *services.ClientService, clientRepo *repositories.ClientRepository, filesRoot string) *ClientAvatarHandler {
-	return &ClientAvatarHandler{service: service, clientRepo: clientRepo, filesRoot: filesRoot}
+func NewClientAvatarHandler(service *services.ClientService, clientRepo *repositories.ClientRepository, filesRoot string, store storage.Storage) *ClientAvatarHandler {
+	return &ClientAvatarHandler{service: service, clientRepo: clientRepo, filesRoot: filesRoot, store: store}
 }
 
 // POST /clients/:id/avatar
@@ -95,21 +96,21 @@ func (h *ClientAvatarHandler) Upload(c *gin.Context) {
 		name+ext,
 	))
 
-	if err := h.saveFile(src, key); err != nil {
+	if err := h.store.Save(c.Request.Context(), src, key); err != nil {
 		internalError(c, "Не удалось сохранить файл")
 		return
 	}
 
-	avatarURL := fmt.Sprintf("/clients/%d/avatar/content", clientID)
+	avatarURL := "/clients/" + strconv.Itoa(clientID) + "/avatar/content"
 	if err := h.clientRepo.UpdateAvatar(clientID, avatarURL, key); err != nil {
-		h.removeStoredFile(key)
+		_ = h.store.Delete(c.Request.Context(), key)
 		internalError(c, "Не удалось обновить аватар")
 		return
 	}
 
 	// Remove old file
 	if oldAvatarPath != "" {
-		h.removeStoredFile(oldAvatarPath)
+		_ = h.store.Delete(c.Request.Context(), oldAvatarPath)
 	}
 
 	// Re-fetch client for response
@@ -202,7 +203,7 @@ func (h *ClientAvatarHandler) Delete(c *gin.Context) {
 	}
 
 	if oldAvatarPath != "" {
-		h.removeStoredFile(oldAvatarPath)
+		_ = h.store.Delete(c.Request.Context(), oldAvatarPath)
 	}
 
 	updated, err := h.service.GetByID(clientID, userID, roleID)
@@ -236,75 +237,15 @@ func (h *ClientAvatarHandler) Serve(c *gin.Context) {
 		return
 	}
 
-	absPath, err := h.resolveFilePath(*client.AvatarPath)
+	key := filepath.ToSlash(*client.AvatarPath)
+	reader, _, err := h.store.Open(c.Request.Context(), key)
 	if err != nil {
 		notFound(c, NotFoundCode, "Аватар не найден")
 		return
 	}
+	defer reader.Close()
 
-	f, err := os.Open(absPath)
-	if err != nil {
-		notFound(c, NotFoundCode, "Аватар не найден")
-		return
-	}
-	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		notFound(c, NotFoundCode, "Аватар не найден")
-		return
-	}
-
-	c.Header("Content-Type", avatarContentType(filepath.Ext(*client.AvatarPath)))
+	c.Header("Content-Type", avatarContentType(filepath.Ext(key)))
 	c.Header("Content-Disposition", "inline")
-	http.ServeContent(c.Writer, c.Request, filepath.Base(*client.AvatarPath), stat.ModTime(), f)
-}
-
-// --- File helpers ---
-
-func (h *ClientAvatarHandler) saveFile(reader io.Reader, key string) error {
-	absPath, err := h.resolveFilePath(key)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-	dst, err := os.Create(absPath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer dst.Close()
-	if _, err := io.Copy(dst, reader); err != nil {
-		return fmt.Errorf("write file: %w", err)
-	}
-	return nil
-}
-
-func (h *ClientAvatarHandler) resolveFilePath(key string) (string, error) {
-	clean := filepath.Clean(strings.TrimSpace(key))
-	if clean == "." || clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid file key")
-	}
-	rootAbs, err := filepath.Abs(h.filesRoot)
-	if err != nil {
-		return "", err
-	}
-	joined := filepath.Join(rootAbs, clean)
-	relToRoot, err := filepath.Rel(rootAbs, joined)
-	if err != nil || strings.HasPrefix(relToRoot, "..") {
-		return "", fmt.Errorf("path traversal detected")
-	}
-	return joined, nil
-}
-
-func (h *ClientAvatarHandler) removeStoredFile(key string) {
-	if key == "" {
-		return
-	}
-	absPath, err := h.resolveFilePath(key)
-	if err != nil {
-		return
-	}
-	_ = os.Remove(absPath)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(key), time.Time{}, reader)
 }

@@ -25,8 +25,16 @@ import (
 	"turcompany/internal/repositories"
 	"turcompany/internal/routes"
 	"turcompany/internal/services"
+	"turcompany/internal/storage"
 	"turcompany/internal/utils"
 )
+
+// storageS3Config is a local alias to avoid import cycle.
+type storageS3Config = storage.S3Config
+
+func storageNew(localRoot string, s3 storageS3Config) (storage.Storage, error) {
+	return storage.New(localRoot, s3)
+}
 
 func Run() {
 	cfg, err := config.LoadConfig()
@@ -64,6 +72,25 @@ func Run() {
 	log.Printf("[BOOT] config: files.root_dir=%s", cfg.Files.RootDir)
 	log.Printf("[BOOT] config: templates docx=%s xlsx=%s txt=%s", cfg.Templates.DocxDir, cfg.Templates.XlsxDir, cfg.Templates.TxtDir)
 	log.Printf("[BOOT] config: libreoffice.enable=%v binary=%s", cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)
+
+	// === Storage (S3 or local) ===
+	fileStore, err := storageNew(cfg.Files.RootDir, storageS3Config{
+		Enabled:   cfg.S3.Enabled,
+		Endpoint:  cfg.S3.Endpoint,
+		Region:    cfg.S3.Region,
+		Bucket:    cfg.S3.Bucket,
+		AccessKey: cfg.S3.AccessKey,
+		SecretKey: cfg.S3.SecretKey,
+		UseSSL:    cfg.S3.UseSSL,
+	})
+	if err != nil {
+		log.Fatalf("[BOOT] failed to init storage: %v", err)
+	}
+	if cfg.S3.Enabled {
+		log.Printf("[BOOT] storage: S3 endpoint=%s bucket=%s", cfg.S3.Endpoint, cfg.S3.Bucket)
+	} else {
+		log.Printf("[BOOT] storage: local root=%s", cfg.Files.RootDir)
+	}
 	jwtSecret := []byte(cfg.Security.JWTSecret)
 	if len(jwtSecret) < 32 {
 		if gin.Mode() == gin.ReleaseMode {
@@ -204,7 +231,7 @@ func Run() {
 	branchService := services.NewBranchService(branchRepo)
 	clientService := services.NewClientService(clientRepo, clientFileRepo)
 	clientService.SetUserRepo(userRepo)
-	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo)
+	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo, fileStore)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
 	// Enforce client/lead ownership on the telephony call-history endpoints
 	// (GET /clients/:id/calls, GET /leads/:id/calls) using the canonical scope checks.
@@ -213,7 +240,7 @@ func Run() {
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	dealService.SetStageRepo(funnelStageRepo)
 	dealService.SetTransitionRuleRepo(funnelTransitionRuleRepo)
-	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo)
+	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo, fileStore)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
 	pdfGen := pdf.NewDocumentGenerator(cfg.Files.RootDir, cfg.Templates.TxtDir, "assets/fonts/DejaVuSans.ttf")
@@ -242,12 +269,13 @@ func Run() {
 	)
 	documentService.SetUserRepo(userRepo)
 	documentService.SetTimeProvider(nowProvider, serverTZ)
+	documentService.SetStore(fileStore)
 
-	clientAvatarHandler := handlers.NewClientAvatarHandler(clientService, clientRepo, cfg.Files.RootDir)
+	clientAvatarHandler := handlers.NewClientAvatarHandler(clientService, clientRepo, cfg.Files.RootDir, fileStore)
 	clientDocsHandler := handlers.NewClientDocumentsHandler(documentService, clientRepo, documentRepo)
 
 	documentVersionRepo := repositories.NewDocumentVersionRepository(db)
-	docVersionHandler := handlers.NewDocumentVersionHandler(documentRepo, documentVersionRepo, documentService, cfg.Files.RootDir)
+	docVersionHandler := handlers.NewDocumentVersionHandler(documentRepo, documentVersionRepo, documentService, cfg.Files.RootDir, fileStore)
 
 	taskService := services.NewTaskService(taskRepo, userRepo, tgSvc)
 	if tgSvc != nil {
@@ -324,14 +352,14 @@ func Run() {
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
 	funnelStageHandler := handlers.NewFunnelStageHandler(funnelStageService)
 	funnelTransitionRuleHandler := handlers.NewFunnelTransitionRuleHandler(funnelTransitionRuleSvc)
-	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, cfg.Files.RootDir)
+	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, fileStore, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)
 	clientHandler := handlers.NewClientHandler(clientService)
-	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService)
+	clientFilesHandler := handlers.NewClientFilesHandler(clientFilesService, fileStore)
 	clientProfileHandler := handlers.NewClientProfileHandler(clientService)
 	leadHandler := handlers.NewLeadHandler(leadService)
 	dealHandler := handlers.NewDealHandler(dealService)
-	documentHandler := handlers.NewDocumentHandler(documentService)
+	documentHandler := handlers.NewDocumentHandler(documentService, fileStore)
 	chatHandler := handlers.NewChatHandler(chatService, chatHub)
 	signConfirmHandler := handlers.NewDocumentSigningConfirmationHandler(
 		signConfirmService,
