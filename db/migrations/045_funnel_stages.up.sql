@@ -48,16 +48,21 @@ CREATE INDEX IF NOT EXISTS deal_stage_history_deal_id_idx ON deal_stage_history(
 -- Step 4: Seed default stages for every existing funnel (idempotent: ON CONFLICT DO NOTHING)
 -- Codes are aligned with deals.status values so deals can be backfilled below.
 -- =============================================================================
+-- Сидируем дефолтные этапы ТОЛЬКО для воронок без единого этапа.
+-- Так повторный запуск не восстанавливает этапы, удалённые администратором.
 INSERT INTO funnel_stages (funnel_id, name, code, color, type, position, probability)
 SELECT f.id, s.name, s.code, s.color, s.type, s.position, s.probability
 FROM funnels f
 CROSS JOIN (VALUES
-    ('Новая заявка', 'new',         '#94a3b8', 'regular', 10, 10),
-    ('В работе',     'in_progress', '#3b82f6', 'regular', 20, 30),
-    ('Переговоры',   'negotiation', '#f59e0b', 'regular', 30, 60),
-    ('Успешно',      'won',         '#22c55e', 'won',     40, 100),
-    ('Не реализовано','lost',       '#ef4444', 'lost',    50, 0)
+    ('Новая заявка',   'new',         '#94a3b8', 'regular', 10, 10),
+    ('В работе',       'in_progress', '#3b82f6', 'regular', 20, 30),
+    ('Переговоры',     'negotiation', '#f59e0b', 'regular', 30, 60),
+    ('Успешно',        'won',         '#22c55e', 'won',     40, 100),
+    ('Не реализовано', 'lost',        '#ef4444', 'lost',    50, 0)
 ) AS s(name, code, color, type, position, probability)
+WHERE NOT EXISTS (
+    SELECT 1 FROM funnel_stages fs WHERE fs.funnel_id = f.id
+)
 ON CONFLICT (funnel_id, code) DO NOTHING;
 
 -- =============================================================================
