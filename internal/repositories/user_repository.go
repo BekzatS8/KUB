@@ -13,6 +13,7 @@ type UserRepository interface {
 	Create(user *models.User) error
 	GetByID(id int) (*models.User, error)
 	Update(user *models.User) error
+	ApplyUserPatch(userID int, patch *models.UserApprovalUpdatePayload) error
 	Delete(id int) error
 	List(limit, offset int) ([]*models.User, error)
 	GetByEmail(email string) (*models.User, error)
@@ -108,6 +109,27 @@ func (r *userRepository) Update(user *models.User) error {
 		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
 		user.IsVerified, user.VerifiedAt,
 		user.ID,
+	)
+	return err
+}
+
+func (r *userRepository) ApplyUserPatch(userID int, patch *models.UserApprovalUpdatePayload) error {
+	const q = `
+		UPDATE users SET
+			first_name  = CASE WHEN $1 <> '' THEN $1::text ELSE first_name END,
+			last_name   = CASE WHEN $2 <> '' THEN $2::text ELSE last_name END,
+			middle_name = CASE WHEN $3 <> '' THEN $3::text ELSE middle_name END,
+			phone       = CASE WHEN $4 <> '' THEN $4::text ELSE phone END,
+			address     = CASE WHEN $5 <> '' THEN $5::text ELSE address END,
+			extra_info  = CASE WHEN $6 <> '' THEN $6::text ELSE extra_info END,
+			bin_iin     = CASE WHEN $7 <> '' THEN $7::text ELSE bin_iin END,
+			updated_at  = NOW()
+		WHERE id = $8
+	`
+	_, err := r.DB.Exec(q,
+		patch.FirstName, patch.LastName, patch.MiddleName,
+		patch.Phone, patch.Address, patch.ExtraInfo, patch.BinIin,
+		userID,
 	)
 	return err
 }

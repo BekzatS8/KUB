@@ -42,6 +42,20 @@ type UserApprovalUpdatePayload struct {
 	Address    string `json:"address,omitempty"`
 	ExtraInfo  string `json:"extra_info,omitempty"`
 	BinIin     string `json:"bin_iin,omitempty"`
+
+	// Before содержит снимок исходных значений до запроса на редактирование.
+	Before *UserApprovalFieldSnapshot `json:"before,omitempty"`
+}
+
+// UserApprovalFieldSnapshot хранит оригинальные значения полей пользователя до изменения.
+type UserApprovalFieldSnapshot struct {
+	FirstName  string `json:"first_name,omitempty"`
+	LastName   string `json:"last_name,omitempty"`
+	MiddleName string `json:"middle_name,omitempty"`
+	Phone      string `json:"phone,omitempty"`
+	Address    string `json:"address,omitempty"`
+	ExtraInfo  string `json:"extra_info,omitempty"`
+	BinIin     string `json:"bin_iin,omitempty"`
 }
 
 // UserApprovalCreatePayload хранится в request_data для action=create.

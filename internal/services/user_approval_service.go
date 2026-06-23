@@ -138,6 +138,16 @@ func (s *UserApprovalService) RequestUpdate(
 		return nil, ErrNotFound
 	}
 
+	patch.Before = &models.UserApprovalFieldSnapshot{
+		FirstName:  target.FirstName,
+		LastName:   target.LastName,
+		MiddleName: target.MiddleName,
+		Phone:      target.Phone,
+		Address:    target.Address,
+		ExtraInfo:  target.ExtraInfo,
+		BinIin:     target.BinIin,
+	}
+
 	data, err := json.Marshal(patch)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)
@@ -269,35 +279,7 @@ func (s *UserApprovalService) executeUpdate(ctx context.Context, req *models.Use
 	if err := json.Unmarshal(*req.RequestData, &patch); err != nil {
 		return fmt.Errorf("unmarshal payload: %w", err)
 	}
-
-	target, err := s.userService.GetUserByID(*req.TargetUserID)
-	if err != nil || target == nil {
-		return fmt.Errorf("target user not found")
-	}
-
-	if patch.FirstName != "" {
-		target.FirstName = patch.FirstName
-	}
-	if patch.LastName != "" {
-		target.LastName = patch.LastName
-	}
-	if patch.MiddleName != "" {
-		target.MiddleName = patch.MiddleName
-	}
-	if patch.Phone != "" {
-		target.Phone = patch.Phone
-	}
-	if patch.Address != "" {
-		target.Address = patch.Address
-	}
-	if patch.ExtraInfo != "" {
-		target.ExtraInfo = patch.ExtraInfo
-	}
-	if patch.BinIin != "" {
-		target.BinIin = patch.BinIin
-	}
-
-	return s.userService.UpdateUser(target)
+	return s.userService.ApplyUpdatePatch(*req.TargetUserID, &patch)
 }
 
 func (s *UserApprovalService) executeCreate(ctx context.Context, req *models.UserApprovalRequest) error {

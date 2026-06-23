@@ -14,6 +14,7 @@ type UserService interface {
 	CreateUserWithPassword(user *models.User, plainPassword string) error
 	GetUserByID(id int) (*models.User, error)
 	UpdateUser(user *models.User) error
+	ApplyUpdatePatch(userID int, patch *models.UserApprovalUpdatePayload) error
 	DeleteUser(id int) error
 	ListUsers(limit, offset int) ([]*models.User, error)
 	GetUserByEmail(email string) (*models.User, error)
@@ -129,6 +130,10 @@ func (s *userService) GetUserByID(id int) (*models.User, error) {
 
 func (s *userService) UpdateUser(user *models.User) error {
 	return s.repo.Update(user)
+}
+
+func (s *userService) ApplyUpdatePatch(userID int, patch *models.UserApprovalUpdatePayload) error {
+	return s.repo.ApplyUserPatch(userID, patch)
 }
 
 func (s *userService) DeleteUser(id int) error {
