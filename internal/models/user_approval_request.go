@@ -17,15 +17,19 @@ const (
 // UserApprovalRequest — запрос юриста на создание или удаление пользователя.
 // Хранит все необходимые данные для выполнения действия после одобрения админом.
 type UserApprovalRequest struct {
-	ID           int              `json:"id"`
-	RequesterID  int              `json:"requester_id"`
-	Action       string           `json:"action"` // "create" | "delete"
-	TargetUserID *int             `json:"target_user_id,omitempty"`
-	RequestData  *json.RawMessage `json:"request_data,omitempty"`
-	Status       string           `json:"status"` // "pending" | "approved" | "rejected"
-	ReviewerID   *int             `json:"reviewer_id,omitempty"`
-	ReviewedAt   *time.Time       `json:"reviewed_at,omitempty"`
-	CreatedAt    time.Time        `json:"created_at"`
+	ID              int              `json:"id"`
+	RequesterID     int              `json:"requester_id"`
+	RequesterName   string           `json:"requester_name,omitempty"`
+	Action          string           `json:"action"` // "create" | "delete"
+	TargetUserID    *int             `json:"target_user_id,omitempty"`
+	TargetUserName  string           `json:"target_user_name,omitempty"`
+	RequestData     *json.RawMessage `json:"request_data,omitempty"`
+	Status          string           `json:"status"` // "pending" | "approved" | "rejected"
+	ReviewerID      *int             `json:"reviewer_id,omitempty"`
+	ReviewerName    string           `json:"reviewer_name,omitempty"`
+	RejectReason    *string          `json:"reject_reason,omitempty"`
+	ReviewedAt      *time.Time       `json:"reviewed_at,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
 }
 
 // UserApprovalCreatePayload хранится в request_data для action=create.

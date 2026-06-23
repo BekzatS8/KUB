@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -153,7 +154,7 @@ func (s *UserApprovalService) Approve(ctx context.Context, requestID, reviewerID
 		}
 	}
 
-	if err := s.repo.UpdateStatus(ctx, requestID, models.ApprovalStatusApproved, reviewerID); err != nil {
+	if err := s.repo.UpdateStatus(ctx, requestID, models.ApprovalStatusApproved, reviewerID, nil); err != nil {
 		return err
 	}
 
@@ -169,7 +170,7 @@ func (s *UserApprovalService) Approve(ctx context.Context, requestID, reviewerID
 }
 
 // Reject отклоняет запрос без каких-либо действий с пользователями.
-func (s *UserApprovalService) Reject(ctx context.Context, requestID, reviewerID int) error {
+func (s *UserApprovalService) Reject(ctx context.Context, requestID, reviewerID int, reason string) error {
 	req, err := s.repo.GetByID(ctx, requestID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -181,7 +182,11 @@ func (s *UserApprovalService) Reject(ctx context.Context, requestID, reviewerID 
 		return ErrApprovalAlreadyResolved
 	}
 
-	if err := s.repo.UpdateStatus(ctx, requestID, models.ApprovalStatusRejected, reviewerID); err != nil {
+	var rejectReason *string
+	if r := strings.TrimSpace(reason); r != "" {
+		rejectReason = &r
+	}
+	if err := s.repo.UpdateStatus(ctx, requestID, models.ApprovalStatusRejected, reviewerID, rejectReason); err != nil {
 		return err
 	}
 
@@ -202,6 +207,10 @@ func (s *UserApprovalService) ListPending(ctx context.Context, limit, offset int
 
 func (s *UserApprovalService) ListAll(ctx context.Context, limit, offset int) ([]*models.UserApprovalRequest, error) {
 	return s.repo.ListAll(ctx, limit, offset)
+}
+
+func (s *UserApprovalService) ListByRequester(ctx context.Context, requesterID, limit, offset int) ([]*models.UserApprovalRequest, error) {
+	return s.repo.ListByRequester(ctx, requesterID, limit, offset)
 }
 
 func (s *UserApprovalService) executeCreate(ctx context.Context, req *models.UserApprovalRequest) error {

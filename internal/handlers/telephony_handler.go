@@ -102,6 +102,7 @@ func (h *TelephonyHandler) ListCalls(c *gin.Context) {
 
 	calls, total, err := h.svc.ListCalls(c.Request.Context(), userIDInt, roleIDInt, filter)
 	if err != nil {
+		log.Printf("telephony: list_calls user_id=%d role_id=%d error: %v", userIDInt, roleIDInt, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}

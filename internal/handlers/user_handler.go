@@ -622,7 +622,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		badRequest(c, "Invalid user ID")
 		return
 	}
-	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID)) && currentUserID != id {
+	if !(authz.CanViewLeadershipData(roleID) || authz.IsReadOnly(roleID) || authz.CanViewUsers(roleID)) && currentUserID != id {
 		forbidden(c, "Forbidden")
 		return
 	}

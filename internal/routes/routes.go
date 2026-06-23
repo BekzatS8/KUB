@@ -246,8 +246,14 @@ func SetupRoutes(
 		users.POST("/:id/unblock", middleware.RequirePermission("users.block", "user"), userHandler.UnblockUser)
 	}
 
-	// USER APPROVAL REQUESTS — запросы юриста на create/delete, одобряемые администратором
+	// USER APPROVAL REQUESTS — запросы юриста/HR на create/delete, одобряемые администратором
 	if approvalHandler != nil {
+		// Requester (HR/Legal) may view their own requests
+		userReqsMy := r.Group("/api/v1/user-requests", middleware.RequireRoles(authz.RoleHR, authz.RoleLegal, authz.RoleSystemAdmin))
+		{
+			userReqsMy.GET("/my", approvalHandler.ListMyRequests)
+		}
+		// Admin: view all + approve/reject
 		userReqs := r.Group("/api/v1/user-requests", middleware.RequireRoles(authz.RoleSystemAdmin))
 		{
 			userReqs.GET("", approvalHandler.List)

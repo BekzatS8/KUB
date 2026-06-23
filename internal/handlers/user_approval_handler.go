@@ -17,7 +17,7 @@ func NewUserApprovalHandler(svc *services.UserApprovalService) *UserApprovalHand
 	return &UserApprovalHandler{svc: svc}
 }
 
-// ListPending — GET /api/v1/user-requests?status=pending|all
+// List — GET /api/v1/user-requests?status=pending|all
 // Только для админа (проверяется в роутере через RequireRoles).
 func (h *UserApprovalHandler) List(c *gin.Context) {
 	page, size := normalizedPageAndSize(c)
@@ -33,6 +33,25 @@ func (h *UserApprovalHandler) List(c *gin.Context) {
 	} else {
 		items, err = h.svc.ListPending(c.Request.Context(), limit, offset)
 	}
+	if err != nil {
+		internalError(c, "Не удалось получить список запросов")
+		return
+	}
+	if items == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+// ListMyRequests — GET /api/v1/user-requests/my
+// Для юриста и HR: возвращает их собственные запросы (любой статус).
+func (h *UserApprovalHandler) ListMyRequests(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	page, size := normalizedPageAndSize(c)
+	limit, offset := size, offsetFromPage(page, size)
+
+	items, err := h.svc.ListByRequester(c.Request.Context(), userID, limit, offset)
 	if err != nil {
 		internalError(c, "Не удалось получить список запросов")
 		return
@@ -76,7 +95,12 @@ func (h *UserApprovalHandler) Reject(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Reject(c.Request.Context(), id, reviewerID); err != nil {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	if err := h.svc.Reject(c.Request.Context(), id, reviewerID, body.Reason); err != nil {
 		switch {
 		case errors.Is(err, services.ErrApprovalNotFound):
 			notFound(c, NotFoundCode, "Запрос не найден")

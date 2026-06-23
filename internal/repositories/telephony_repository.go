@@ -178,7 +178,7 @@ func (r *telephonyRepository) GetByID(ctx context.Context, id int64) (*models.Te
 			tc.recording_url, tc.raw_payload, tc.created_at, tc.updated_at,
 			COALESCE(c.display_name, '')    AS client_name,
 			COALESCE(l.title, '')           AS lead_title,
-			COALESCE(u.full_name, u.email, '') AS manager_name
+			COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email, '') AS manager_name
 		FROM telephony_calls tc
 		LEFT JOIN clients c ON c.id = tc.client_id
 		LEFT JOIN leads l   ON l.id = tc.lead_id
@@ -229,7 +229,7 @@ func (r *telephonyRepository) List(ctx context.Context, filter models.TelephonyC
 			tc.recording_url, tc.raw_payload, tc.created_at, tc.updated_at,
 			COALESCE(c.display_name, '')       AS client_name,
 			COALESCE(l.title, '')              AS lead_title,
-			COALESCE(u.full_name, u.email, '') AS manager_name
+			COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email, '') AS manager_name
 		FROM telephony_calls tc
 		LEFT JOIN clients c ON c.id = tc.client_id
 		LEFT JOIN leads l   ON l.id = tc.lead_id

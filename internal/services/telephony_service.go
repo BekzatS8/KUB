@@ -293,7 +293,8 @@ func (s *TelephonyService) branchScopeForRole(userID, roleID int) (*int, error) 
 			return nil, fmt.Errorf("telephony: resolve branch scope: %w", err)
 		}
 		if u == nil || u.BranchID == nil {
-			return nil, fmt.Errorf("telephony: user %d has no branch_id", userID)
+			log.Printf("telephony: user %d has no branch_id, showing all calls", userID)
+			return nil, nil
 		}
 		return u.BranchID, nil
 	}

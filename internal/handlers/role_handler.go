@@ -129,7 +129,7 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 
 func (h *RoleHandler) ListRoles(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if !authz.CanAssignRoles(roleID) {
+	if !authz.CanViewUsers(roleID) {
 		forbidden(c, "Only system admin can manage roles")
 		return
 	}
