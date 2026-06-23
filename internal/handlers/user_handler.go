@@ -281,8 +281,8 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	requesterID, roleID := getUserAndRole(c)
 
-	// Юрист может запросить создание — уходит на подтверждение к админу
-	if roleID == authz.RoleLegal {
+	// HR и юрист не создают напрямую — заявка уходит на подтверждение к админу
+	if roleID == authz.RoleHR || roleID == authz.RoleLegal {
 		h.createUserApprovalRequest(c, requesterID)
 		return
 	}
@@ -710,7 +710,17 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	body := *target
 	body.ID = id
 	body.PasswordHash = target.PasswordHash
-	if !authz.CanAssignRoles(roleID) {
+	if roleID == authz.RoleHR {
+		// HR может редактировать базовые данные любого сотрудника,
+		// но не может менять роль, филиал, должность, email, статус верификации/активации
+		req.CompanyName = nil
+		req.Email = nil
+		req.Position = nil
+		req.RoleID = nil
+		req.BranchID = nil
+		req.IsVerified = nil
+		req.IsActive = nil
+	} else if !authz.CanAssignRoles(roleID) {
 		if userID != id {
 			forbidden(c, "Forbidden")
 			return
@@ -792,8 +802,8 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// Юрист не может удалять напрямую — создаёт заявку для админа
-	if roleID == authz.RoleLegal {
+	// HR и юрист не могут удалять напрямую — создают заявку для админа
+	if roleID == authz.RoleHR || roleID == authz.RoleLegal {
 		if h.approvalService == nil {
 			internalError(c, "Сервис подтверждений недоступен")
 			return

@@ -1,5 +1,5 @@
 -- Запросы на создание/удаление пользователей от юриста (требуют подтверждения админа)
-CREATE TABLE user_approval_requests (
+CREATE TABLE IF NOT EXISTS user_approval_requests (
     id              SERIAL PRIMARY KEY,
     requester_id    INT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     action          TEXT        NOT NULL CHECK (action IN ('create', 'delete')),
@@ -11,6 +11,6 @@ CREATE TABLE user_approval_requests (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_uar_status     ON user_approval_requests(status);
-CREATE INDEX idx_uar_requester  ON user_approval_requests(requester_id);
-CREATE INDEX idx_uar_created_at ON user_approval_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_uar_status     ON user_approval_requests(status);
+CREATE INDEX IF NOT EXISTS idx_uar_requester  ON user_approval_requests(requester_id);
+CREATE INDEX IF NOT EXISTS idx_uar_created_at ON user_approval_requests(created_at DESC);

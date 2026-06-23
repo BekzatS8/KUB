@@ -311,16 +311,21 @@ func SetupRoutes(
 		clients.GET("/:id", middleware.RequirePermission("clients.view", "client"), clientHandler.GetByID)
 	}
 
-	// ROLES (System admin)
-	roles := r.Group("/roles", middleware.RequireRoles(authz.RoleSystemAdmin))
+	// ROLES — read-only list open to HR and Legal (needed for user creation form);
+	// all write operations and admin stats remain system-admin only.
 	{
-		roles.POST("", roleHandler.CreateRole)
-		roles.GET("/count", roleHandler.GetRoleCount)
-		roles.GET("/with-user-counts", roleHandler.GetRolesWithUserCounts)
-		roles.GET("", roleHandler.ListRoles)
-		roles.GET("/:id", roleHandler.GetRoleByID)
-		roles.PUT("/:id", roleHandler.UpdateRole)
-		roles.DELETE("/:id", roleHandler.DeleteRole)
+		rolesAdminOnly := r.Group("/roles", middleware.RequireRoles(authz.RoleSystemAdmin))
+		rolesAdminOnly.POST("", roleHandler.CreateRole)
+		rolesAdminOnly.GET("/count", roleHandler.GetRoleCount)
+		rolesAdminOnly.GET("/with-user-counts", roleHandler.GetRolesWithUserCounts)
+		rolesAdminOnly.PUT("/:id", roleHandler.UpdateRole)
+		rolesAdminOnly.DELETE("/:id", roleHandler.DeleteRole)
+
+		rolesReadable := r.Group("/roles", middleware.RequireRoles(
+			authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleHR, authz.RoleLegal,
+		))
+		rolesReadable.GET("", roleHandler.ListRoles)
+		rolesReadable.GET("/:id", roleHandler.GetRoleByID)
 	}
 
 	// LEADS
