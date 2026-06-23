@@ -1318,12 +1318,14 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	if !isHiddenDocVisible(doc, userID, roleID) {
 		return "", "", errors.New("forbidden")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-	if derr != nil || deal == nil {
-		return "", "", errors.New("not found")
-	}
-	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
-		return "", "", err
+	if doc.DealID != 0 {
+		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		if derr != nil || deal == nil {
+			return "", "", errors.New("not found")
+		}
+		if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+			return "", "", err
+		}
 	}
 
 	variant = strings.ToLower(strings.TrimSpace(variant))

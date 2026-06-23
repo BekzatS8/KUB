@@ -127,7 +127,48 @@ func (s *UserApprovalService) RequestDelete(
 	return req, nil
 }
 
-// Approve одобряет запрос: выполняет фактическое действие (создание/удаление пользователя).
+// RequestUpdate создаёт заявку на редактирование пользователя (от HR/юриста).
+func (s *UserApprovalService) RequestUpdate(
+	ctx context.Context,
+	requesterID, targetUserID int,
+	patch models.UserApprovalUpdatePayload,
+) (*models.UserApprovalRequest, error) {
+	target, err := s.userService.GetUserByID(targetUserID)
+	if err != nil || target == nil {
+		return nil, ErrNotFound
+	}
+
+	data, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+	raw := json.RawMessage(data)
+
+	req := &models.UserApprovalRequest{
+		RequesterID:  requesterID,
+		Action:       models.ApprovalActionUpdate,
+		TargetUserID: &targetUserID,
+		RequestData:  &raw,
+	}
+	if err := s.repo.Create(ctx, req); err != nil {
+		return nil, err
+	}
+
+	s.audit.Log(ctx, AuditEvent{
+		ActorUserID: &requesterID,
+		Action:      "users.update.requested",
+		EntityType:  "user_approval_request",
+		EntityID:    fmt.Sprintf("%d", req.ID),
+		Meta: map[string]any{
+			"request_id":     req.ID,
+			"target_user_id": targetUserID,
+		},
+	})
+
+	return req, nil
+}
+
+// Approve одобряет запрос: выполняет фактическое действие (создание/удаление/редактирование пользователя).
 func (s *UserApprovalService) Approve(ctx context.Context, requestID, reviewerID int) error {
 	req, err := s.repo.GetByID(ctx, requestID)
 	if err != nil {
@@ -151,6 +192,10 @@ func (s *UserApprovalService) Approve(ctx context.Context, requestID, reviewerID
 		}
 		if err := s.userService.DeleteUser(*req.TargetUserID); err != nil {
 			return fmt.Errorf("execute delete: %w", err)
+		}
+	case models.ApprovalActionUpdate:
+		if err := s.executeUpdate(ctx, req); err != nil {
+			return fmt.Errorf("execute update: %w", err)
 		}
 	}
 
@@ -211,6 +256,48 @@ func (s *UserApprovalService) ListAll(ctx context.Context, limit, offset int) ([
 
 func (s *UserApprovalService) ListByRequester(ctx context.Context, requesterID, limit, offset int) ([]*models.UserApprovalRequest, error) {
 	return s.repo.ListByRequester(ctx, requesterID, limit, offset)
+}
+
+func (s *UserApprovalService) executeUpdate(ctx context.Context, req *models.UserApprovalRequest) error {
+	if req.TargetUserID == nil {
+		return fmt.Errorf("update request has no target_user_id")
+	}
+	if req.RequestData == nil {
+		return fmt.Errorf("request_data is empty")
+	}
+	var patch models.UserApprovalUpdatePayload
+	if err := json.Unmarshal(*req.RequestData, &patch); err != nil {
+		return fmt.Errorf("unmarshal payload: %w", err)
+	}
+
+	target, err := s.userService.GetUserByID(*req.TargetUserID)
+	if err != nil || target == nil {
+		return fmt.Errorf("target user not found")
+	}
+
+	if patch.FirstName != "" {
+		target.FirstName = patch.FirstName
+	}
+	if patch.LastName != "" {
+		target.LastName = patch.LastName
+	}
+	if patch.MiddleName != "" {
+		target.MiddleName = patch.MiddleName
+	}
+	if patch.Phone != "" {
+		target.Phone = patch.Phone
+	}
+	if patch.Address != "" {
+		target.Address = patch.Address
+	}
+	if patch.ExtraInfo != "" {
+		target.ExtraInfo = patch.ExtraInfo
+	}
+	if patch.BinIin != "" {
+		target.BinIin = patch.BinIin
+	}
+
+	return s.userService.UpdateUser(target)
 }
 
 func (s *UserApprovalService) executeCreate(ctx context.Context, req *models.UserApprovalRequest) error {

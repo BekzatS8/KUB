@@ -8,6 +8,7 @@ import (
 const (
 	ApprovalActionCreate = "create"
 	ApprovalActionDelete = "delete"
+	ApprovalActionUpdate = "update"
 
 	ApprovalStatusPending  = "pending"
 	ApprovalStatusApproved = "approved"
@@ -30,6 +31,17 @@ type UserApprovalRequest struct {
 	RejectReason    *string          `json:"reject_reason,omitempty"`
 	ReviewedAt      *time.Time       `json:"reviewed_at,omitempty"`
 	CreatedAt       time.Time        `json:"created_at"`
+}
+
+// UserApprovalUpdatePayload хранится в request_data для action=update.
+type UserApprovalUpdatePayload struct {
+	FirstName  string `json:"first_name,omitempty"`
+	LastName   string `json:"last_name,omitempty"`
+	MiddleName string `json:"middle_name,omitempty"`
+	Phone      string `json:"phone,omitempty"`
+	Address    string `json:"address,omitempty"`
+	ExtraInfo  string `json:"extra_info,omitempty"`
+	BinIin     string `json:"bin_iin,omitempty"`
 }
 
 // UserApprovalCreatePayload хранится в request_data для action=create.

@@ -711,15 +711,48 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	body.ID = id
 	body.PasswordHash = target.PasswordHash
 	if roleID == authz.RoleHR {
-		// HR может редактировать базовые данные любого сотрудника,
-		// но не может менять роль, филиал, должность, email, статус верификации/активации
-		req.CompanyName = nil
-		req.Email = nil
-		req.Position = nil
-		req.RoleID = nil
-		req.BranchID = nil
-		req.IsVerified = nil
-		req.IsActive = nil
+		if h.approvalService == nil {
+			internalError(c, "Сервис подтверждений недоступен")
+			return
+		}
+		patch := models.UserApprovalUpdatePayload{}
+		if req.FirstName != nil {
+			patch.FirstName = *req.FirstName
+		}
+		if req.LastName != nil {
+			patch.LastName = *req.LastName
+		}
+		if req.MiddleName != nil {
+			patch.MiddleName = *req.MiddleName
+		}
+		if req.Phone != nil {
+			patch.Phone = *req.Phone
+		}
+		if req.Address != nil {
+			patch.Address = *req.Address
+		}
+		if req.ExtraInfo != nil {
+			patch.ExtraInfo = *req.ExtraInfo
+		}
+		if req.BinIin != nil {
+			patch.BinIin = *req.BinIin
+		}
+		approval, err := h.approvalService.RequestUpdate(c.Request.Context(), userID, id, patch)
+		if err != nil {
+			log.Printf("UpdateUser HR: service error: %v", err)
+			if errors.Is(err, services.ErrNotFound) {
+				notFound(c, ClientNotFoundCode, "Пользователь не найден")
+				return
+			}
+			internalError(c, "Не удалось создать заявку на редактирование")
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"pending":    true,
+			"request_id": approval.ID,
+			"message":    "Заявка на редактирование пользователя отправлена администратору на подтверждение",
+		})
+		return
 	} else if !authz.CanAssignRoles(roleID) {
 		if userID != id {
 			forbidden(c, "Forbidden")
