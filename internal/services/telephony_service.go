@@ -293,8 +293,10 @@ func (s *TelephonyService) branchScopeForRole(userID, roleID int) (*int, error) 
 			return nil, fmt.Errorf("telephony: resolve branch scope: %w", err)
 		}
 		if u == nil || u.BranchID == nil {
-			log.Printf("telephony: user %d has no branch_id, showing all calls", userID)
-			return nil, nil
+			// Fail-closed: a scoped role without a resolvable branch must NOT fall back
+			// to all-branch access (that would leak every branch's calls). Surface the
+			// misconfiguration as an error (→ 500) instead of silently widening scope.
+			return nil, fmt.Errorf("telephony: user %d has no branch_id (scoped role cannot resolve branch)", userID)
 		}
 		return u.BranchID, nil
 	}

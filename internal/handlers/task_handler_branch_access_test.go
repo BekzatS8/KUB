@@ -58,6 +58,9 @@ type taskBranchUserRepoStub struct {
 }
 
 func (r *taskBranchUserRepoStub) Create(*models.User) error { return nil }
+func (r *taskBranchUserRepoStub) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *taskBranchUserRepoStub) GetByID(id int) (*models.User, error) {
 	if u, ok := r.users[id]; ok {
 		cp := *u

@@ -247,7 +247,8 @@
     if (!token) { setState('Ссылка повреждена: не найден token.', 'error'); return; }
     setState('Проверяем ссылку…');
     try {
-      const res = await fetch(`/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`, { headers: { 'Accept': 'application/json' } });
+      const verifyURL = `/api/v1/sign/${channel}/verify?token=${encodeURIComponent(token)}&format=json`;
+      const res = await fetch(verifyURL, { headers: { 'Accept': 'application/json' } });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const code = payload.code || payload.error || 'UNKNOWN';

@@ -281,8 +281,8 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	requesterID, roleID := getUserAndRole(c)
 
-	// HR и юрист не создают напрямую — заявка уходит на подтверждение к админу
-	if roleID == authz.RoleHR || roleID == authz.RoleLegal {
+	// HR, юрист и руководство не создают напрямую — заявка уходит на подтверждение к админу
+	if roleID == authz.RoleHR || roleID == authz.RoleLegal || roleID == authz.RoleManagement {
 		h.createUserApprovalRequest(c, requesterID)
 		return
 	}
@@ -710,7 +710,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	body := *target
 	body.ID = id
 	body.PasswordHash = target.PasswordHash
-	if roleID == authz.RoleHR {
+	// HR, юрист и руководство не редактируют пользователей напрямую — заявка уходит на подтверждение к админу
+	if roleID == authz.RoleHR || roleID == authz.RoleLegal || roleID == authz.RoleManagement {
 		if h.approvalService == nil {
 			internalError(c, "Сервис подтверждений недоступен")
 			return
@@ -739,7 +740,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		}
 		approval, err := h.approvalService.RequestUpdate(c.Request.Context(), userID, id, patch)
 		if err != nil {
-			log.Printf("UpdateUser HR: service error: %v", err)
+			log.Printf("UpdateUser HR/Legal: service error: %v", err)
 			if errors.Is(err, services.ErrNotFound) {
 				notFound(c, ClientNotFoundCode, "Пользователь не найден")
 				return
@@ -835,8 +836,8 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// HR и юрист не могут удалять напрямую — создают заявку для админа
-	if roleID == authz.RoleHR || roleID == authz.RoleLegal {
+	// HR, юрист и руководство не могут удалять напрямую — создают заявку для админа
+	if roleID == authz.RoleHR || roleID == authz.RoleLegal || roleID == authz.RoleManagement {
 		if h.approvalService == nil {
 			internalError(c, "Сервис подтверждений недоступен")
 			return

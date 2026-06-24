@@ -36,6 +36,10 @@ func (s *stubUserService) CreateUserWithPassword(user *models.User, _ string) er
 	return s.createErr
 }
 func (s *stubUserService) GetUserByID(int) (*models.User, error) { return s.byID, nil }
+func (s *stubUserService) AdminChangePassword(int, string) error { return nil }
+func (s *stubUserService) ApplyUpdatePatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (s *stubUserService) UpdateUser(user *models.User) error {
 	cp := *user
 	s.updatedUser = &cp
@@ -59,7 +63,9 @@ func (s *stubUserService) UpdateAvatarCrop(int, *float64, *float64, *float64, *f
 func (s *stubUserService) DeleteAvatar(int) error                                             { return nil }
 func (s *stubUserService) VerifyUser(int) error                                               { return nil }
 
-func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
+// Пользователь, созданный администратором без поля is_verified, считается
+// подтверждённым по умолчанию (админ ручается за сотрудника).
+func TestCreateUser_DefaultIsVerifiedTrueWhenFieldMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubUserService{}
 	h := NewUserHandler(svc, nil, nil, nil)
@@ -97,8 +103,8 @@ func TestCreateUser_DefaultIsVerifiedFalseWhenFieldMissing(t *testing.T) {
 	if svc.createdUser == nil {
 		t.Fatal("expected service CreateUserWithPassword to be called")
 	}
-	if svc.createdUser.IsVerified {
-		t.Fatal("expected default is_verified=false for POST /users without field")
+	if !svc.createdUser.IsVerified {
+		t.Fatal("expected default is_verified=true for admin-created user without field")
 	}
 }
 
@@ -136,9 +142,9 @@ func TestCreateUser_RequiresFullNameAndInternationalPhone(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			name:        "missing middle name",
-			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","email":"missing-middle@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1}`,
-			wantMessage: "Укажите отчество",
+			name:        "missing position",
+			body:        `{"first_name":"Aigerim","last_name":"Tulegenova","middle_name":"Serikovna","email":"missing-position@example.com","password":"Passw0rd","phone":"+77001112233","role_id":10,"branch_id":1}`,
+			wantMessage: "Укажите должность",
 		},
 		{
 			name:        "local phone",

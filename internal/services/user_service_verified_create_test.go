@@ -18,6 +18,9 @@ func (r *captureUserRepo) Create(user *models.User) error {
 	user.ID = 42
 	return nil
 }
+func (r *captureUserRepo) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *captureUserRepo) GetByID(int) (*models.User, error)           { return nil, nil }
 func (r *captureUserRepo) Update(*models.User) error                   { return nil }
 func (r *captureUserRepo) Delete(int) error                            { return nil }

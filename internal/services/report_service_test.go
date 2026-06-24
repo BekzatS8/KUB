@@ -16,6 +16,9 @@ type reportTestUserRepo struct {
 }
 
 func (r *reportTestUserRepo) Create(user *models.User) error { return nil }
+func (r *reportTestUserRepo) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *reportTestUserRepo) GetByID(id int) (*models.User, error) {
 	if r.err != nil {
 		return nil, r.err

@@ -248,8 +248,8 @@ func SetupRoutes(
 
 	// USER APPROVAL REQUESTS — запросы юриста/HR на create/delete, одобряемые администратором
 	if approvalHandler != nil {
-		// Requester (HR/Legal) may view their own requests
-		userReqsMy := r.Group("/api/v1/user-requests", middleware.RequireRoles(authz.RoleHR, authz.RoleLegal, authz.RoleSystemAdmin))
+		// Requester (HR/Legal/Management) may view their own requests
+		userReqsMy := r.Group("/api/v1/user-requests", middleware.RequireRoles(authz.RoleHR, authz.RoleLegal, authz.RoleManagement, authz.RoleSystemAdmin))
 		{
 			userReqsMy.GET("/my", approvalHandler.ListMyRequests)
 		}

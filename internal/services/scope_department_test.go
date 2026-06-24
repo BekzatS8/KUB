@@ -29,6 +29,9 @@ func (r *deptScopeUserRepoStub) GetDepartmentIDByCode(code string) (*int, error)
 
 // Remaining interface methods — not exercised by scope tests.
 func (r *deptScopeUserRepoStub) Create(*models.User) error                   { return nil }
+func (r *deptScopeUserRepoStub) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *deptScopeUserRepoStub) Update(*models.User) error                   { return nil }
 func (r *deptScopeUserRepoStub) Delete(int) error                            { return nil }
 func (r *deptScopeUserRepoStub) List(int, int) ([]*models.User, error)       { return nil, nil }

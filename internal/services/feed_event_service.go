@@ -23,18 +23,38 @@ type feedClientPatcher interface {
 	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
 }
 
+// feedLeadUpdater / feedDealUpdater are the minimal interfaces needed to apply
+// an approved lead/deal edit payload (executed with admin credentials).
+type feedLeadUpdater interface {
+	Update(lead *models.Leads, userID, roleID int) error
+}
+
+type feedDealUpdater interface {
+	Update(deal *models.Deals, userID, roleID int) error
+}
+
 type FeedEventService struct {
 	repo          *repositories.FeedEventRepository
 	userRepo      repositories.UserRepository
 	clientPatcher feedClientPatcher
+	leadUpdater   feedLeadUpdater
+	dealUpdater   feedDealUpdater
 }
 
 func NewFeedEventService(
 	repo *repositories.FeedEventRepository,
 	userRepo repositories.UserRepository,
 	clientPatcher feedClientPatcher,
+	leadUpdater feedLeadUpdater,
+	dealUpdater feedDealUpdater,
 ) *FeedEventService {
-	return &FeedEventService{repo: repo, userRepo: userRepo, clientPatcher: clientPatcher}
+	return &FeedEventService{
+		repo:          repo,
+		userRepo:      userRepo,
+		clientPatcher: clientPatcher,
+		leadUpdater:   leadUpdater,
+		dealUpdater:   dealUpdater,
+	}
 }
 
 // Create stores a new pending feed event. The requester's display name is
@@ -155,9 +175,32 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		_, err := s.clientPatcher.Patch(*e.ResourceID, updates, reviewerID, authz.RoleSystemAdmin)
 		return err
 
+	case models.FeedEventTypePendingEditLead:
+		if s.leadUpdater == nil || e.ResourceID == nil {
+			return errors.New("cannot apply lead edit: missing lead updater or resource_id")
+		}
+		var lead models.Leads
+		if err := json.Unmarshal(e.Payload, &lead); err != nil {
+			return err
+		}
+		lead.ID = *e.ResourceID
+		// Applied with admin credentials so scope/ownership checks pass.
+		return s.leadUpdater.Update(&lead, reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingEditDeal:
+		if s.dealUpdater == nil || e.ResourceID == nil {
+			return errors.New("cannot apply deal edit: missing deal updater or resource_id")
+		}
+		var deal models.Deals
+		if err := json.Unmarshal(e.Payload, &deal); err != nil {
+			return err
+		}
+		deal.ID = *e.ResourceID
+		return s.dealUpdater.Update(&deal, reviewerID, authz.RoleSystemAdmin)
+
 	default:
-		// For event types not yet wired to an apply action (create_lead, etc.),
-		// approve is a no-op that simply records the admin decision.
+		// For event types not wired to an apply action (create_lead, create_deal,
+		// create_client — not used by the UI), approve simply records the decision.
 		return nil
 	}
 }

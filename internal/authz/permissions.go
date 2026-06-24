@@ -86,8 +86,9 @@ var baseRolePermissions = map[string][]Permission{
 	// partner: no deals.* (partner dept works with leads/clients only)
 	// partner cannot add, send, or download documents — only view them (read-only document access)
 	// partner sees all clients (общая база) and all dept leads (by funnel/department)
+	// partner cannot create clients — only edit existing ones (via admin approval), like visa
 	"partner": permissionsForScope(ScopeDepartment,
-		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.create", "clients.update",
+		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
 		"documents.view",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
@@ -103,11 +104,15 @@ var baseRolePermissions = map[string][]Permission{
 		Permission{Action: "branches.view", Scope: ScopeAll},
 	),
 	// legal: clients+documents+users access; no leads/deals/messenger
-	"legal": permissionsForScope(ScopeDepartment,
-		"feed.view", "clients.view",
-		"users.view", "users.create", "users.update", "users.delete", "users.block",
-		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
-		"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
+	"legal": append(
+		permissionsForScope(ScopeDepartment,
+			"feed.view", "clients.view",
+			"users.view", "users.create", "users.update", "users.delete", "users.block",
+			"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+			"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
+		),
+		// branches.view is needed for legal to list branches when creating/assigning users
+		Permission{Action: "branches.view", Scope: ScopeAll},
 	),
 }
 

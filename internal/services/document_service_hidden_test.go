@@ -161,9 +161,10 @@ func (r *capturingDocRepo) Create(doc *models.Document) (int64, error) {
 	return 1, nil
 }
 
-// TestCreateDocument_PartnerSetsIsHidden verifies that when a partner creates a document
-// is_hidden is set to true and created_by equals the partner's user ID.
-func TestCreateDocument_PartnerSetsIsHidden(t *testing.T) {
+// TestCreateDocument_PartnerForbidden verifies that the partner department cannot
+// create documents: по матрице ПО документы только просматривает (нет documents.create),
+// поэтому сервис обязан вернуть "forbidden" и ничего не сохранять.
+func TestCreateDocument_PartnerForbidden(t *testing.T) {
 	const partnerUserID = 7
 	branch := 3
 	repo := &capturingDocRepo{}
@@ -174,14 +175,11 @@ func TestCreateDocument_PartnerSetsIsHidden(t *testing.T) {
 	}
 	doc := &models.Document{DealID: 1, DocType: "invoice", Status: "draft", FilePath: "test.pdf"}
 	_, err := svc.CreateDocument(doc, partnerUserID, authz.RolePartner)
-	if err != nil {
-		t.Fatalf("CreateDocument failed: %v", err)
+	if err == nil {
+		t.Fatal("partner must NOT be able to create documents (documents — view only)")
 	}
-	if !repo.captured.IsHidden {
-		t.Error("document created by partner must have is_hidden=true")
-	}
-	if repo.captured.CreatedBy == nil || *repo.captured.CreatedBy != partnerUserID {
-		t.Errorf("created_by must equal partner user ID %d, got %v", partnerUserID, repo.captured.CreatedBy)
+	if repo.captured != nil {
+		t.Error("no document must be persisted when partner is forbidden")
 	}
 }
 

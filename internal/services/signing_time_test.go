@@ -125,6 +125,9 @@ func (r *fakeConfirmRepo) UpdateMeta(context.Context, string, []byte) (*models.S
 type fakeUserRepo struct{}
 
 func (f *fakeUserRepo) Create(*models.User) error { return nil }
+func (f *fakeUserRepo) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (f *fakeUserRepo) GetByID(id int) (*models.User, error) {
 	return &models.User{ID: id, CompanyName: "Acme", Email: "u@test"}, nil
 }

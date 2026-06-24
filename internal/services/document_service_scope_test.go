@@ -16,6 +16,9 @@ type docScopeUserRepoStub struct {
 
 func (r *docScopeUserRepoStub) Create(*models.User) error                   { return nil }
 func (r *docScopeUserRepoStub) GetByID(int) (*models.User, error)           { return r.user, nil }
+func (r *docScopeUserRepoStub) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *docScopeUserRepoStub) Update(*models.User) error                   { return nil }
 func (r *docScopeUserRepoStub) Delete(int) error                            { return nil }
 func (r *docScopeUserRepoStub) List(int, int) ([]*models.User, error)       { return nil, nil }

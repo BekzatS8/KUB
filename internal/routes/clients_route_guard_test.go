@@ -82,7 +82,7 @@ func TestClientsRouteGuard_QCReadOnly(t *testing.T) {
 	}
 }
 
-// TestClientsRouteGuard_ScopedWritersPass: sales/partner create+update and visa update
+// TestClientsRouteGuard_ScopedWritersPass: sales create+update, visa/partner update
 // still pass the action gate (scope is then enforced by the service).
 func TestClientsRouteGuard_ScopedWritersPass(t *testing.T) {
 	checks := []struct {
@@ -94,7 +94,6 @@ func TestClientsRouteGuard_ScopedWritersPass(t *testing.T) {
 		{authz.RoleSales, "sales create", http.MethodPost, "/clients"},
 		{authz.RoleSales, "sales update", http.MethodPut, "/clients/1"},
 		{authz.RoleVisa, "visa update", http.MethodPut, "/clients/1"},
-		{authz.RolePartner, "partner create", http.MethodPost, "/clients"},
 		{authz.RolePartner, "partner update", http.MethodPut, "/clients/1"},
 		{authz.RoleManagement, "management create", http.MethodPost, "/clients"},
 		{authz.RoleSystemAdmin, "admin create", http.MethodPost, "/clients"},
@@ -103,6 +102,23 @@ func TestClientsRouteGuard_ScopedWritersPass(t *testing.T) {
 		r := buildClientsGuardRouter(c.role)
 		if code := clientsGuardStatus(r, c.method, c.path); code != http.StatusOK {
 			t.Errorf("%s: want 200 (action gate passes), got %d", c.label, code)
+		}
+	}
+}
+
+// TestClientsRouteGuard_NoCreateForVisaPartner: visa and partner edit existing
+// clients (via admin approval) but may NOT create new ones — POST /clients is 403.
+func TestClientsRouteGuard_NoCreateForVisaPartner(t *testing.T) {
+	for _, role := range []struct {
+		id    int
+		label string
+	}{
+		{authz.RoleVisa, "visa"},
+		{authz.RolePartner, "partner"},
+	} {
+		r := buildClientsGuardRouter(role.id)
+		if code := clientsGuardStatus(r, http.MethodPost, "/clients"); code != http.StatusForbidden {
+			t.Errorf("%s POST /clients: want 403 (no create), got %d", role.label, code)
 		}
 	}
 }

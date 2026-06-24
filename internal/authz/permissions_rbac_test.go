@@ -177,7 +177,8 @@ func TestManagementHasLeadsMoveButNoFunnelsManagement(t *testing.T) {
 //   - legal         : clients.view only (sees all; cannot create/update the record)
 //   - quality_control: clients.view only (read-only observer)
 //   - visa          : clients.view + update (edits in scope; no create)
-//   - sales/partner : clients.view + create + update (own/scope create+edit)
+//   - partner       : clients.view + update (edits in scope; no create)
+//   - sales         : clients.view + create + update (own/scope create+edit)
 //   - management/admin: clients.view + create + update
 func TestClientsRecordPermissions(t *testing.T) {
 	type want struct{ view, create, update bool }
@@ -187,7 +188,7 @@ func TestClientsRecordPermissions(t *testing.T) {
 		"quality_control": {view: true, create: false, update: false},
 		"visa":            {view: true, create: false, update: true},
 		"sales":           {view: true, create: true, update: true},
-		"partner":         {view: true, create: true, update: true},
+		"partner":         {view: true, create: false, update: true},
 		"management":      {view: true, create: true, update: true},
 		"admin":           {view: true, create: true, update: true},
 	}
@@ -237,11 +238,13 @@ func TestDealsCreatePermissions(t *testing.T) {
 }
 
 // TestBranchesPermissions pins the target model for branches (Block B):
-//   - branches.view   : admin + management (leadership oversight)
+//   - branches.view   : admin + management (leadership oversight); also hr + legal,
+//     who need a read-only branch list to assign a branch when creating user profiles
+//     (they still cannot move users between branches — no users.move_branch)
 //   - branches.create/update/delete : admin only
 func TestBranchesPermissions(t *testing.T) {
-	viewAllowed := []string{"admin", "management"}
-	viewDenied := []string{"sales", "visa", "partner", "quality_control", "hr", "legal", ""}
+	viewAllowed := []string{"admin", "management", "hr", "legal"}
+	viewDenied := []string{"sales", "visa", "partner", "quality_control", ""}
 	for _, role := range viewAllowed {
 		if !HasPermission(role, "branches.view") {
 			t.Errorf("role %q must have branches.view", role)

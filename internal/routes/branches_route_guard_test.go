@@ -56,7 +56,8 @@ func TestBranchesRouteGuard_CreateUpdateAdminOnly(t *testing.T) {
 	}
 }
 
-// B2: GET /branches requires branches.view — admin/management pass, others 403.
+// B2: GET /branches requires branches.view — admin/management plus hr/legal
+// (read-only list for assigning branches when creating user profiles) pass; others 403.
 func TestBranchesRouteGuard_ViewRequiresPermission(t *testing.T) {
 	for _, role := range []struct {
 		id    int
@@ -64,6 +65,8 @@ func TestBranchesRouteGuard_ViewRequiresPermission(t *testing.T) {
 	}{
 		{authz.RoleSystemAdmin, "admin"},
 		{authz.RoleManagement, "management"},
+		{authz.RoleHR, "hr"},
+		{authz.RoleLegal, "legal"},
 	} {
 		r := buildBranchesGuardRouter(role.id)
 		if code := branchesGuardStatus(r, http.MethodGet, "/branches"); code != http.StatusOK {
@@ -78,8 +81,6 @@ func TestBranchesRouteGuard_ViewRequiresPermission(t *testing.T) {
 		{authz.RoleVisa, "visa"},
 		{authz.RolePartner, "partner"},
 		{authz.RoleControl, "quality_control"},
-		{authz.RoleHR, "hr"},
-		{authz.RoleLegal, "legal"},
 	} {
 		r := buildBranchesGuardRouter(role.id)
 		if code := branchesGuardStatus(r, http.MethodGet, "/branches"); code != http.StatusForbidden {

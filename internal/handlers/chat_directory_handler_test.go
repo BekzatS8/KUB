@@ -299,6 +299,9 @@ type chatTestUserRepo struct {
 }
 
 func (r *chatTestUserRepo) Create(*models.User) error { return nil }
+func (r *chatTestUserRepo) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
+	return nil
+}
 func (r *chatTestUserRepo) GetByID(id int) (*models.User, error) {
 	if u, ok := r.users[id]; ok {
 		cp := *u

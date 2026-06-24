@@ -16,31 +16,22 @@ import (
 
 // ─── Client GetByID Own ───────────────────────────────────────────────────────
 
-func TestGetByID_Client_PartnerOwnClientAllowed(t *testing.T) {
+// По матрице партнёрский отдел видит ОБЩУЮ базу клиентов (ScopeKindAll):
+// доступны и свои, и чужие клиенты.
+func TestGetByID_Client_PartnerSeesAllClients(t *testing.T) {
 	const partnerID = 7
 	scope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
 	if err != nil {
 		t.Fatalf("resolveClientScope: %v", err)
 	}
-	if scope.Kind != ScopeKindOwn {
-		t.Fatalf("partner must get ScopeKindOwn, got %v", scope.Kind)
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("partner must get ScopeKindAll (общая база), got %v", scope.Kind)
 	}
-	client := &models.Client{ID: 1, OwnerID: partnerID}
-	if !clientMatchesScope(scope, client) {
-		t.Errorf("partner must access own client (owner_id=%d)", partnerID)
-	}
-}
-
-func TestGetByID_Client_PartnerForeignClientForbidden(t *testing.T) {
-	const partnerID = 7
-	const otherOwnerID = 99
-	scope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
-	if err != nil {
-		t.Fatalf("resolveClientScope: %v", err)
-	}
-	client := &models.Client{ID: 2, OwnerID: otherOwnerID}
-	if clientMatchesScope(scope, client) {
-		t.Errorf("partner must NOT access foreign client (owner_id=%d != partnerID=%d)", otherOwnerID, partnerID)
+	for _, ownerID := range []int{partnerID, 99} {
+		client := &models.Client{ID: 1, OwnerID: ownerID}
+		if !clientMatchesScope(scope, client) {
+			t.Errorf("partner must access any client (owner_id=%d, общая база)", ownerID)
+		}
 	}
 }
 
@@ -87,31 +78,29 @@ func TestGetByID_Client_HRForbidden(t *testing.T) {
 
 // ─── Lead GetByID Own ─────────────────────────────────────────────────────────
 
-func TestGetByID_Lead_PartnerOwnLeadAllowed(t *testing.T) {
+// По матрице партнёрский отдел видит лиды ТОЛЬКО своего отдела/филиала (ScopeKindBranch):
+// лид своего филиала+отдела доступен, лид другого филиала — нет.
+func TestGetByID_Lead_PartnerSeesOwnDepartmentLeads(t *testing.T) {
 	const partnerID = 7
-	scope, err := resolveLeadScope(partnerID, authz.RolePartner, nil)
+	branchID, deptID := 5, 3
+	repo := &deptScopeUserRepoStub{
+		user: &models.User{RoleID: authz.RolePartner, BranchID: &branchID, DepartmentID: &deptID},
+	}
+	scope, err := resolveLeadScope(partnerID, authz.RolePartner, repo)
 	if err != nil {
 		t.Fatalf("resolveLeadScope: %v", err)
 	}
-	if scope.Kind != ScopeKindOwn {
-		t.Fatalf("partner must get ScopeKindOwn for leads, got %v", scope.Kind)
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("partner must get ScopeKindBranch for leads, got %v", scope.Kind)
 	}
-	lead := &models.Leads{ID: 1, OwnerID: partnerID}
-	if !leadMatchesScope(scope, lead) {
-		t.Errorf("partner must access own lead (owner_id=%d)", partnerID)
+	ownLead := &models.Leads{ID: 1, OwnerID: partnerID, BranchID: &branchID, DepartmentID: &deptID}
+	if !leadMatchesScope(scope, ownLead) {
+		t.Errorf("partner must access lead in own branch+department")
 	}
-}
-
-func TestGetByID_Lead_PartnerForeignLeadForbidden(t *testing.T) {
-	const partnerID = 7
-	const otherOwnerID = 99
-	scope, err := resolveLeadScope(partnerID, authz.RolePartner, nil)
-	if err != nil {
-		t.Fatalf("resolveLeadScope: %v", err)
-	}
-	lead := &models.Leads{ID: 2, OwnerID: otherOwnerID}
-	if leadMatchesScope(scope, lead) {
-		t.Errorf("partner must NOT access foreign lead (owner_id=%d != partnerID=%d)", otherOwnerID, partnerID)
+	otherBranch := 6
+	foreignLead := &models.Leads{ID: 2, OwnerID: 99, BranchID: &otherBranch, DepartmentID: &deptID}
+	if leadMatchesScope(scope, foreignLead) {
+		t.Errorf("partner must NOT access lead in a different branch")
 	}
 }
 
