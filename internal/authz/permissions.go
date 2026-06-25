@@ -61,14 +61,25 @@ var baseRolePermissions = map[string][]Permission{
 		),
 		Permission{Action: "approvals.create", Scope: ScopeOwn},
 	),
+	// quality_control (ОКК): наблюдатель по всем основным сущностям (лиды,
+	// сделки, задачи, клиенты, чат, мессенджер, телефония — только просмотр по
+	// связанным отделам), НО со своими документами своего отдела работает:
+	//   - documents.view/download/send/update — действия над уже существующими
+	//     документами своего отдела (скачать, отправить на подпись, архив/сабмит).
+	//   - documents.create НЕ выдаётся: создание документа уходит на одобрение
+	//     администратора через Ленту (feed_events, approvals.create). ОКК видит
+	//     статус своих заявок в Ленте (feed.view).
+	//   - documents.delete НЕ выдаётся: удалять документы может только админ.
+	// Прямые write-эндпоинты документов разблокированы точечно в ReadOnlyGuard;
+	// эндпоинты создания остаются заблокированными, чтобы шли через одобрение.
 	"quality_control": append(
 		permissionsForScope(ScopeRelatedDepartments,
 			"feed.view", "leads.view", "deals.view", "clients.view",
-			"documents.view",
 			"tasks.view", "reports.view", "chat.view", "messenger.view", "telephony.view", "funnels.view",
 		),
 		permissionsForScope(ScopeDepartment,
-			"documents.create", "documents.update", "documents.send", "documents.download",
+			"documents.view", "documents.update", "documents.send", "documents.download",
+			"approvals.create",
 		)...,
 	),
 	"sales": permissionsForScope(ScopeDepartment,

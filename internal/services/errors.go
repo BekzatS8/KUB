@@ -8,7 +8,11 @@ import (
 var (
 	ErrForbidden                 = errors.New("forbidden")
 	ErrUserBranchRequired        = fmt.Errorf("%w: user branch is required", ErrForbidden)
-	ErrReadOnly                  = errors.New("read-only role")
+	// ErrClientEditNeedsApproval is returned when a role that may only edit
+	// clients via admin approval (visa) attempts a direct client update/patch.
+	// It wraps ErrForbidden so existing 403 handler mappings keep working.
+	ErrClientEditNeedsApproval = fmt.Errorf("%w: client edits require admin approval via feed", ErrForbidden)
+	ErrReadOnly                = errors.New("read-only role")
 	ErrNotFound                  = errors.New("not found")
 	ErrNotChatMember             = errors.New("user is not a member of this chat")
 	ErrChatNotFound              = errors.New("chat not found")

@@ -491,9 +491,9 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 
 	const q = `
 		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status)
-		VALUES ($1, $2, NULLIF($3, ''), $4, $5,
-			(SELECT branch_id FROM users WHERE id = $5),
-			(SELECT department_id FROM users WHERE id = $5),
+		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, 0),
+			(SELECT branch_id FROM users WHERE $5 > 0 AND id = $5),
+			(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
 			$6)
 		RETURNING id
 	`

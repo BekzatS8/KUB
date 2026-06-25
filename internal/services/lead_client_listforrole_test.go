@@ -232,13 +232,28 @@ func TestLeadListForRole_LegalForbidden(t *testing.T) {
 	}
 }
 
-// TestLeadListForRole_SalesGuardForbidden verifies that sales is blocked at the
-// hardcoded guard in ListForRole (sales users access their leads via ListMine*).
-func TestLeadListForRole_SalesGuardForbidden(t *testing.T) {
-	svc := &LeadService{}
-	_, err := svc.ListForRole(1, authz.RoleSales, 10, 0, activeOnly, repositories.LeadListFilter{})
-	if !errors.Is(err, ErrForbidden) {
-		t.Errorf("sales ListForRole guard: want ErrForbidden, got %v", err)
+// TestLeadListForRole_SalesResolvesToBranch verifies sales is no longer hard-blocked
+// in ListForRole and instead resolves to ScopeKindBranch (свой отдел+филиал по
+// воронкам per ТЗ). Previously the guard forced sales onto /leads/my which returned
+// ALL leads, leaking every department.
+func TestLeadListForRole_SalesResolvesToBranch(t *testing.T) {
+	const salesID = 11
+	branchID, deptID := 4, 2
+	repo := &deptScopeUserRepoStub{
+		user: &models.User{RoleID: authz.RoleSales, BranchID: &branchID, DepartmentID: &deptID},
+	}
+	scope, err := resolveLeadScope(salesID, authz.RoleSales, repo)
+	if err != nil {
+		t.Fatalf("sales resolveLeadScope: unexpected error %v", err)
+	}
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("sales: expected ScopeKindBranch (свой отдел+филиал), got %v", scope.Kind)
+	}
+	if scope.BranchID == nil || *scope.BranchID != branchID {
+		t.Errorf("sales: expected BranchID=%d, got %v", branchID, scope.BranchID)
+	}
+	if scope.DepartmentID == nil || *scope.DepartmentID != deptID {
+		t.Errorf("sales: expected DepartmentID=%d, got %v", deptID, scope.DepartmentID)
 	}
 }
 
@@ -283,13 +298,27 @@ func TestClientListForRole_HRForbidden(t *testing.T) {
 	}
 }
 
-// TestClientListForRole_SalesGuardForbidden verifies sales is blocked at the
-// hardcoded guard (sales uses ListMine* for clients, same as leads).
-func TestClientListForRole_SalesGuardForbidden(t *testing.T) {
-	svc := &ClientService{}
-	_, err := svc.ListForRole(1, authz.RoleSales, 10, 0, repositories.ClientListFilter{}, activeOnly)
-	if !errors.Is(err, ErrForbidden) {
-		t.Errorf("sales client ListForRole guard: want ErrForbidden, got %v", err)
+// TestClientListForRole_SalesSeesAll verifies sales now resolves to ScopeKindAll
+// for clients ("Общая база" per ТЗ) — the same shared base visa/partner/legal see.
+// Sales is no longer blocked at a hardcoded guard.
+func TestClientListForRole_SalesSeesAll(t *testing.T) {
+	scope, err := resolveClientScope(1, authz.RoleSales, nil)
+	if err != nil {
+		t.Fatalf("sales resolveClientScope: unexpected error %v", err)
+	}
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("sales: expected ScopeKindAll (общая база), got %v", scope.Kind)
+	}
+	spy := &clientListRepoSpy{clients: []*models.Client{{ID: 1, OwnerID: 99}}}
+	clients, err := listClientsForScope(spy, scope, 10, 0, repositories.ClientListFilter{}, activeOnly)
+	if err != nil {
+		t.Fatalf("sales listClientsForScope: unexpected error %v", err)
+	}
+	if !spy.calledAll {
+		t.Errorf("sales: expected ListAll (общая база), got calledAll=%v", spy.calledAll)
+	}
+	if len(clients) == 0 {
+		t.Errorf("sales: expected at least one client returned")
 	}
 }
 

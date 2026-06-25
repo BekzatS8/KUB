@@ -56,21 +56,16 @@ func TestResolveAutoLeadOwner_PrefersResolvedManager(t *testing.T) {
 	}
 }
 
-// TestResolveAutoLeadOwner_FallsBackToAdmin: when no owner is resolved (preferred=0),
-// the lead is NOT lost — owner falls back to a deterministic active admin.
-func TestResolveAutoLeadOwner_FallsBackToAdmin(t *testing.T) {
-	db, err := sql.Open("fallbackowner_stub", "")
+// TestResolveAutoLeadOwner_ReturnsZeroWhenNoOwner: when no preferred owner is provided
+// (preferred=0), the function returns 0 so the caller can store NULL in the DB.
+// Inbound leads (Wazzup, telephony) intentionally start without a responsible owner.
+func TestResolveAutoLeadOwner_ReturnsZeroWhenNoOwner(t *testing.T) {
+	got, err := resolveAutoLeadOwner(context.Background(), nil, 0)
 	if err != nil {
-		t.Fatalf("open stub db: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	defer db.Close()
-
-	got, err := resolveAutoLeadOwner(context.Background(), db, 0)
-	if err != nil {
-		t.Fatalf("fallback must succeed, got error: %v", err)
-	}
-	if got != 4242 {
-		t.Fatalf("fallback owner must be the resolved admin id 4242, got %d", got)
+	if got != 0 {
+		t.Fatalf("expected 0 (no owner), got %d", got)
 	}
 }
 

@@ -18,19 +18,42 @@ var (
 )
 
 // feedClientPatcher is the minimal interface the service needs to apply
-// an approved client-edit payload.
+// an approved client-edit or client-delete request.
 type feedClientPatcher interface {
 	Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error)
+	Delete(id int, userID, roleID int) error
 }
 
 // feedLeadUpdater / feedDealUpdater are the minimal interfaces needed to apply
-// an approved lead/deal edit payload (executed with admin credentials).
+// an approved lead/deal edit or delete request (executed with admin credentials).
 type feedLeadUpdater interface {
 	Update(lead *models.Leads, userID, roleID int) error
+	Delete(id int, userID, roleID int) error
 }
 
 type feedDealUpdater interface {
 	Update(deal *models.Deals, userID, roleID int) error
+	Delete(id int, userID, roleID int) error
+}
+
+// feedDocumentCreator applies an approved ОКК/HR document request. On approval
+// it runs with admin credentials so branch/scope checks pass:
+//   - CreateDocumentFromClient — для pending_create_document
+//   - DeleteDocument — для pending_delete_document (HR не может удалять документы
+//     напрямую — заявка уходит админу, который удаляет своими правами).
+type feedDocumentCreator interface {
+	CreateDocumentFromClient(clientID int, clientType string, dealID int, docType string, userID, roleID int, extra map[string]string) (*models.Document, error)
+	DeleteDocument(id int64, userID, roleID int) error
+}
+
+// feedCreateDocumentPayload is the JSON shape stored for a
+// pending_create_document feed event (mirrors createDocumentFromClient).
+type feedCreateDocumentPayload struct {
+	ClientID   int               `json:"client_id"`
+	ClientType string            `json:"client_type"`
+	DealID     int               `json:"deal_id"`
+	DocType    string            `json:"doc_type"`
+	Extra      map[string]string `json:"extra"`
 }
 
 type FeedEventService struct {
@@ -39,6 +62,7 @@ type FeedEventService struct {
 	clientPatcher feedClientPatcher
 	leadUpdater   feedLeadUpdater
 	dealUpdater   feedDealUpdater
+	docCreator    feedDocumentCreator
 }
 
 func NewFeedEventService(
@@ -47,6 +71,7 @@ func NewFeedEventService(
 	clientPatcher feedClientPatcher,
 	leadUpdater feedLeadUpdater,
 	dealUpdater feedDealUpdater,
+	docCreator feedDocumentCreator,
 ) *FeedEventService {
 	return &FeedEventService{
 		repo:          repo,
@@ -54,6 +79,7 @@ func NewFeedEventService(
 		clientPatcher: clientPatcher,
 		leadUpdater:   leadUpdater,
 		dealUpdater:   dealUpdater,
+		docCreator:    docCreator,
 	}
 }
 
@@ -197,6 +223,47 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		}
 		deal.ID = *e.ResourceID
 		return s.dealUpdater.Update(&deal, reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingDeleteClient:
+		if s.clientPatcher == nil || e.ResourceID == nil {
+			return errors.New("cannot apply client delete: missing client patcher or resource_id")
+		}
+		// Applied with admin credentials so scope/ownership checks pass.
+		return s.clientPatcher.Delete(*e.ResourceID, reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingDeleteLead:
+		if s.leadUpdater == nil || e.ResourceID == nil {
+			return errors.New("cannot apply lead delete: missing lead updater or resource_id")
+		}
+		return s.leadUpdater.Delete(*e.ResourceID, reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingDeleteDeal:
+		if s.dealUpdater == nil || e.ResourceID == nil {
+			return errors.New("cannot apply deal delete: missing deal updater or resource_id")
+		}
+		return s.dealUpdater.Delete(*e.ResourceID, reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingCreateDocument:
+		if s.docCreator == nil {
+			return errors.New("cannot apply document create: missing document creator")
+		}
+		var p feedCreateDocumentPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		// Created with admin credentials so branch/scope checks pass.
+		_, err := s.docCreator.CreateDocumentFromClient(
+			p.ClientID, p.ClientType, p.DealID, p.DocType,
+			reviewerID, authz.RoleSystemAdmin, p.Extra,
+		)
+		return err
+
+	case models.FeedEventTypePendingDeleteDocument:
+		if s.docCreator == nil || e.ResourceID == nil {
+			return errors.New("cannot apply document delete: missing document service or resource_id")
+		}
+		// Deleted with admin credentials (CanHardDeleteBusinessEntity).
+		return s.docCreator.DeleteDocument(int64(*e.ResourceID), reviewerID, authz.RoleSystemAdmin)
 
 	default:
 		// For event types not wired to an apply action (create_lead, create_deal,

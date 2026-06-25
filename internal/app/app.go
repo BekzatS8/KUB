@@ -447,7 +447,7 @@ func Run() {
 	userHandler.SetApprovalService(approvalSvc)
 
 	feedEventRepo := repositories.NewFeedEventRepository(db)
-	feedEventSvc := services.NewFeedEventService(feedEventRepo, userRepo, clientService, leadService, dealService)
+	feedEventSvc := services.NewFeedEventService(feedEventRepo, userRepo, clientService, leadService, dealService, documentService)
 	feedEventHandler := handlers.NewFeedEventHandler(feedEventSvc)
 
 	// === Routes ===

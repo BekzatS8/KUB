@@ -395,7 +395,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 				return 0, false, false, err
 			}
 			if leadID == 0 && clientID == 0 {
-				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, "whatsapp", text)
+				leadID, err = s.repo.CreateLeadFromInbound(ctx, 0, phone, "whatsapp", text)
 				if err != nil {
 					return 0, false, false, err
 				}
@@ -439,7 +439,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 			}
 		}
 		if leadID == 0 {
-			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, transport, text)
+			leadID, err = s.repo.CreateLeadFromInbound(ctx, 0, phone, transport, text)
 			if err != nil {
 				return 0, false, false, err
 			}

@@ -620,6 +620,10 @@ func (h *ClientHandler) Update(c *gin.Context) {
 			notFound(c, ClientNotFoundCode, "Клиент не найден")
 			return
 		}
+		if errors.Is(err, services.ErrClientEditNeedsApproval) {
+			forbidden(c, "Редактирование клиента визовым отделом требует подтверждения администратора — отправьте запрос через Ленту")
+			return
+		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {
 			forbidden(c, "У вас нет права редактировать этого клиента")
 			return
@@ -835,6 +839,10 @@ func (h *ClientHandler) Patch(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrEmailAlreadyUsed) {
 			conflict(c, EmailAlreadyUsedCode, "Этот email уже указан у другого клиента")
+			return
+		}
+		if errors.Is(err, services.ErrClientEditNeedsApproval) {
+			forbidden(c, "Редактирование клиента визовым отделом требует подтверждения администратора — отправьте запрос через Ленту")
 			return
 		}
 		if errors.Is(err, services.ErrForbidden) || errors.Is(err, services.ErrReadOnly) {

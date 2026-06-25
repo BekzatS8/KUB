@@ -49,10 +49,16 @@ func (h *FeedEventHandler) Create(c *gin.Context) {
 	validTypes := map[string]bool{
 		models.FeedEventTypePendingCreateLead:   true,
 		models.FeedEventTypePendingEditLead:     true,
+		models.FeedEventTypePendingDeleteLead:   true,
 		models.FeedEventTypePendingCreateDeal:   true,
 		models.FeedEventTypePendingEditDeal:     true,
-		models.FeedEventTypePendingCreateClient: true,
-		models.FeedEventTypePendingEditClient:   true,
+		models.FeedEventTypePendingDeleteDeal:   true,
+		models.FeedEventTypePendingCreateClient:   true,
+		models.FeedEventTypePendingEditClient:     true,
+		models.FeedEventTypePendingDeleteClient:   true,
+		models.FeedEventTypePendingCreateDocument: true,
+		models.FeedEventTypePendingEditDocument:   true,
+		models.FeedEventTypePendingDeleteDocument: true,
 	}
 	if !validTypes[req.Type] {
 		badRequest(c, "Некорректный тип события")

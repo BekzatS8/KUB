@@ -233,7 +233,8 @@ func TestDeleteDocument_AdminAllowed(t *testing.T) {
 
 // ─── quality_control: submit (documents.update) scope enforcement ────────────
 
-// TestSubmit_QCOwnBranchAllowed verifies QC can submit a document linked to a deal on its own branch.
+// TestSubmit_QCOwnBranchAllowed verifies ОКК can submit a document of its own
+// branch (ОКК has documents.update and works with own-department documents).
 func TestSubmit_QCOwnBranchAllowed(t *testing.T) {
 	branch := 3
 	svc := &DocumentService{
@@ -242,7 +243,7 @@ func TestSubmit_QCOwnBranchAllowed(t *testing.T) {
 		UserRepo: &docScopeUserRepoStub{user: &models.User{BranchID: &branch}},
 	}
 	if err := svc.Submit(1, 100, authz.RoleControl); err != nil {
-		t.Fatalf("QC must submit own-branch document, got: %v", err)
+		t.Fatalf("QC must be able to submit own-branch document, got: %v", err)
 	}
 }
 
@@ -261,7 +262,8 @@ func TestSubmit_QCForeignBranchForbidden(t *testing.T) {
 
 // ─── quality_control: archive (documents.update) scope enforcement ───────────
 
-// TestArchiveDocument_QCOwnBranchAllowed verifies QC can archive a document on its own branch.
+// TestArchiveDocument_QCOwnBranchAllowed verifies ОКК can archive a document of
+// its own branch (ОКК has documents.update and works with own-department docs).
 func TestArchiveDocument_QCOwnBranchAllowed(t *testing.T) {
 	branch := 3
 	svc := &DocumentService{
@@ -270,7 +272,7 @@ func TestArchiveDocument_QCOwnBranchAllowed(t *testing.T) {
 		UserRepo: &docScopeUserRepoStub{user: &models.User{BranchID: &branch}},
 	}
 	if err := svc.ArchiveDocument(1, 100, authz.RoleControl, "reason"); err != nil {
-		t.Fatalf("QC must archive own-branch document, got: %v", err)
+		t.Fatalf("QC must be able to archive own-branch document, got: %v", err)
 	}
 }
 

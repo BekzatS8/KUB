@@ -125,9 +125,9 @@ func (s *LeadService) ListMyWithArchiveScope(ownerID, limit, offset int, scope r
 }
 
 func (s *LeadService) ListForRole(userID, roleID, limit, offset int, archiveScope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
-	if roleID == authz.RoleSales {
-		return nil, ErrForbidden
-	}
+	// sales/visa/partner resolve to ScopeKindBranch (свой отдел+филиал по воронкам)
+	// via resolveLeadScope — no hard guard here. Was previously blocked, which
+	// forced sales onto /leads/my (ListAll = все лиды), leaking every department.
 	dataScope, err := resolveLeadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,9 @@ func (s *LeadService) ListForRole(userID, roleID, limit, offset int, archiveScop
 	return listLeadsForScope(s.Repo, dataScope, limit, offset, filter, archiveScope)
 }
 
-func (s *LeadService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
+func (s *LeadService) ListMyWithFilterAndArchiveScope(ownerID int, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error) {
+	// "Мои" = лиды, где текущий пользователь является владельцем (owner_id).
+	// Ранее ошибочно вызывался ListAll → возвращались ВСЕ лиды компании.
 	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 }
 
@@ -155,7 +157,8 @@ func (s *LeadService) ListForRoleWithTotal(userID, roleID, limit, offset int, ar
 	return items, total, nil
 }
 
-func (s *LeadService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error) {
+func (s *LeadService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID int, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, int, error) {
+	// "Мои" = лиды текущего владельца. Ранее возвращало ВСЕ лиды (ListAll).
 	items, err := s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 	if err != nil {
 		return nil, 0, err
@@ -176,9 +179,6 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 	if err != nil {
 		return nil, err
 	}
-	if roleID == authz.RoleSales && lead.OwnerID != userID {
-		return nil, ErrForbidden
-	}
 	if !leadMatchesScope(scope, lead) {
 		return nil, ErrForbidden
 	}
@@ -193,9 +193,6 @@ func (s *LeadService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 	dataScope, err := resolveLeadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
-	}
-	if roleID == authz.RoleSales && lead.OwnerID != userID {
-		return nil, ErrForbidden
 	}
 	if !leadMatchesScope(dataScope, lead) {
 		return nil, ErrForbidden

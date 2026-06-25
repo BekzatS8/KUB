@@ -21,13 +21,24 @@ import (
 
 // ─── Part 1: characterizing — observable ListForRole behavior per role ─────
 
-// TestDealListForRole_SalesHardGuard confirms sales cannot list all deals via
-// ListForRole (sales accesses deals through ListMy*, same as leads/clients).
-func TestDealListForRole_SalesHardGuard(t *testing.T) {
-	svc := &DealService{} // nil Repo: ErrForbidden before repo access
-	_, err := svc.ListForRole(1, authz.RoleSales, 10, 0, repositories.ArchiveScopeActiveOnly, repositories.DealListFilter{})
-	if !errors.Is(err, ErrForbidden) {
-		t.Errorf("sales ListForRole hard-guard: want ErrForbidden, got %v", err)
+// TestDealListForRole_SalesResolvesToBranch confirms sales is no longer hard-blocked
+// in ListForRole and resolves to ScopeKindBranch (свой отдел+филиал). Previously the
+// guard forced sales onto /deals/my which returned ALL deals across departments.
+func TestDealListForRole_SalesResolvesToBranch(t *testing.T) {
+	const salesID = 11
+	branchID, deptID := 4, 2
+	repo := &deptScopeUserRepoStub{
+		user: &models.User{RoleID: authz.RoleSales, BranchID: &branchID, DepartmentID: &deptID},
+	}
+	scope, err := resolveDealScope(salesID, authz.RoleSales, repo)
+	if err != nil {
+		t.Fatalf("sales resolveDealScope: unexpected error %v", err)
+	}
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("sales: expected ScopeKindBranch (свой отдел+филиал), got %v", scope.Kind)
+	}
+	if scope.BranchID == nil || *scope.BranchID != branchID {
+		t.Errorf("sales: expected BranchID=%d, got %v", branchID, scope.BranchID)
 	}
 }
 

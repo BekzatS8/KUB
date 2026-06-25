@@ -179,10 +179,10 @@ func CanViewUsers(roleID int) bool {
 }
 
 func CanProcessDocuments(roleID int) bool {
+	// quality_control (RoleControl) is a read-only observer — excluded here.
 	return roleID == RoleManagement || roleID == RoleSystemAdmin ||
 		roleID == RoleVisa || roleID == RolePartner ||
-		roleID == RoleHR || roleID == RoleLegal ||
-		roleID == RoleControl // quality_control: their primary job is reviewing/approving documents
+		roleID == RoleHR || roleID == RoleLegal
 }
 
 func CanWorkWithLeads(roleID int) bool {
@@ -239,7 +239,8 @@ func CanViewChatParticipantProfile(roleID int) bool {
 }
 
 // CanManageFunnels controls who may create/edit/delete funnels, stages, and
-// funnel transition rules. Only system admins and management can do this.
+// funnel transition rules. Only system admins can do this — per the role matrix
+// "Руководство" (management) may NOT edit/add/delete/reorder funnels (view only).
 func CanManageFunnels(roleID int) bool {
-	return roleID == RoleSystemAdmin || roleID == RoleManagement
+	return roleID == RoleSystemAdmin
 }

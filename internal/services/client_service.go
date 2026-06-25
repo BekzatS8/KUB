@@ -671,6 +671,13 @@ func (s *ClientService) Update(c *models.Client, userID, roleID int) error {
 	if err := s.authorizeWrite(roleID); err != nil {
 		return err
 	}
+	// Визовый и партнёрский отделы редактируют клиентов только через подтверждение
+	// администратора (заявка в Ленту → feed_events). Одобрение применяется кредами
+	// админа, поэтому прямой PUT от visa/partner блокируется здесь, а не на уровне
+	// права (clients.update нужно обоим для архивации).
+	if roleID == authz.RoleVisa || roleID == authz.RolePartner {
+		return ErrClientEditNeedsApproval
+	}
 	current, err := s.Repo.GetByID(c.ID)
 	if err != nil {
 		return err
@@ -920,9 +927,6 @@ func (s *ClientService) ListMine(userID, limit, offset int, clientType string) (
 }
 
 func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	if roleID == authz.RoleSales {
-		return nil, ErrForbidden
-	}
 	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
@@ -951,9 +955,6 @@ func (s *ClientService) ListIndividualsForRoleWithTotal(userID, roleID, limit, o
 }
 
 func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	if roleID == authz.RoleSales {
-		return nil, ErrForbidden
-	}
 	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
@@ -982,9 +983,6 @@ func (s *ClientService) ListCompaniesForRoleWithTotal(userID, roleID, limit, off
 }
 
 func (s *ClientService) ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	if roleID == authz.RoleSales {
-		return nil, ErrForbidden
-	}
 	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
@@ -1011,29 +1009,22 @@ func (s *ClientService) ListForRoleWithTotal(userID, roleID, limit, offset int, 
 	return items, total, nil
 }
 
-func (s *ClientService) ListMineWithArchiveScope(userID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	branchID, err := resolveUserBranch(userID, s.UserRepo)
-	if err != nil {
-		return nil, err
-	}
-	filter.BranchID = branchID
+func (s *ClientService) ListMineWithArchiveScope(_ int, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
 	if err := s.validateClientListFilter(&filter); err != nil {
 		return nil, err
 	}
-	return s.Repo.ListByOwnerWithFilterAndArchiveScope(userID, limit, offset, filter, archiveScope)
+	return s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 }
 
-func (s *ClientService) ListMineWithArchiveScopeAndTotal(userID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
-	items, err := s.ListMineWithArchiveScope(userID, limit, offset, filter, archiveScope)
+func (s *ClientService) ListMineWithArchiveScopeAndTotal(_ int, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, int, error) {
+	if err := s.validateClientListFilter(&filter); err != nil {
+		return nil, 0, err
+	}
+	items, err := s.Repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
-	branchID, err := resolveUserBranch(userID, s.UserRepo)
-	if err != nil {
-		return nil, 0, err
-	}
-	filter.BranchID = branchID
-	total, err := s.Repo.CountWithFilterAndArchiveScope(&userID, "", filter, archiveScope)
+	total, err := s.Repo.CountWithFilterAndArchiveScope(nil, "", filter, archiveScope)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1071,9 +1062,6 @@ func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) err
 	if !clientMatchesScope(dataScope, client) {
 		return ErrForbidden
 	}
-	if roleID == authz.RoleSales && client.OwnerID != userID {
-		return ErrForbidden
-	}
 	if client.IsArchived {
 		return nil
 	}
@@ -1096,9 +1084,6 @@ func (s *ClientService) UnarchiveClient(id, userID, roleID int) error {
 		return scopeErr
 	}
 	if !clientMatchesScope(dataScope, client) {
-		return ErrForbidden
-	}
-	if roleID == authz.RoleSales && client.OwnerID != userID {
 		return ErrForbidden
 	}
 	if !client.IsArchived {
@@ -1324,6 +1309,12 @@ func (s *ClientService) GetProfile(ctx context.Context, clientID, userID, roleID
 func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int) (*models.Client, error) {
 	if err := s.authorizeWrite(roleID); err != nil {
 		return nil, err
+	}
+	// visa и partner правят клиентов только через одобрение админа (см. Update).
+	// Одобренная заявка применяется с roleID=RoleSystemAdmin, поэтому этот guard
+	// её не трогает.
+	if roleID == authz.RoleVisa || roleID == authz.RolePartner {
+		return nil, ErrClientEditNeedsApproval
 	}
 	current, err := s.Repo.GetByID(id)
 	if err != nil {

@@ -126,16 +126,25 @@ func TestLegalHasNoMessengerView(t *testing.T) {
 	}
 }
 
-// TestQualityControlDocumentPermissions ensures QC can create/update/send docs (own dept) but cannot delete.
+// TestQualityControlDocumentPermissions ensures ОКК can work with its own
+// department documents (view/update/send/download) and submit approval requests
+// via the feed, but cannot create documents directly (creation goes through
+// admin approval) and cannot delete documents.
 func TestQualityControlDocumentPermissions(t *testing.T) {
-	allowed := []string{"documents.create", "documents.update", "documents.send", "documents.download", "documents.view"}
-	for _, action := range allowed {
+	granted := []string{
+		"documents.view", "documents.update", "documents.send", "documents.download",
+		"feed.view", "approvals.create",
+	}
+	for _, action := range granted {
 		if !HasPermission("quality_control", action) {
 			t.Errorf("quality_control must have permission %q", action)
 		}
 	}
-	if HasPermission("quality_control", "documents.delete") {
-		t.Error("quality_control must NOT have documents.delete")
+	denied := []string{"documents.create", "documents.delete"}
+	for _, action := range denied {
+		if HasPermission("quality_control", action) {
+			t.Errorf("quality_control must NOT have permission %q", action)
+		}
 	}
 }
 

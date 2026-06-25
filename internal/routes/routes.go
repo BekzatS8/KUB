@@ -477,7 +477,7 @@ func SetupRoutes(
 		tasks.GET("", taskHandler.GetAll)
 		tasks.GET("/:id", taskHandler.GetByID)
 		tasks.PUT("/:id", taskHandler.Update)
-		tasks.DELETE("/:id", taskHandler.Delete)
+		tasks.DELETE("/:id", middleware.RequirePermission("tasks.delete", "task"), taskHandler.Delete)
 		tasks.POST("/:id/status", taskHandler.ChangeStatus)
 		tasks.POST("/:id/assign", taskHandler.Assign)
 		tasks.POST("/:id/complete", taskHandler.Complete)

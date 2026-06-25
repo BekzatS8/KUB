@@ -104,7 +104,7 @@ func TestTaskHandler_GetAll_ForwardsExtendedFilters(t *testing.T) {
 	}
 }
 
-func TestTaskHandler_GetAll_SalesForcedToOwnAssignee(t *testing.T) {
+func TestTaskHandler_GetAll_SalesSeesBranchTasksNotOwnOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubTaskListService{}
 	h := NewTaskHandler(svc, nil, &taskBranchUserRepoStub{users: map[int]*models.User{42: {ID: 42, BranchID: ptrInt(1)}}})
@@ -119,8 +119,9 @@ func TestTaskHandler_GetAll_SalesForcedToOwnAssignee(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
 	}
-	if svc.lastFilter.AssigneeID == nil || *svc.lastFilter.AssigneeID != 42 {
-		t.Fatalf("expected assignee forced to 42, got %+v", svc.lastFilter.AssigneeID)
+	// Sales role must NOT be restricted to own assignee — they see all tasks in branch.
+	if svc.lastFilter.AssigneeID == nil || *svc.lastFilter.AssigneeID != 123 {
+		t.Fatalf("sales assignee filter must pass through as-is, got %+v", svc.lastFilter.AssigneeID)
 	}
 	if svc.lastFilter.BranchID == nil || *svc.lastFilter.BranchID != 1 {
 		t.Fatalf("expected branch forced to 1, got %+v", svc.lastFilter.BranchID)

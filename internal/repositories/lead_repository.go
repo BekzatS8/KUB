@@ -11,26 +11,14 @@ import (
 
 	"github.com/lib/pq"
 
-	"turcompany/internal/authz"
 	"turcompany/internal/models"
 )
 
-// resolveAutoLeadOwner returns a guaranteed non-zero owner_id for an auto-created
-// lead (inbound call / inbound message). It prefers the resolved manager/integration
-// user; when none is known it falls back — explicitly and logged, not silently — to
-// the lowest-id active system admin, so an inbound lead is never lost to a NULL or
-// invalid owner_id (which would otherwise violate the NOT NULL / FK constraint).
-func resolveAutoLeadOwner(ctx context.Context, db *sql.DB, preferred int) (int, error) {
-	if preferred > 0 {
-		return preferred, nil
-	}
-	const q = `SELECT id FROM users WHERE role_id = $1 AND COALESCE(is_active, TRUE) = TRUE ORDER BY id LIMIT 1`
-	var id int
-	if err := db.QueryRowContext(ctx, q, authz.RoleSystemAdmin).Scan(&id); err != nil {
-		return 0, fmt.Errorf("resolve auto-lead fallback owner: %w", err)
-	}
-	log.Printf("auto-lead: owner unresolved → explicit fallback to system admin user_id=%d", id)
-	return id, nil
+// resolveAutoLeadOwner returns the preferred owner_id for an auto-created lead.
+// Returns 0 (no owner) when no preferred owner is provided; the caller is
+// responsible for using NULLIF($n, 0) in the INSERT so the column stays NULL.
+func resolveAutoLeadOwner(_ context.Context, _ *sql.DB, preferred int) (int, error) {
+	return preferred, nil
 }
 
 type LeadRepository struct {
@@ -82,6 +70,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var description sql.NullString
 	var phone sql.NullString
 	var source sql.NullString
+	var ownerID sql.NullInt64
 	var branchID sql.NullInt64
 	var branchName sql.NullString
 	var departmentID sql.NullInt64
@@ -99,7 +88,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&phone,
 		&source,
 		&lead.CreatedAt,
-		&lead.OwnerID,
+		&ownerID,
 		&branchID,
 		&branchName,
 		&departmentID,
@@ -116,6 +105,9 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	lead.Description = stringFromNull(description)
 	lead.Phone = stringFromNull(phone)
 	lead.Source = stringFromNull(source)
+	if ownerID.Valid {
+		lead.OwnerID = int(ownerID.Int64)
+	}
 	if branchID.Valid {
 		v := int(branchID.Int64)
 		lead.BranchID = &v

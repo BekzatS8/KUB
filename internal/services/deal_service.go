@@ -264,9 +264,6 @@ func (s *DealService) GetByID(id int, userID, roleID int) (*models.Deals, error)
 	if err != nil || deal == nil {
 		return deal, err
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, ErrForbidden
-	}
 	dataScope, scopeErr := resolveDealScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
 		return nil, scopeErr
@@ -281,9 +278,6 @@ func (s *DealService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 	deal, err := s.Repo.GetByIDWithArchiveScope(id, scope)
 	if err != nil || deal == nil {
 		return deal, err
-	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return nil, ErrForbidden
 	}
 	dataScope, scopeErr := resolveDealScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
@@ -333,9 +327,9 @@ func (s *DealService) ListMyWithArchiveScope(ownerID, limit, offset int, scope r
 }
 
 func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
-	if roleID == authz.RoleSales {
-		return nil, ErrForbidden
-	}
+	// sales resolves to ScopeKindBranch (свой отдел+филиал) via resolveDealScope —
+	// no hard guard. Was previously blocked, forcing sales onto /deals/my
+	// (ListAll = все сделки), leaking every department's deals.
 	dataScope, err := resolveDealScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
@@ -343,7 +337,8 @@ func (s *DealService) ListForRole(userID, roleID, limit, offset int, scope repos
 	return listDealsForScope(s.Repo, dataScope, limit, offset, filter, scope)
 }
 
-func (s *DealService) ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
+func (s *DealService) ListMyWithFilterAndArchiveScope(ownerID int, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, error) {
+	// "Мои" = сделки текущего владельца. Ранее ошибочно возвращало ВСЕ сделки.
 	return s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 }
 
@@ -363,7 +358,8 @@ func (s *DealService) ListForRoleWithTotal(userID, roleID, limit, offset int, sc
 	return items, total, nil
 }
 
-func (s *DealService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, int, error) {
+func (s *DealService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID int, limit, offset int, scope repositories.ArchiveScope, filter repositories.DealListFilter) ([]*models.Deals, int, error) {
+	// "Мои" = сделки текущего владельца. Ранее возвращало ВСЕ сделки (ListAll).
 	items, err := s.Repo.ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset, filter, scope)
 	if err != nil {
 		return nil, 0, err

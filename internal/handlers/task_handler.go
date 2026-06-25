@@ -177,10 +177,8 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	uid := int64(userID)
 	switch roleID {
 	case authz.RoleSales:
-		filter.AssigneeID = &uid
 		branchID, ok := h.taskUserBranchID(userID)
 		if !ok {
 			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)

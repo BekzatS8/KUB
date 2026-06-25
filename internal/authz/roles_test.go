@@ -155,13 +155,13 @@ func TestReadOnlyRoleCannotArchiveOrHardDelete(t *testing.T) {
 	}
 }
 
-// TestQualityControlCanProcessDocuments verifies that quality_control (RoleControl) can
-// review and approve documents — their primary function as department auditors.
-func TestQualityControlCanProcessDocuments(t *testing.T) {
-	if !CanProcessDocuments(RoleControl) {
-		t.Fatal("quality_control must be able to process/review documents")
+// TestQualityControlIsReadOnlyObserver verifies that quality_control (RoleControl),
+// while it may manage its own department documents, still cannot REVIEW/approve
+// documents (CanProcessDocuments) and cannot hard-delete business entities.
+func TestQualityControlIsReadOnlyObserver(t *testing.T) {
+	if CanProcessDocuments(RoleControl) {
+		t.Fatal("quality_control must NOT review/approve documents")
 	}
-	// Hard delete and archive-via-old-helper remain blocked at the entity level.
 	if CanHardDeleteBusinessEntity(RoleControl) {
 		t.Fatal("quality_control must NOT hard-delete business entities")
 	}
