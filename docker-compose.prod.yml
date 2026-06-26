@@ -13,6 +13,9 @@ services:
       DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
       TELEGRAM_APITOKEN: ${TELEGRAM_APITOKEN:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      BINOTEL_WEBHOOK_SECRET: ${BINOTEL_WEBHOOK_SECRET:-}
+      BINOTEL_API_KEY: ${BINOTEL_API_KEY:-}
+      BINOTEL_API_SECRET: ${BINOTEL_API_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
