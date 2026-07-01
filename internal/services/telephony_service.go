@@ -118,7 +118,13 @@ func (s *TelephonyService) InitiateCall(ctx context.Context, callerUserID, calle
 // HandleBinotelWebhook processes an inbound Binotel webhook payload.
 // It is idempotent: repeated delivery of the same external_call_id is a no-op.
 func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []byte) (callID int64, isNew bool, err error) {
-	// 1. Parse payload best-effort — never reject on unknown structure.
+	// 0. Real Binotel webhooks (API CALL COMPLETED) nest the call under
+	// "callDetails". Handle that shape first, reusing the REST mapping.
+	if call, ok := s.parseWebhookCallDetails(ctx, rawBody); ok {
+		return s.ingestCall(ctx, call)
+	}
+
+	// 1. Parse flat payload best-effort — never reject on unknown structure.
 	var p models.BinotelWebhookPayload
 	if jsonErr := json.Unmarshal(rawBody, &p); jsonErr != nil {
 		log.Printf("integration=binotel operation=webhook status=warn parse_error=%v", jsonErr)
@@ -148,19 +154,7 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 	)
 
 	// 3. Find manager by internal extension.
-	var managerID *int
-	var managerBranchID *int
-	if internalExt != "" {
-		uid, bid, mErr := s.repo.FindManagerByExtension(ctx, internalExt)
-		if mErr != nil {
-			log.Printf("integration=binotel operation=webhook status=warn find_manager error=%v", mErr)
-		} else if uid > 0 {
-			managerID = &uid
-			if bid > 0 {
-				managerBranchID = &bid
-			}
-		}
-	}
+	managerID, managerBranchID := s.resolveManager(ctx, internalExt)
 
 	// 4. Build call record.
 	var extCallIDPtr *string
@@ -193,45 +187,72 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 		RawPayload:      rawBody,
 	}
 
-	// 5. Link to client or lead.
+	// 5-8. Link, upsert (idempotent) and write the feed event.
+	return s.ingestCall(ctx, call)
+}
+
+// resolveManager maps a Binotel internal extension to a CRM user + branch.
+func (s *TelephonyService) resolveManager(ctx context.Context, internalExt string) (*int, *int) {
+	if strings.TrimSpace(internalExt) == "" {
+		return nil, nil
+	}
+	uid, bid, err := s.repo.FindManagerByExtension(ctx, internalExt)
+	if err != nil {
+		log.Printf("integration=binotel operation=resolve_manager status=warn error=%v", err)
+		return nil, nil
+	}
+	if uid <= 0 {
+		return nil, nil
+	}
+	managerID := uid
+	var branchID *int
+	if bid > 0 {
+		branchID = &bid
+	}
+	return &managerID, branchID
+}
+
+// ingestCall links a call to a client/lead (auto-creating a lead for unknown
+// inbound numbers), upserts it idempotently by (provider, external_call_id) and
+// writes the activity-feed event. Shared by the webhook and the REST sync.
+func (s *TelephonyService) ingestCall(ctx context.Context, call *models.TelephonyCall) (int64, bool, error) {
+	normalizedPhone := ""
+	if call.NormalizedPhone != nil {
+		normalizedPhone = *call.NormalizedPhone
+	}
+
 	if normalizedPhone != "" {
 		clientID, cErr := s.repo.FindClientByPhone(ctx, normalizedPhone)
 		if cErr != nil {
-			log.Printf("integration=binotel operation=webhook status=warn find_client error=%v", cErr)
+			log.Printf("integration=binotel operation=ingest status=warn find_client error=%v", cErr)
 		}
 		if clientID > 0 {
 			call.ClientID = &clientID
-			log.Printf("integration=binotel operation=webhook linked_client_id=%d", clientID)
 		} else {
-			// Search by lead.
 			leadID, lErr := s.repo.FindLeadByPhone(ctx, normalizedPhone)
 			if lErr != nil {
-				log.Printf("integration=binotel operation=webhook status=warn find_lead error=%v", lErr)
+				log.Printf("integration=binotel operation=ingest status=warn find_lead error=%v", lErr)
 			}
 			if leadID > 0 {
 				call.LeadID = &leadID
-				log.Printf("integration=binotel operation=webhook linked_lead_id=%d", leadID)
-			} else if direction == models.CallDirectionInbound {
-				// 6. Auto-create lead for unknown inbound numbers.
-				newLeadID, lcErr := s.repo.CreateLeadFromCall(ctx, phone, normalizedPhone, managerID, managerBranchID)
+			} else if call.Direction == models.CallDirectionInbound {
+				newLeadID, lcErr := s.repo.CreateLeadFromCall(ctx, call.Phone, normalizedPhone, call.ManagerID, call.BranchID)
 				if lcErr != nil {
-					log.Printf("integration=binotel operation=webhook status=warn create_lead error=%v", lcErr)
+					log.Printf("integration=binotel operation=ingest status=warn create_lead error=%v", lcErr)
 				} else if newLeadID > 0 {
 					call.LeadID = &newLeadID
-					log.Printf("integration=binotel operation=webhook created_lead_id=%d", newLeadID)
+					log.Printf("integration=binotel operation=ingest created_lead_id=%d", newLeadID)
 				}
 			}
 		}
 	}
 
-	// 7. Upsert — idempotent by (provider, external_call_id).
-	callID, isNew, err = s.repo.UpsertCall(ctx, call)
+	callID, isNew, err := s.repo.UpsertCall(ctx, call)
 	if err != nil {
-		return 0, false, fmt.Errorf("telephony: handle webhook: %w", err)
+		return 0, false, fmt.Errorf("telephony: ingest call: %w", err)
 	}
-	log.Printf("integration=binotel operation=webhook status=ok call_id=%d is_new=%v", callID, isNew)
+	log.Printf("integration=binotel operation=ingest status=ok call_id=%d is_new=%v", callID, isNew)
 
-	// 8. Feed event — write to audit log so the call appears in the activity feed.
 	if s.audit != nil {
 		action := "telephony.call.updated"
 		if isNew {
@@ -240,7 +261,7 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 		meta := map[string]any{
 			"direction": call.Direction,
 			"status":    call.Status,
-			"phone":     phone,
+			"phone":     call.Phone,
 		}
 		if call.LeadID != nil {
 			meta["lead_id"] = *call.LeadID
@@ -411,6 +432,158 @@ func (s *TelephonyService) ensureLeadAccess(userID, roleID int, leadID int64) er
 		return ErrForbidden
 	}
 	return nil
+}
+
+// SyncRecentCalls pulls incoming and outgoing calls from the Binotel REST API
+// (since the given time — default: last 72h) and upserts them into
+// telephony_calls. Idempotent by generalCallID, so it is safe to run
+// repeatedly. Returns the number of calls processed.
+func (s *TelephonyService) SyncRecentCalls(ctx context.Context, since time.Time) (int, error) {
+	if s.binotelClient == nil || !s.binotelClient.IsConfigured() {
+		return 0, fmt.Errorf("telephony: binotel client not configured (set BINOTEL_API_KEY + BINOTEL_API_SECRET)")
+	}
+	if since.IsZero() {
+		since = time.Now().Add(-72 * time.Hour)
+	}
+	sinceUnix := since.Unix()
+
+	merged := map[string]binotelclient.Call{}
+	inc, err := s.binotelClient.AllIncomingCallsSince(ctx, sinceUnix)
+	if err != nil {
+		return 0, fmt.Errorf("telephony: sync incoming: %w", err)
+	}
+	for k, v := range inc {
+		merged[k] = v
+	}
+	out, err := s.binotelClient.AllOutgoingCallsSince(ctx, sinceUnix)
+	if err != nil {
+		return 0, fmt.Errorf("telephony: sync outgoing: %w", err)
+	}
+	for k, v := range out {
+		merged[k] = v
+	}
+
+	processed := 0
+	for _, bc := range merged {
+		call := s.binotelCallToModel(ctx, bc)
+		if _, _, err := s.ingestCall(ctx, call); err != nil {
+			log.Printf("integration=binotel operation=sync status=warn ingest error=%v", err)
+			continue
+		}
+		processed++
+	}
+	log.Printf("integration=binotel operation=sync status=ok since=%d fetched=%d processed=%d", sinceUnix, len(merged), processed)
+	return processed, nil
+}
+
+// binotelCallToModel maps a Binotel REST call (callDetails entry) to a
+// TelephonyCall ready for ingestCall.
+func (s *TelephonyService) binotelCallToModel(ctx context.Context, bc binotelclient.Call) *models.TelephonyCall {
+	direction := models.CallDirectionInbound
+	if bc.CallType.Int() == 1 {
+		direction = models.CallDirectionOutbound
+	}
+	status := dispositionToStatus(bc.Disposition)
+
+	phone := strings.TrimSpace(bc.ExternalNumber)
+	normalizedPhone := repositories.NormalizePhoneForTelephony(phone)
+
+	internalExt := strings.TrimSpace(bc.InternalNumber)
+	if internalExt == "" {
+		internalExt = strings.TrimSpace(bc.InternalAdditionalData)
+	}
+	managerID, managerBranchID := s.resolveManager(ctx, internalExt)
+
+	waitsec := bc.Waitsec.Int()
+	billsec := bc.Billsec.Int()
+	var startedAt, answeredAt, endedAt *time.Time
+	if bc.StartTime.Int() > 0 {
+		t := time.Unix(int64(bc.StartTime), 0).UTC()
+		startedAt = &t
+		connectedAt := t.Add(time.Duration(waitsec) * time.Second)
+		if billsec > 0 {
+			answeredAt = &connectedAt
+			et := connectedAt.Add(time.Duration(billsec) * time.Second)
+			endedAt = &et
+		} else {
+			endedAt = &connectedAt
+		}
+	}
+	duration := billsec
+
+	extID := bc.GeneralCallIDString()
+	var extIDPtr *string
+	if extID != "" {
+		extIDPtr = &extID
+	}
+	var normPtr *string
+	if normalizedPhone != "" {
+		normPtr = &normalizedPhone
+	}
+
+	raw, _ := json.Marshal(bc)
+
+	return &models.TelephonyCall{
+		Provider:        "binotel",
+		ExternalCallID:  extIDPtr,
+		Direction:       direction,
+		Status:          status,
+		Phone:           phone,
+		NormalizedPhone: normPtr,
+		ManagerID:       managerID,
+		BranchID:        managerBranchID,
+		StartedAt:       startedAt,
+		AnsweredAt:      answeredAt,
+		EndedAt:         endedAt,
+		DurationSeconds: &duration,
+		RawPayload:      raw,
+	}
+}
+
+// parseWebhookCallDetails extracts a call from the real Binotel webhook shape
+// (a "callDetails" object, either a single call or a map keyed by generalCallID).
+// Returns ok=false when the body doesn't carry callDetails, so the caller can
+// fall back to the flat-payload parser.
+func (s *TelephonyService) parseWebhookCallDetails(ctx context.Context, rawBody []byte) (*models.TelephonyCall, bool) {
+	var envelope struct {
+		CallDetails json.RawMessage `json:"callDetails"`
+	}
+	if err := json.Unmarshal(rawBody, &envelope); err != nil || len(envelope.CallDetails) == 0 {
+		return nil, false
+	}
+
+	// Single call object.
+	var single binotelclient.Call
+	if err := json.Unmarshal(envelope.CallDetails, &single); err == nil && single.GeneralCallIDString() != "" {
+		call := s.binotelCallToModel(ctx, single)
+		call.RawPayload = rawBody
+		return call, true
+	}
+
+	// Map keyed by generalCallID — take the first entry.
+	var keyed map[string]binotelclient.Call
+	if err := json.Unmarshal(envelope.CallDetails, &keyed); err == nil {
+		for _, bc := range keyed {
+			call := s.binotelCallToModel(ctx, bc)
+			call.RawPayload = rawBody
+			return call, true
+		}
+	}
+	return nil, false
+}
+
+// dispositionToStatus maps Binotel disposition codes to CRM call statuses.
+func dispositionToStatus(disp string) string {
+	switch strings.ToUpper(strings.TrimSpace(disp)) {
+	case "ANSWER", "TRANSFER", "ONLINE", "VM-SUCCESS", "SUCCESS", "SMS-SUCCESS":
+		return models.CallStatusAnswered
+	case "BUSY", "NOANSWER", "CANCEL", "VM":
+		return models.CallStatusMissed
+	case "CONGESTION", "CHANUNAVAIL", "FAILED", "SMS-FAILED":
+		return models.CallStatusFailed
+	default:
+		return models.CallStatusUnknown
+	}
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

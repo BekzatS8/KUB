@@ -206,6 +206,7 @@ func SetupRoutes(
 			tGroup.GET("/calls", telephonyHandler.ListCalls)
 			tGroup.GET("/calls/:id", telephonyHandler.GetCall)
 			tGroup.POST("/calls/initiate", telephonyHandler.InitiateCall)
+			tGroup.POST("/sync", telephonyHandler.SyncCalls)
 		}
 		// Per-entity call history (uses existing entity id param)
 		clientCalls := r.Group("/api/v1/clients", middleware.RequirePermission("telephony.view", "telephony"))

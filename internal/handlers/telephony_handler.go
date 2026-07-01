@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/services"
 )
@@ -62,11 +63,41 @@ func (h *TelephonyHandler) BinotelWebhook(c *gin.Context) {
 		return
 	}
 
+	// Binotel's API CALL COMPLETED requires the exact response {"status":"success"};
+	// otherwise it re-sends the event up to 7 times. call_id/is_new are extra
+	// diagnostic fields Binotel ignores.
 	c.JSON(http.StatusOK, gin.H{
-		"status":   "ok",
-		"call_id":  callID,
-		"is_new":   isNew,
+		"status":  "success",
+		"call_id": callID,
+		"is_new":  isNew,
 	})
+}
+
+// SyncCalls handles POST /api/v1/telephony/sync — pulls recent calls from the
+// Binotel REST API into telephony_calls. admin / management only.
+// Optional query: ?since=<unix-seconds> (default: last 72h).
+func (h *TelephonyHandler) SyncCalls(c *gin.Context) {
+	roleIDVal, _ := c.Get("role_id")
+	roleIDInt, _ := roleIDVal.(int)
+	if roleIDInt != authz.RoleSystemAdmin && roleIDInt != authz.RoleManagement {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	var since time.Time
+	if v := strings.TrimSpace(c.Query("since")); v != "" {
+		if sec, err := strconv.ParseInt(v, 10, 64); err == nil && sec > 0 {
+			since = time.Unix(sec, 0)
+		}
+	}
+
+	processed, err := h.svc.SyncRecentCalls(c.Request.Context(), since)
+	if err != nil {
+		log.Printf("telephony: sync error: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "processed": processed})
 }
 
 // ── Private API ───────────────────────────────────────────────────────────────

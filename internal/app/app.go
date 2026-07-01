@@ -201,7 +201,24 @@ func Run() {
 	telephonySvc := services.NewTelephonyService(telephonyRepo, userRepo, cfg.Binotel.WebhookSecret)
 	if cfg.Binotel.APIKey != "" && cfg.Binotel.APISecret != "" {
 		telephonySvc.SetBinotelClient(binotelclient.NewClient(cfg.Binotel.APIKey, cfg.Binotel.APISecret))
-		log.Printf("[BOOT] telephony: binotel REST client enabled (outgoing calls active)")
+		log.Printf("[BOOT] telephony: binotel REST client enabled (outgoing calls + history sync active)")
+
+		// Background poller: pull recent calls from Binotel into telephony_calls
+		// so the call history stays populated even without webhooks configured.
+		go func(svc *services.TelephonyService) {
+			// Initial sync shortly after boot, then every 5 minutes.
+			time.Sleep(20 * time.Second)
+			for {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if n, err := svc.SyncRecentCalls(ctx, time.Time{}); err != nil {
+					log.Printf("[telephony] background sync error: %v", err)
+				} else if n > 0 {
+					log.Printf("[telephony] background sync processed %d calls", n)
+				}
+				cancel()
+				time.Sleep(5 * time.Minute)
+			}
+		}(telephonySvc)
 	} else {
 		log.Printf("[BOOT] telephony: binotel REST client disabled (BINOTEL_API_KEY/BINOTEL_API_SECRET not set)")
 	}

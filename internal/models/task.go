@@ -26,7 +26,8 @@ const (
 type Task struct {
 	ID             int64        `json:"id"`
 	CreatorID      int64        `json:"creator_id"`
-	AssigneeID     int64        `json:"assignee_id"`
+	AssigneeID     int64        `json:"assignee_id"`  // primary assignee (first of AssigneeIDs), kept for backward compatibility
+	AssigneeIDs    []int64      `json:"assignee_ids"` // full set of assignees
 	BranchID       *int64       `json:"branch_id,omitempty"`
 	BranchName     string       `json:"branch_name,omitempty"`
 	EntityID       int64        `json:"entity_id"`

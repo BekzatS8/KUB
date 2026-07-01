@@ -32,6 +32,7 @@ func NewTaskHandler(service services.TaskService, tg *services.TelegramService, 
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
 		AssigneeID  int64               `json:"assignee_id"`
+		AssigneeIDs []int64             `json:"assignee_ids"`
 		EntityID    int64               `json:"entity_id"`
 		EntityType  string              `json:"entity_type"`
 		Title       string              `json:"title" binding:"required"`
@@ -64,19 +65,22 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if req.AssigneeID == 0 {
-		req.AssigneeID = uid
+	// Собираем итоговый список исполнителей (поддержка старого поля assignee_id).
+	assignees := dedupeTaskAssignees(req.AssigneeIDs, req.AssigneeID)
+	if len(assignees) == 0 {
+		assignees = []int64{uid}
 	}
-
-	if roleID == authz.RoleSales && req.AssigneeID != uid {
-		log.Printf("[task][create][deny] staff=%d tried assign to %d", uid, req.AssigneeID)
-		forbidden(c, "Staff can assign only to self")
-		return
-	}
-	if !h.canAssignTaskWithinBranch(roleID, uid, req.AssigneeID) {
-		log.Printf("[task][create][deny] uid=%d role=%d assignee=%d branch mismatch", userID, roleID, req.AssigneeID)
-		forbidden(c, "Forbidden")
-		return
+	for _, aid := range assignees {
+		if roleID == authz.RoleSales && aid != uid {
+			log.Printf("[task][create][deny] staff=%d tried assign to %d", uid, aid)
+			forbidden(c, "Staff can assign only to self")
+			return
+		}
+		if !h.canAssignTaskWithinBranch(roleID, uid, aid) {
+			log.Printf("[task][create][deny] uid=%d role=%d assignee=%d branch mismatch", userID, roleID, aid)
+			forbidden(c, "Forbidden")
+			return
+		}
 	}
 
 	var due *time.Time
@@ -105,7 +109,8 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	task := &models.Task{
 		CreatorID:   uid,
-		AssigneeID:  req.AssigneeID,
+		AssigneeID:  assignees[0],
+		AssigneeIDs: assignees,
 		EntityID:    req.EntityID,
 		EntityType:  req.EntityType,
 		Title:       req.Title,
@@ -318,6 +323,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	var req struct {
 		AssigneeID  *int64               `json:"assignee_id"`
+		AssigneeIDs *[]int64             `json:"assignee_ids"`
 		Title       *string              `json:"title"`
 		Description *string              `json:"description"`
 		DueDate     *string              `json:"due_date"`    // RFC3339
@@ -333,18 +339,35 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	update := *current
 
-	if req.AssigneeID != nil {
-		if roleID == authz.RoleSales && *req.AssigneeID != uid {
-			log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, *req.AssigneeID)
-			forbidden(c, "Staff can assign only to self")
+	if req.AssigneeIDs != nil || req.AssigneeID != nil {
+		var incoming []int64
+		if req.AssigneeIDs != nil {
+			incoming = *req.AssigneeIDs
+		}
+		var primary int64
+		if req.AssigneeID != nil {
+			primary = *req.AssigneeID
+		}
+		assignees := dedupeTaskAssignees(incoming, primary)
+		if len(assignees) == 0 {
+			log.Printf("[task][update][deny] empty assignee list")
+			badRequest(c, "At least one assignee is required")
 			return
 		}
-		if !h.canAssignTaskWithinBranch(roleID, uid, *req.AssigneeID) {
-			log.Printf("[task][update][deny] uid=%d role=%d assignee=%d branch mismatch", uid, roleID, *req.AssigneeID)
-			forbidden(c, "Forbidden")
-			return
+		for _, aid := range assignees {
+			if roleID == authz.RoleSales && aid != uid {
+				log.Printf("[task][update][deny] staff uid=%d set assignee=%d", uid, aid)
+				forbidden(c, "Staff can assign only to self")
+				return
+			}
+			if !h.canAssignTaskWithinBranch(roleID, uid, aid) {
+				log.Printf("[task][update][deny] uid=%d role=%d assignee=%d branch mismatch", uid, roleID, aid)
+				forbidden(c, "Forbidden")
+				return
+			}
 		}
-		update.AssigneeID = *req.AssigneeID
+		update.AssigneeID = assignees[0]
+		update.AssigneeIDs = assignees
 	}
 	if req.Title != nil {
 		update.Title = *req.Title
@@ -868,7 +891,33 @@ func isOwnTask(uid int64, t *models.Task) bool {
 	if t == nil {
 		return false
 	}
-	return t.CreatorID == uid || t.AssigneeID == uid
+	if t.CreatorID == uid || t.AssigneeID == uid {
+		return true
+	}
+	for _, id := range t.AssigneeIDs {
+		if id == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// dedupeTaskAssignees builds the ordered, de-duplicated assignee list with the
+// primary assignee (legacy assignee_id) first, dropping zero ids.
+func dedupeTaskAssignees(ids []int64, primary int64) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	add := func(id int64) {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	add(primary)
+	for _, id := range ids {
+		add(id)
+	}
+	return out
 }
 
 func (h *TaskHandler) hasTaskBranchAccess(roleID int, uid int64, t *models.Task) bool {
@@ -930,19 +979,30 @@ func (h *TaskHandler) notifyAssignee(c *gin.Context, t *models.Task, prefix stri
 	if h.tg == nil || h.users == nil || t == nil {
 		return
 	}
-	chatID, allow, err := h.users.GetTelegramSettings(c.Request.Context(), t.AssigneeID)
-	if err != nil {
-		log.Printf("[task][notify] get telegram settings failed: assignee=%d err=%v", t.AssigneeID, err)
-		return
-	}
-	if !allow || chatID == 0 {
-		log.Printf("[task][notify] skip: allow=%v chatID=%d", allow, chatID)
-		return
-	}
 	msg := prefix + "\n" + h.tg.FormatTaskNotification(t)
-	if err := h.tg.SendMessage(chatID, msg); err != nil {
-		log.Printf("[task][notify] send error: %v", err)
+	for _, assigneeID := range taskAssigneeRecipients(t) {
+		chatID, allow, err := h.users.GetTelegramSettings(c.Request.Context(), assigneeID)
+		if err != nil {
+			log.Printf("[task][notify] get telegram settings failed: assignee=%d err=%v", assigneeID, err)
+			continue
+		}
+		if !allow || chatID == 0 {
+			log.Printf("[task][notify] skip: assignee=%d allow=%v chatID=%d", assigneeID, allow, chatID)
+			continue
+		}
+		if err := h.tg.SendMessage(chatID, msg); err != nil {
+			log.Printf("[task][notify] send error: %v", err)
+		}
 	}
+}
+
+// taskAssigneeRecipients returns the de-duplicated set of assignee user ids to
+// notify, falling back to the legacy single assignee when the list is empty.
+func taskAssigneeRecipients(t *models.Task) []int64 {
+	if t == nil {
+		return nil
+	}
+	return dedupeTaskAssignees(t.AssigneeIDs, t.AssigneeID)
 }
 
 // Лаконичное уведомление об удалении, без статуса/приоритета

@@ -49,6 +49,17 @@ func taskArchiveWhere(scope ArchiveScope) string {
 }
 
 func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
+	task.AssigneeIDs = dedupeAssignees(task.AssigneeID, task.AssigneeIDs)
+	if len(task.AssigneeIDs) > 0 {
+		task.AssigneeID = task.AssigneeIDs[0]
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	query := `
 		INSERT INTO tasks (
 			creator_id, assignee_id, branch_id, entity_id, entity_type, title, description,
@@ -56,11 +67,91 @@ func (r *taskRepository) Store(ctx context.Context, task *models.Task) error {
 		)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING id, created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query,
+	if err := tx.QueryRowContext(ctx, query,
 		task.CreatorID, task.AssigneeID, task.BranchID, task.EntityID, task.EntityType,
 		task.Title, task.Description, task.DueDate, task.ReminderAt, task.Priority, task.Status,
 		task.CreatedAt, task.UpdatedAt,
-	).Scan(&task.ID, &task.CreatedAt, &task.UpdatedAt)
+	).Scan(&task.ID, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		return err
+	}
+	if err := replaceTaskAssignees(ctx, tx, task.ID, task.AssigneeIDs); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// dedupeAssignees builds the ordered, de-duplicated assignee list with the
+// primary assignee first, ignoring zero ids.
+func dedupeAssignees(primary int64, ids []int64) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	add := func(id int64) {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	add(primary)
+	for _, id := range ids {
+		add(id)
+	}
+	return out
+}
+
+// replaceTaskAssignees rewrites the task_assignees rows for a task inside a tx.
+func replaceTaskAssignees(ctx context.Context, tx *sql.Tx, taskID int64, ids []int64) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM task_assignees WHERE task_id = $1`, taskID); err != nil {
+		return err
+	}
+	for _, uid := range ids {
+		if uid == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			taskID, uid,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadAssignees fills AssigneeIDs for the given tasks from the join table,
+// keeping the primary assignee first and falling back to the legacy
+// assignee_id column when a task has no join rows yet.
+func (r *taskRepository) loadAssignees(ctx context.Context, tasks []models.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(tasks))
+	for i := range tasks {
+		ids[i] = tasks[i].ID
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT task_id, user_id FROM task_assignees WHERE task_id = ANY($1) ORDER BY task_id, user_id`,
+		pq.Array(ids),
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byTask := map[int64][]int64{}
+	for rows.Next() {
+		var taskID, userID int64
+		if err := rows.Scan(&taskID, &userID); err != nil {
+			return err
+		}
+		byTask[taskID] = append(byTask[taskID], userID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range tasks {
+		tasks[i].AssigneeIDs = dedupeAssignees(tasks[i].AssigneeID, byTask[tasks[i].ID])
+	}
+	return nil
 }
 
 func (r *taskRepository) FindByID(ctx context.Context, id int64) (*models.Task, error) {
@@ -88,6 +179,11 @@ func (r *taskRepository) FindByIDWithArchiveScope(ctx context.Context, id int64,
 		v := branchID.Int64
 		task.BranchID = &v
 	}
+	single := []models.Task{*task}
+	if err := r.loadAssignees(ctx, single); err != nil {
+		return nil, err
+	}
+	task.AssigneeIDs = single[0].AssigneeIDs
 	return task, nil
 }
 
@@ -122,7 +218,13 @@ func (r *taskRepository) FindAll(ctx context.Context, filter models.TaskFilter) 
 		}
 		tasks = append(tasks, t)
 	}
-	return tasks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.loadAssignees(ctx, tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func (r *taskRepository) FindAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, error) {
@@ -156,7 +258,13 @@ func (r *taskRepository) FindAllPaginated(ctx context.Context, filter models.Tas
 		}
 		tasks = append(tasks, t)
 	}
-	return tasks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.loadAssignees(ctx, tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func (r *taskRepository) CountAll(ctx context.Context, filter models.TaskFilter) (int, error) {
@@ -175,7 +283,7 @@ func buildTaskFilterWhere(filter models.TaskFilter, startAt int) (string, []inte
 	argID := startAt
 
 	if filter.AssigneeID != nil {
-		conditions = append(conditions, fmt.Sprintf("assignee_id = $%d", argID))
+		conditions = append(conditions, fmt.Sprintf("EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = tasks.id AND ta.user_id = $%d)", argID))
 		args = append(args, *filter.AssigneeID)
 		argID++
 	}
@@ -259,16 +367,32 @@ func taskSortExpression(sortBy, order string) (string, string) {
 }
 
 func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {
+	task.AssigneeIDs = dedupeAssignees(task.AssigneeID, task.AssigneeIDs)
+	if len(task.AssigneeIDs) > 0 {
+		task.AssigneeID = task.AssigneeIDs[0]
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	query := `
 		UPDATE tasks SET
 			assignee_id=$1, branch_id=$2, title=$3, description=$4, due_date=$5,
 			reminder_at=$6, priority=$7, status=$8, updated_at=$9
 		WHERE id=$10`
-	_, err := r.db.ExecContext(ctx, query,
+	if _, err := tx.ExecContext(ctx, query,
 		task.AssigneeID, task.BranchID, task.Title, task.Description, task.DueDate,
 		task.ReminderAt, task.Priority, task.Status, task.UpdatedAt, task.ID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if err := replaceTaskAssignees(ctx, tx, task.ID, task.AssigneeIDs); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *taskRepository) Delete(ctx context.Context, id int64) error {
@@ -309,9 +433,20 @@ func (r *taskRepository) UpdateStatus(ctx context.Context, id int64, to models.T
 }
 
 func (r *taskRepository) UpdateAssignee(ctx context.Context, id int64, assigneeID int64) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE tasks SET assignee_id=$1, updated_at=NOW() WHERE id=$2`, assigneeID, id)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tasks SET assignee_id=$1, updated_at=NOW() WHERE id=$2`, assigneeID, id); err != nil {
+		return err
+	}
+	if err := replaceTaskAssignees(ctx, tx, id, []int64{assigneeID}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *taskRepository) ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error) {
@@ -348,7 +483,13 @@ LIMIT $1`
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.loadAssignees(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *taskRepository) SetReminderFired(ctx context.Context, id int64) error {

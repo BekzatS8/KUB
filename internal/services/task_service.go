@@ -103,6 +103,7 @@ func (s *taskService) Update(ctx context.Context, id int64, updateData *models.T
 
 	// Прокидываем все поля, которые реально обновляет repo.Update
 	existingTask.AssigneeID = updateData.AssigneeID
+	existingTask.AssigneeIDs = updateData.AssigneeIDs
 	existingTask.Title = updateData.Title
 	existingTask.Description = updateData.Description
 	existingTask.DueDate = updateData.DueDate
@@ -221,17 +222,35 @@ func (s *taskService) sendNotification(ctx context.Context, task *models.Task, p
 	if s.tg == nil || s.users == nil || task == nil {
 		return
 	}
-	chatID, notify, err := s.users.GetTelegramSettings(ctx, task.AssigneeID)
-	if err != nil {
-		log.Printf("[task][notify] failed to get telegram settings for assignee=%d: %v", task.AssigneeID, err)
-		return
-	}
-	if !notify || chatID == 0 {
-		return
-	}
-
 	msg := prefix + "\n" + s.tg.FormatTaskNotification(task)
-	if err := s.tg.SendMessage(chatID, msg); err != nil {
-		log.Printf("[task][notify] telegram send error: %v", err)
+	for _, assigneeID := range taskAssigneeRecipients(task) {
+		chatID, notify, err := s.users.GetTelegramSettings(ctx, assigneeID)
+		if err != nil {
+			log.Printf("[task][notify] failed to get telegram settings for assignee=%d: %v", assigneeID, err)
+			continue
+		}
+		if !notify || chatID == 0 {
+			continue
+		}
+		if err := s.tg.SendMessage(chatID, msg); err != nil {
+			log.Printf("[task][notify] telegram send error: %v", err)
+		}
 	}
+}
+
+// taskAssigneeRecipients returns the de-duplicated set of assignee user ids to
+// notify, falling back to the legacy single assignee when the list is empty.
+func taskAssigneeRecipients(task *models.Task) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	for _, id := range task.AssigneeIDs {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 && task.AssigneeID != 0 {
+		out = append(out, task.AssigneeID)
+	}
+	return out
 }
