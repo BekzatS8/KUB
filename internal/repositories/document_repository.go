@@ -374,7 +374,13 @@ func (r *DocumentRepository) CountDocumentsWithFilterAndArchiveScope(filter Docu
 }
 
 func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, startAt int) (string, []any) {
-	conditions := []string{strings.ReplaceAll(documentArchiveWhere(scope), "is_archived", "dcm.is_archived")}
+	// Квалифицируем колонки алиасом dcm: в этом запросе джойнятся deals и
+	// clients, у которых после миграции 067 тоже есть deleted_at, поэтому
+	// неквалифицированный deleted_at даёт "column reference is ambiguous".
+	archiveCond := documentArchiveWhere(scope)
+	archiveCond = strings.ReplaceAll(archiveCond, "is_archived", "dcm.is_archived")
+	archiveCond = strings.ReplaceAll(archiveCond, "deleted_at", "dcm.deleted_at")
+	conditions := []string{archiveCond}
 	args := make([]any, 0, 8)
 	idx := startAt
 

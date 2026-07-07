@@ -31,6 +31,23 @@ func TestBuildDocumentListWhere_ExactFilters(t *testing.T) {
 	}
 }
 
+// TestBuildDocumentListWhere_QualifiesArchiveColumns guards against the
+// "column reference deleted_at is ambiguous" 500: the list/count query joins
+// deals and clients, which also have deleted_at (миграция 067), so the archive
+// filter must qualify both is_archived and deleted_at with the dcm alias.
+func TestBuildDocumentListWhere_QualifiesArchiveColumns(t *testing.T) {
+	for _, scope := range []ArchiveScope{ArchiveScopeActiveOnly, ArchiveScopeArchivedOnly, ArchiveScopeAll, ArchiveScopeDeleted} {
+		where, _ := buildDocumentListWhere(DocumentListFilter{}, scope, 1)
+		if strings.Contains(where, "deleted_at") && !strings.Contains(where, "dcm.deleted_at") {
+			t.Fatalf("scope %q: deleted_at must be qualified with dcm alias: %s", scope, where)
+		}
+		// unqualified bare "is_archived"/" deleted_at" would be ambiguous
+		if strings.Contains(where, " is_archived") && !strings.Contains(where, "dcm.is_archived") {
+			t.Fatalf("scope %q: is_archived must be qualified: %s", scope, where)
+		}
+	}
+}
+
 func TestDocumentSortExpressionWhitelist(t *testing.T) {
 	tests := []struct {
 		f       DocumentListFilter
