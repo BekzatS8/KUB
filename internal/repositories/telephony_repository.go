@@ -65,12 +65,12 @@ func (r *telephonyRepository) CreateCall(ctx context.Context, call *models.Telep
 			(provider, external_call_id, direction, status, phone, normalized_phone,
 			 client_id, lead_id, manager_id, branch_id,
 			 started_at, answered_at, ended_at, duration_seconds, recording_url,
-			 raw_payload, created_at, updated_at)
+			 binotel_customer_name, raw_payload, created_at, updated_at)
 		VALUES
 			($1, $2, $3, $4, $5, $6,
 			 $7, $8, $9, $10,
 			 $11, $12, $13, $14, $15,
-			 $16::jsonb, NOW(), NOW())
+			 $16, $17::jsonb, NOW(), NOW())
 		RETURNING id
 	`
 	var id int64
@@ -90,6 +90,7 @@ func (r *telephonyRepository) CreateCall(ctx context.Context, call *models.Telep
 		call.EndedAt,
 		call.DurationSeconds,
 		call.RecordingURL,
+		call.BinotelCustomerName,
 		string(raw),
 	).Scan(&id)
 	if err != nil {
@@ -116,12 +117,12 @@ func (r *telephonyRepository) UpsertCall(ctx context.Context, call *models.Telep
 			(provider, external_call_id, direction, status, phone, normalized_phone,
 			 client_id, lead_id, manager_id, branch_id,
 			 started_at, answered_at, ended_at, duration_seconds, recording_url,
-			 raw_payload, created_at, updated_at)
+			 binotel_customer_name, raw_payload, created_at, updated_at)
 		VALUES
 			($1, $2, $3, $4, $5, $6,
 			 $7, $8, $9, $10,
 			 $11, $12, $13, $14, $15,
-			 $16::jsonb, NOW(), NOW())
+			 $16, $17::jsonb, NOW(), NOW())
 		ON CONFLICT (provider, external_call_id)
 		WHERE external_call_id IS NOT NULL
 		DO UPDATE SET
@@ -137,6 +138,7 @@ func (r *telephonyRepository) UpsertCall(ctx context.Context, call *models.Telep
 			ended_at         = COALESCE(EXCLUDED.ended_at,   telephony_calls.ended_at),
 			duration_seconds = COALESCE(EXCLUDED.duration_seconds, telephony_calls.duration_seconds),
 			recording_url    = COALESCE(EXCLUDED.recording_url, telephony_calls.recording_url),
+			binotel_customer_name = COALESCE(EXCLUDED.binotel_customer_name, telephony_calls.binotel_customer_name),
 			raw_payload      = EXCLUDED.raw_payload,
 			updated_at       = NOW()
 		RETURNING id, (xmax = 0) AS is_new
@@ -159,6 +161,7 @@ func (r *telephonyRepository) UpsertCall(ctx context.Context, call *models.Telep
 		call.EndedAt,
 		call.DurationSeconds,
 		call.RecordingURL,
+		call.BinotelCustomerName,
 		string(raw),
 	).Scan(&id, &isNew)
 	if err != nil {
@@ -175,7 +178,7 @@ func (r *telephonyRepository) GetByID(ctx context.Context, id int64) (*models.Te
 			tc.phone, tc.normalized_phone,
 			tc.client_id, tc.lead_id, tc.manager_id, tc.branch_id,
 			tc.started_at, tc.answered_at, tc.ended_at, tc.duration_seconds,
-			tc.recording_url, tc.raw_payload, tc.created_at, tc.updated_at,
+			tc.recording_url, tc.binotel_customer_name, tc.raw_payload, tc.created_at, tc.updated_at,
 			COALESCE(c.display_name, '')    AS client_name,
 			COALESCE(l.title, '')           AS lead_title,
 			COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email, '') AS manager_name
@@ -194,7 +197,7 @@ func (r *telephonyRepository) FindByExternalCallID(ctx context.Context, provider
 		SELECT id, provider, external_call_id, direction, status, phone, normalized_phone,
 		       client_id, lead_id, manager_id, branch_id,
 		       started_at, answered_at, ended_at, duration_seconds, recording_url,
-		       raw_payload, created_at, updated_at
+		       binotel_customer_name, raw_payload, created_at, updated_at
 		FROM telephony_calls
 		WHERE provider = $1 AND external_call_id = $2
 		LIMIT 1
@@ -226,7 +229,7 @@ func (r *telephonyRepository) List(ctx context.Context, filter models.TelephonyC
 			tc.phone, tc.normalized_phone,
 			tc.client_id, tc.lead_id, tc.manager_id, tc.branch_id,
 			tc.started_at, tc.answered_at, tc.ended_at, tc.duration_seconds,
-			tc.recording_url, tc.raw_payload, tc.created_at, tc.updated_at,
+			tc.recording_url, tc.binotel_customer_name, tc.raw_payload, tc.created_at, tc.updated_at,
 			COALESCE(c.display_name, '')       AS client_name,
 			COALESCE(l.title, '')              AS lead_title,
 			COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email, '') AS manager_name
@@ -443,7 +446,7 @@ func scanTelephonyCall(row *sql.Row) (*models.TelephonyCall, error) {
 		&c.Phone, &c.NormalizedPhone,
 		&c.ClientID, &c.LeadID, &c.ManagerID, &c.BranchID,
 		&c.StartedAt, &c.AnsweredAt, &c.EndedAt, &c.DurationSeconds,
-		&c.RecordingURL, &raw, &c.CreatedAt, &c.UpdatedAt,
+		&c.RecordingURL, &c.BinotelCustomerName, &raw, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -464,7 +467,7 @@ func scanTelephonyCallResponse(row *sql.Row) (*models.TelephonyCallResponse, err
 		&r.Phone, &r.NormalizedPhone,
 		&r.ClientID, &r.LeadID, &r.ManagerID, &r.BranchID,
 		&r.StartedAt, &r.AnsweredAt, &r.EndedAt, &r.DurationSeconds,
-		&r.RecordingURL, &raw, &r.CreatedAt, &r.UpdatedAt,
+		&r.RecordingURL, &r.BinotelCustomerName, &raw, &r.CreatedAt, &r.UpdatedAt,
 		&clientName, &leadTitle, &managerName,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -497,7 +500,7 @@ func scanTelephonyCallRows(rows *sql.Rows) ([]*models.TelephonyCallResponse, int
 			&r.Phone, &r.NormalizedPhone,
 			&r.ClientID, &r.LeadID, &r.ManagerID, &r.BranchID,
 			&r.StartedAt, &r.AnsweredAt, &r.EndedAt, &r.DurationSeconds,
-			&r.RecordingURL, &raw, &r.CreatedAt, &r.UpdatedAt,
+			&r.RecordingURL, &r.BinotelCustomerName, &raw, &r.CreatedAt, &r.UpdatedAt,
 			&clientName, &leadTitle, &managerName,
 		)
 		if err != nil {

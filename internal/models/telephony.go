@@ -23,7 +23,11 @@ type TelephonyCall struct {
 	EndedAt         *time.Time      `json:"ended_at,omitempty"`
 	DurationSeconds *int            `json:"duration_seconds,omitempty"`
 	RecordingURL    *string         `json:"recording_url,omitempty"`
-	RawPayload      json.RawMessage `json:"raw_payload,omitempty"`
+	// BinotelCustomerName is the caller's name as saved in the Binotel address
+	// book (customerData.name from the REST/webhook payload). Shown in the UI when
+	// the number isn't linked to a CRM client/lead.
+	BinotelCustomerName *string         `json:"binotel_customer_name,omitempty"`
+	RawPayload          json.RawMessage `json:"raw_payload,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }

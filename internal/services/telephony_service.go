@@ -526,20 +526,26 @@ func (s *TelephonyService) binotelCallToModel(ctx context.Context, bc binotelcli
 
 	raw, _ := json.Marshal(bc)
 
+	var customerNamePtr *string
+	if name := strings.TrimSpace(bc.CustomerName()); name != "" {
+		customerNamePtr = &name
+	}
+
 	return &models.TelephonyCall{
-		Provider:        "binotel",
-		ExternalCallID:  extIDPtr,
-		Direction:       direction,
-		Status:          status,
-		Phone:           phone,
-		NormalizedPhone: normPtr,
-		ManagerID:       managerID,
-		BranchID:        managerBranchID,
-		StartedAt:       startedAt,
-		AnsweredAt:      answeredAt,
-		EndedAt:         endedAt,
-		DurationSeconds: &duration,
-		RawPayload:      raw,
+		Provider:            "binotel",
+		ExternalCallID:      extIDPtr,
+		Direction:           direction,
+		Status:              status,
+		Phone:               phone,
+		NormalizedPhone:     normPtr,
+		ManagerID:           managerID,
+		BranchID:            managerBranchID,
+		StartedAt:           startedAt,
+		AnsweredAt:          answeredAt,
+		EndedAt:             endedAt,
+		DurationSeconds:     &duration,
+		BinotelCustomerName: customerNamePtr,
+		RawPayload:          raw,
 	}
 }
 

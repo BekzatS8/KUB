@@ -193,6 +193,41 @@ type Call struct {
 // GeneralCallIDString returns the call id as a string.
 func (c Call) GeneralCallIDString() string { return string(c.GeneralCallID) }
 
+// CustomerName returns the caller's name as saved in the Binotel address book.
+// customerData is an object like {"name":"...","company":"..."} when the number
+// is known, and an empty string or [] otherwise (Binotel encodes empty objects
+// as []), so parsing must be tolerant. Falls back to the company name.
+func (c Call) CustomerName() string {
+	if len(c.CustomerData) == 0 {
+		return ""
+	}
+	var d struct {
+		Name        string `json:"name"`
+		Company     string `json:"company"`
+		CompanyName string `json:"companyName"`
+	}
+	// Unmarshal fails for the "" / [] empty shapes — treat those as no name.
+	if err := json.Unmarshal(c.CustomerData, &d); err != nil {
+		return ""
+	}
+	if n := strings.TrimSpace(d.Name); n != "" {
+		return n
+	}
+	if n := strings.TrimSpace(coalesce(d.Company, d.CompanyName)); n != "" {
+		return n
+	}
+	return ""
+}
+
+func coalesce(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // statsCalls runs a stats method and leniently decodes the callDetails map:
 // a single malformed entry is skipped rather than failing the whole batch.
 func (c *Client) statsCalls(ctx context.Context, method string, params map[string]interface{}) (map[string]Call, error) {
