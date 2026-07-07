@@ -152,3 +152,7 @@ func TestCreateDocumentFromClient_UsesLatestDealByTypedRefWhenDealIDOmitted(t *t
 		t.Fatalf("expected typed ref lookup (10, individual), got (%d, %q)", dealRepo.lastClientID, dealRepo.lastClientType)
 	}
 }
+
+func (r *testDocumentRepo) SoftDelete(int64, int) error { return nil }
+func (r *testDocumentRepo) Restore(int64) error         { return nil }
+func (r *testDocumentRepo) Purge(int64) error           { return nil }

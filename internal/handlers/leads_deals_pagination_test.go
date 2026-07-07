@@ -31,6 +31,7 @@ func (s *stubLeadPaginationService) ListMyWithFilterAndArchiveScope(int, int, in
 	return []*models.Leads{}, nil
 }
 func (s *stubLeadPaginationService) AssignOwner(int, int, int, int) error { return nil }
+func (s *stubLeadPaginationService) MoveToStage(int, int, int, int) error { return nil }
 func (s *stubLeadPaginationService) UpdateStatus(int, string, int, int) error {
 	return nil
 }

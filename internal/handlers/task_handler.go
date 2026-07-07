@@ -645,6 +645,40 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 	}
 }
 
+// GET /tasks/notifications — hourly nag payload for the current user
+// (ТЗ 04.07.2026, п.4.1): open tasks due for a popup + open-task badge count.
+func (h *TaskHandler) Notifications(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	payload, err := h.service.Notifications(c.Request.Context(), int64(userID))
+	if err != nil {
+		log.Printf("[task][notifications][err] userID=%d: %v", userID, err)
+		internalError(c, "Failed to load task notifications")
+		return
+	}
+	c.JSON(http.StatusOK, payload)
+}
+
+type ackTaskNotificationsRequest struct {
+	TaskIDs []int64 `json:"task_ids" binding:"required"`
+}
+
+// POST /tasks/notifications/ack — mark the nag as shown; it re-fires in an
+// hour while the tasks stay open.
+func (h *TaskHandler) AckNotifications(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	var req ackTaskNotificationsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if err := h.service.AckNotifications(c.Request.Context(), int64(userID), req.TaskIDs); err != nil {
+		log.Printf("[task][notifications-ack][err] userID=%d: %v", userID, err)
+		internalError(c, "Failed to ack task notifications")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 // POST /tasks/:id/complete
 func (h *TaskHandler) Complete(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)

@@ -48,6 +48,9 @@ type DocumentRepo interface {
 	ListDocumentsByDeal(dealID int64) ([]*models.Document, error)
 	ListDocumentsByDealWithArchiveScope(dealID int64, scope repositories.ArchiveScope) ([]*models.Document, error)
 	Delete(id int64) error
+	SoftDelete(id int64, deletedBy int) error
+	Restore(id int64) error
+	Purge(id int64) error
 	Archive(id int64, archivedBy int, reason string) error
 	Unarchive(id int64) error
 	UpdateStatus(id int64, status string) error
@@ -467,6 +470,12 @@ func (s *DocumentService) GetLegalConsentText(docType string) string {
 
 func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID int) (int64, error) {
 	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.create") {
+		return 0, errors.New("forbidden")
+	}
+	// documents.create у партнёрского отдела — только для документов своего
+	// отдела (scope 'partner', upload-with-meta). Документы по сделкам партнёр
+	// не создаёт: у него нет доступа к сделкам (deals.*).
+	if roleID == authz.RolePartner {
 		return 0, errors.New("forbidden")
 	}
 
@@ -904,17 +913,43 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
-	if derr != nil || deal == nil {
-		return errors.New("not found")
+	// у департаментных документов (scope != deal) сделки нет — проверка доступа
+	// по сделке применяется только к deal-документам
+	if doc.DealID != 0 {
+		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		if derr != nil || deal == nil {
+			return errors.New("not found")
+		}
+		if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+			return err
+		}
 	}
-	if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
-		return err
+	// мягкое удаление в корзину (ТЗ п.7.1): файлы сохраняются для возможного
+	// восстановления и удаляются только при окончательном удалении (Purge)
+	return s.DocRepo.SoftDelete(id, userID)
+}
+
+// RestoreDocument возвращает документ из корзины (только админ).
+func (s *DocumentService) RestoreDocument(id int64, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return errors.New("forbidden")
+	}
+	return s.DocRepo.Restore(id)
+}
+
+// PurgeDocument окончательно удаляет документ и его файлы (только админ).
+func (s *DocumentService) PurgeDocument(id int64, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return errors.New("forbidden")
+	}
+	doc, err := s.DocRepo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeDeleted)
+	if err != nil || doc == nil {
+		return errors.New("not found")
 	}
 	if err := s.deleteDocumentFiles(doc); err != nil {
 		return err
 	}
-	return s.DocRepo.Delete(id)
+	return s.DocRepo.Purge(id)
 }
 
 func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason string) error {
@@ -1997,13 +2032,27 @@ func mergeExtra(dealExtra, reqExtra map[string]string) map[string]string {
 	return merged
 }
 
+// contractNumberForDeal формирует читаемый номер договора: KUB-<номер сделки>/<год>
+// (ТЗ 04.07.2026, п.2.7 — вместо нечитаемого «KUB-000023», которое выглядело
+// как нули). Номер можно переопределить через extra["CONTRACT_NUMBER"].
+func contractNumberForDeal(deal *models.Deals) string {
+	if deal == nil {
+		return ""
+	}
+	year := deal.CreatedAt.Year()
+	if year < 2000 {
+		year = time.Now().Year()
+	}
+	return fmt.Sprintf("KUB-%d/%d", deal.ID, year)
+}
+
 func buildDealExtraFallback(deal *models.Deals) map[string]string {
 	if deal == nil {
 		return map[string]string{}
 	}
 	m := map[string]string{
-		"CONTRACT_NUMBER": fmt.Sprintf("KUB-%06d", deal.ID),
-		"contract_number": fmt.Sprintf("KUB-%06d", deal.ID),
+		"CONTRACT_NUMBER": contractNumberForDeal(deal),
+		"contract_number": contractNumberForDeal(deal),
 	}
 	if deal.CreatedAt.Unix() > 0 {
 		m["CONTRACT_DATE"] = deal.CreatedAt.Format("02.01.2006")
@@ -2015,7 +2064,15 @@ func buildDealExtraFallback(deal *models.Deals) map[string]string {
 		m["TOTAL_AMOUNT_NUM"] = amount
 		m["DEAL_AMOUNT_NUM"] = amount
 		m["REFUND_AMOUNT_NUM"] = amount
-		m["PREPAY_AMOUNT_NUM"] = amount
+		// Первоначальный взнос из сделки (ТЗ 04.07.2026, п.2.5): в договор
+		// 50/50 подставляется реальный взнос, остаток (DEAL_REMAIN_KZT_*)
+		// движок плейсхолдеров считает сам. Если взнос не указан — вся сумма
+		// (договор 100% оплаты).
+		if deal.Prepayment > 0 {
+			m["PREPAY_AMOUNT_NUM"] = strconv.FormatFloat(deal.Prepayment, 'f', 2, 64)
+		} else {
+			m["PREPAY_AMOUNT_NUM"] = amount
+		}
 	}
 	if strings.TrimSpace(deal.Currency) != "" {
 		m["DEAL_CURRENCY"] = strings.TrimSpace(deal.Currency)

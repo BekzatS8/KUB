@@ -1155,6 +1155,54 @@ func (h *ClientHandler) ListMy(c *gin.Context) {
 	c.JSON(http.StatusOK, clients)
 }
 
+// Restore возвращает клиента из корзины (ТЗ 04.07.2026, п.7.1; только админ).
+func (h *ClientHandler) Restore(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.ClientService)
+	if !ok {
+		internalError(c, "Restore is not supported")
+		return
+	}
+	if err := svc.RestoreClient(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Не удалось восстановить клиента")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// Purge окончательно удаляет клиента из корзины (только админ).
+func (h *ClientHandler) Purge(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.ClientService)
+	if !ok {
+		internalError(c, "Purge is not supported")
+		return
+	}
+	if err := svc.PurgeClient(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Не удалось удалить клиента окончательно")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 func clientListFilterFromQuery(c *gin.Context) (repositories.ClientListFilter, error) {
 	filter := repositories.ClientListFilter{
 		Query:      strings.TrimSpace(c.Query("q")),

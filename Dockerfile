@@ -23,9 +23,14 @@ FROM alpine:3.19
 WORKDIR /opt/turcompany
 
 # runtime deps: LO + fonts + tz + certs
+# font-liberation (метрически совместим с Times New Roman/Arial) и
+# font-carlito (совместим с Calibri) — без них LibreOffice подменяет шрифты
+# договоров при конвертации в PDF («шрифты поменялись», ТЗ 04.07.2026, п.2.6)
 RUN apk add --no-cache \
     ca-certificates tzdata postgresql-client \
     libreoffice font-noto fontconfig ttf-dejavu \
+    font-liberation font-carlito \
+  && fc-cache -f \
   && update-ca-certificates
 
 # (опционально) если в коде бинарь называется "libreoffice", а в alpine реально "soffice"

@@ -581,9 +581,10 @@ func TestTelephonyList_ScopedRoleFilteredByBranch(t *testing.T) {
 	}
 }
 
-// TestTelephonyList_ScopedRoleNoBranchReturns500 verifies that a scoped role
-// with no branch_id on the user record gets a 500 (misconfigured user, not 403).
-func TestTelephonyList_ScopedRoleNoBranchReturns500(t *testing.T) {
+// TestTelephonyList_ScopedRoleNoBranchOK verifies that a scoped role with no
+// branch_id still gets a 200: since ТЗ 04.07.2026 (п.5.2) rank-and-file roles
+// are scoped by manager_id (own calls), which does not require a branch.
+func TestTelephonyList_ScopedRoleNoBranchOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := newStubTelephonyRepo()
 
@@ -592,7 +593,7 @@ func TestTelephonyList_ScopedRoleNoBranchReturns500(t *testing.T) {
 
 	r := gin.New()
 	r.GET("/api/v1/telephony/calls", func(c *gin.Context) {
-		c.Set("role_id", 10) // sales — must be scoped
+		c.Set("role_id", 10) // sales — scoped to own calls
 		c.Set("user_id", 99)
 		h.ListCalls(c)
 	})
@@ -600,8 +601,8 @@ func TestTelephonyList_ScopedRoleNoBranchReturns500(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/telephony/calls", nil))
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("sales with no branch: expected 500, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("sales with no branch: expected 200 (own-calls scope), got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

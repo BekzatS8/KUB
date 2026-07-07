@@ -48,6 +48,9 @@ func archiveScopeFromQuery(c *gin.Context) (repositories.ArchiveScope, bool) {
 		return repositories.ArchiveScopeArchivedOnly, true
 	case "all":
 		return repositories.ArchiveScopeAll, true
+	case "deleted":
+		// корзина (ТЗ 04.07.2026, п.7.1) — мягко удалённые записи
+		return repositories.ArchiveScopeDeleted, true
 	default:
 		return repositories.ArchiveScopeActiveOnly, false
 	}

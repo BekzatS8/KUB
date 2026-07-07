@@ -13,6 +13,7 @@ import (
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
+	"turcompany/internal/services"
 )
 
 type taskBranchServiceStub struct {
@@ -84,11 +85,13 @@ func (r *taskBranchUserRepoStub) ClearRefresh(int) error                        
 func (r *taskBranchUserRepoStub) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (r *taskBranchUserRepoStub) VerifyUser(int) error                           { return nil }
 func (r *taskBranchUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (r *taskBranchUserRepoStub) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
-func (r *taskBranchUserRepoStub) UpdateProfile(int, *models.User) error                              { return nil }
-func (r *taskBranchUserRepoStub) UpdateAvatar(int, string, string, string) error                     { return nil }
-func (r *taskBranchUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
-func (r *taskBranchUserRepoStub) DeleteAvatar(int) error                                             { return nil }
+func (r *taskBranchUserRepoStub) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *taskBranchUserRepoStub) UpdateProfile(int, *models.User) error          { return nil }
+func (r *taskBranchUserRepoStub) UpdateAvatar(int, string, string, string) error { return nil }
+func (r *taskBranchUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {
+	return nil
+}
+func (r *taskBranchUserRepoStub) DeleteAvatar(int) error { return nil }
 func (r *taskBranchUserRepoStub) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
@@ -146,3 +149,8 @@ func TestTaskHandler_ChangeStatus_VisaAllowedForOwnBranch(t *testing.T) {
 }
 
 func ptrInt(v int) *int { return &v }
+
+func (s *taskBranchServiceStub) Notifications(context.Context, int64) (*services.TaskNotifications, error) {
+	return &services.TaskNotifications{}, nil
+}
+func (s *taskBranchServiceStub) AckNotifications(context.Context, int64, []int64) error { return nil }

@@ -92,6 +92,10 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 	if deal.Amount <= 0 {
 		return 0, ErrAmountInvalid
 	}
+	// первоначальный взнос не может быть отрицательным или больше суммы (ТЗ п.2.5)
+	if deal.Prepayment < 0 || deal.Prepayment > deal.Amount {
+		return 0, ErrAmountInvalid
+	}
 	clientType, err := s.validateTypedClientRef(deal.ClientID, deal.ClientType)
 	if err != nil {
 		return 0, err
@@ -212,6 +216,10 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 	if deal.Amount <= 0 {
 		return ErrAmountInvalid
 	}
+	// первоначальный взнос не может быть отрицательным или больше суммы (ТЗ п.2.5)
+	if deal.Prepayment < 0 || deal.Prepayment > deal.Amount {
+		return ErrAmountInvalid
+	}
 
 	if deal.Currency == "" {
 		deal.Currency = current.Currency
@@ -307,7 +315,24 @@ func (s *DealService) Delete(id int, userID, roleID int) error {
 	if !dealMatchesScope(dataScope, deal) {
 		return ErrForbidden
 	}
-	return s.Repo.Delete(id)
+	// мягкое удаление в корзину с фиксацией автора (ТЗ п.7.1)
+	return s.Repo.SoftDelete(id, userID)
+}
+
+// RestoreDeal возвращает сделку из корзины (только админ).
+func (s *DealService) RestoreDeal(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Restore(id)
+}
+
+// PurgeDeal окончательно удаляет сделку из корзины (только админ).
+func (s *DealService) PurgeDeal(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Purge(id)
 }
 
 func (s *DealService) ListAll(limit, offset int) ([]*models.Deals, error) {
@@ -486,6 +511,19 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 	// Apply admin-configured automatic cross-funnel transition rules.
 	// Pass depth=1 to guard against circular rule chains (max 10 hops).
 	_ = s.applyTransitionRules(dealID, stage.FunnelID, stageID, userID, 1)
+
+	// Автоархив финального этапа (ТЗ 04.07.2026, п.1.5): «Работа выполнена» —
+	// карточка уходит в архив. Архивируем только если правило перехода не
+	// передало сделку в следующую воронку (например, «Договор подписан» →
+	// передача клиенту): проверяем, что сделка осталась на won-этапе.
+	if stage.Type == models.FunnelStageTypeWon {
+		if after, err := s.Repo.GetByID(dealID); err == nil && after != nil &&
+			!after.IsArchived && after.StageID != nil && *after.StageID == stageID {
+			if err := s.Repo.Archive(dealID, userID, "Работа выполнена (автоархив)"); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

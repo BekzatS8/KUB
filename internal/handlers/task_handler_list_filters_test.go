@@ -12,6 +12,7 @@ import (
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
+	"turcompany/internal/services"
 )
 
 type stubTaskListService struct {
@@ -154,3 +155,8 @@ func TestTaskHandler_GetAll_InvalidFilters(t *testing.T) {
 		}
 	}
 }
+
+func (s *stubTaskListService) Notifications(context.Context, int64) (*services.TaskNotifications, error) {
+	return &services.TaskNotifications{}, nil
+}
+func (s *stubTaskListService) AckNotifications(context.Context, int64, []int64) error { return nil }

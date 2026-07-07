@@ -47,8 +47,15 @@ SELECT
 	COALESCE(c.archive_reason, '') AS archive_reason,
 	c.avatar_url, c.avatar_path, c.avatar_crop_x, c.avatar_crop_y, c.avatar_crop_scale, c.avatar_crop_size,
 	COALESCE(ip.last_name, c.last_name, ''), COALESCE(ip.first_name, c.first_name, ''), COALESCE(ip.middle_name, c.middle_name, ''), COALESCE(ip.iin, c.iin, ''), COALESCE(ip.id_number, c.id_number, ''), COALESCE(ip.passport_series, c.passport_series, ''), COALESCE(ip.passport_number, c.passport_number, ''), COALESCE(ip.passport_identity, ''),
-	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''), COALESCE(ip.country, c.country, ''), COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
-	COALESCE(ip.citizenship, c.citizenship, ''), COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date), ip.driver_license_issue_date, ip.driver_license_expire_date,
+	COALESCE(ip.registration_address, c.registration_address, ''), COALESCE(ip.actual_address, c.actual_address, ''),
+	-- страна/гражданство: legacy-колонка clients.* используется ТОЛЬКО когда
+	-- у клиента нет строки профиля. Профиль хранит очищенное поле как NULL,
+	-- и сквозной COALESCE воскрешал старое значение («Италия» при пустом
+	-- поле — ТЗ 04.07.2026, п.8.3)
+	CASE WHEN ip.client_id IS NULL THEN COALESCE(c.country, '') ELSE COALESCE(ip.country, '') END,
+	COALESCE(ip.trip_purpose, c.trip_purpose, ''), COALESCE(ip.birth_date, c.birth_date), COALESCE(ip.birth_place, c.birth_place, ''),
+	CASE WHEN ip.client_id IS NULL THEN COALESCE(c.citizenship, '') ELSE COALESCE(ip.citizenship, '') END,
+	COALESCE(ip.sex, c.sex, ''), COALESCE(ip.marital_status, c.marital_status, ''), COALESCE(ip.passport_issue_date, c.passport_issue_date), COALESCE(ip.passport_expire_date, c.passport_expire_date), ip.driver_license_issue_date, ip.driver_license_expire_date,
 	COALESCE(ip.previous_last_name, c.previous_last_name, ''), COALESCE(ip.spouse_name, c.spouse_name, ''), COALESCE(ip.spouse_contacts, c.spouse_contacts, ''), COALESCE(ip.has_children, c.has_children), COALESCE(ip.children_list, c.children_list),
 	COALESCE(ip.education, c.education, ''), COALESCE(ip.job, c.job, ''), COALESCE(ip.trips_last5_years, c.trips_last5_years, ''), COALESCE(ip.relatives_in_destination, c.relatives_in_destination, ''), COALESCE(ip.trusted_person, c.trusted_person, ''),
 	COALESCE(ip.education_level, ''), COALESCE(ip.specialty, ''), COALESCE(ip.trusted_person_phone, ''), COALESCE(ip.driver_license_number, ''), COALESCE(ip.education_institution_name, ''), COALESCE(ip.education_institution_address, ''), COALESCE(ip.position, ''), COALESCE(ip.visas_received, ''), COALESCE(ip.visa_refusals, ''),
@@ -380,19 +387,39 @@ func (r *ClientRepository) Update(c *models.Client) error {
 	return tx.Commit()
 }
 
+// Delete мягко удаляет клиента в корзину (ТЗ 04.07.2026, п.7.1).
 func (r *ClientRepository) Delete(id int) error {
-	_, err := r.db.Exec(`DELETE FROM clients WHERE id=$1`, id)
+	return r.SoftDelete(id, 0)
+}
+
+// SoftDelete помечает клиента удалённым; deletedBy — кто удалил (0 = неизвестно).
+func (r *ClientRepository) SoftDelete(id, deletedBy int) error {
+	_, err := r.db.Exec(`UPDATE clients SET deleted_at = NOW(), deleted_by = NULLIF($2, 0) WHERE id = $1 AND deleted_at IS NULL`, id, deletedBy)
+	return err
+}
+
+// Restore возвращает клиента из корзины.
+func (r *ClientRepository) Restore(id int) error {
+	_, err := r.db.Exec(`UPDATE clients SET deleted_at = NULL, deleted_by = NULL WHERE id = $1`, id)
+	return err
+}
+
+// Purge окончательно удаляет клиента (только из корзины).
+func (r *ClientRepository) Purge(id int) error {
+	_, err := r.db.Exec(`DELETE FROM clients WHERE id=$1 AND deleted_at IS NOT NULL`, id)
 	return err
 }
 
 func clientArchiveWhere(scope ArchiveScope) string {
 	switch scope {
 	case ArchiveScopeArchivedOnly:
-		return "c.is_archived = TRUE"
+		return "c.is_archived = TRUE AND c.deleted_at IS NULL"
 	case ArchiveScopeAll:
-		return "1=1"
+		return "c.deleted_at IS NULL"
+	case ArchiveScopeDeleted:
+		return "c.deleted_at IS NOT NULL"
 	default:
-		return "c.is_archived = FALSE"
+		return "c.is_archived = FALSE AND c.deleted_at IS NULL"
 	}
 }
 
@@ -746,6 +773,8 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 	}
 
 	if filter.Query != "" {
+		// поиск по ФИО, компании, БИН/ИИН, телефону, e-mail и стране
+		// оформления (ТЗ 04.07.2026, п.8.1: «написали Италия — и все вылезли»)
 		conditions = append(conditions, fmt.Sprintf(`(
 			LOWER(COALESCE(c.name, '')) LIKE $%d OR
 			LOWER(COALESCE(c.display_name, '')) LIKE $%d OR
@@ -754,8 +783,9 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 			LOWER(COALESCE(c.bin_iin, lp.bin, '')) LIKE $%d OR
 			LOWER(COALESCE(ip.iin, '')) LIKE $%d OR
 			LOWER(COALESCE(c.primary_phone, c.phone, lp.contact_person_phone, '')) LIKE $%d OR
-			LOWER(COALESCE(c.primary_email, c.email, lp.contact_person_email, '')) LIKE $%d
-		)`, idx, idx, idx, idx, idx, idx, idx, idx))
+			LOWER(COALESCE(c.primary_email, c.email, lp.contact_person_email, '')) LIKE $%d OR
+			LOWER(CASE WHEN ip.client_id IS NULL THEN COALESCE(c.country, '') ELSE COALESCE(ip.country, '') END) LIKE $%d
+		)`, idx, idx, idx, idx, idx, idx, idx, idx, idx))
 		args = append(args, "%"+strings.ToLower(filter.Query)+"%")
 		idx++
 	}

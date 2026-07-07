@@ -144,6 +144,21 @@ func (s *userService) ListUsers(limit, offset int) ([]*models.User, error) {
 	return s.repo.List(limit, offset)
 }
 
+// userStatusLister is implemented by repositories that support the
+// active/blocked/deleted status filter (ТЗ 04.07.2026, п.7.2).
+type userStatusLister interface {
+	ListWithStatus(status string, limit, offset int) ([]*models.User, error)
+}
+
+// ListUsersWithStatus lists users filtered by status; falls back to the
+// active-only list when the repository does not support status filtering.
+func (s *userService) ListUsersWithStatus(status string, limit, offset int) ([]*models.User, error) {
+	if lister, ok := s.repo.(userStatusLister); ok {
+		return lister.ListWithStatus(status, limit, offset)
+	}
+	return s.repo.List(limit, offset)
+}
+
 func (s *userService) GetUserByEmail(email string) (*models.User, error) {
 	return s.repo.GetByEmail(email)
 }

@@ -27,6 +27,12 @@ type TaskRepository interface {
 	UpdateAssignee(ctx context.Context, id int64, assigneeID int64) error
 	ListDueForReminder(ctx context.Context, limit int) ([]models.Task, error)
 	SetReminderFired(ctx context.Context, id int64) error
+
+	// Nagging notifications (ТЗ 04.07.2026, п.4.1): open tasks re-notify their
+	// assignees every hour until done.
+	ListDueNotifications(ctx context.Context, userID int64) ([]models.Task, error)
+	CountOpenForAssignee(ctx context.Context, userID int64) (int, error)
+	AckNotifications(ctx context.Context, userID int64, taskIDs []int64) error
 }
 
 type taskRepository struct {
@@ -495,5 +501,76 @@ LIMIT $1`
 func (r *taskRepository) SetReminderFired(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE tasks SET last_reminded_at = NOW(), updated_at=NOW() WHERE id=$1`, id)
+	return err
+}
+
+// ListDueNotifications returns the user's open tasks that are due for a nag:
+// never shown before, shown more than an hour ago, or with a reminder that
+// fired after the last nag (ТЗ 04.07.2026, п.4.1).
+func (r *taskRepository) ListDueNotifications(ctx context.Context, userID int64) ([]models.Task, error) {
+	q := `
+SELECT t.id, COALESCE(t.creator_id, 0), COALESCE(t.assignee_id, 0), t.branch_id, t.entity_id, t.entity_type, t.title, t.description,
+       t.due_date, t.reminder_at, t.last_reminded_at, t.priority, t.status, t.created_at, t.updated_at, t.is_archived, t.archived_at, t.archived_by, COALESCE(t.archive_reason,'')
+FROM tasks t
+JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = $1
+WHERE t.is_archived = FALSE
+  AND t.status NOT IN ('done','cancelled')
+  AND (
+        ta.last_notified_at IS NULL
+     OR ta.last_notified_at <= NOW() - INTERVAL '1 hour'
+     OR (t.reminder_at IS NOT NULL AND t.reminder_at <= NOW() AND ta.last_notified_at < t.reminder_at)
+  )
+ORDER BY t.priority = 'urgent' DESC, t.due_date ASC NULLS LAST, t.created_at ASC`
+	rows, err := r.db.QueryContext(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []models.Task
+	for rows.Next() {
+		var t models.Task
+		var branchID sql.NullInt64
+		if err := rows.Scan(
+			&t.ID, &t.CreatorID, &t.AssigneeID, &branchID, &t.EntityID, &t.EntityType, &t.Title, &t.Description,
+			&t.DueDate, &t.ReminderAt, &t.LastRemindedAt, &t.Priority, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.IsArchived, &t.ArchivedAt, &t.ArchivedBy, &t.ArchiveReason,
+		); err != nil {
+			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			t.BranchID = &v
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CountOpenForAssignee returns the number of open tasks assigned to the user
+// (the badge counter next to "Задачи").
+func (r *taskRepository) CountOpenForAssignee(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM tasks t
+JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = $1
+WHERE t.is_archived = FALSE
+  AND t.status NOT IN ('done','cancelled')`, userID).Scan(&count)
+	return count, err
+}
+
+// AckNotifications marks the tasks as "nag shown" for this user; the next nag
+// fires an hour later while the task stays open.
+func (r *taskRepository) AckNotifications(ctx context.Context, userID int64, taskIDs []int64) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+UPDATE task_assignees
+SET last_notified_at = NOW()
+WHERE user_id = $1 AND task_id = ANY($2)`, userID, pq.Array(taskIDs))
 	return err
 }

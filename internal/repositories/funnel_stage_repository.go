@@ -218,7 +218,7 @@ func (r *FunnelStageRepository) Duplicate(id int) (*models.FunnelStage, error) {
 func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
 	// Include deals that belong to this funnel OR have no funnel yet (so they
 	// appear in the "unassigned" column and can be dragged into a stage).
-	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE"}
+	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE", "d.deleted_at IS NULL"}
 	args := []any{funnelID}
 
 	if branchID != nil {
@@ -250,7 +250,7 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 
 	out := []*models.FunnelBoardDeal{}
 	for rows.Next() {
-		d := &models.FunnelBoardDeal{}
+		d := &models.FunnelBoardDeal{Kind: models.FunnelBoardCardDeal}
 		var funnelID, stageID, branchID sql.NullInt64
 		if err := rows.Scan(
 			&d.ID, &d.LeadID, &funnelID, &stageID,
@@ -260,6 +260,77 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 		); err != nil {
 			return nil, err
 		}
+		if funnelID.Valid {
+			v := int(funnelID.Int64)
+			d.FunnelID = &v
+		}
+		if stageID.Valid {
+			v := int(stageID.Int64)
+			d.StageID = &v
+		}
+		if branchID.Valid {
+			v := int(branchID.Int64)
+			d.BranchID = &v
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ListBoardLeads returns active unconverted leads of the funnel as kanban
+// cards (Kind="lead"). Leads whose stage was never set fall back to the first
+// stage in the Board() service. branchID/departmentID apply the caller's
+// scope restrictions (nil = unrestricted), mirroring ListBoardDeals.
+func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
+	where := []string{
+		"l.funnel_id = $1",
+		"l.is_archived = FALSE",
+		"l.deleted_at IS NULL",
+		"COALESCE(l.status, 'new') NOT IN ('converted')",
+	}
+	args := []any{funnelID}
+
+	if branchID != nil {
+		args = append(args, *branchID)
+		where = append(where, fmt.Sprintf("(l.branch_id = $%d OR l.branch_id IS NULL)", len(args)))
+	}
+	if departmentID != nil {
+		args = append(args, *departmentID)
+		where = append(where, fmt.Sprintf("(l.department_id = $%d OR l.department_id IS NULL)", len(args)))
+	}
+
+	rows, err := r.db.Query(`
+		SELECT
+			l.id, l.funnel_id, l.stage_id,
+			COALESCE(l.title, '') AS title,
+			COALESCE(l.owner_id, 0),
+			COALESCE(TRIM(CONCAT(u.first_name, ' ', u.last_name)), '') AS owner_name,
+			l.branch_id, COALESCE(l.status, 'new'),
+			COALESCE(l.phone, ''), COALESCE(l.source, ''), l.created_at
+		FROM leads l
+		LEFT JOIN users u ON u.id = l.owner_id
+		WHERE `+joinWhere(where)+`
+		ORDER BY l.created_at DESC
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []*models.FunnelBoardDeal{}
+	for rows.Next() {
+		d := &models.FunnelBoardDeal{Kind: models.FunnelBoardCardLead}
+		var funnelID, stageID, branchID sql.NullInt64
+		if err := rows.Scan(
+			&d.ID, &funnelID, &stageID,
+			&d.ClientName,
+			&d.OwnerID, &d.OwnerName,
+			&branchID, &d.Status,
+			&d.Phone, &d.Source, &d.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		d.LeadID = d.ID
 		if funnelID.Valid {
 			v := int(funnelID.Int64)
 			d.FunnelID = &v

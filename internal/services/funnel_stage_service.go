@@ -247,6 +247,23 @@ func (s *FunnelStageService) Board(funnelID, userID int) (*models.FunnelBoard, e
 		if err != nil {
 			return nil, err
 		}
+		// Inbound leads live on the board next to deals until converted
+		// (ТЗ 04.07.2026, п.1.1). A lead without a stage lands on the first
+		// stage ("Новая заявка").
+		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID)
+		if leadsErr != nil {
+			return nil, leadsErr
+		}
+		if len(leads) > 0 && len(stages) > 0 {
+			firstStageID := stages[0].ID
+			for _, l := range leads {
+				if l.StageID == nil {
+					sid := firstStageID
+					l.StageID = &sid
+				}
+			}
+		}
+		deals = append(deals, leads...)
 	}
 
 	byStage := map[int][]*models.FunnelBoardDeal{}

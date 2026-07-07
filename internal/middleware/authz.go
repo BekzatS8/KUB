@@ -56,6 +56,11 @@ func ReadOnlyGuard() gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "read-only role"})
 				return
 			default:
+				// ОКК ведёт собственный отчёт-таблицу (ТЗ 04.07.2026, п.3)
+				if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/reports/table/my" {
+					c.Next()
+					return
+				}
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "read-only role"})
 				return
 			}

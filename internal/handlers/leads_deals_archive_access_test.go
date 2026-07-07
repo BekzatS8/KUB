@@ -54,6 +54,7 @@ func (s *leadHandlerStubService) ListMyWithFilterAndArchiveScope(ownerID, limit,
 	return []*models.Leads{}, nil
 }
 func (s *leadHandlerStubService) AssignOwner(id, assigneeID, userID, roleID int) error { return nil }
+func (s *leadHandlerStubService) MoveToStage(id, stageID, userID, roleID int) error { return nil }
 func (s *leadHandlerStubService) UpdateStatus(id int, to string, userID, roleID int) error {
 	return nil
 }

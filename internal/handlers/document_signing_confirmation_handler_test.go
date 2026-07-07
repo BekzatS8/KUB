@@ -1010,3 +1010,7 @@ func TestPreviewByEmailTokenExpiredToken(t *testing.T) {
 		t.Fatalf("unexpected status: got=%d want=%d body=%s", w.Code, http.StatusGone, w.Body.String())
 	}
 }
+
+func (s *statusDocRepoStub) SoftDelete(int64, int) error { return nil }
+func (s *statusDocRepoStub) Restore(int64) error       { return nil }
+func (s *statusDocRepoStub) Purge(int64) error         { return nil }

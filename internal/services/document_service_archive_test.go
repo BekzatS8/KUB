@@ -106,3 +106,7 @@ func TestDocumentListUsesArchiveScope(t *testing.T) {
 		t.Fatalf("scope not forwarded")
 	}
 }
+
+func (s *docRepoArchiveStub) SoftDelete(int64, int) error { return nil }
+func (s *docRepoArchiveStub) Restore(int64) error       { return nil }
+func (s *docRepoArchiveStub) Purge(int64) error         { return nil }

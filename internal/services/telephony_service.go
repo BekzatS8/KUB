@@ -284,15 +284,18 @@ func (s *TelephonyService) ingestCall(ctx context.Context, call *models.Telephon
 	return callID, isNew, nil
 }
 
-// ListCalls returns a paginated list of calls with branch scope enforcement.
-// admin/management see all calls; all other roles are scoped to their own branch.
+// ListCalls returns a paginated list of calls with role scope enforcement
+// (ТЗ 04.07.2026, п.5.2 — «как в Binotel: сотрудник видит только себя»).
+// admin/management/quality_control see all calls; rank-and-file roles see only
+// calls linked to them as manager.
 func (s *TelephonyService) ListCalls(ctx context.Context, userID, roleID int, filter models.TelephonyCallListFilter) ([]*models.TelephonyCallResponse, int, error) {
-	branchID, err := s.branchScopeForRole(userID, roleID)
-	if err != nil {
-		return nil, 0, err
-	}
-	if branchID != nil {
-		filter.BranchID = branchID
+	switch roleID {
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
+		// full access — все звонки (КК просматривает без ограничений)
+	default:
+		// свои звонки; branch-фильтр не нужен и не требует настроенного филиала
+		uid := userID
+		filter.ManagerID = &uid
 	}
 	if filter.Limit <= 0 {
 		filter.Limit = 50

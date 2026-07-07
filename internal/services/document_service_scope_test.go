@@ -288,3 +288,7 @@ func TestArchiveDocument_QCForeignBranchForbidden(t *testing.T) {
 		t.Fatal("QC must not archive foreign-branch document")
 	}
 }
+
+func (r *docRepoStub) SoftDelete(int64, int) error { return nil }
+func (r *docRepoStub) Restore(int64) error         { return nil }
+func (r *docRepoStub) Purge(int64) error           { return nil }

@@ -139,3 +139,7 @@ func TestGetSigningContactOptions_FallsBackToEmailWhenPhoneMissing(t *testing.T)
 		t.Fatalf("expected preferred email, got %q", options.PreferredChannel)
 	}
 }
+
+func (r *signerDocRepoStub) SoftDelete(int64, int) error { return nil }
+func (r *signerDocRepoStub) Restore(int64) error         { return nil }
+func (r *signerDocRepoStub) Purge(int64) error           { return nil }

@@ -43,6 +43,9 @@ func (s *documentDealPaginationRepoStub) ListDocumentsByDealWithArchiveScope(int
 	return s.dealItems, nil
 }
 func (s *documentDealPaginationRepoStub) Delete(int64) error { return errors.New("not implemented") }
+func (s *documentDealPaginationRepoStub) SoftDelete(int64, int) error { return errors.New("not implemented") }
+func (s *documentDealPaginationRepoStub) Restore(int64) error { return errors.New("not implemented") }
+func (s *documentDealPaginationRepoStub) Purge(int64) error { return errors.New("not implemented") }
 func (s *documentDealPaginationRepoStub) Archive(int64, int, string) error {
 	return errors.New("not implemented")
 }

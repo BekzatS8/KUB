@@ -31,6 +31,7 @@ type leadService interface {
 	ListMyWithFilterAndArchiveScope(ownerID, limit, offset int, scope repositories.ArchiveScope, filter repositories.LeadListFilter) ([]*models.Leads, error)
 	AssignOwner(id, assigneeID, userID, roleID int) error
 	UpdateStatus(id int, to string, userID, roleID int) error
+	MoveToStage(id, stageID, userID, roleID int) error
 	ArchiveLead(id, userID, roleID int, reason string) error
 	UnarchiveLead(id, userID, roleID int) error
 	ConvertLeadToDeal(leadID int, amount float64, currency string, ownerID, userID, roleID int, clientID int, clientType string) (*models.Deals, error)
@@ -284,6 +285,90 @@ type updateLeadStatusRequest struct {
 	Comment string `json:"comment"`
 }
 
+// Restore возвращает лид из корзины (ТЗ 04.07.2026, п.7.1; только админ).
+func (h *LeadHandler) Restore(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.LeadService)
+	if !ok {
+		internalError(c, "Restore is not supported")
+		return
+	}
+	if err := svc.RestoreLead(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to restore lead")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// Purge окончательно удаляет лид из корзины (только админ).
+func (h *LeadHandler) Purge(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.LeadService)
+	if !ok {
+		internalError(c, "Purge is not supported")
+		return
+	}
+	if err := svc.PurgeLead(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to purge lead")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+type moveLeadStageRequest struct {
+	StageID int `json:"stage_id" binding:"required"`
+}
+
+// Move moves a lead to another stage of its funnel (kanban drag&drop,
+// ТЗ 04.07.2026, п.1.1).
+func (h *LeadHandler) Move(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+
+	var req moveLeadStageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.MoveToStage(id, req.StageID, userID, roleID); err != nil {
+		switch {
+		case errors.Is(err, services.ErrForbidden), errors.Is(err, services.ErrReadOnly):
+			forbidden(c, "Forbidden")
+		case errors.Is(err, services.ErrLeadNotFound):
+			notFound(c, LeadNotFoundCode, "Lead not found")
+		case errors.Is(err, repositories.ErrLeadStageMismatch):
+			conflict(c, InvalidStatusCode, "Stage does not belong to lead funnel")
+		default:
+			internalError(c, "Failed to move lead")
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -531,10 +616,9 @@ func buildClientFromConvertWithClientRequest(req ConvertLeadWithClientRequest) (
 
 func (h *LeadHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleSales {
-		forbidden(c, "sales cannot access full list")
-		return
-	}
+	// sales is NOT blocked here: ListForRole resolves their scope to own
+	// department/branch, so they get their leads instead of a 403 banner
+	// (ТЗ 04.07.2026, п.10.b).
 
 	paginate := isPaginatedMode(c)
 	page := 1

@@ -229,9 +229,25 @@ func buildClientPlaceholders(
 			}
 		}
 
-		// Номер договора по умолчанию
+		// Первоначальный взнос из сделки (ТЗ п.2.5); остаток DEAL_REMAIN_KZT_*
+		// вычисляется ниже из TOTAL - PREPAY
+		if deal.Prepayment > 0 {
+			if _, ok := ph["PREPAY_AMOUNT_NUM"]; !ok {
+				if _, _, formatted, err := NormalizeMoney(strconv.FormatFloat(deal.Prepayment, 'f', 2, 64)); err == nil {
+					ph["PREPAY_AMOUNT_NUM"] = formatted
+				} else {
+					ph["PREPAY_AMOUNT_NUM"] = strconv.FormatFloat(deal.Prepayment, 'f', 2, 64)
+				}
+			}
+		}
+
+		// Номер договора по умолчанию: KUB-<номер сделки>/<год> (ТЗ п.2.7)
 		if _, ok := ph["CONTRACT_NUMBER"]; !ok {
-			ph["CONTRACT_NUMBER"] = fmt.Sprintf("KUB-%06d", deal.ID)
+			year := deal.CreatedAt.Year()
+			if year < 2000 {
+				year = time.Now().Year()
+			}
+			ph["CONTRACT_NUMBER"] = fmt.Sprintf("KUB-%d/%d", deal.ID, year)
 		}
 	}
 

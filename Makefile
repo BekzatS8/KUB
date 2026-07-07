@@ -3,7 +3,7 @@
 BIN_DIR ?= bin
 BINARY ?= $(BIN_DIR)/turcompany
 ROOT_DIR ?= files
-COMPOSE_PROD ?= docker compose -f docker-compose.prod.yml
+COMPOSE_PROD ?= docker compose --env-file .env.prod -f docker-compose.prod.yml
 COMPOSE_LOCAL ?= docker compose -f docker-compose.local.yml
 
 build: prepare-dirs

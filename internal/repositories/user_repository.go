@@ -46,12 +46,12 @@ func (r *userRepository) Create(user *models.User) error {
 		INSERT INTO users (
 			company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, is_active,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at,
 			refresh_token, refresh_expires_at, department_id, updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NULL,NULL,$24,NOW())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NULL,NULL,$25,NOW())
 		RETURNING id
 	`
 	isActive := user.IsActive
@@ -62,7 +62,7 @@ func (r *userRepository) Create(user *models.User) error {
 		user.CompanyName, user.BinIin,
 		nullableString(user.FirstName), nullableString(user.LastName), nullableString(user.MiddleName), nullableString(user.Position),
 		user.Email, user.PasswordHash, user.RoleID, user.BranchID, isActive,
-		nullableString(user.Phone), nullableString(user.Address), nullableString(user.ExtraInfo),
+		nullableString(user.Phone), nullableString(user.InternalPhone), nullableString(user.Address), nullableString(user.ExtraInfo),
 		nullableString(user.AvatarURL), nullableString(user.AvatarPath), nullableString(user.AvatarOriginalPath),
 		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
 		user.IsVerified, user.VerifiedAt,
@@ -76,7 +76,7 @@ func (r *userRepository) GetByID(id int) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -95,7 +95,7 @@ func (r *userRepository) Update(user *models.User) error {
 		UPDATE users SET
 			company_name=$1, bin_iin=$2, first_name=$3, last_name=$4, middle_name=$5, position=$6,
 			email=$7, password_hash=$8, role_id=$9, branch_id=$10, is_active=$11,
-			phone=$12, address=$13, extra_info=$14, avatar_url=$15, avatar_path=$16, avatar_original_path=$17,
+			phone=$12, internal_phone=$25, address=$13, extra_info=$14, avatar_url=$15, avatar_path=$16, avatar_original_path=$17,
 			avatar_crop_x=$18, avatar_crop_y=$19, avatar_crop_scale=$20, avatar_crop_size=$21,
 			is_verified=$22, verified_at=$23, updated_at=NOW()
 		WHERE id=$24
@@ -109,6 +109,7 @@ func (r *userRepository) Update(user *models.User) error {
 		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
 		user.IsVerified, user.VerifiedAt,
 		user.ID,
+		nullableString(user.InternalPhone),
 	)
 	return err
 }
@@ -159,17 +160,47 @@ func (r *userRepository) UpdatePassword(userID int, passwordHash string) error {
 }
 
 func (r *userRepository) List(limit, offset int) ([]*models.User, error) {
-	const q = `
+	return r.ListWithStatus(UserStatusActive, limit, offset)
+}
+
+// User list status filters (ТЗ 04.07.2026, п.7.2): blocked and deleted users
+// must stay visible in their own lists instead of vanishing.
+const (
+	UserStatusActive  = "active"
+	UserStatusBlocked = "blocked"
+	UserStatusDeleted = "deleted"
+	UserStatusAll     = "all"
+)
+
+// deletedUserEmailPattern matches the mangled e-mail assigned on soft delete
+// (see Delete): 'deleted-user-<id>-<ts>@deleted.local'.
+const deletedUserEmailPattern = `deleted-user-%@deleted.local`
+
+func userStatusWhere(status string) string {
+	switch status {
+	case UserStatusBlocked:
+		return `COALESCE(is_active, TRUE) = FALSE AND email NOT LIKE '` + deletedUserEmailPattern + `'`
+	case UserStatusDeleted:
+		return `email LIKE '` + deletedUserEmailPattern + `'`
+	case UserStatusAll:
+		return `1=1`
+	default: // active
+		return `COALESCE(is_active, TRUE) = TRUE AND email NOT LIKE '` + deletedUserEmailPattern + `'`
+	}
+}
+
+func (r *userRepository) ListWithStatus(status string, limit, offset int) ([]*models.User, error) {
+	q := `
 		SELECT
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, '' as password_hash, role_id, branch_id, department_id, is_active,
 			NULL as refresh_token, NULL as refresh_expires_at, FALSE as refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
 		FROM users
-		WHERE COALESCE(is_active, TRUE) = TRUE
+		WHERE ` + userStatusWhere(status) + `
 		ORDER BY id
 		LIMIT $1 OFFSET $2
 	`
@@ -196,7 +227,7 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -354,7 +385,7 @@ func (r *userRepository) RotateRefresh(oldToken, newToken string, newExpiresAt t
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -380,7 +411,7 @@ func (r *userRepository) GetByRefreshToken(token string) (*models.User, error) {
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -465,7 +496,7 @@ func (r *userRepository) GetByChatID(ctx context.Context, chatID int64) (*models
 			id, company_name, bin_iin, first_name, last_name, middle_name, position,
 			email, password_hash, role_id, branch_id, department_id, is_active,
 			refresh_token, refresh_expires_at, refresh_revoked,
-			phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
+			phone, internal_phone, address, extra_info, avatar_url, avatar_path, avatar_original_path,
 			avatar_crop_x, avatar_crop_y, avatar_crop_scale, avatar_crop_size,
 			is_verified, verified_at, updated_at,
 			COALESCE(telegram_chat_id,0), COALESCE(notify_tasks_telegram,TRUE)
@@ -501,7 +532,7 @@ type userDBFields struct {
 	avatarURL, avatarPath, avatarOriginalPath sql.NullString
 	roleID, branchID, departmentID            sql.NullInt64
 	isActive, rr, isVerified, tgNotify        sql.NullBool
-	rt, phone                                 sql.NullString
+	rt, phone, internalPhone                  sql.NullString
 	avatarCropX, avatarCropY                  sql.NullFloat64
 	avatarCropScale, avatarCropSize           sql.NullFloat64
 	rte, verifiedAt, updatedAt                sql.NullTime
@@ -513,7 +544,7 @@ func (d *userDBFields) dest(u *models.User) []interface{} {
 		&u.ID, &d.companyName, &d.binIin, &d.firstName, &d.lastName, &d.middleName, &d.position,
 		&u.Email, &u.PasswordHash, &d.roleID, &d.branchID, &d.departmentID, &d.isActive,
 		&d.rt, &d.rte, &d.rr,
-		&d.phone, &d.address, &d.extraInfo, &d.avatarURL, &d.avatarPath, &d.avatarOriginalPath,
+		&d.phone, &d.internalPhone, &d.address, &d.extraInfo, &d.avatarURL, &d.avatarPath, &d.avatarOriginalPath,
 		&d.avatarCropX, &d.avatarCropY, &d.avatarCropScale, &d.avatarCropSize,
 		&d.isVerified, &d.verifiedAt, &d.updatedAt,
 		&d.tgChatID, &d.tgNotify,
@@ -566,6 +597,9 @@ func (d *userDBFields) apply(u *models.User) {
 	}
 	if d.phone.Valid {
 		u.Phone = d.phone.String
+	}
+	if d.internalPhone.Valid {
+		u.InternalPhone = d.internalPhone.String
 	}
 	if d.address.Valid {
 		u.Address = d.address.String

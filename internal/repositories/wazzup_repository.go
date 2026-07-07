@@ -186,15 +186,19 @@ func (r *wazzupRepository) crmUserNameExpr(ctx context.Context) (string, error) 
 		ORDER BY CASE column_name WHEN 'fullname' THEN 0 ELSE 1 END
 		LIMIT 1
 	`
+	// ФИО из first_name/last_name — основная схема users. Раньше при
+	// отсутствии колонок fullname/name падали на email, и в мессенджере
+	// вместо имени сотрудника показывалась почта (ТЗ 04.07.2026, п.5.3).
+	const fioExpr = `COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', last_name, first_name)), ''), email)`
 	var col string
 	err := r.db.QueryRowContext(ctx, q).Scan(&col)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "email", nil
+		return fioExpr, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("detect crm user name column: %w", err)
 	}
-	return fmt.Sprintf("COALESCE(NULLIF(BTRIM(%s), ''), email)", col), nil
+	return fmt.Sprintf("COALESCE(NULLIF(BTRIM(%s), ''), %s)", col, fioExpr), nil
 }
 
 func (r *wazzupRepository) UpsertIntegrationByOwner(ctx context.Context, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (integrationID int, webhookToken string, err error) {
@@ -489,12 +493,24 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 
+	// Inbound leads land on the first stage of the default sales funnel so they
+	// show up as "Новая заявка" cards on the kanban board (ТЗ 04.07.2026, п.1.1).
 	const q = `
-		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status)
+		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
 		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, 0),
 			(SELECT branch_id FROM users WHERE $5 > 0 AND id = $5),
-			(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
-			$6)
+			COALESCE(
+				(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
+				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
+			),
+			$6,
+			(SELECT id FROM funnels WHERE code = 'sales_default'),
+			(SELECT fs.id
+			 FROM funnel_stages fs
+			 JOIN funnels f ON f.id = fs.funnel_id
+			 WHERE f.code = 'sales_default' AND fs.is_active = TRUE
+			 ORDER BY fs.position ASC, fs.id ASC
+			 LIMIT 1))
 		RETURNING id
 	`
 	var leadID int

@@ -20,6 +20,7 @@ type User struct {
 	IsActiveSet  bool   `json:"-"`
 
 	Phone               string     `json:"phone"`
+	InternalPhone       string     `json:"internal_phone,omitempty"` // внутренний номер Binotel (ТЗ п.5.2)
 	Address             string     `json:"address,omitempty"`
 	ExtraInfo           string     `json:"extra_info,omitempty"`
 	AvatarURL           string     `json:"avatar_url,omitempty"`

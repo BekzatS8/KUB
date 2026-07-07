@@ -406,6 +406,7 @@ func Run() {
 		log.Fatalf("[BOOT] failed to init public signing ui handler: %v", err)
 	}
 	reportHandler := handlers.NewReportHandler(reportService)
+	managerReportHandler := handlers.NewManagerReportHandler(repositories.NewManagerReportRepository(db))
 	orgHandler := handlers.NewOrganizationHandler(orgService)
 	signHistoryHandler := handlers.NewDocumentSignHistoryHandler(documentService, signSessionRepo, signatureConfirmRepo)
 	if cfg.Wazzup.Enable {
@@ -488,6 +489,7 @@ func Run() {
 		signConfirmHandler,
 		telegramSignHandler,
 		reportHandler,
+		managerReportHandler,
 		permissionHandler,
 		funnelHandler,
 		funnelStageHandler,

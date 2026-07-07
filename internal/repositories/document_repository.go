@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/models"
 )
 
@@ -27,6 +29,10 @@ type DocumentListFilter struct {
 	// non-nil = exclude hidden docs unless created_by equals this user ID.
 	HiddenVisibilityUserID *int
 	Scope                  string
+	// Scopes: множественный фильтр по scope (изоляция документов по отделам,
+	// ТЗ 04.07.2026, п.2.1). Например, sales видит ['sales','deal'].
+	// Приоритетнее одиночного Scope, если задан.
+	Scopes []string
 	// CreatorRoleID: when set, restricts results to documents whose creator has this role_id.
 	CreatorRoleID *int
 }
@@ -34,11 +40,13 @@ type DocumentListFilter struct {
 func documentArchiveWhere(scope ArchiveScope) string {
 	switch scope {
 	case ArchiveScopeArchivedOnly:
-		return "is_archived = TRUE"
+		return "is_archived = TRUE AND deleted_at IS NULL"
 	case ArchiveScopeAll:
-		return "1=1"
+		return "deleted_at IS NULL"
+	case ArchiveScopeDeleted:
+		return "deleted_at IS NOT NULL"
 	default:
-		return "is_archived = FALSE"
+		return "is_archived = FALSE AND deleted_at IS NULL"
 	}
 }
 
@@ -209,8 +217,26 @@ func (r *DocumentRepository) Update(doc *models.Document) error {
 	return nil
 }
 
+// Delete мягко удаляет документ в корзину (ТЗ 04.07.2026, п.7.1).
 func (r *DocumentRepository) Delete(id int64) error {
-	if _, err := r.db.Exec(`DELETE FROM documents WHERE id = $1`, id); err != nil {
+	return r.SoftDelete(id, 0)
+}
+
+// SoftDelete помечает документ удалённым; deletedBy — кто удалил (0 = неизвестно).
+func (r *DocumentRepository) SoftDelete(id int64, deletedBy int) error {
+	_, err := r.db.Exec(`UPDATE documents SET deleted_at = NOW(), deleted_by = NULLIF($2, 0) WHERE id = $1 AND deleted_at IS NULL`, id, deletedBy)
+	return err
+}
+
+// Restore возвращает документ из корзины.
+func (r *DocumentRepository) Restore(id int64) error {
+	_, err := r.db.Exec(`UPDATE documents SET deleted_at = NULL, deleted_by = NULL WHERE id = $1`, id)
+	return err
+}
+
+// Purge окончательно удаляет документ (только из корзины).
+func (r *DocumentRepository) Purge(id int64) error {
+	if _, err := r.db.Exec(`DELETE FROM documents WHERE id = $1 AND deleted_at IS NOT NULL`, id); err != nil {
 		return fmt.Errorf("delete document: %w", err)
 	}
 	return nil
@@ -397,8 +423,12 @@ func buildDocumentListWhere(filter DocumentListFilter, scope ArchiveScope, start
 		args = append(args, *filter.HiddenVisibilityUserID)
 		idx++
 	}
-	if filter.Scope != "" {
-		conditions = append(conditions, fmt.Sprintf("dcm.scope = $%d", idx))
+	if len(filter.Scopes) > 0 {
+		conditions = append(conditions, fmt.Sprintf("COALESCE(dcm.scope, 'deal') = ANY($%d)", idx))
+		args = append(args, pq.Array(filter.Scopes))
+		idx++
+	} else if filter.Scope != "" {
+		conditions = append(conditions, fmt.Sprintf("COALESCE(dcm.scope, 'deal') = $%d", idx))
 		args = append(args, filter.Scope)
 		idx++
 	}

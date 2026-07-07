@@ -45,6 +45,9 @@ const (
 	ArchiveScopeActiveOnly   ArchiveScope = "active"
 	ArchiveScopeArchivedOnly ArchiveScope = "archived"
 	ArchiveScopeAll          ArchiveScope = "all"
+	// ArchiveScopeDeleted — корзина (ТЗ 04.07.2026, п.7.1): мягко удалённые
+	// записи; во всех остальных scope удалённые скрыты.
+	ArchiveScopeDeleted ArchiveScope = "deleted"
 )
 
 type leadRowScanner interface {
@@ -75,6 +78,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 	var branchName sql.NullString
 	var departmentID sql.NullInt64
 	var funnelID sql.NullInt64
+	var stageID sql.NullInt64
 	var status sql.NullString
 	var isArchived bool
 	var archivedAt sql.NullTime
@@ -93,6 +97,7 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		&branchName,
 		&departmentID,
 		&funnelID,
+		&stageID,
 		&status,
 		&isArchived,
 		&archivedAt,
@@ -123,6 +128,10 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 		v := int(funnelID.Int64)
 		lead.FunnelID = &v
 	}
+	if stageID.Valid {
+		v := int(stageID.Int64)
+		lead.StageID = &v
+	}
 	lead.Status = normalizeLeadStatus(status)
 	lead.IsArchived = isArchived
 	if archivedAt.Valid {
@@ -140,19 +149,27 @@ func scanLead(scanner leadRowScanner) (*models.Leads, error) {
 func leadArchiveWhere(scope ArchiveScope) string {
 	switch scope {
 	case ArchiveScopeArchivedOnly:
-		return "is_archived = TRUE"
+		return "is_archived = TRUE AND deleted_at IS NULL"
 	case ArchiveScopeAll:
-		return "1=1"
+		return "deleted_at IS NULL"
+	case ArchiveScopeDeleted:
+		return "deleted_at IS NOT NULL"
 	default:
-		return "is_archived = FALSE"
+		return "is_archived = FALSE AND deleted_at IS NULL"
 	}
 }
 
 // Создание лида с возвратом ID + created_at из БД
 func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 	const query = `
-		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, funnel_id, status, department_id)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8,
+		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, funnel_id, stage_id, status, department_id)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7,
+			COALESCE($9,
+				(SELECT fs.id FROM funnel_stages fs
+				 WHERE fs.funnel_id = $7 AND fs.is_active = TRUE
+				 ORDER BY fs.position ASC, fs.id ASC LIMIT 1)
+			),
+			$8,
 			COALESCE(
 				(SELECT f.department_id FROM funnels f WHERE f.id = $7),
 				(SELECT u.department_id FROM users u WHERE u.id = $5)
@@ -172,6 +189,7 @@ func (r *LeadRepository) Create(lead *models.Leads) (int64, error) {
 		lead.BranchID,
 		lead.FunnelID,
 		lead.Status,
+		lead.StageID,
 	).Scan(&id, &lead.CreatedAt)
 	if err != nil {
 		return 0, fmt.Errorf("create lead: %w", err)
@@ -216,7 +234,7 @@ func (r *LeadRepository) GetByID(id int) (*models.Leads, error) {
 
 func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.stage_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE l.id = $1 AND %s
 	`
 	row := r.db.QueryRow(fmt.Sprintf(query, leadArchiveWhere(scope)), id)
@@ -230,8 +248,28 @@ func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 	return lead, nil
 }
 
+// Delete мягко удаляет лид в корзину (ТЗ 04.07.2026, п.7.1).
 func (r *LeadRepository) Delete(id int) error {
-	const query = `DELETE FROM leads WHERE id=$1`
+	return r.SoftDelete(id, 0)
+}
+
+// SoftDelete помечает лид удалённым; deletedBy — кто удалил (0 = неизвестно).
+func (r *LeadRepository) SoftDelete(id, deletedBy int) error {
+	const query = `UPDATE leads SET deleted_at = NOW(), deleted_by = NULLIF($2, 0) WHERE id = $1 AND deleted_at IS NULL`
+	_, err := r.db.Exec(query, id, deletedBy)
+	return err
+}
+
+// Restore возвращает лид из корзины.
+func (r *LeadRepository) Restore(id int) error {
+	const query = `UPDATE leads SET deleted_at = NULL, deleted_by = NULL WHERE id = $1`
+	_, err := r.db.Exec(query, id)
+	return err
+}
+
+// Purge окончательно удаляет лид (только из корзины).
+func (r *LeadRepository) Purge(id int) error {
+	const query = `DELETE FROM leads WHERE id = $1 AND deleted_at IS NOT NULL`
 	_, err := r.db.Exec(query, id)
 	return err
 }
@@ -262,9 +300,48 @@ func (r *LeadRepository) Unarchive(id int) error {
 	return err
 }
 
+// ErrLeadStageMismatch is returned when the target stage does not belong to
+// the lead's funnel (or the lead/stage does not exist).
+var ErrLeadStageMismatch = errors.New("stage does not belong to lead funnel")
+
+// MoveStage moves a lead to another stage of its funnel (kanban drag&drop).
+// Managers "разбирают" inbound leads from the board: when an unassigned lead
+// is moved, the actor becomes its owner. A lead that has no funnel yet adopts
+// the funnel of the target stage. Moving to a "lost" stage marks the lead
+// cancelled (список отказников); otherwise a fresh lead becomes in_progress.
+func (r *LeadRepository) MoveStage(leadID, stageID, actorID int) error {
+	const q = `
+		UPDATE leads l
+		SET stage_id = fs.id,
+		    funnel_id = fs.funnel_id,
+		    owner_id = COALESCE(l.owner_id, NULLIF($3, 0)),
+		    status = CASE
+		        WHEN fs.type = 'lost' THEN 'cancelled'
+		        WHEN COALESCE(l.status, 'new') IN ('new', 'cancelled') THEN 'in_progress'
+		        ELSE l.status
+		    END
+		FROM funnel_stages fs
+		WHERE l.id = $1
+		  AND fs.id = $2
+		  AND (l.funnel_id IS NULL OR fs.funnel_id = l.funnel_id)
+	`
+	res, err := r.db.Exec(q, leadID, stageID, actorID)
+	if err != nil {
+		return fmt.Errorf("move lead stage: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("move lead stage: %w", err)
+	}
+	if affected == 0 {
+		return ErrLeadStageMismatch
+	}
+	return nil
+}
+
 func (r *LeadRepository) CountLeads() (int, error) {
 	var count int
-	err := r.db.QueryRow(`SELECT COUNT(*) FROM leads WHERE is_archived = FALSE`).Scan(&count)
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM leads WHERE is_archived = FALSE AND deleted_at IS NULL`).Scan(&count)
 	return count, err
 }
 
@@ -280,7 +357,7 @@ func (r *LeadRepository) FilterLeads(status string, ownerID int, sortBy, order s
 		sortBy = "created_at"
 	}
 
-	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE"
+	query := "SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.stage_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason FROM leads l LEFT JOIN branches b ON b.id=l.branch_id WHERE l.is_archived = FALSE AND l.deleted_at IS NULL"
 	args := []interface{}{}
 	i := 1
 
@@ -325,7 +402,7 @@ func (r *LeadRepository) ListAllWithArchiveScope(limit, offset int, scope Archiv
 
 func (r *LeadRepository) ListAllWithFilterAndArchiveScope(limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.stage_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE %s%s
 		ORDER BY %s %s
@@ -377,7 +454,7 @@ func (r *LeadRepository) ListByOwnerWithArchiveScope(ownerID, limit, offset int,
 
 func (r *LeadRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, offset int, filter LeadListFilter, scope ArchiveScope) ([]*models.Leads, error) {
 	const query = `
-		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
+		SELECT l.id, l.title, l.description, l.phone, l.source, l.created_at, l.owner_id, l.branch_id, COALESCE(b.name,''), l.department_id, l.funnel_id, l.stage_id, l.status, l.is_archived, l.archived_at, l.archived_by, l.archive_reason
 		FROM leads l LEFT JOIN branches b ON b.id=l.branch_id
 		WHERE owner_id = $1 AND %s%s
 		ORDER BY %s %s
@@ -669,12 +746,13 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 	deal.ClientType = strings.ToLower(strings.TrimSpace(storedClientType))
 
 	err = tx.QueryRow(`
-		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at, department_id)
+		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, currency, status, created_at, department_id, funnel_id, stage_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
 			COALESCE(
 				(SELECT f.department_id FROM funnels f JOIN leads l ON l.funnel_id = f.id WHERE l.id = $1 LIMIT 1),
 				(SELECT u.department_id FROM users u WHERE u.id = $3)
-			)
+			),
+			$9, $10
 		)
 		ON CONFLICT (lead_id) DO NOTHING
 		RETURNING id
@@ -687,6 +765,8 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		deal.Currency,
 		deal.Status,
 		deal.CreatedAt,
+		deal.FunnelID,
+		deal.StageID,
 	).Scan(&deal.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

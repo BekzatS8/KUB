@@ -36,9 +36,18 @@ type DealStageHistory struct {
 	ToStage       *FunnelStage `json:"to_stage,omitempty"`
 }
 
-// FunnelBoardDeal is a lightweight deal projection used by the kanban board endpoint.
+const (
+	FunnelBoardCardDeal = "deal"
+	FunnelBoardCardLead = "lead"
+)
+
+// FunnelBoardDeal is a lightweight card projection used by the kanban board
+// endpoint. Kind distinguishes deal cards from lead cards: inbound leads sit
+// on the board (first stage = "Новая заявка") until they are converted to a
+// deal (ТЗ 04.07.2026, п.1.1).
 type FunnelBoardDeal struct {
 	ID         int       `json:"id"`
+	Kind       string    `json:"kind"`
 	LeadID     int       `json:"lead_id"`
 	FunnelID   *int      `json:"funnel_id,omitempty"`
 	StageID    *int      `json:"stage_id,omitempty"`
@@ -51,6 +60,8 @@ type FunnelBoardDeal struct {
 	Amount     float64   `json:"amount"`
 	Currency   string    `json:"currency"`
 	Status     string    `json:"status"`
+	Phone      string    `json:"phone,omitempty"`
+	Source     string    `json:"source,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 

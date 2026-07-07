@@ -386,10 +386,9 @@ func (h *DealHandler) UpdateStatus(c *gin.Context) {
 
 func (h *DealHandler) List(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleSales {
-		forbidden(c, "sales cannot access full list")
-		return
-	}
+	// sales is NOT blocked here: ListForRole resolves their scope to own
+	// department/branch, so they get their deals instead of a 403 banner
+	// (ТЗ 04.07.2026, п.10.b).
 
 	paginate := isPaginatedMode(c)
 	page := 1
@@ -511,6 +510,54 @@ func (h *DealHandler) ListMy(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, deals)
+}
+
+// Restore возвращает сделку из корзины (ТЗ 04.07.2026, п.7.1; только админ).
+func (h *DealHandler) Restore(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.DealService)
+	if !ok {
+		internalError(c, "Restore is not supported")
+		return
+	}
+	if err := svc.RestoreDeal(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to restore deal")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// Purge окончательно удаляет сделку из корзины (только админ).
+func (h *DealHandler) Purge(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	svc, ok := h.Service.(*services.DealService)
+	if !ok {
+		internalError(c, "Purge is not supported")
+		return
+	}
+	if err := svc.PurgeDeal(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrForbidden) {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to purge deal")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // --- MoveStage ---

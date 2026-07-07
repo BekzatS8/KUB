@@ -72,8 +72,7 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 	}
 
 	r := gin.New()
-	SetupRoutes(
-		r,
+	SetupRoutes(r,
 		nil,
 		nil,
 		nil,
@@ -86,15 +85,19 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil, // taskHandler
-		nil, // signHandler
+		nil,
+		// taskHandler
+		nil,
+		// signHandler
 		signConfirmHandler,
 		nil,
 		nil,
 		nil,
 		nil,
 		nil,
-		nil, // funnelTransitionRuleHandler
+		nil,
+		nil,
+		// funnelTransitionRuleHandler
 		nil,
 		nil,
 		nil,
@@ -104,12 +107,18 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil, // signHistoryHandler
-		nil, // docVersionHandler
-		nil, // feedHandler
-		nil, // approvalHandler
-		nil, // feedEventHandler
+		nil,
+		// signHistoryHandler
+		nil,
+		// docVersionHandler
+		nil,
+		// feedHandler
+		nil,
+		// approvalHandler
+		nil,
+		// feedEventHandler
 		middleware.NewAuthMiddleware([]byte("test-secret")),
+		
 	)
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/v1/sign/email/verify?token=bad-token&format=json", nil)

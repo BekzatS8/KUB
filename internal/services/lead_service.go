@@ -218,7 +218,24 @@ func (s *LeadService) Delete(id int, userID, roleID int) error {
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
 	}
-	return s.Repo.Delete(id)
+	// мягкое удаление в корзину с фиксацией автора (ТЗ п.7.1)
+	return s.Repo.SoftDelete(id, userID)
+}
+
+// RestoreLead возвращает лид из корзины (только админ).
+func (s *LeadService) RestoreLead(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Restore(id)
+}
+
+// PurgeLead окончательно удаляет лид из корзины (только админ).
+func (s *LeadService) PurgeLead(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Purge(id)
 }
 
 // buildConvertedDeal assembles the Deal produced when converting a lead.
@@ -236,6 +253,10 @@ func buildConvertedDeal(leadID, clientID int, clientType string, ownerID int, am
 		Status:     "new",
 		CreatedAt:  createdAt,
 		BranchID:   lead.BranchID,
+		// the deal replaces the lead card on the kanban board, so it inherits
+		// the lead's funnel position (ТЗ 04.07.2026, п.1.1)
+		FunnelID: lead.FunnelID,
+		StageID:  lead.StageID,
 	}
 }
 
@@ -356,6 +377,37 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 		return errors.New("invalid status transition")
 	}
 	return s.Repo.UpdateStatus(id, to)
+}
+
+// MoveToStage moves a lead across kanban stages (ТЗ 04.07.2026, п.1.1).
+// Sales managers may move unassigned leads (claiming them as owner) and their
+// own leads; management/admin may move any lead within scope.
+func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
+	if authz.IsReadOnly(roleID) {
+		return ErrReadOnly
+	}
+	if !authz.CanWorkWithLeads(roleID) {
+		return ErrForbidden
+	}
+	lead, err := s.Repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if lead == nil {
+		return ErrLeadNotFound
+	}
+	scope, err := resolveLeadScope(userID, roleID, s.UserRepo)
+	if err != nil {
+		return err
+	}
+	// sales may claim unassigned leads from the board; otherwise only their own
+	if roleID == authz.RoleSales && lead.OwnerID != 0 && lead.OwnerID != userID {
+		return ErrForbidden
+	}
+	if !leadMatchesScope(scope, lead) {
+		return ErrForbidden
+	}
+	return s.Repo.MoveStage(id, stageID, userID)
 }
 
 func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {

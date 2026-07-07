@@ -780,7 +780,8 @@ func (s *ClientService) Delete(id int, userID, roleID int) error {
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
-	err = s.Repo.Delete(id)
+	// мягкое удаление в корзину с фиксацией автора (ТЗ п.7.1)
+	err = s.Repo.SoftDelete(id, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrClientNotFound
 	}
@@ -1367,4 +1368,21 @@ func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int
 		return nil, err
 	}
 	return s.Repo.GetByID(id)
+}
+
+
+// RestoreClient возвращает клиента из корзины (только админ).
+func (s *ClientService) RestoreClient(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Restore(id)
+}
+
+// PurgeClient окончательно удаляет клиента из корзины (только админ).
+func (s *ClientService) PurgeClient(id, userID, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	return s.Repo.Purge(id)
 }

@@ -43,29 +43,32 @@ type createUserRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	Phone       string `json:"phone"`
-	Address     string `json:"address"`
-	ExtraInfo   string `json:"extra_info"`
-	AvatarURL   string `json:"avatar_url"`
-	RoleID      int    `json:"role_id"`
-	IsVerified  *bool  `json:"is_verified"`
-	IsActive    *bool  `json:"is_active"`
+	// внутренний номер Binotel — для привязки звонков (ТЗ п.5.2)
+	InternalPhone string `json:"internal_phone"`
+	Address       string `json:"address"`
+	ExtraInfo     string `json:"extra_info"`
+	AvatarURL     string `json:"avatar_url"`
+	RoleID        int    `json:"role_id"`
+	IsVerified    *bool  `json:"is_verified"`
+	IsActive      *bool  `json:"is_active"`
 }
 
 type updateUserRequest struct {
-	CompanyName *string `json:"company_name"`
-	BinIin      *string `json:"bin_iin"`
-	FirstName   *string `json:"first_name"`
-	LastName    *string `json:"last_name"`
-	MiddleName  *string `json:"middle_name"`
-	Position    *string `json:"position"`
-	BranchID    *int    `json:"branch_id"`
-	Email       *string `json:"email"`
-	Phone       *string `json:"phone"`
-	Address     *string `json:"address"`
-	ExtraInfo   *string `json:"extra_info"`
-	RoleID      *int    `json:"role_id"`
-	IsVerified  *bool   `json:"is_verified"`
-	IsActive    *bool   `json:"is_active"`
+	CompanyName   *string `json:"company_name"`
+	BinIin        *string `json:"bin_iin"`
+	FirstName     *string `json:"first_name"`
+	LastName      *string `json:"last_name"`
+	MiddleName    *string `json:"middle_name"`
+	Position      *string `json:"position"`
+	BranchID      *int    `json:"branch_id"`
+	Email         *string `json:"email"`
+	Phone         *string `json:"phone"`
+	InternalPhone *string `json:"internal_phone"`
+	Address       *string `json:"address"`
+	ExtraInfo     *string `json:"extra_info"`
+	RoleID        *int    `json:"role_id"`
+	IsVerified    *bool   `json:"is_verified"`
+	IsActive      *bool   `json:"is_active"`
 }
 
 var userPhoneE164Pattern = regexp.MustCompile(`^\+[1-9]\d{10,14}$`)
@@ -83,25 +86,26 @@ func (h *UserHandler) SetApprovalService(svc *services.UserApprovalService) {
 }
 
 type userResponse struct {
-	ID         int         `json:"id"`
-	FirstName  string      `json:"first_name,omitempty"`
-	LastName   string      `json:"last_name,omitempty"`
-	MiddleName string      `json:"middle_name,omitempty"`
-	FullName   string      `json:"full_name"`
-	Email      string      `json:"email"`
-	Phone      string      `json:"phone"`
-	IIN        string      `json:"iin,omitempty"`
-	Address    string      `json:"address,omitempty"`
-	ExtraInfo  string      `json:"extra_info,omitempty"`
-	Avatar     gin.H       `json:"avatar"`
-	AvatarURL  string      `json:"avatar_url,omitempty"`
-	Role       gin.H       `json:"role"`
-	Position   string      `json:"position,omitempty"`
-	Branch     interface{} `json:"branch"`
-	IsActive   bool        `json:"is_active"`
-	IsVerified bool        `json:"is_verified"`
-	Telegram   gin.H       `json:"telegram"`
-	Legacy     gin.H       `json:"legacy,omitempty"`
+	ID            int         `json:"id"`
+	FirstName     string      `json:"first_name,omitempty"`
+	LastName      string      `json:"last_name,omitempty"`
+	MiddleName    string      `json:"middle_name,omitempty"`
+	FullName      string      `json:"full_name"`
+	Email         string      `json:"email"`
+	Phone         string      `json:"phone"`
+	InternalPhone string      `json:"internal_phone,omitempty"`
+	IIN           string      `json:"iin,omitempty"`
+	Address       string      `json:"address,omitempty"`
+	ExtraInfo     string      `json:"extra_info,omitempty"`
+	Avatar        gin.H       `json:"avatar"`
+	AvatarURL     string      `json:"avatar_url,omitempty"`
+	Role          gin.H       `json:"role"`
+	Position      string      `json:"position,omitempty"`
+	Branch        interface{} `json:"branch"`
+	IsActive      bool        `json:"is_active"`
+	IsVerified    bool        `json:"is_verified"`
+	Telegram      gin.H       `json:"telegram"`
+	Legacy        gin.H       `json:"legacy,omitempty"`
 }
 
 func rolePayload(roleID int) gin.H {
@@ -133,6 +137,7 @@ func trimCreateUserRequest(req *createUserRequest) {
 	req.Position = strings.TrimSpace(req.Position)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Phone = strings.TrimSpace(req.Phone)
+	req.InternalPhone = strings.TrimSpace(req.InternalPhone)
 	req.Address = strings.TrimSpace(req.Address)
 	req.ExtraInfo = strings.TrimSpace(req.ExtraInfo)
 	req.AvatarURL = strings.TrimSpace(req.AvatarURL)
@@ -154,6 +159,7 @@ func trimUpdateUserRequest(req *updateUserRequest) {
 	trimStringPtr(&req.Position)
 	trimStringPtr(&req.Email)
 	trimStringPtr(&req.Phone)
+	trimStringPtr(&req.InternalPhone)
 	trimStringPtr(&req.Address)
 	trimStringPtr(&req.ExtraInfo)
 }
@@ -246,17 +252,18 @@ func (h *UserHandler) userToResponse(u *models.User) *userResponse {
 	}
 	legacy := gin.H{"company_name": u.CompanyName, "bin_iin": u.BinIin}
 	return &userResponse{
-		ID:         u.ID,
-		FirstName:  u.FirstName,
-		LastName:   u.LastName,
-		MiddleName: u.MiddleName,
-		FullName:   userFullName(u),
-		Email:      u.Email,
-		Phone:      u.Phone,
-		IIN:        u.BinIin,
-		Address:    u.Address,
-		ExtraInfo:  u.ExtraInfo,
-		AvatarURL:  u.AvatarURL,
+		ID:            u.ID,
+		FirstName:     u.FirstName,
+		LastName:      u.LastName,
+		MiddleName:    u.MiddleName,
+		FullName:      userFullName(u),
+		Email:         u.Email,
+		Phone:         u.Phone,
+		InternalPhone: u.InternalPhone,
+		IIN:           u.BinIin,
+		Address:       u.Address,
+		ExtraInfo:     u.ExtraInfo,
+		AvatarURL:     u.AvatarURL,
 		Avatar: gin.H{
 			"url":                u.AvatarURL,
 			"crop_x":             u.AvatarCropX,
@@ -311,22 +318,23 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	user := &models.User{
-		CompanyName: req.CompanyName,
-		BinIin:      req.BinIin,
-		FirstName:   req.FirstName,
-		LastName:    req.LastName,
-		MiddleName:  req.MiddleName,
-		Position:    req.Position,
-		BranchID:    req.BranchID,
-		Email:       req.Email,
-		Phone:       req.Phone,
-		Address:     req.Address,
-		ExtraInfo:   req.ExtraInfo,
-		AvatarURL:   req.AvatarURL,
-		RoleID:      newRole,
-		IsVerified:  true,
-		IsActive:    true,
-		IsActiveSet: true,
+		CompanyName:   req.CompanyName,
+		BinIin:        req.BinIin,
+		FirstName:     req.FirstName,
+		LastName:      req.LastName,
+		MiddleName:    req.MiddleName,
+		Position:      req.Position,
+		BranchID:      req.BranchID,
+		Email:         req.Email,
+		Phone:         req.Phone,
+		InternalPhone: req.InternalPhone,
+		Address:       req.Address,
+		ExtraInfo:     req.ExtraInfo,
+		AvatarURL:     req.AvatarURL,
+		RoleID:        newRole,
+		IsVerified:    true,
+		IsActive:      true,
+		IsActiveSet:   true,
 	}
 	if req.IsVerified != nil {
 		user.IsVerified = *req.IsVerified
@@ -795,6 +803,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	if req.Phone != nil {
 		body.Phone = *req.Phone
 	}
+	if req.InternalPhone != nil {
+		body.InternalPhone = *req.InternalPhone
+	}
 	if req.Address != nil {
 		body.Address = *req.Address
 	}
@@ -887,7 +898,26 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		limit = 10
 	}
 	offset := (page - 1) * limit
-	users, err := h.service.ListUsers(limit, offset)
+
+	// статус-фильтр: active (по умолчанию) / blocked / deleted / all —
+	// заблокированные и удалённые видны в своих списках (ТЗ 04.07.2026, п.7.2)
+	status := strings.ToLower(strings.TrimSpace(c.DefaultQuery("status", "active")))
+	switch status {
+	case "active", "blocked", "deleted", "all":
+	default:
+		badRequest(c, "Некорректный статус: active, blocked, deleted или all")
+		return
+	}
+	type userStatusLister interface {
+		ListUsersWithStatus(status string, limit, offset int) ([]*models.User, error)
+	}
+	var users []*models.User
+	var err error
+	if lister, ok := h.service.(userStatusLister); ok {
+		users, err = lister.ListUsersWithStatus(status, limit, offset)
+	} else {
+		users, err = h.service.ListUsers(limit, offset)
+	}
 	if err != nil {
 		log.Printf("ListUsers: service error: %v", err)
 		internalError(c, "Failed to list users")

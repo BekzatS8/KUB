@@ -360,7 +360,10 @@ func (r *telephonyRepository) CreateLeadFromCall(ctx context.Context, phone, nor
 	return leadID, nil
 }
 
-// FindManagerByExtension looks up a user whose extension/phone matches.
+// FindManagerByExtension looks up a user whose Binotel extension matches.
+// Binotel передаёт внутренний номер (например "113"), поэтому сначала матчимся
+// по users.internal_phone и только потом по обычному телефону
+// (ТЗ 04.07.2026, п.5.2 — звонки не привязывались к менеджерам).
 // Returns zero values if not found.
 func (r *telephonyRepository) FindManagerByExtension(ctx context.Context, extension string) (int, int, error) {
 	if strings.TrimSpace(extension) == "" {
@@ -370,8 +373,11 @@ func (r *telephonyRepository) FindManagerByExtension(ctx context.Context, extens
 	const q = `
 		SELECT u.id, COALESCE(u.branch_id, 0)
 		FROM users u
-		WHERE regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $1
+		WHERE regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2
+		   OR TRIM(COALESCE(u.internal_phone, '')) = $1
+		   OR regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $1
 		   OR regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $2
+		ORDER BY (regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2) DESC
 		LIMIT 1
 	`
 	var userID, branchID int

@@ -16,6 +16,7 @@ type Leads struct {
 	BranchName    string     `json:"branch_name,omitempty"`
 	DepartmentID  *int       `json:"department_id,omitempty"`
 	FunnelID      *int       `json:"funnel_id,omitempty"`
+	StageID       *int       `json:"stage_id,omitempty"`
 	Status        string     `json:"status"`
 	IsArchived    bool       `json:"is_archived"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`

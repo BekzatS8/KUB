@@ -28,6 +28,7 @@ func SetupRoutes(
 	signConfirmHandler *handlers.DocumentSigningConfirmationHandler,
 	telegramSignHandler *handlers.TelegramSignWebhookHandler,
 	reportHandler *handlers.ReportHandler,
+	managerReportHandler *handlers.ManagerReportHandler, // может быть nil
 	permissionHandler *handlers.PermissionHandler,
 	funnelHandler *handlers.FunnelHandler,
 	funnelStageHandler *handlers.FunnelStageHandler,
@@ -294,6 +295,9 @@ func SetupRoutes(
 		clients.PUT("/:id", middleware.RequirePermission("clients.update", "client"), clientHandler.Update)
 		clients.PATCH("/:id", middleware.RequirePermission("clients.update", "client"), clientHandler.Patch)
 		clients.DELETE("/:id", middleware.RequirePermission("clients.delete", "client"), clientHandler.Delete)
+		// корзина (ТЗ 04.07.2026, п.7.1)
+		clients.POST("/:id/restore", middleware.RequirePermission("clients.delete", "client"), clientHandler.Restore)
+		clients.DELETE("/:id/purge", middleware.RequirePermission("clients.delete", "client"), clientHandler.Purge)
 		clients.POST("/:id/archive", middleware.RequirePermission("clients.update", "client"), clientHandler.Archive)
 		clients.POST("/:id/unarchive", middleware.RequirePermission("clients.update", "client"), clientHandler.Unarchive)
 		clients.GET("/:id/completeness", middleware.RequirePermission("clients.view", "client"), clientHandler.GetCompleteness)
@@ -344,6 +348,9 @@ func SetupRoutes(
 		leads.DELETE("/:id", middleware.RequirePermission("leads.delete", "lead"), leadHandler.Delete)
 		leads.POST("/:id/archive", middleware.RequirePermission("leads.update", "lead"), leadHandler.Archive)
 		leads.POST("/:id/unarchive", middleware.RequirePermission("leads.update", "lead"), leadHandler.Unarchive)
+		// корзина (ТЗ 04.07.2026, п.7.1): восстановление и окончательное удаление — только админ
+		leads.POST("/:id/restore", middleware.RequirePermission("leads.delete", "lead"), leadHandler.Restore)
+		leads.DELETE("/:id/purge", middleware.RequirePermission("leads.delete", "lead"), leadHandler.Purge)
 		// convert lead → deal is a deal-creation action: gate on deals.create
 		// (visa/partner/qc/hr/legal have no deals.create → 403, same as POST /deals).
 		leads.PUT("/:id/convert", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDeal)
@@ -352,6 +359,8 @@ func SetupRoutes(
 		leads.GET("/my", middleware.RequirePermission("leads.view", "lead"), leadHandler.ListMy)
 		leads.POST("/:id/assign", middleware.RequirePermission("leads.update", "lead"), leadHandler.Assign)
 		leads.POST("/:id/status", middleware.RequirePermission("leads.update", "lead"), leadHandler.UpdateStatus)
+		// kanban stage move (ТЗ 04.07.2026, п.1.1)
+		leads.POST("/:id/move", middleware.RequirePermission("leads.update", "lead"), leadHandler.Move)
 		if funnelHandler != nil {
 			leads.PATCH("/:id/funnel", middleware.RequirePermission(authz.ActionLeadsMoveBetweenFunnels, "lead"), funnelHandler.MoveLeadToFunnel)
 		}
@@ -373,6 +382,9 @@ func SetupRoutes(
 		deals.DELETE("/:id", middleware.RequirePermission("deals.delete", "deal"), dealHandler.Delete)
 		deals.POST("/:id/archive", middleware.RequirePermission("deals.update", "deal"), dealHandler.Archive)
 		deals.POST("/:id/unarchive", middleware.RequirePermission("deals.update", "deal"), dealHandler.Unarchive)
+		// корзина (ТЗ 04.07.2026, п.7.1)
+		deals.POST("/:id/restore", middleware.RequirePermission("deals.delete", "deal"), dealHandler.Restore)
+		deals.DELETE("/:id/purge", middleware.RequirePermission("deals.delete", "deal"), dealHandler.Purge)
 		deals.GET("", middleware.RequirePermission("deals.view", "deal"), dealHandler.List)
 		deals.GET("/my", middleware.RequirePermission("deals.view", "deal"), dealHandler.ListMy)
 		deals.POST("/:id/status", middleware.RequirePermission("deals.update", "deal"), dealHandler.UpdateStatus)
@@ -390,6 +402,9 @@ func SetupRoutes(
 		docs.POST("/upload-with-meta", middleware.RequirePermission("documents.create", "document"), documentHandler.UploadWithMeta)
 		docs.GET("/:id", middleware.RequirePermission("documents.view", "document"), documentHandler.GetDocument)
 		docs.DELETE("/:id", middleware.RequirePermission("documents.delete", "document"), documentHandler.DeleteDocument)
+		// корзина (ТЗ 04.07.2026, п.7.1)
+		docs.POST("/:id/restore", middleware.RequirePermission("documents.delete", "document"), documentHandler.RestoreDocument)
+		docs.DELETE("/:id/purge", middleware.RequirePermission("documents.delete", "document"), documentHandler.PurgeDocument)
 		docs.POST("/:id/archive", middleware.RequirePermission("documents.update", "document"), documentHandler.ArchiveDocument)
 		docs.POST("/:id/unarchive", middleware.RequirePermission("documents.update", "document"), documentHandler.UnarchiveDocument)
 		docs.POST("/create-from-lead", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocumentFromLead)
@@ -476,6 +491,10 @@ func SetupRoutes(
 	{
 		tasks.POST("", taskHandler.Create)
 		tasks.GET("", taskHandler.GetAll)
+		// nagging notifications (ТЗ 04.07.2026, п.4.1) — before /:id so the
+		// static segment wins
+		tasks.GET("/notifications", taskHandler.Notifications)
+		tasks.POST("/notifications/ack", taskHandler.AckNotifications)
 		tasks.GET("/:id", taskHandler.GetByID)
 		tasks.PUT("/:id", taskHandler.Update)
 		tasks.DELETE("/:id", middleware.RequirePermission("tasks.delete", "task"), taskHandler.Delete)
@@ -500,6 +519,19 @@ func SetupRoutes(
 			fe.GET("", feedEventHandler.List)
 			fe.POST("/:id/approve", feedEventHandler.Approve)
 			fe.POST("/:id/reject", feedEventHandler.Reject)
+		}
+	}
+
+	// Личные отчёты-таблицы сотрудников (ТЗ 04.07.2026, п.3):
+	// свой отчёт доступен всем бизнес-ролям; список и просмотр чужих —
+	// руководство/админ/КК (проверка в хендлере).
+	if managerReportHandler != nil {
+		reportTables := r.Group("/reports/table")
+		{
+			reportTables.GET("/my", managerReportHandler.GetMy)
+			reportTables.PUT("/my", managerReportHandler.SaveMy)
+			reportTables.GET("", managerReportHandler.List)
+			reportTables.GET("/user/:id", managerReportHandler.GetByUser)
 		}
 	}
 

@@ -82,25 +82,29 @@ var baseRolePermissions = map[string][]Permission{
 			"approvals.create",
 		)...,
 	),
+	// sales: documents.create добавлен (ТЗ 04.07.2026, п.2.3/3): менеджеры
+	// создают/загружают свои отчёты и документы отдела в scope 'sales'.
 	"sales": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "deals.view", "deals.create", "deals.update",
-		"clients.view", "clients.create", "clients.update", "documents.view", "documents.send",
+		"clients.view", "clients.create", "clients.update", "documents.view", "documents.create", "documents.send",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// visa: no deals.* (visa dept handles leads/documents/clients only, not sales deals)
-	// visa: documents — view+send only (no create/update/download)
+	// visa: documents.create добавлен (ТЗ 04.07.2026, п.2.1): у отдела свои
+	// документы/отчёты в scope 'visa'.
 	"visa": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
-		"documents.view", "documents.send",
+		"documents.view", "documents.create", "documents.send",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// partner: no deals.* (partner dept works with leads/clients only)
-	// partner cannot add, send, or download documents — only view them (read-only document access)
 	// partner sees all clients (общая база) and all dept leads (by funnel/department)
 	// partner cannot create clients — only edit existing ones (via admin approval), like visa
+	// partner: documents.create добавлен (ТЗ 04.07.2026, п.2.1): у партнёрского
+	// отдела свои Excel-отчёты в scope 'partner'.
 	"partner": permissionsForScope(ScopeDepartment,
 		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
-		"documents.view",
+		"documents.view", "documents.create",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
 	// hr: employee/document management; no leads/deals/messenger

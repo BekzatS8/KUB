@@ -274,14 +274,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	offset := offsetFromPage(page, size)
 
-	// доступ:
-	// - Sales: общий список запрещаем (смотри по сделке /documents/deal/:dealid)
-	// - Ops/Mgmt/Admin/Control: можно
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleSales {
-		forbidden(c, "Forbidden for sales; use /documents/deal/{dealid}")
-		return
-	}
 
 	scope, ok := archiveScopeFromQuery(c)
 	if !ok {
@@ -300,10 +293,29 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	filter.BranchID = scopedBranchID
 
-	// HR always sees only their own scope.
-	// Legal now has access to all documents; scope filter is optional (via ?scope= param).
-	if roleID == authz.RoleHR {
+	// Изоляция документов по отделам (ТЗ 04.07.2026, п.2.1): каждый отдел
+	// видит только свои документы; sales/visa дополнительно видят документы
+	// по сделкам (scope 'deal'). Админ и руководство — любой scope
+	// (через ?scope= выбирают отдел, без параметра — всё).
+	switch roleID {
+	case authz.RoleHR:
 		filter.Scope = "hr"
+		filter.Scopes = nil
+	case authz.RoleLegal:
+		filter.Scope = "legal"
+		filter.Scopes = nil
+	case authz.RoleControl:
+		filter.Scope = "quality_control"
+		filter.Scopes = nil
+	case authz.RoleSales:
+		filter.Scope = ""
+		filter.Scopes = []string{"sales", "deal"}
+	case authz.RoleVisa:
+		filter.Scope = ""
+		filter.Scopes = []string{"visa", "deal"}
+	case authz.RolePartner:
+		filter.Scope = ""
+		filter.Scopes = []string{"partner"}
 	}
 
 	if roleID != authz.RoleSystemAdmin {
@@ -339,7 +351,7 @@ func documentListFilterFromQuery(c *gin.Context) (repositories.DocumentListFilte
 		Order:      strings.ToLower(strings.TrimSpace(c.Query("order"))),
 		Scope:      strings.ToLower(strings.TrimSpace(c.Query("scope"))),
 	}
-	if filter.Scope != "" && filter.Scope != "hr" && filter.Scope != "legal" && filter.Scope != "deal" {
+	if filter.Scope != "" && !isAllowedDocumentScope(filter.Scope) {
 		return repositories.DocumentListFilter{}, errors.New("Invalid scope")
 	}
 	if raw := strings.TrimSpace(c.Query("creator_role_id")); raw != "" {
@@ -810,21 +822,99 @@ func (h *DocumentHandler) Download(c *gin.Context) {
 	h.serveDocumentFile(c, abs, name, true)
 }
 
+// RestoreDocument возвращает документ из корзины (ТЗ 04.07.2026, п.7.1; только админ).
+func (h *DocumentHandler) RestoreDocument(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.RestoreDocument(id, userID, roleID); err != nil {
+		if err.Error() == "forbidden" {
+			forbidden(c, "Forbidden")
+			return
+		}
+		internalError(c, "Failed to restore document")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// PurgeDocument окончательно удаляет документ из корзины (только админ).
+func (h *DocumentHandler) PurgeDocument(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.PurgeDocument(id, userID, roleID); err != nil {
+		switch err.Error() {
+		case "forbidden":
+			forbidden(c, "Forbidden")
+		case "not found":
+			notFound(c, DocumentNotFound, "Document not found")
+		default:
+			internalError(c, "Failed to purge document")
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// isAllowedDocumentScope reports whether the scope value is one of the known
+// department scopes (ТЗ 04.07.2026, п.2.1).
+func isAllowedDocumentScope(scope string) bool {
+	switch scope {
+	case "deal", "hr", "legal", "sales", "visa", "partner", "quality_control", "management":
+		return true
+	default:
+		return false
+	}
+}
+
+// documentScopeForRole returns the department scope owned by the role
+// ("" = no own department scope).
+func documentScopeForRole(roleID int) string {
+	switch roleID {
+	case authz.RoleHR:
+		return "hr"
+	case authz.RoleLegal:
+		return "legal"
+	case authz.RoleControl:
+		return "quality_control"
+	case authz.RoleSales:
+		return "sales"
+	case authz.RoleVisa:
+		return "visa"
+	case authz.RolePartner:
+		return "partner"
+	case authz.RoleManagement:
+		return "management"
+	default:
+		return ""
+	}
+}
+
 // POST /documents/upload-with-meta
 func (h *DocumentHandler) UploadWithMeta(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	scope := c.PostForm("scope")
-	if scope != "hr" && scope != "legal" {
-		badRequest(c, "scope must be hr or legal")
+	if scope == "" {
+		// без явного scope документ падает в отдел загрузившего
+		scope = documentScopeForRole(roleID)
+	}
+	if !isAllowedDocumentScope(scope) || scope == "deal" {
+		badRequest(c, "scope must be a department scope")
 		return
 	}
-	if (roleID == authz.RoleHR && scope != "hr") || (roleID == authz.RoleLegal && scope != "legal") {
-		forbidden(c, "Forbidden scope for your role")
-		return
-	}
-	if roleID != authz.RoleHR && roleID != authz.RoleLegal && roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
-		forbidden(c, "Forbidden")
-		return
+	// каждый отдел загружает только в свой scope; админ и руководство — в любой
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		if own := documentScopeForRole(roleID); own == "" || own != scope {
+			forbidden(c, "Forbidden scope for your role")
+			return
+		}
 	}
 	title := strings.TrimSpace(c.PostForm("title"))
 	if title == "" {

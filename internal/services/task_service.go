@@ -27,6 +27,17 @@ type TaskService interface {
 	// NEW:
 	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error)
 	UpdateAssignee(ctx context.Context, id int64, assigneeID int64) (*models.Task, error)
+
+	// Nagging notifications (ТЗ 04.07.2026, п.4.1)
+	Notifications(ctx context.Context, userID int64) (*TaskNotifications, error)
+	AckNotifications(ctx context.Context, userID int64, taskIDs []int64) error
+}
+
+// TaskNotifications is the payload for the hourly task nag: tasks due to be
+// shown right now plus the total open-task badge counter.
+type TaskNotifications struct {
+	OpenCount int           `json:"open_count"`
+	Due       []models.Task `json:"due"`
 }
 
 type taskService struct {
@@ -201,13 +212,8 @@ func (s *taskService) notifyTaskCreated(ctx context.Context, task *models.Task) 
 	if s.tg == nil || s.users == nil || task == nil {
 		return
 	}
-	if task.DueDate == nil {
-		return
-	}
-
-	if d := time.Until(*task.DueDate); d < 0 || d > dueSoonThreshold {
-		return
-	}
+	// Every new task notifies its assignees immediately regardless of due date
+	// (ТЗ 04.07.2026, п.4.1) — the in-app nag popup does the same on next poll.
 	s.sendNotification(ctx, task, "📌 Новая задача")
 }
 
@@ -253,4 +259,27 @@ func taskAssigneeRecipients(task *models.Task) []int64 {
 		out = append(out, task.AssigneeID)
 	}
 	return out
+}
+
+// Notifications returns the hourly task nag payload for the user
+// (ТЗ 04.07.2026, п.4.1).
+func (s *taskService) Notifications(ctx context.Context, userID int64) (*TaskNotifications, error) {
+	due, err := s.repo.ListDueNotifications(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	count, err := s.repo.CountOpenForAssignee(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if due == nil {
+		due = []models.Task{}
+	}
+	return &TaskNotifications{OpenCount: count, Due: due}, nil
+}
+
+// AckNotifications marks the nag as shown; it will fire again in an hour
+// while the tasks stay open.
+func (s *taskService) AckNotifications(ctx context.Context, userID int64, taskIDs []int64) error {
+	return s.repo.AckNotifications(ctx, userID, taskIDs)
 }
