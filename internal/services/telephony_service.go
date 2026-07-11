@@ -94,9 +94,17 @@ func (s *TelephonyService) InitiateCall(ctx context.Context, callerUserID, calle
 	if user == nil {
 		return "", fmt.Errorf("telephony: manager id=%d not found", resolvedManagerID)
 	}
-	internalNumber := strings.TrimSpace(user.Phone)
+	// Для исходящего звонка Binotel ждёт ВНУТРЕННИЙ номер менеджера (extension,
+	// напр. "101"), а не мобильный. Он хранится в users.internal_phone (то же
+	// поле, по которому привязываются входящие). Раньше сюда уходил user.Phone
+	// (мобильный) → Binotel отвечал «104: Wrong data». Откатываемся на phone
+	// только если внутренний номер не задан (обратная совместимость).
+	internalNumber := strings.TrimSpace(user.InternalPhone)
 	if internalNumber == "" {
-		return "", fmt.Errorf("telephony: manager id=%d has no phone/extension configured in CRM", resolvedManagerID)
+		internalNumber = strings.TrimSpace(user.Phone)
+	}
+	if internalNumber == "" {
+		return "", fmt.Errorf("telephony: manager id=%d has no internal Binotel extension (users.internal_phone) configured in CRM", resolvedManagerID)
 	}
 
 	normalizedPhone := repositories.NormalizePhoneForTelephony(externalPhone)
