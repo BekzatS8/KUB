@@ -33,6 +33,9 @@ type DocumentTypeSpec struct {
 	ExtraKeys      []ExtraKeySpec             `json:"extra_keys"`
 	ExampleExtra   map[string]string          `json:"example_extra"`
 	Placeholders   []string                   `json:"placeholders"`
+	// Departments — отделы, которым доступен шаблон. Приходит не из реестра, а
+	// из таблицы document_template_departments: раскладку настраивает админ.
+	Departments []string `json:"departments"`
 }
 
 type ExtraKeySpec struct {

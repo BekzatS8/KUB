@@ -731,8 +731,77 @@ func (h *DocumentHandler) SendForSignature(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// GET /documents/types[?scope=visa]
+//
+// Шаблоны документов: по ним отдел генерирует документы клиентов. Без scope —
+// весь реестр с проставленными отделами (нужно админу в Настройках), со scope —
+// только шаблоны этого отдела (вкладка «Документы отдела»).
 func (h *DocumentHandler) ListDocumentTypes(c *gin.Context) {
-	c.JSON(http.StatusOK, h.Service.ListDocumentTypes())
+	_, roleID := getUserAndRole(c)
+	scope := strings.ToLower(strings.TrimSpace(c.Query("scope")))
+	if scope != "" {
+		if !isAllowedDocumentScope(scope) || scope == "deal" {
+			badRequest(c, "scope must be a department scope")
+			return
+		}
+		// чужой отдел не показываем — та же граница, что и у списка документов
+		if allowed := allowedDocumentScopes(roleID); allowed != nil && !slices.Contains(allowed, scope) {
+			forbidden(c, "Forbidden scope for your role")
+			return
+		}
+	}
+	specs, err := h.Service.ListDocumentTypesWithDepartments(c.Request.Context(), scope)
+	if err != nil {
+		internalError(c, "Could not fetch document types")
+		return
+	}
+	c.JSON(http.StatusOK, specs)
+}
+
+type setTemplateDepartmentsRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
+// PUT /documents/types/:doc_type/departments — админ раскидывает шаблоны по
+// отделам. Правка глобальная (шаблон становится виден всему отделу), поэтому
+// только системный админ.
+func (h *DocumentHandler) SetTemplateDepartments(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	docType := strings.ToLower(strings.TrimSpace(c.Param("doc_type")))
+	if docType == "" {
+		badRequest(c, "Invalid doc_type")
+		return
+	}
+	var req setTemplateDepartmentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	// пустой список допустим — шаблон убирается из всех отделов
+	scopes := make([]string, 0, len(req.Scopes))
+	for _, raw := range req.Scopes {
+		s := strings.ToLower(strings.TrimSpace(raw))
+		if !isAllowedDocumentScope(s) || s == "deal" {
+			badRequest(c, "scope must be a department scope")
+			return
+		}
+		if !slices.Contains(scopes, s) {
+			scopes = append(scopes, s)
+		}
+	}
+	if err := h.Service.SetTemplateDepartments(c.Request.Context(), docType, scopes); err != nil {
+		if errors.Is(err, services.ErrDocumentTypeUnknown) {
+			badRequest(c, "Неизвестный шаблон документа")
+			return
+		}
+		internalError(c, "Could not save template departments")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 func (h *DocumentHandler) ServeFile(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

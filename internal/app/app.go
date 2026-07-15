@@ -296,6 +296,8 @@ func Run() {
 	documentService.SetUserRepo(userRepo)
 	documentService.SetTimeProvider(nowProvider, serverTZ)
 	documentService.SetStore(fileStore)
+	// раскладка шаблонов по отделам (миграция 071): отдел видит свои шаблоны
+	documentService.SetTemplateDeptRepo(repositories.NewDocumentTemplateDepartmentRepository(db))
 
 	clientAvatarHandler := handlers.NewClientAvatarHandler(clientService, clientRepo, cfg.Files.RootDir, fileStore)
 	clientDocsHandler := handlers.NewClientDocumentsHandler(documentService, clientRepo, documentRepo)

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,12 +83,13 @@ type ClientRepo interface {
 }
 
 type DocumentService struct {
-	DocRepo    DocumentRepo
-	LeadRepo   LeadRepo
-	DealRepo   DealRepo
-	ClientRepo ClientRepo
-	UserRepo   repositories.UserRepository
-	SignSecret string
+	DocRepo          DocumentRepo
+	LeadRepo         LeadRepo
+	DealRepo         DealRepo
+	ClientRepo       ClientRepo
+	UserRepo         repositories.UserRepository
+	TemplateDeptRepo TemplateDeptRepo
+	SignSecret       string
 
 	FilesRoot string        // корень хранения файлов (cfg.Files.RootDir)
 	PDFGen    pdf.Generator // генератор PDF (internal/pdf, txt-шаблоны/старые контракты)
@@ -377,6 +379,63 @@ func normalizeDocType(value string) string {
 
 func (s *DocumentService) ListDocumentTypes() []DocumentTypeSpec {
 	return ListDocumentTypeSpecs()
+}
+
+// ErrDocumentTypeUnknown — шаблона нет в реестре documentTypeRegistry.
+var ErrDocumentTypeUnknown = errors.New("unsupported doc_type")
+
+// TemplateDeptRepo — привязка шаблонов к отделам (таблица
+// document_template_departments). Интерфейс, а не конкретный репозиторий,
+// чтобы раскладку можно было подменить в тестах.
+type TemplateDeptRepo interface {
+	List(ctx context.Context) (map[string][]string, error)
+	ListDocTypesByScope(ctx context.Context, scope string) ([]string, error)
+	SetForDocType(ctx context.Context, docType string, scopes []string) error
+}
+
+// SetTemplateDeptRepo подключает раскладку шаблонов по отделам.
+func (s *DocumentService) SetTemplateDeptRepo(repo TemplateDeptRepo) {
+	s.TemplateDeptRepo = repo
+}
+
+// ListDocumentTypesWithDepartments отдаёт шаблоны реестра с проставленными
+// отделами. scope != "" оставляет только шаблоны этого отдела — по ним отдел и
+// генерирует документы клиентов.
+//
+// Без подключённого репозитория раскладки отдаём реестр как есть (Departments
+// пустые): это режим «до миграции», когда фильтровать ещё нечем — лучше
+// показать все шаблоны, чем ни одного.
+func (s *DocumentService) ListDocumentTypesWithDepartments(ctx context.Context, scope string) ([]DocumentTypeSpec, error) {
+	specs := ListDocumentTypeSpecs()
+	if s.TemplateDeptRepo == nil {
+		return specs, nil
+	}
+	mapping, err := s.TemplateDeptRepo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]DocumentTypeSpec, 0, len(specs))
+	for _, spec := range specs {
+		spec.Departments = mapping[spec.DocType]
+		if scope != "" && !slices.Contains(spec.Departments, scope) {
+			continue
+		}
+		out = append(out, spec)
+	}
+	return out, nil
+}
+
+// SetTemplateDepartments задаёт отделы шаблона. Проверяет, что шаблон вообще
+// существует в реестре, — иначе в таблице копились бы записи-призраки.
+func (s *DocumentService) SetTemplateDepartments(ctx context.Context, docType string, scopes []string) error {
+	if s.TemplateDeptRepo == nil {
+		return ErrForbidden
+	}
+	if _, ok := GetDocumentTypeSpec(docType); !ok {
+		return ErrDocumentTypeUnknown
+	}
+	return s.TemplateDeptRepo.SetForDocType(ctx, normalizeDocType(docType), scopes)
 }
 
 func isSupportedDocType(value string) bool {
