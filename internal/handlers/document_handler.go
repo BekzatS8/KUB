@@ -758,6 +758,30 @@ func (h *DocumentHandler) ListDocumentTypes(c *gin.Context) {
 	c.JSON(http.StatusOK, specs)
 }
 
+// GET /documents/types/:doc_type/preview
+//
+// Предпросмотр шаблона: DOCX с подписями полей вместо данных клиента. Браузер
+// рендерит docx сам (docx-preview), поэтому PDF и LibreOffice здесь не нужны.
+func (h *DocumentHandler) PreviewDocumentType(c *gin.Context) {
+	docType := strings.ToLower(strings.TrimSpace(c.Param("doc_type")))
+	if docType == "" {
+		badRequest(c, "Invalid doc_type")
+		return
+	}
+	data, fileName, err := h.Service.PreviewTemplate(docType)
+	if err != nil {
+		if errors.Is(err, services.ErrDocumentTypeUnknown) {
+			notFound(c, NotFoundCode, "Шаблон не найден")
+			return
+		}
+		log.Printf("PreviewDocumentType(%s): %v", docType, err)
+		internalError(c, "Could not build preview")
+		return
+	}
+	c.Header("Content-Disposition", `inline; filename="`+fileName+`"`)
+	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data)
+}
+
 type setTemplateDepartmentsRequest struct {
 	Scopes []string `json:"scopes"`
 }

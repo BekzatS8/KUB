@@ -397,6 +397,8 @@ func SetupRoutes(
 	{
 		docs.GET("", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocuments)
 		docs.GET("/types", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocumentTypes)
+		// предпросмотр шаблона (docx с подписями полей) — всем, кто видит документы
+		docs.GET("/types/:doc_type/preview", middleware.RequirePermission("documents.view", "document"), documentHandler.PreviewDocumentType)
 		// раскладка шаблонов по отделам — только админ (проверка в хендлере)
 		docs.PUT("/types/:doc_type/departments", middleware.RequirePermission("documents.update", "document"), documentHandler.SetTemplateDepartments)
 		docs.POST("", middleware.RequirePermission("documents.create", "document"), documentHandler.CreateDocument)

@@ -426,6 +426,93 @@ func (s *DocumentService) ListDocumentTypesWithDepartments(ctx context.Context, 
 	return out, nil
 }
 
+// previewFieldLabels — подписи полей для предпросмотра шаблона. Менеджеру
+// нужно понять, что куда встанет, поэтому показываем «Фамилия Имя Отчество»,
+// а не «{{CLIENT_FULL_NAME}}». Ключи, которых здесь нет, подставляются
+// собственным именем в скобках — предпросмотр не должен падать из-за того,
+// что кто-то добавил в шаблон новое поле.
+var previewFieldLabels = map[string]string{
+	"CLIENT_FULL_NAME":          "Фамилия Имя Отчество",
+	"CLIENT_FIO_SHORT":          "Фамилия И.О.",
+	"CLIENT_LAST_NAME_INITIALS": "Фамилия И.О.",
+	"CLIENT_IIN":                "ИИН клиента",
+	"CLIENT_ADDRESS":            "адрес клиента",
+	"CLIENT_EMAIL":              "e-mail клиента",
+	"CLIENT_PHONE":              "телефон клиента",
+	"CONTRACT_NUMBER":           "номер договора",
+	"MAIN_CONTRACT_NUMBER":      "номер договора",
+	"CONTRACT_DATE_TEXT":        "дата договора",
+	"MAIN_CONTRACT_DATE_TEXT":   "дата договора",
+	"TOTAL_AMOUNT_NUM":          "сумма",
+	"TOTAL_AMOUNT_WORDS":        "сумма прописью",
+	"TOTAL_AMOUNT_WORDS_KZ":     "сома жазбаша",
+	"PREPAYMENT_NUM":            "предоплата",
+	"PREPAYMENT_WORDS":          "предоплата прописью",
+	"PREPAYMENT_WORDS_KZ":       "алдын ала төлем жазбаша",
+	"REFUND_KZT":                "сумма возврата",
+	"REFUND_KZT_TEXT":           "сумма возврата прописью",
+	"COURSE_TOTAL_KZT":          "стоимость курса",
+	"COURSE_TOTAL_KZT_TEXT":     "стоимость курса прописью",
+	"ACT_NUMBER":                "номер акта",
+	"DESTINATION_PLACE":         "консульство / визовый центр",
+	"APPOINTMENT_DATE_TEXT":     "дата записи",
+	"PAUSE_DAYS":                "срок паузы",
+	"PAUSE_DAYS_TEXT":           "срок паузы прописью",
+	"PAUSE_START_DATE_TEXT":     "дата начала паузы",
+	"PAUSE_END_DATE_TEXT":       "дата окончания паузы",
+	"DOC_DATE_TEXT":             "дата документа",
+	"DAY":                       "ДД",
+	"YEAR":                      "ГГГГ",
+	"DOC_DATE_DAY":              "ДД",
+	"DOC_DATE_YEAR":             "ГГГГ",
+	"CONTRACT_DAY":              "ДД",
+	"CONTRACT_YEAR":             "ГГГГ",
+	"MONTH_RU":                  "месяц",
+	"MONTH_KZ":                  "ай",
+	"DOC_DATE_MONTH_TEXT":       "месяц",
+	"DOC_DATE_MONTH_TEXT_KZ":    "ай",
+	"CONTRACT_MONTH_TEXT":       "месяц",
+}
+
+// docxPreviewer — часть DocxGen, нужная для предпросмотра. Отдельный интерфейс,
+// чтобы не расширять docx.Generator: генерации документов эти методы не нужны.
+type docxPreviewer interface {
+	TemplatePlaceholderKeys(templateName string) ([]string, error)
+	RenderDocxToBytes(templateName string, placeholders map[string]string) ([]byte, error)
+}
+
+// PreviewTemplate отдаёт DOCX шаблона с подписями полей вместо данных —
+// менеджер смотрит, что за документ, прежде чем создавать его клиенту.
+func (s *DocumentService) PreviewTemplate(docType string) ([]byte, string, error) {
+	spec, ok := GetDocumentTypeSpec(docType)
+	if !ok {
+		return nil, "", ErrDocumentTypeUnknown
+	}
+	gen, ok := s.DocxGen.(docxPreviewer)
+	if !ok || s.DocxGen == nil {
+		return nil, "", errors.New("docx generator does not support preview")
+	}
+
+	keys, err := gen.TemplatePlaceholderKeys(spec.TemplateFile)
+	if err != nil {
+		return nil, "", err
+	}
+	ph := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if label, ok := previewFieldLabels[k]; ok {
+			ph[k] = label
+		} else {
+			ph[k] = k
+		}
+	}
+
+	data, err := gen.RenderDocxToBytes(spec.TemplateFile, ph)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, spec.TemplateFile, nil
+}
+
 // SetTemplateDepartments задаёт отделы шаблона. Проверяет, что шаблон вообще
 // существует в реестре, — иначе в таблице копились бы записи-призраки.
 func (s *DocumentService) SetTemplateDepartments(ctx context.Context, docType string, scopes []string) error {

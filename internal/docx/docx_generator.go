@@ -72,6 +72,48 @@ func (g *DocxGenerator) SetStrictPlaceholders(strict bool) {
 }
 
 // GenerateDocxAndPDF — DOCX-шаблон + плейсхолдеры → DOCX в /docx → PDF в /pdf (если включен LibreOffice)
+// TemplatePlaceholderKeys возвращает ключи {{KEY}}, которые есть в шаблоне.
+// Переиспользует поиск неразрешённых плейсхолдеров: в шаблоне не подставлено
+// ничего, значит «неразрешённые» — это и есть полный список полей.
+func (g *DocxGenerator) TemplatePlaceholderKeys(templateName string) ([]string, error) {
+	if templateName == "" {
+		return nil, fmt.Errorf("empty template name")
+	}
+	tmplPath := filepath.Join(g.TemplatesDir, filepath.Base(templateName))
+	if _, err := os.Stat(tmplPath); err != nil {
+		return nil, fmt.Errorf("template not found: %s: %w", tmplPath, err)
+	}
+	return findUnresolvedPlaceholdersInZip(tmplPath, "word/")
+}
+
+// RenderDocxToBytes подставляет плейсхолдеры и возвращает готовый DOCX в памяти,
+// без конвертации в PDF и без записи в хранилище документов.
+//
+// Нужен для предпросмотра шаблонов: LibreOffice ради этого не поднимаем —
+// docx рендерит сам браузер. Strict-проверка здесь не нужна и намеренно
+// пропущена: предпросмотр показывают с подписями полей, а не с данными сделки.
+func (g *DocxGenerator) RenderDocxToBytes(templateName string, placeholders map[string]string) ([]byte, error) {
+	if templateName == "" {
+		return nil, fmt.Errorf("empty template name")
+	}
+	tmplPath := filepath.Join(g.TemplatesDir, filepath.Base(templateName))
+	if _, err := os.Stat(tmplPath); err != nil {
+		return nil, fmt.Errorf("template not found: %s: %w", tmplPath, err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "tplpreview")
+	if err != nil {
+		return nil, fmt.Errorf("temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	outPath := filepath.Join(tmpDir, "preview.docx")
+	if err := g.generateDocxFromTemplate(tmplPath, outPath, placeholders); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(outPath)
+}
+
 func (g *DocxGenerator) GenerateDocxAndPDF(
 	templateName string,
 	placeholders map[string]string,
