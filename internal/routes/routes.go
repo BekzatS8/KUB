@@ -523,15 +523,19 @@ func SetupRoutes(
 	}
 
 	// Личные отчёты-таблицы сотрудников (ТЗ 04.07.2026, п.3):
-	// свой отчёт доступен всем бизнес-ролям; список и просмотр чужих —
+	// свои отчёты доступны всем бизнес-ролям; список и просмотр чужих —
 	// руководство/админ/КК (проверка в хендлере).
 	if managerReportHandler != nil {
 		reportTables := r.Group("/reports/table")
 		{
-			reportTables.GET("/my", managerReportHandler.GetMy)
-			reportTables.PUT("/my", managerReportHandler.SaveMy)
+			reportTables.GET("/my", managerReportHandler.ListMy)
+			reportTables.POST("/my", managerReportHandler.CreateMy)
+			reportTables.GET("/my/:id", managerReportHandler.GetMy)
+			reportTables.PUT("/my/:id", managerReportHandler.SaveMy)
+			reportTables.DELETE("/my/:id", managerReportHandler.DeleteMy)
 			reportTables.GET("", managerReportHandler.List)
-			reportTables.GET("/user/:id", managerReportHandler.GetByUser)
+			reportTables.GET("/user/:id", managerReportHandler.ListByUser)
+			reportTables.GET("/report/:id", managerReportHandler.GetReport)
 		}
 	}
 
