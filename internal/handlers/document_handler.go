@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -293,29 +294,29 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	}
 	filter.BranchID = scopedBranchID
 
-	// Изоляция документов по отделам (ТЗ 04.07.2026, п.2.1): каждый отдел
-	// видит только свои документы; sales/visa дополнительно видят документы
-	// по сделкам (scope 'deal'). Админ и руководство — любой scope
-	// (через ?scope= выбирают отдел, без параметра — всё).
-	switch roleID {
-	case authz.RoleHR:
-		filter.Scope = "hr"
+	// Изоляция документов по отделам (ТЗ 04.07.2026, п.2.1): каждый отдел видит
+	// только свои документы; sales/visa дополнительно видят документы по сделкам
+	// (scope 'deal'). Админ и руководство — любой scope.
+	//
+	// ?scope= сужает выдачу внутри того, что роли и так доступно (табы
+	// «Документы отдела» / «Документы клиентов»), но расширить её не может:
+	// запрос чужого отдела — 403, а не молча весь список.
+	requestedScope := filter.Scope
+	if allowed := allowedDocumentScopes(roleID); allowed != nil {
+		switch {
+		case requestedScope == "":
+			filter.Scope = ""
+			filter.Scopes = allowed
+		case slices.Contains(allowed, requestedScope):
+			filter.Scope = requestedScope
+			filter.Scopes = nil
+		default:
+			forbidden(c, "Forbidden scope for your role")
+			return
+		}
+	} else {
+		// админ/руководство: ?scope= как есть, без параметра — все документы
 		filter.Scopes = nil
-	case authz.RoleLegal:
-		filter.Scope = "legal"
-		filter.Scopes = nil
-	case authz.RoleControl:
-		filter.Scope = "quality_control"
-		filter.Scopes = nil
-	case authz.RoleSales:
-		filter.Scope = ""
-		filter.Scopes = []string{"sales", "deal"}
-	case authz.RoleVisa:
-		filter.Scope = ""
-		filter.Scopes = []string{"visa", "deal"}
-	case authz.RolePartner:
-		filter.Scope = ""
-		filter.Scopes = []string{"partner"}
 	}
 
 	if roleID != authz.RoleSystemAdmin {
@@ -871,6 +872,28 @@ func isAllowedDocumentScope(scope string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// allowedDocumentScopes returns the document scopes a role is allowed to list.
+// nil means "no restriction": admin and management browse every department.
+// The order matters for the UI — the department's own scope comes first.
+func allowedDocumentScopes(roleID int) []string {
+	switch roleID {
+	case authz.RoleHR:
+		return []string{"hr"}
+	case authz.RoleLegal:
+		return []string{"legal"}
+	case authz.RoleControl:
+		return []string{"quality_control"}
+	case authz.RoleSales:
+		return []string{"sales", "deal"}
+	case authz.RoleVisa:
+		return []string{"visa", "deal"}
+	case authz.RolePartner:
+		return []string{"partner"}
+	default:
+		return nil
 	}
 }
 
