@@ -1262,6 +1262,11 @@ func buildKZTextPlaceholders(ph map[string]string) {
 	setKZ("AMOUNT_KZT", "AMOUNT_KZT_TEXT_KZ")
 	setKZ("COURSE_TOTAL_KZT", "COURSE_TOTAL_KZT_TEXT_KZ")
 	setKZ("KOREA_FEE_KZT", "KOREA_FEE_KZT_TEXT_KZ")
+	// Суммы договоров: казахская часть двуязычных договоров должна быть на
+	// казахском целиком, а не с русской суммой прописью (обратная связь 16.07.2026).
+	setKZ("TOTAL_AMOUNT_NUM", "TOTAL_AMOUNT_WORDS_KZ")
+	setKZ("PREPAYMENT_NUM", "PREPAYMENT_WORDS_KZ")
+	setKZ("REFUND_AMOUNT_NUM", "REFUND_AMOUNT_TEXT_KZ")
 }
 
 // ================== UKABY DOCUMENT PLACEHOLDERS ==================
@@ -1324,6 +1329,12 @@ func applyUKABYPlaceholders(docType string, ph map[string]string) {
 	if strings.TrimSpace(ph["PREPAYMENT_WORDS"]) == "" {
 		ph["PREPAYMENT_WORDS"] = strings.TrimSpace(ph["DEAL_PREPAY_KZT_TEXT"])
 	}
+
+	// Казахские суммы прописью пересчитываем здесь ещё раз: buildKZTextPlaceholders
+	// отрабатывает раньше (buildPlaceholders), когда PREPAYMENT_NUM ещё пуст —
+	// он появляется только парой строк выше. Без этого казахская часть договора
+	// уходила бы с пустой предоплатой и падала на strict-проверке.
+	buildKZTextPlaceholders(ph)
 }
 
 // applyUKABY303535Placeholders adds 30%/35%/35% payment split placeholders.

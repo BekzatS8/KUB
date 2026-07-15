@@ -43,7 +43,7 @@ func (s *templateDeptRepoStub) SetForDocType(_ context.Context, docType string, 
 // Отдел видит только свои шаблоны — по ним он и генерирует документы клиентов.
 func TestListDocumentTypesWithDepartmentsFiltersByScope(t *testing.T) {
 	repo := &templateDeptRepoStub{mapping: map[string][]string{
-		"contract_ukaby_visa":    {"visa"},
+		"contract_language_courses":    {"visa"},
 		"contract_paid_50_50_ru": {"sales"},
 		"receipt_refund_full":    {"sales", "legal"},
 	}}
@@ -54,8 +54,8 @@ func TestListDocumentTypesWithDepartmentsFiltersByScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visa) != 1 || visa[0].DocType != "contract_ukaby_visa" {
-		t.Fatalf("визовый отдел: ожидался только contract_ukaby_visa, получено %+v", docTypesOf(visa))
+	if len(visa) != 1 || visa[0].DocType != "contract_language_courses" {
+		t.Fatalf("визовый отдел: ожидался только contract_language_courses, получено %+v", docTypesOf(visa))
 	}
 
 	// шаблон в двух отделах виден обоим
@@ -82,7 +82,7 @@ func TestListDocumentTypesWithDepartmentsFiltersByScope(t *testing.T) {
 // Без scope — весь реестр с проставленными отделами (экран настроек админа).
 func TestListDocumentTypesWithDepartmentsWithoutScope(t *testing.T) {
 	repo := &templateDeptRepoStub{mapping: map[string][]string{
-		"contract_ukaby_visa": {"visa"},
+		"contract_language_courses": {"visa"},
 	}}
 	svc := &DocumentService{TemplateDeptRepo: repo}
 
@@ -94,7 +94,7 @@ func TestListDocumentTypesWithDepartmentsWithoutScope(t *testing.T) {
 		t.Fatalf("без scope ожидался весь реестр (%d), получено %d", len(ListDocumentTypeSpecs()), len(all))
 	}
 	for _, spec := range all {
-		if spec.DocType == "contract_ukaby_visa" {
+		if spec.DocType == "contract_language_courses" {
 			if len(spec.Departments) != 1 || spec.Departments[0] != "visa" {
 				t.Fatalf("отделы не проставлены: %+v", spec.Departments)
 			}
@@ -130,10 +130,10 @@ func TestSetTemplateDepartmentsRejectsUnknownDocType(t *testing.T) {
 func TestSetTemplateDepartmentsSaves(t *testing.T) {
 	repo := &templateDeptRepoStub{}
 	svc := &DocumentService{TemplateDeptRepo: repo}
-	if err := svc.SetTemplateDepartments(context.Background(), "contract_ukaby_visa", []string{"visa", "sales"}); err != nil {
+	if err := svc.SetTemplateDepartments(context.Background(), "contract_language_courses", []string{"visa", "sales"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := repo.saved["contract_ukaby_visa"]; len(got) != 2 {
+	if got := repo.saved["contract_language_courses"]; len(got) != 2 {
 		t.Fatalf("ожидалось сохранение двух отделов, получено %+v", got)
 	}
 }

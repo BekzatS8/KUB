@@ -32,31 +32,31 @@ CREATE INDEX IF NOT EXISTS document_template_departments_scope_idx ON document_t
 -- Заполняется ТОЛЬКО когда таблица пуста (WHERE NOT EXISTS), а не через
 -- ON CONFLICT DO NOTHING: миграции прогоняются на каждом деплое, и DO NOTHING
 -- воскрешал бы связи, которые админ намеренно убрал.
+-- doc_type должны существовать в services.documentTypeRegistry, иначе шаблон
+-- не покажется ни в одном отделе. Список синхронизирован с редакцией
+-- шаблонов от 16.07.2026 (16 типов).
 INSERT INTO document_template_departments (doc_type, scope)
 SELECT seed.doc_type, seed.scope
 FROM (VALUES
     -- продажи: договоры и допсоглашения
-    ('contract_paid_50_50_ru',    'sales'),
-    ('contract_paid_full_ru',     'sales'),
-    ('contract_free_ru',          'sales'),
-    ('contract_ukaby_30_35_35',   'sales'),
-    ('contract_language_courses', 'sales'),
-    ('addendum_korea',            'sales'),
-    ('addendum_c01_extension',    'sales'),
-    ('addendum_k01_korea',        'sales'),
+    ('contract_paid_50_50_ru',        'sales'),
+    ('contract_paid_full_ru',         'sales'),
+    ('contract_ukaby_30_35_35',       'sales'),
+    ('contract_language_courses',     'sales'),
+    ('addendum_c01_extension',        'sales'),
+    ('addendum_k01_korea',            'sales'),
     -- визовый отдел
-    ('contract_ukaby_visa',       'visa'),
-    ('visa_questionnaire',        'visa'),
-    ('cancel_appointment',        'visa'),
-    ('documents_handover_act',    'visa'),
+    ('cancel_appointment',            'visa'),
+    ('documents_handover_act',        'visa'),
+    ('power_of_attorney_application', 'visa'),
     -- юристы: расторжения, возвраты, приостановки
-    ('termination_transfer',      'legal'),
-    ('termination_waiver',        'legal'),
-    ('refund_application',        'legal'),
-    ('receipt_refund_full',       'legal'),
-    ('receipt_refund_partial',    'legal'),
-    ('pause_application',         'legal'),
+    ('termination_transfer',          'legal'),
+    ('termination_waiver',            'legal'),
+    ('refund_application',            'legal'),
+    ('receipt_refund_full',           'legal'),
+    ('receipt_refund_partial',        'legal'),
+    ('pause_application',             'legal'),
     -- руководство
-    ('avr_kub_group',             'management')
+    ('avr_kub_group',                 'management')
 ) AS seed(doc_type, scope)
 WHERE NOT EXISTS (SELECT 1 FROM document_template_departments);

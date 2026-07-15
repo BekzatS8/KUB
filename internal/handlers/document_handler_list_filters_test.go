@@ -11,13 +11,13 @@ func TestDocumentListFilterFromQuery_ParsesExpectedFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/documents?q=contract&status=signed&doc_type=addendum_korea&deal_id=25&client_id=16&client_type=individual&branch_id=9&sort_by=doc_type&order=asc", nil)
+	c.Request = httptest.NewRequest("GET", "/documents?q=contract&status=signed&doc_type=addendum_k01_korea&deal_id=25&client_id=16&client_type=individual&branch_id=9&sort_by=doc_type&order=asc", nil)
 
 	filter, err := documentListFilterFromQuery(c)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if filter.Query != "contract" || filter.Status != "signed" || filter.DocType != "addendum_korea" || filter.ClientType != "individual" || filter.SortBy != "doc_type" || filter.Order != "asc" {
+	if filter.Query != "contract" || filter.Status != "signed" || filter.DocType != "addendum_k01_korea" || filter.ClientType != "individual" || filter.SortBy != "doc_type" || filter.Order != "asc" {
 		t.Fatalf("unexpected filter: %+v", filter)
 	}
 	if filter.DealID == nil || *filter.DealID != 25 {

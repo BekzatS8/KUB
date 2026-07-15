@@ -90,7 +90,7 @@ func (g *testDocxGen) GeneratePDF(templateName string, placeholders map[string]s
 
 func TestCreateDocumentFromClient_RequiresClientType(t *testing.T) {
 	svc := &DocumentService{DocxGen: &testDocxGen{}}
-	_, err := svc.CreateDocumentFromClient(1, "", 0, "contract_free_ru", 1, authz.RoleManagement, nil)
+	_, err := svc.CreateDocumentFromClient(1, "", 0, "contract_paid_full_ru", 1, authz.RoleManagement, nil)
 	if !errors.Is(err, ErrClientTypeRequired) {
 		t.Fatalf("expected ErrClientTypeRequired, got %v", err)
 	}
@@ -102,7 +102,7 @@ func TestCreateDocumentFromClient_WrongClientTypeFails(t *testing.T) {
 		DealRepo:   &testDealRepo{},
 		DocxGen:    &testDocxGen{},
 	}
-	_, err := svc.CreateDocumentFromClient(10, models.ClientTypeLegal, 0, "contract_free_ru", 1, authz.RoleManagement, nil)
+	_, err := svc.CreateDocumentFromClient(10, models.ClientTypeLegal, 0, "contract_paid_full_ru", 1, authz.RoleManagement, nil)
 	if !errors.Is(err, ErrClientTypeMismatch) {
 		t.Fatalf("expected ErrClientTypeMismatch, got %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCreateDocumentFromClient_InvalidClientTypeFails(t *testing.T) {
 		DealRepo:   &testDealRepo{},
 		DocxGen:    &testDocxGen{},
 	}
-	_, err := svc.CreateDocumentFromClient(10, "partner", 0, "contract_free_ru", 1, authz.RoleManagement, nil)
+	_, err := svc.CreateDocumentFromClient(10, "partner", 0, "contract_paid_full_ru", 1, authz.RoleManagement, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid client_type")
 	}
@@ -141,7 +141,7 @@ func TestCreateDocumentFromClient_UsesLatestDealByTypedRefWhenDealIDOmitted(t *t
 		DocxGen:    &testDocxGen{},
 	}
 
-	doc, err := svc.CreateDocumentFromClient(10, models.ClientTypeIndividual, 0, "contract_free_ru", 1, authz.RoleManagement, nil)
+	doc, err := svc.CreateDocumentFromClient(10, models.ClientTypeIndividual, 0, "contract_paid_full_ru", 1, authz.RoleManagement, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
