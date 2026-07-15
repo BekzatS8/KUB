@@ -380,8 +380,11 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 }
 
 // MoveToStage moves a lead across kanban stages (ТЗ 04.07.2026, п.1.1).
-// Sales managers may move unassigned leads (claiming them as owner) and their
-// own leads; management/admin may move any lead within scope.
+// Access is decided by scope alone: a manager works every lead of their branch
+// and department, no matter whose account it currently sits on. Ownership was
+// previously an extra gate here, which deadlocked the board — inbound leads
+// arrive owned by the integration's admin account, so every card a manager
+// dragged came back 403.
 func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
@@ -400,14 +403,37 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if err != nil {
 		return err
 	}
-	// sales may claim unassigned leads from the board; otherwise only their own
-	if roleID == authz.RoleSales && lead.OwnerID != 0 && lead.OwnerID != userID {
-		return ErrForbidden
-	}
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
 	}
-	return s.Repo.MoveStage(id, stageID, userID)
+	return s.Repo.MoveStage(id, stageID, userID, s.claimsOwnershipOnMove(lead, userID, roleID))
+}
+
+// claimsOwnershipOnMove reports whether moving the card also hands the lead to
+// the actor. A manager taking a card off the board becomes responsible for it
+// when nobody is really working it yet — either it has no owner, or it is still
+// parked on an admin/management account, which is how Instagram/WhatsApp leads
+// land in the system. A lead already owned by another working manager keeps its
+// owner: dragging a colleague's card must not silently take it from them.
+// Admin/management move cards without taking them over.
+func (s *LeadService) claimsOwnershipOnMove(lead *models.Leads, userID, roleID int) bool {
+	if authz.IsElevated(roleID) {
+		return false
+	}
+	if lead.OwnerID == 0 {
+		return true
+	}
+	if lead.OwnerID == userID {
+		return false
+	}
+	if s.UserRepo == nil {
+		return false
+	}
+	owner, err := s.UserRepo.GetByID(lead.OwnerID)
+	if err != nil || owner == nil {
+		return false
+	}
+	return authz.IsElevated(owner.RoleID)
 }
 
 func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {

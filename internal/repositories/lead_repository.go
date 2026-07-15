@@ -305,16 +305,21 @@ func (r *LeadRepository) Unarchive(id int) error {
 var ErrLeadStageMismatch = errors.New("stage does not belong to lead funnel")
 
 // MoveStage moves a lead to another stage of its funnel (kanban drag&drop).
-// Managers "разбирают" inbound leads from the board: when an unassigned lead
-// is moved, the actor becomes its owner. A lead that has no funnel yet adopts
-// the funnel of the target stage. Moving to a "lost" stage marks the lead
-// cancelled (список отказников); otherwise a fresh lead becomes in_progress.
-func (r *LeadRepository) MoveStage(leadID, stageID, actorID int) error {
+// Managers "разбирают" inbound leads from the board: an unassigned lead always
+// adopts the actor as owner, and claimOwner additionally hands over a lead that
+// is still parked on somebody else (see LeadService.claimsOwnershipOnMove for
+// who may take one over). A lead that has no funnel yet adopts the funnel of
+// the target stage. Moving to a "lost" stage marks the lead cancelled (список
+// отказников); otherwise a fresh lead becomes in_progress.
+func (r *LeadRepository) MoveStage(leadID, stageID, actorID int, claimOwner bool) error {
 	const q = `
 		UPDATE leads l
 		SET stage_id = fs.id,
 		    funnel_id = fs.funnel_id,
-		    owner_id = COALESCE(l.owner_id, NULLIF($3, 0)),
+		    owner_id = CASE
+		        WHEN $4 AND $3 > 0 THEN $3
+		        ELSE COALESCE(l.owner_id, NULLIF($3, 0))
+		    END,
 		    status = CASE
 		        WHEN fs.type = 'lost' THEN 'cancelled'
 		        WHEN COALESCE(l.status, 'new') IN ('new', 'cancelled') THEN 'in_progress'
@@ -325,7 +330,7 @@ func (r *LeadRepository) MoveStage(leadID, stageID, actorID int) error {
 		  AND fs.id = $2
 		  AND (l.funnel_id IS NULL OR fs.funnel_id = l.funnel_id)
 	`
-	res, err := r.db.Exec(q, leadID, stageID, actorID)
+	res, err := r.db.Exec(q, leadID, stageID, actorID, claimOwner)
 	if err != nil {
 		return fmt.Errorf("move lead stage: %w", err)
 	}
