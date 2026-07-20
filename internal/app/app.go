@@ -259,6 +259,11 @@ func Run() {
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo, fileStore)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
 	leadService.SetStageRepo(funnelStageRepo)
+	// Real-time доска: хаб рассылает подписчикам сигнал «воронка изменилась».
+	boardHub := realtime.NewBoardHub()
+	go boardHub.Run()
+	defer boardHub.Stop()
+	leadService.SetBoardNotifier(boardHub)
 	// Enforce client/lead ownership on the telephony call-history endpoints
 	// (GET /clients/:id/calls, GET /leads/:id/calls) using the canonical scope checks.
 	telephonySvc.SetAccessCheckers(clientService, leadService)
@@ -267,6 +272,7 @@ func Run() {
 	dealService.SetScopeDeps(leadRepo, userRepo)
 	dealService.SetStageRepo(funnelStageRepo)
 	dealService.SetTransitionRuleRepo(funnelTransitionRuleRepo)
+	dealService.SetBoardNotifier(boardHub)
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo, fileStore)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
@@ -383,6 +389,7 @@ func Run() {
 	permissionHandler := handlers.NewPermissionHandler(permissionService)
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
 	funnelStageHandler := handlers.NewFunnelStageHandler(funnelStageService)
+	funnelStageHandler.SetBoardHub(boardHub)
 	funnelTransitionRuleHandler := handlers.NewFunnelTransitionRuleHandler(funnelTransitionRuleSvc)
 	userHandler := handlers.NewUserHandler(userService, branchService, userVerificationService, fileStore, cfg.Files.RootDir)
 	branchHandler := handlers.NewBranchHandler(branchService, userService)

@@ -16,6 +16,14 @@ type DealService struct {
 	UserRepo           repositories.UserRepository
 	StageRepo          *repositories.FunnelStageRepository
 	TransitionRuleRepo *repositories.FunnelTransitionRuleRepository
+	BoardNotifier      BoardNotifier
+}
+
+// BoardNotifier получает сигнал «доска воронки изменилась» и рассылает его
+// подписчикам по WebSocket. Интерфейс держим в services, чтобы не завязывать
+// бизнес-логику на пакет realtime. Реализуется realtime.BoardHub.
+type BoardNotifier interface {
+	NotifyBoardChanged(funnelID int)
 }
 
 func NewDealService(repo *repositories.DealRepository, clientRepo ...*repositories.ClientRepository) *DealService {
@@ -37,6 +45,16 @@ func (s *DealService) SetStageRepo(stageRepo *repositories.FunnelStageRepository
 
 func (s *DealService) SetTransitionRuleRepo(repo *repositories.FunnelTransitionRuleRepository) {
 	s.TransitionRuleRepo = repo
+}
+
+func (s *DealService) SetBoardNotifier(n BoardNotifier) {
+	s.BoardNotifier = n
+}
+
+func (s *DealService) notifyBoard(funnelID int) {
+	if s.BoardNotifier != nil {
+		s.BoardNotifier.NotifyBoardChanged(funnelID)
+	}
 }
 
 func normalizeRequiredDealClientType(value string) (string, error) {
@@ -516,15 +534,25 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 	// won-этапа (ТЗ 04.07.2026, п.1.5) ИЛИ для любого этапа, помеченного в
 	// настройках воронки как «отправлять в архив» (auto_archive, обратная
 	// связь заказчика 17.07.2026). Архивируем только если правило перехода не
-	// передало сделку в следующую воронку: проверяем, что сделка осталась на
-	// этом этапе.
+	// передало сделку в СЛЕДУЮЩУЮ воронку — правила перехода кросс-воронковые
+	// (MoveStageAndFunnel меняет funnel_id), поэтому сверяем именно воронку.
+	// (Раньше проверялся after.StageID, но GetByID его не выбирает — поле
+	// всегда было nil, и автоархив у сделок фактически не срабатывал.)
 	if stage.Type == models.FunnelStageTypeWon || stage.AutoArchive {
 		if after, err := s.Repo.GetByID(dealID); err == nil && after != nil &&
-			!after.IsArchived && after.StageID != nil && *after.StageID == stageID {
+			!after.IsArchived && after.FunnelID != nil && *after.FunnelID == stage.FunnelID {
 			if err := s.Repo.Archive(dealID, userID, "Этап завершён (автоархив)"); err != nil {
 				return err
 			}
 		}
+	}
+
+	// Real-time: сообщаем подписчикам доски, что воронка изменилась. Сигналим
+	// и исходную воронку сделки, и целевую (правило перехода могло увести её в
+	// другую) — на обеих досках карточка должна обновиться моментально.
+	s.notifyBoard(stage.FunnelID)
+	if deal.FunnelID != nil && *deal.FunnelID != stage.FunnelID {
+		s.notifyBoard(*deal.FunnelID)
 	}
 	return nil
 }

@@ -2,21 +2,64 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/models"
+	"turcompany/internal/realtime"
 	"turcompany/internal/services"
 )
 
 type FunnelStageHandler struct {
-	service *services.FunnelStageService
+	service  *services.FunnelStageService
+	boardHub *realtime.BoardHub
 }
 
 func NewFunnelStageHandler(service *services.FunnelStageService) *FunnelStageHandler {
 	return &FunnelStageHandler{service: service}
+}
+
+// SetBoardHub подключает WebSocket-хаб доски для real-time обновлений.
+func (h *FunnelStageHandler) SetBoardHub(hub *realtime.BoardHub) {
+	h.boardHub = hub
+}
+
+// BoardStream — WebSocket-эндпоинт доски воронки. Доступ уже ограничен
+// middleware RequirePermission(funnels.view). По сокету клиент получает лишь
+// сигнал {type:"board_changed"} и перечитывает доску через REST (со своим
+// scope). Читаем входящие кадры только чтобы отслеживать отключение/пинги.
+func (h *FunnelStageHandler) BoardStream(c *gin.Context) {
+	funnelID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid funnel id")
+		return
+	}
+	if h.boardHub == nil {
+		internalError(c, "Realtime is not available")
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.GetHeader("Upgrade")), "websocket") {
+		badRequest(c, "WebSocket upgrade required")
+		return
+	}
+	conn, err := realtime.Upgrade(c.Writer, c.Request)
+	if err != nil {
+		log.Printf("[board_stream] websocket upgrade failed for funnel %d: %v", funnelID, err)
+		return
+	}
+	h.boardHub.Register(funnelID, conn)
+	defer h.boardHub.Unregister(funnelID, conn)
+
+	for {
+		var ignore map[string]any
+		if err := conn.ReadJSON(&ignore); err != nil {
+			break
+		}
+	}
 }
 
 func (h *FunnelStageHandler) ListStages(c *gin.Context) {

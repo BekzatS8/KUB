@@ -585,6 +585,7 @@ func registerFunnelStagesRoutes(group *gin.RouterGroup, h *handlers.FunnelStageH
 	group.POST("/:id/stages", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), h.CreateStage)
 	group.PATCH("/:id/stages/reorder", middleware.RequirePermission(authz.ActionFunnelsReorder, "funnel"), h.ReorderStages)
 	group.GET("/:id/board", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.Board)
+	group.GET("/:id/board/ws", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), h.BoardStream)
 }
 
 // registerStagesRoutes registers top-level /stages/:id endpoints for updating,

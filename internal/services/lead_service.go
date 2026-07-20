@@ -17,12 +17,18 @@ type LeadService struct {
 	ClientSvc *ClientService
 	UserRepo  repositories.UserRepository
 	StageRepo *repositories.FunnelStageRepository
+	BoardNotifier BoardNotifier
 }
 
 // SetStageRepo подключает репозиторий этапов воронки — нужен для авто-архива
 // лида при переходе на этап, помеченный как «отправлять в архив».
 func (s *LeadService) SetStageRepo(stageRepo *repositories.FunnelStageRepository) {
 	s.StageRepo = stageRepo
+}
+
+// SetBoardNotifier подключает real-time рассыльщик обновлений доски (WebSocket).
+func (s *LeadService) SetBoardNotifier(n BoardNotifier) {
+	s.BoardNotifier = n
 }
 
 func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository, userRepo ...repositories.UserRepository) *LeadService {
@@ -419,12 +425,26 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	// Авто-архив: если целевой этап помечен в настройках воронки как
 	// «отправлять в архив» — убираем лид с доски автоматически (обратная связь
 	// заказчика 17.07.2026: «когда всё уже выполнится»).
+	targetFunnelID := 0
 	if s.StageRepo != nil {
-		if stage, err := s.StageRepo.GetByID(stageID); err == nil && stage != nil &&
-			stage.AutoArchive && !lead.IsArchived {
-			if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
-				return err
+		if stage, err := s.StageRepo.GetByID(stageID); err == nil && stage != nil {
+			targetFunnelID = stage.FunnelID
+			// Авто-архив: если целевой этап помечен как «отправлять в архив».
+			if stage.AutoArchive && !lead.IsArchived {
+				if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
+					return err
+				}
 			}
+		}
+	}
+	// Real-time: сообщаем подписчикам доски, что воронку нужно перечитать —
+	// и целевую (из этапа), и исходную, если лид сменил воронку.
+	if s.BoardNotifier != nil {
+		if targetFunnelID > 0 {
+			s.BoardNotifier.NotifyBoardChanged(targetFunnelID)
+		}
+		if lead.FunnelID != nil && *lead.FunnelID != targetFunnelID {
+			s.BoardNotifier.NotifyBoardChanged(*lead.FunnelID)
 		}
 	}
 	return nil
