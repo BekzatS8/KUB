@@ -512,14 +512,16 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 	// Pass depth=1 to guard against circular rule chains (max 10 hops).
 	_ = s.applyTransitionRules(dealID, stage.FunnelID, stageID, userID, 1)
 
-	// Автоархив финального этапа (ТЗ 04.07.2026, п.1.5): «Работа выполнена» —
-	// карточка уходит в архив. Архивируем только если правило перехода не
-	// передало сделку в следующую воронку (например, «Договор подписан» →
-	// передача клиенту): проверяем, что сделка осталась на won-этапе.
-	if stage.Type == models.FunnelStageTypeWon {
+	// Автоархив финального этапа: карточка уходит в архив. Срабатывает для
+	// won-этапа (ТЗ 04.07.2026, п.1.5) ИЛИ для любого этапа, помеченного в
+	// настройках воронки как «отправлять в архив» (auto_archive, обратная
+	// связь заказчика 17.07.2026). Архивируем только если правило перехода не
+	// передало сделку в следующую воронку: проверяем, что сделка осталась на
+	// этом этапе.
+	if stage.Type == models.FunnelStageTypeWon || stage.AutoArchive {
 		if after, err := s.Repo.GetByID(dealID); err == nil && after != nil &&
 			!after.IsArchived && after.StageID != nil && *after.StageID == stageID {
-			if err := s.Repo.Archive(dealID, userID, "Работа выполнена (автоархив)"); err != nil {
+			if err := s.Repo.Archive(dealID, userID, "Этап завершён (автоархив)"); err != nil {
 				return err
 			}
 		}

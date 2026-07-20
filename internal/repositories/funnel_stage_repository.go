@@ -32,6 +32,7 @@ func scanFunnelStage(scanner interface{ Scan(dest ...any) error }) (*models.Funn
 		&s.Probability,
 		&description,
 		&s.IsActive,
+		&s.AutoArchive,
 		&s.CreatedAt,
 		&s.UpdatedAt,
 	); err != nil {
@@ -41,7 +42,7 @@ func scanFunnelStage(scanner interface{ Scan(dest ...any) error }) (*models.Funn
 	return s, nil
 }
 
-const funnelStageColumns = `id, funnel_id, name, code, color, type, position, probability, description, is_active, created_at, updated_at`
+const funnelStageColumns = `id, funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive, created_at, updated_at`
 
 func (r *FunnelStageRepository) ListByFunnel(funnelID int) ([]*models.FunnelStage, error) {
 	rows, err := r.db.Query(`SELECT `+funnelStageColumns+` FROM funnel_stages WHERE funnel_id = $1 ORDER BY position ASC, id ASC`, funnelID)
@@ -81,19 +82,19 @@ func (r *FunnelStageRepository) Create(s *models.FunnelStage) error {
 		s.Position = int(maxPos.Int64) + 10
 	}
 	return r.db.QueryRow(`
-		INSERT INTO funnel_stages (funnel_id, name, code, color, type, position, probability, description, is_active)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		INSERT INTO funnel_stages (funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING id, created_at, updated_at
-	`, s.FunnelID, s.Name, s.Code, s.Color, s.Type, s.Position, s.Probability, s.Description, s.IsActive).
+	`, s.FunnelID, s.Name, s.Code, s.Color, s.Type, s.Position, s.Probability, s.Description, s.IsActive, s.AutoArchive).
 		Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 }
 
 func (r *FunnelStageRepository) Update(s *models.FunnelStage) error {
 	result, err := r.db.Exec(`
 		UPDATE funnel_stages
-		SET name=$1, code=$2, color=$3, type=$4, probability=$5, description=$6, is_active=$7, updated_at=NOW()
-		WHERE id=$8
-	`, s.Name, s.Code, s.Color, s.Type, s.Probability, s.Description, s.IsActive, s.ID)
+		SET name=$1, code=$2, color=$3, type=$4, probability=$5, description=$6, is_active=$7, auto_archive=$8, updated_at=NOW()
+		WHERE id=$9
+	`, s.Name, s.Code, s.Color, s.Type, s.Probability, s.Description, s.IsActive, s.AutoArchive, s.ID)
 	if err != nil {
 		return err
 	}

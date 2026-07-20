@@ -16,6 +16,13 @@ type LeadService struct {
 	DealRepo  *repositories.DealRepository
 	ClientSvc *ClientService
 	UserRepo  repositories.UserRepository
+	StageRepo *repositories.FunnelStageRepository
+}
+
+// SetStageRepo подключает репозиторий этапов воронки — нужен для авто-архива
+// лида при переходе на этап, помеченный как «отправлять в архив».
+func (s *LeadService) SetStageRepo(stageRepo *repositories.FunnelStageRepository) {
+	s.StageRepo = stageRepo
 }
 
 func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository, userRepo ...repositories.UserRepository) *LeadService {
@@ -406,7 +413,21 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
 	}
-	return s.Repo.MoveStage(id, stageID, userID, s.claimsOwnershipOnMove(lead, userID, roleID))
+	if err := s.Repo.MoveStage(id, stageID, userID, s.claimsOwnershipOnMove(lead, userID, roleID)); err != nil {
+		return err
+	}
+	// Авто-архив: если целевой этап помечен в настройках воронки как
+	// «отправлять в архив» — убираем лид с доски автоматически (обратная связь
+	// заказчика 17.07.2026: «когда всё уже выполнится»).
+	if s.StageRepo != nil {
+		if stage, err := s.StageRepo.GetByID(stageID); err == nil && stage != nil &&
+			stage.AutoArchive && !lead.IsArchived {
+			if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // claimsOwnershipOnMove reports whether moving the card also hands the lead to

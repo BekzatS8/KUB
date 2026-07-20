@@ -19,6 +19,9 @@ type FunnelStage struct {
 	Probability int       `json:"probability"`
 	Description string    `json:"description,omitempty"`
 	IsActive    bool      `json:"is_active"`
+	// AutoArchive — при переходе карточки на этот этап она автоматически
+	// уходит в архив (настраивается в параметрах воронки).
+	AutoArchive bool      `json:"auto_archive"`
 	CreatedAt   time.Time `json:"created_at,omitempty"`
 	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
