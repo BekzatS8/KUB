@@ -1617,7 +1617,15 @@ func (s *DocumentService) storeDelete(key string) error {
 // downloadToTemp downloads a stored file to a local temp file and returns its path.
 // The caller must call the returned cleanup func when done.
 // If Store is nil (local mode), returns the abs path directly (no copy needed).
+//
+// Ключ нормализуется тем же способом, что и при загрузке (uploadGeneratedFile):
+// без ведущего «/» и префикса «files/». Иначе на S3 скачивание по сырому
+// doc.FilePathPdf (например «/pdf/x.pdf») не совпадало с ключом хранения
+// («pdf/x.pdf») — подпись падала с «bad filepath», хотя предпросмотр, который
+// нормализует путь, работал.
 func (s *DocumentService) downloadToTemp(key string) (localPath string, cleanup func(), err error) {
+	key = strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(key), "\\", "/"), "/")
+	key = strings.TrimPrefix(key, "files/")
 	if s.Store == nil {
 		abs, err := s.resolveStoragePath(key)
 		return abs, func() {}, err
