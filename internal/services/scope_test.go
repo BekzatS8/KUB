@@ -41,6 +41,25 @@ func TestResolveLeadScope_SalesVisaPartnerReturnBranch(t *testing.T) {
 	}
 }
 
+// Партнёрский отдел работает с лидами, но не со сделками. Доска лидов раньше
+// грузила лиды внутри проверки scope сделок — партнёр получал Forbidden и
+// видел пусто. Тест фиксирует, что у партнёра lead-scope НЕ Forbidden, а
+// deal-scope — Forbidden (обратная связь 20.07.2026).
+func TestPartnerLeadScopeAllowedButDealScopeForbidden(t *testing.T) {
+	branchID := 3
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+
+	leadScope, err := resolveLeadScope(100, authz.RolePartner, userRepo)
+	if err != nil || leadScope.Kind == ScopeKindForbidden {
+		t.Fatalf("partner lead scope должен грузить лиды, получено kind=%v err=%v", leadScope.Kind, err)
+	}
+
+	dealScope, _ := resolveDealScope(100, authz.RolePartner, userRepo)
+	if dealScope.Kind != ScopeKindForbidden {
+		t.Fatalf("partner deal scope ожидался Forbidden, получено %v", dealScope.Kind)
+	}
+}
+
 func TestResolveLeadScope_HRAndLegalAndUnknownReturnForbidden(t *testing.T) {
 	for _, roleID := range []int{authz.RoleHR, authz.RoleLegal, 999} {
 		scope, err := resolveLeadScope(1, roleID, nil)

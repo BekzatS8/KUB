@@ -119,10 +119,33 @@ func TestHRHasNoMessengerView(t *testing.T) {
 	}
 }
 
-// TestLegalHasNoMessengerView ensures Legal cannot access Wazzup/messenger.
-func TestLegalHasNoMessengerView(t *testing.T) {
-	if HasPermission("legal", "messenger.view") {
-		t.Error("legal must NOT have messenger.view")
+// TestLegalHasMessengerView — юристу открыт мессенджер (обратная связь 20.07.2026).
+func TestLegalHasMessengerView(t *testing.T) {
+	if !HasPermission("legal", "messenger.view") {
+		t.Error("legal must have messenger.view")
+	}
+}
+
+// TestLegalHasNoUserManagement — юрист не управляет пользователями.
+func TestLegalHasNoUserManagement(t *testing.T) {
+	for _, action := range []string{"users.view", "users.create", "users.update", "users.delete", "users.block"} {
+		if HasPermission("legal", action) {
+			t.Errorf("legal must NOT have %q", action)
+		}
+	}
+}
+
+// TestHRUsersViewAndBlockOnly — кадры только смотрят и блокируют пользователей.
+func TestHRUsersViewAndBlockOnly(t *testing.T) {
+	for _, action := range []string{"users.view", "users.block"} {
+		if !HasPermission("hr", action) {
+			t.Errorf("hr must have %q", action)
+		}
+	}
+	for _, action := range []string{"users.create", "users.update", "users.delete"} {
+		if HasPermission("hr", action) {
+			t.Errorf("hr must NOT have %q", action)
+		}
 	}
 }
 
@@ -197,7 +220,7 @@ func TestClientsRecordPermissions(t *testing.T) {
 		"quality_control": {view: true, create: false, update: false},
 		"visa":            {view: true, create: false, update: true},
 		"sales":           {view: true, create: true, update: true},
-		"partner":         {view: true, create: false, update: true},
+		"partner":         {view: true, create: false, update: false},
 		"management":      {view: true, create: true, update: true},
 		"admin":           {view: true, create: true, update: true},
 	}
@@ -252,8 +275,8 @@ func TestDealsCreatePermissions(t *testing.T) {
 //     (they still cannot move users between branches — no users.move_branch)
 //   - branches.create/update/delete : admin only
 func TestBranchesPermissions(t *testing.T) {
-	viewAllowed := []string{"admin", "management", "hr", "legal"}
-	viewDenied := []string{"sales", "visa", "partner", "quality_control", ""}
+	viewAllowed := []string{"admin", "management", "hr"}
+	viewDenied := []string{"sales", "visa", "partner", "quality_control", "legal", ""}
 	for _, role := range viewAllowed {
 		if !HasPermission(role, "branches.view") {
 			t.Errorf("role %q must have branches.view", role)

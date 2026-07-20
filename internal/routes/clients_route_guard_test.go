@@ -94,7 +94,6 @@ func TestClientsRouteGuard_ScopedWritersPass(t *testing.T) {
 		{authz.RoleSales, "sales create", http.MethodPost, "/clients"},
 		{authz.RoleSales, "sales update", http.MethodPut, "/clients/1"},
 		{authz.RoleVisa, "visa update", http.MethodPut, "/clients/1"},
-		{authz.RolePartner, "partner update", http.MethodPut, "/clients/1"},
 		{authz.RoleManagement, "management create", http.MethodPost, "/clients"},
 		{authz.RoleSystemAdmin, "admin create", http.MethodPost, "/clients"},
 	}
@@ -106,8 +105,9 @@ func TestClientsRouteGuard_ScopedWritersPass(t *testing.T) {
 	}
 }
 
-// TestClientsRouteGuard_NoCreateForVisaPartner: visa and partner edit existing
-// clients (via admin approval) but may NOT create new ones — POST /clients is 403.
+// TestClientsRouteGuard_NoCreateForVisaPartner: visa edits existing clients (via
+// admin approval) but may NOT create; partner is view-only (обратная связь
+// 20.07.2026) — ни POST, ни PUT.
 func TestClientsRouteGuard_NoCreateForVisaPartner(t *testing.T) {
 	for _, role := range []struct {
 		id    int
@@ -120,5 +120,10 @@ func TestClientsRouteGuard_NoCreateForVisaPartner(t *testing.T) {
 		if code := clientsGuardStatus(r, http.MethodPost, "/clients"); code != http.StatusForbidden {
 			t.Errorf("%s POST /clients: want 403 (no create), got %d", role.label, code)
 		}
+	}
+	// partner — только просмотр: редактирование тоже запрещено
+	r := buildClientsGuardRouter(authz.RolePartner)
+	if code := clientsGuardStatus(r, http.MethodPut, "/clients/1"); code != http.StatusForbidden {
+		t.Errorf("partner PUT /clients/1: want 403 (view-only), got %d", code)
 	}
 }

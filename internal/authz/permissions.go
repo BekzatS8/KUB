@@ -99,35 +99,34 @@ var baseRolePermissions = map[string][]Permission{
 	),
 	// partner: no deals.* (partner dept works with leads/clients only)
 	// partner sees all clients (общая база) and all dept leads (by funnel/department)
-	// partner cannot create clients — only edit existing ones (via admin approval), like visa
+	// partner — только просмотр клиентов, без редактирования (обратная связь 20.07.2026).
 	// partner: documents.create добавлен (ТЗ 04.07.2026, п.2.1): у партнёрского
 	// отдела свои Excel-отчёты в scope 'partner'.
 	"partner": permissionsForScope(ScopeDepartment,
-		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view", "clients.update",
+		"feed.view", "leads.view", "leads.create", "leads.update", "clients.view",
 		"documents.view", "documents.create",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
-	// hr: employee/document management; no leads/deals/messenger
+	// hr: employee/document management; no leads/deals/messenger.
+	// Пользователи — только просмотр и блокировка, без создания/редактирования/
+	// удаления (обратная связь 20.07.2026).
 	"hr": append(
 		permissionsForScope(ScopeDepartment,
 			"feed.view",
-			"users.view", "users.create", "users.update", "users.delete", "users.block",
+			"users.view", "users.block",
 			"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
 			"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
 		),
-		// branches.view is needed for HR to list branches when creating/assigning users
+		// branches.view — read-only список филиалов для карточки пользователя
 		Permission{Action: "branches.view", Scope: ScopeAll},
 	),
-	// legal: clients+documents+users access; no leads/deals/messenger
-	"legal": append(
-		permissionsForScope(ScopeDepartment,
-			"feed.view", "clients.view",
-			"users.view", "users.create", "users.update", "users.delete", "users.block",
-			"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
-			"tasks.view", "tasks.create", "tasks.update", "chat.view", "telephony.view", "approvals.create",
-		),
-		// branches.view is needed for legal to list branches when creating/assigning users
-		Permission{Action: "branches.view", Scope: ScopeAll},
+	// legal: clients (просмотр) + документы + мессенджер; no leads/deals.
+	// Пользователями юрист не управляет (обратная связь 20.07.2026): users.* и
+	// branches.view убраны, добавлен messenger.view.
+	"legal": permissionsForScope(ScopeDepartment,
+		"feed.view", "clients.view",
+		"documents.view", "documents.create", "documents.update", "documents.send", "documents.download",
+		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "approvals.create",
 	),
 }
 

@@ -236,20 +236,34 @@ func (s *FunnelStageService) Board(funnelID, userID int) (*models.FunnelBoard, e
 	}
 
 	var deals []*models.FunnelBoardDeal
-	dataScope, scopeErr := resolveDealScope(userID, p.RoleID, s.userRepo)
-	if scopeErr == nil && dataScope.Kind != ScopeKindForbidden {
+
+	// Сделки — по scope сделок. Партнёрский/кадры/юристы сделок не ведут
+	// (resolveDealScope → Forbidden), у них тут просто пусто.
+	dealScope, dealErr := resolveDealScope(userID, p.RoleID, s.userRepo)
+	if dealErr == nil && dealScope.Kind != ScopeKindForbidden {
 		var branchID, deptID *int
-		if dataScope.Kind == ScopeKindBranch {
-			branchID = dataScope.BranchID
-			deptID = dataScope.DepartmentID
+		if dealScope.Kind == ScopeKindBranch {
+			branchID = dealScope.BranchID
+			deptID = dealScope.DepartmentID
 		}
 		deals, err = s.repo.ListBoardDeals(funnelID, branchID, deptID)
 		if err != nil {
 			return nil, err
 		}
-		// Inbound leads live on the board next to deals until converted
-		// (ТЗ 04.07.2026, п.1.1). A lead without a stage lands on the first
-		// stage ("Новая заявка").
+	}
+
+	// Лиды — по ОТДЕЛЬНОМУ scope лидов. Раньше загрузка лидов была вложена в
+	// проверку scope сделок, и партнёрский отдел (у него есть leads.view, но нет
+	// deals.*) не видел своих лидов вообще — доска показывала пусто
+	// (обратная связь 20.07.2026). Inbound-лиды живут на доске рядом со сделками
+	// до конвертации (ТЗ 04.07.2026, п.1.1); лид без стадии садится на первую.
+	leadScope, leadErr := resolveLeadScope(userID, p.RoleID, s.userRepo)
+	if leadErr == nil && leadScope.Kind != ScopeKindForbidden {
+		var branchID, deptID *int
+		if leadScope.Kind == ScopeKindBranch {
+			branchID = leadScope.BranchID
+			deptID = leadScope.DepartmentID
+		}
 		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID)
 		if leadsErr != nil {
 			return nil, leadsErr

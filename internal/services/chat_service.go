@@ -493,6 +493,43 @@ func (s *ChatService) DeleteChat(chatID, userID int) error {
 	return s.repo.DeleteChat(chatID)
 }
 
+// RemoveMemberByActor удаляет участника из группового чата. Разрешено владельцу
+// или админу группы, а также системному администратору (isSystemAdmin).
+// Владельца группы удалить нельзя.
+func (s *ChatService) RemoveMemberByActor(chatID, targetUserID, actorID int, isSystemAdmin bool) error {
+	chat, err := s.repo.GetChatByID(chatID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrChatNotFound
+		}
+		return err
+	}
+	if !chat.IsGroup {
+		return ErrChatForbidden // удаление участников — только для групп
+	}
+	if err := s.ensureChatBranchAccessForChat(chat, actorID); err != nil {
+		return err
+	}
+	// системный админ может всё; иначе актор обязан быть владельцем/админом группы
+	if !isSystemAdmin {
+		role, err := s.repo.GetMemberRole(chatID, actorID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotChatMember
+			}
+			return err
+		}
+		if role != models.ChatMemberRoleOwner && role != models.ChatMemberRoleAdmin {
+			return ErrChatForbidden
+		}
+	}
+	// нельзя вышибить владельца группы
+	if targetRole, err := s.repo.GetMemberRole(chatID, targetUserID); err == nil && targetRole == models.ChatMemberRoleOwner {
+		return ErrChatForbidden
+	}
+	return s.repo.RemoveMember(chatID, targetUserID)
+}
+
 func (s *ChatService) ensureMember(chatID, userID int) error {
 	ok, err := s.repo.IsMember(chatID, userID)
 	if err != nil {

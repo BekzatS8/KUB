@@ -459,6 +459,7 @@ func SetupRoutes(
 		chats.POST("/group", chatHandler.CreateGroupChat)
 
 		chats.POST("/:id/add-members", chatHandler.AddMembers)
+		chats.DELETE("/:id/members/:user_id", chatHandler.RemoveMember)
 		chats.POST("/:id/leave", chatHandler.LeaveChat)
 		chats.POST("/:id/read", chatHandler.MarkRead)
 		chats.POST("/:id/upload", chatHandler.UploadAttachment)

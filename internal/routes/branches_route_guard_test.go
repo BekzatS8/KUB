@@ -66,7 +66,6 @@ func TestBranchesRouteGuard_ViewRequiresPermission(t *testing.T) {
 		{authz.RoleSystemAdmin, "admin"},
 		{authz.RoleManagement, "management"},
 		{authz.RoleHR, "hr"},
-		{authz.RoleLegal, "legal"},
 	} {
 		r := buildBranchesGuardRouter(role.id)
 		if code := branchesGuardStatus(r, http.MethodGet, "/branches"); code != http.StatusOK {
@@ -81,6 +80,7 @@ func TestBranchesRouteGuard_ViewRequiresPermission(t *testing.T) {
 		{authz.RoleVisa, "visa"},
 		{authz.RolePartner, "partner"},
 		{authz.RoleControl, "quality_control"},
+		{authz.RoleLegal, "legal"},
 	} {
 		r := buildBranchesGuardRouter(role.id)
 		if code := branchesGuardStatus(r, http.MethodGet, "/branches"); code != http.StatusForbidden {

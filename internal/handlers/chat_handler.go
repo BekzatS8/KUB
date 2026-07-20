@@ -457,6 +457,31 @@ func (h *ChatHandler) LeaveChat(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// RemoveMember — DELETE /chats/:id/members/:user_id: удалить участника из группы.
+// Разрешено владельцу/админу группы или системному администратору.
+func (h *ChatHandler) RemoveMember(c *gin.Context) {
+	actorID, roleID := getUserAndRole(c)
+	if !ensureCanUseChat(c, roleID) {
+		return
+	}
+	chatID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid chat id")
+		return
+	}
+	targetID, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil || targetID <= 0 {
+		badRequest(c, "Invalid user id")
+		return
+	}
+	if err := h.service.RemoveMemberByActor(chatID, targetID, actorID, roleID == authz.RoleSystemAdmin); err != nil {
+		status, code, msg := mapChatError(err, "Failed to remove member")
+		writeError(c, status, code, msg)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *ChatHandler) DeleteChat(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	if !ensureCanUseChat(c, roleID) {
