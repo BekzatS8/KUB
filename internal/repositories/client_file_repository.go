@@ -46,6 +46,57 @@ func (r *ClientFileRepository) UpsertPrimary(
 	return file, nil
 }
 
+// Insert добавляет ещё один файл в категорию (is_primary = FALSE), не затирая
+// существующие — для вложений, которых может быть много (паспорт, справки,
+// дипломы). Уникальный индекс primary такие строки не ограничивает.
+func (r *ClientFileRepository) Insert(
+	ctx context.Context,
+	clientID int64,
+	category string,
+	filePath string,
+	mime *string,
+	sizeBytes *int64,
+	uploadedBy *int64,
+) (*models.ClientFile, error) {
+	const q = `
+		INSERT INTO client_files (client_id, category, file_path, mime, size_bytes, uploaded_by, is_primary)
+		VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+		RETURNING id, client_id, category, file_path, mime, size_bytes, uploaded_by, created_at, is_primary
+	`
+	row := r.db.QueryRowContext(ctx, q, clientID, category, filePath, mime, sizeBytes, uploadedBy)
+	file, err := scanClientFile(row)
+	if err != nil {
+		return nil, fmt.Errorf("insert client file: %w", err)
+	}
+	return file, nil
+}
+
+// GetByID возвращает файл по id; nil, если не найден.
+func (r *ClientFileRepository) GetByID(ctx context.Context, id int64) (*models.ClientFile, error) {
+	const q = `
+		SELECT id, client_id, category, file_path, mime, size_bytes, uploaded_by, created_at, is_primary
+		FROM client_files WHERE id = $1
+	`
+	file, err := scanClientFile(r.db.QueryRowContext(ctx, q, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get client file by id: %w", err)
+	}
+	return file, nil
+}
+
+// DeleteByID удаляет файл клиента по id (с проверкой принадлежности клиенту).
+func (r *ClientFileRepository) DeleteByID(ctx context.Context, id, clientID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM client_files WHERE id = $1 AND client_id = $2`, id, clientID)
+	if err != nil {
+		return false, fmt.Errorf("delete client file: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 func (r *ClientFileRepository) ListByClient(ctx context.Context, clientID int64) ([]*models.ClientFile, error) {
 	const q = `
 		SELECT id, client_id, category, file_path, mime, size_bytes, uploaded_by, created_at, is_primary

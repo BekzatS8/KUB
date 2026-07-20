@@ -240,6 +240,138 @@ func (h *ManagerReportHandler) GetReport(c *gin.Context) {
 	c.JSON(http.StatusOK, rep)
 }
 
+// SaveReport — PUT /reports/table/report/:id: админ правит ЛЮБОЙ отчёт
+// сотрудника (обратная связь 20.07.2026).
+func (h *ManagerReportHandler) SaveReport(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	var req saveReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if !validateContent(c, req.Content) {
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		existing, err := h.repo.GetByID(c.Request.Context(), reportID)
+		if err != nil {
+			internalError(c, "Failed to save report")
+			return
+		}
+		if existing == nil {
+			notFound(c, NotFoundCode, "Отчёт не найден")
+			return
+		}
+		title = existing.Title
+	}
+	updated, err := h.repo.UpdateByID(c.Request.Context(), reportID, normalizeTitle(title), req.Content)
+	if err != nil {
+		internalError(c, "Failed to save report")
+		return
+	}
+	if !updated {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// DeleteReport — DELETE /reports/table/report/:id: админ удаляет любой отчёт.
+func (h *ManagerReportHandler) DeleteReport(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	deleted, err := h.repo.DeleteByID(c.Request.Context(), reportID)
+	if err != nil {
+		internalError(c, "Failed to delete report")
+		return
+	}
+	if !deleted {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// ExportReport — GET /reports/table/report/:id/export: выгрузка отчёта в xlsx.
+// Доступно тем, кто видит чужие отчёты (админ/руководство/КК).
+func (h *ManagerReportHandler) ExportReport(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanViewAllBusinessData(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	rep, err := h.repo.GetByID(c.Request.Context(), reportID)
+	if err != nil {
+		internalError(c, "Failed to load report")
+		return
+	}
+	if rep == nil {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+
+	var content struct {
+		Columns []string   `json:"columns"`
+		Rows    [][]string `json:"rows"`
+	}
+	if len(rep.Content) > 0 {
+		_ = json.Unmarshal(rep.Content, &content)
+	}
+	data, err := buildSimpleXLSX(rep.Title, content.Columns, content.Rows)
+	if err != nil {
+		internalError(c, "Failed to build xlsx")
+		return
+	}
+
+	fileName := sanitizeReportFileName(rep.Title) + ".xlsx"
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
+}
+
+// sanitizeReportFileName приводит название отчёта к безопасному имени файла.
+func sanitizeReportFileName(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "report"
+	}
+	title = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			return '_'
+		}
+		if r < 0x20 {
+			return '_'
+		}
+		return r
+	}, title)
+	runes := []rune(title)
+	if len(runes) > 80 {
+		runes = runes[:80]
+	}
+	return string(runes)
+}
+
 func parseReportID(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {

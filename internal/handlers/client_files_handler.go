@@ -119,6 +119,128 @@ func (h *ClientFilesHandler) servePrimary(c *gin.Context, download bool) {
 	http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, reader)
 }
 
+// GET /clients/:id/attachments — список файлов-вложений клиента.
+func (h *ClientFilesHandler) ListAttachments(c *gin.Context) {
+	clientID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || clientID <= 0 {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	files, err := h.Service.ListFiles(c.Request.Context(), userID, roleID, clientID)
+	if err != nil {
+		h.mapClientFileError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": files, "count": len(files)})
+}
+
+// POST /clients/:id/attachments — загрузить файл-вложение (несколько на категорию).
+func (h *ClientFilesHandler) UploadAttachment(c *gin.Context) {
+	clientID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || clientID <= 0 {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	category := c.PostForm("category")
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		badRequest(c, "Выберите файл для загрузки")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	rec, err := h.Service.UploadAttachment(c.Request.Context(), userID, roleID, clientID, category, fileHeader)
+	if err != nil {
+		h.mapClientFileError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// GET /clients/:id/attachments/:fileId — просмотр (inline, для вьюера/зума).
+func (h *ClientFilesHandler) ServeAttachmentInline(c *gin.Context) {
+	h.serveAttachment(c, false)
+}
+
+// GET /clients/:id/attachments/:fileId/download — скачивание.
+func (h *ClientFilesHandler) ServeAttachmentDownload(c *gin.Context) {
+	h.serveAttachment(c, true)
+}
+
+func (h *ClientFilesHandler) serveAttachment(c *gin.Context, download bool) {
+	clientID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || clientID <= 0 {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	fileID, err := strconv.ParseInt(c.Param("fileId"), 10, 64)
+	if err != nil || fileID <= 0 {
+		badRequest(c, "Некорректный ID файла")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	key, fileName, mimeType, err := h.Service.ResolveFileByID(c.Request.Context(), userID, roleID, clientID, fileID)
+	if err != nil {
+		h.mapClientFileError(c, err)
+		return
+	}
+	reader, _, err := h.Store.Open(c.Request.Context(), key)
+	if err != nil {
+		notFound(c, NotFoundCode, "Файл клиента не найден")
+		return
+	}
+	defer reader.Close()
+	if mimeType != "" {
+		c.Header("Content-Type", mimeType)
+	}
+	if download {
+		c.Header("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	} else {
+		c.Header("Content-Disposition", "inline")
+	}
+	http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, reader)
+}
+
+// DELETE /clients/:id/attachments/:fileId — удалить файл клиента.
+func (h *ClientFilesHandler) DeleteAttachment(c *gin.Context) {
+	clientID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || clientID <= 0 {
+		badRequest(c, "Некорректный ID клиента")
+		return
+	}
+	fileID, err := strconv.ParseInt(c.Param("fileId"), 10, 64)
+	if err != nil || fileID <= 0 {
+		badRequest(c, "Некорректный ID файла")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := h.Service.DeleteFile(c.Request.Context(), userID, roleID, clientID, fileID); err != nil {
+		h.mapClientFileError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// mapClientFileError — общий маппинг ошибок работы с файлами клиента.
+func (h *ClientFilesHandler) mapClientFileError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrForbidden), errors.Is(err, services.ErrReadOnly):
+		forbidden(c, "У вас нет прав на файлы этого клиента")
+	case errors.Is(err, repositories.ErrClientNotFound):
+		notFound(c, ClientNotFoundCode, "Клиент не найден")
+	case errors.Is(err, repositories.ErrClientFileNotFound), errors.Is(err, os.ErrNotExist):
+		notFound(c, NotFoundCode, "Файл клиента не найден")
+	case errors.Is(err, services.ErrUnsupportedClientFileCategory):
+		badRequest(c, "Недопустимая категория файла")
+	case errors.Is(err, services.ErrUnsupportedClientFileExtension):
+		badRequest(c, "Формат файла не поддерживается")
+	case errors.Is(err, services.ErrFileRequired):
+		badRequest(c, "Выберите файл для загрузки")
+	default:
+		internalError(c, "Не удалось выполнить операцию с файлом клиента")
+	}
+}
+
 func itoa(n int64) string {
 	return strconv.FormatInt(n, 10)
 }

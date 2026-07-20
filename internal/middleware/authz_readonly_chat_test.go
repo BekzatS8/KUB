@@ -94,3 +94,36 @@ func TestReadOnlyGuard_StillBlocksBusinessWritesForControl(t *testing.T) {
 		t.Fatalf("expected 403 for business write, got %d", w.Code)
 	}
 }
+
+// TestReadOnlyGuard_AllowsOwnReportsForControl — ОКК ведёт СВОИ отчёты-таблицы
+// (создание/сохранение/удаление), но чужие отчёты только смотрит (обратная связь
+// 20.07.2026: после перевода отчётов на мультирежим с :id старый allowlist их
+// перестал пропускать — ОКК не мог создавать отчёты).
+func TestReadOnlyGuard_AllowsOwnReportsForControl(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role_id", authz.RoleControl)
+		c.Next()
+	})
+	r.Use(ReadOnlyGuard())
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+	r.POST("/reports/table/my", ok)
+	r.PUT("/reports/table/my/:id", ok)
+	r.DELETE("/reports/table/my/:id", ok)
+
+	cases := []struct {
+		method, path string
+	}{
+		{http.MethodPost, "/reports/table/my"},
+		{http.MethodPut, "/reports/table/my/12"},
+		{http.MethodDelete, "/reports/table/my/12"},
+	}
+	for _, c := range cases {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(c.method, c.path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s %s: ожидался 200 (ОКК ведёт свой отчёт), got %d", c.method, c.path, w.Code)
+		}
+	}
+}

@@ -132,6 +132,27 @@ func (r *ManagerReportRepository) Delete(ctx context.Context, id, userID int) (b
 	return n > 0, err
 }
 
+// UpdateByID редактирует любой отчёт без проверки владельца — для админа.
+func (r *ManagerReportRepository) UpdateByID(ctx context.Context, id int, title string, content json.RawMessage) (bool, error) {
+	const q = `UPDATE manager_reports SET title = $2, content = $3, updated_at = NOW() WHERE id = $1`
+	res, err := r.db.ExecContext(ctx, q, id, title, content)
+	if err != nil {
+		return false, fmt.Errorf("update manager report by id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// DeleteByID удаляет любой отчёт без проверки владельца — для админа.
+func (r *ManagerReportRepository) DeleteByID(ctx context.Context, id int) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM manager_reports WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete manager report by id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // ListOwners возвращает сотрудников, у которых есть отчёты, — список для
 // руководителя/КК: кто ведёт отчёты, сколько их и когда обновлялись.
 func (r *ManagerReportRepository) ListOwners(ctx context.Context) ([]*ManagerReportOwner, error) {

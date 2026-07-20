@@ -310,6 +310,13 @@ func SetupRoutes(
 			clients.POST("/:id/files", clientFilesHandler.Upload)
 			clients.GET("/:id/files/primary", clientFilesHandler.ServePrimaryInline)
 			clients.GET("/:id/files/primary/download", clientFilesHandler.ServePrimaryDownload)
+			// вложения-документы клиента (паспорт, удостоверение, права, дипломы,
+			// справки): список, загрузка, просмотр/скачивание, удаление
+			clients.GET("/:id/attachments", clientFilesHandler.ListAttachments)
+			clients.POST("/:id/attachments", clientFilesHandler.UploadAttachment)
+			clients.GET("/:id/attachments/:fileId", clientFilesHandler.ServeAttachmentInline)
+			clients.GET("/:id/attachments/:fileId/download", clientFilesHandler.ServeAttachmentDownload)
+			clients.DELETE("/:id/attachments/:fileId", clientFilesHandler.DeleteAttachment)
 		}
 		if clientAvatarHandler != nil {
 			clients.POST("/:id/avatar", middleware.RequirePermission("clients.update", "client"), clientAvatarHandler.Upload)
@@ -543,6 +550,10 @@ func SetupRoutes(
 			reportTables.GET("", managerReportHandler.List)
 			reportTables.GET("/user/:id", managerReportHandler.ListByUser)
 			reportTables.GET("/report/:id", managerReportHandler.GetReport)
+			// экспорт в Excel — руководство/админ/КК; правка/удаление чужого — админ
+			reportTables.GET("/report/:id/export", managerReportHandler.ExportReport)
+			reportTables.PUT("/report/:id", managerReportHandler.SaveReport)
+			reportTables.DELETE("/report/:id", managerReportHandler.DeleteReport)
 		}
 	}
 

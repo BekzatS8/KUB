@@ -1046,7 +1046,9 @@ func (s *ClientService) validateClientListFilter(filter *repositories.ClientList
 }
 
 func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) error {
-	if !authz.CanArchiveBusinessEntity(roleID) {
+	// Архивировать клиентов может только администратор (обратная связь 20.07.2026):
+	// раньше это разрешалось всем бизнес-ролям, включая руководство.
+	if !authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	client, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)
@@ -1070,7 +1072,8 @@ func (s *ClientService) ArchiveClient(id, userID, roleID int, reason string) err
 }
 
 func (s *ClientService) UnarchiveClient(id, userID, roleID int) error {
-	if !authz.CanArchiveBusinessEntity(roleID) {
+	// Разархивировать клиентов — тоже только администратор (см. ArchiveClient).
+	if !authz.CanManageSystem(roleID) {
 		return ErrForbidden
 	}
 	client, err := s.Repo.GetByIDWithArchiveScope(id, repositories.ArchiveScopeAll)

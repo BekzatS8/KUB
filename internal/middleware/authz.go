@@ -49,15 +49,17 @@ func ReadOnlyGuard() gin.HandlerFunc {
 				// ok
 			case http.MethodPost:
 				if isReadOnlyChatWriteAllowed(c.Request.URL.Path) ||
-					isReadOnlyDocWriteAllowed(c.Request.URL.Path) {
+					isReadOnlyDocWriteAllowed(c.Request.URL.Path) ||
+					isReadOnlyReportWriteAllowed(c.Request.URL.Path) {
 					c.Next()
 					return
 				}
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "read-only role"})
 				return
 			default:
-				// ОКК ведёт собственный отчёт-таблицу (ТЗ 04.07.2026, п.3)
-				if c.Request.Method == http.MethodPut && c.Request.URL.Path == "/reports/table/my" {
+				// ОКК ведёт собственные отчёты-таблицы (ТЗ 04.07.2026, п.3):
+				// создание/сохранение/удаление своих отчётов (/reports/table/my*).
+				if isReadOnlyReportWriteAllowed(c.Request.URL.Path) {
 					c.Next()
 					return
 				}
@@ -67,6 +69,16 @@ func ReadOnlyGuard() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// reReportOwnAction matches the read-only role's OWN report endpoints:
+// /reports/table/my (create) and /reports/table/my/<id> (save/delete).
+// Чужие отчёты (/reports/table, /reports/table/user/:id, /report/:id) сюда не
+// попадают — read-only роль их только просматривает (это GET).
+var reReportOwnAction = regexp.MustCompile(`^/reports/table/my(?:/\d+)?$`)
+
+func isReadOnlyReportWriteAllowed(path string) bool {
+	return reReportOwnAction.MatchString(path)
 }
 
 func isReadOnlyChatWriteAllowed(path string) bool {
