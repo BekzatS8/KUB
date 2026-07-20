@@ -39,6 +39,8 @@ SELECT
 	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, ''), '') AS primary_email,
 	COALESCE(c.address, '') AS address,
 	COALESCE(c.contact_info, '') AS contact_info,
+	COALESCE(c.telegram_username, '') AS telegram_username,
+	COALESCE(c.instagram_username, '') AS instagram_username,
 	c.created_at,
 	COALESCE(c.updated_at, c.created_at) AS updated_at,
 	c.is_archived,
@@ -81,6 +83,8 @@ SELECT
 	COALESCE(NULLIF(c.primary_email, ''), NULLIF(c.email, ''), '') AS primary_email,
 	COALESCE(c.address, '') AS address,
 	COALESCE(c.contact_info, '') AS contact_info,
+	COALESCE(c.telegram_username, '') AS telegram_username,
+	COALESCE(c.instagram_username, '') AS instagram_username,
 	c.created_at,
 	COALESCE(c.updated_at, c.created_at) AS updated_at,
 	c.is_archived,
@@ -132,7 +136,7 @@ func scanClient(scanner clientRowScanner) (*models.Client, error) {
 	ip := &models.ClientIndividualProfile{}
 	lp := &models.ClientLegalProfile{}
 	err := scanner.Scan(
-		&c.ID, &c.OwnerID, &branchID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.OwnerID, &branchID, &c.ClientType, &displayName, &primaryPhone, &primaryEmail, &c.Address, &c.ContactInfo, &c.TelegramUsername, &c.InstagramUsername, &c.CreatedAt, &c.UpdatedAt,
 		&c.IsArchived, &archivedAt, &archivedBy, &archiveReason,
 		&avatarURL, &avatarPath, &avatarCropX, &avatarCropY, &avatarCropScale, &avatarCropSize,
 		&ip.LastName, &ip.FirstName, &ip.MiddleName, &ip.IIN, &ip.IDNumber, &ip.PassportSeries, &ip.PassportNumber, &ip.PassportIdentity,
@@ -299,10 +303,10 @@ func (r *ClientRepository) Create(c *models.Client) (int64, error) {
 	if c.UpdatedAt.IsZero() {
 		c.UpdatedAt = now
 	}
-	q := `INSERT INTO clients (owner_id, branch_id, client_type, display_name, primary_phone, primary_email, address, contact_info, created_at, updated_at, name, phone, email, bin_iin)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`
+	q := `INSERT INTO clients (owner_id, branch_id, client_type, display_name, primary_phone, primary_email, address, contact_info, telegram_username, instagram_username, created_at, updated_at, name, phone, email, bin_iin)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`
 	var id int64
-	err = tx.QueryRow(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.CreatedAt, c.UpdatedAt, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin)).Scan(&id)
+	err = tx.QueryRow(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, nullString(c.TelegramUsername), nullString(c.InstagramUsername), c.CreatedAt, c.UpdatedAt, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("create client: %w", err)
 	}
@@ -371,8 +375,8 @@ func buildLegalProfileForUpsert(c *models.Client) models.ClientLegalProfile {
 }
 
 func (r *ClientRepository) Update(c *models.Client) error {
-	q := `UPDATE clients SET owner_id=$1, branch_id=$2, client_type=$3, display_name=$4, primary_phone=$5, primary_email=$6, address=$7, contact_info=$8, updated_at=NOW(), name=$9, phone=$10, email=$11, bin_iin=$12 WHERE id=$13`
-	_, err := r.db.Exec(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin), c.ID)
+	q := `UPDATE clients SET owner_id=$1, branch_id=$2, client_type=$3, display_name=$4, primary_phone=$5, primary_email=$6, address=$7, contact_info=$8, telegram_username=$9, instagram_username=$10, updated_at=NOW(), name=$11, phone=$12, email=$13, bin_iin=$14 WHERE id=$15`
+	_, err := r.db.Exec(q, c.OwnerID, c.BranchID, c.ClientType, c.Name, nullString(c.Phone), nullString(c.Email), c.Address, c.ContactInfo, nullString(c.TelegramUsername), nullString(c.InstagramUsername), c.Name, nullString(c.Phone), nullString(c.Email), nullString(c.BinIin), c.ID)
 	if err != nil {
 		return fmt.Errorf("update client: %w", err)
 	}
@@ -600,6 +604,10 @@ func (r *ClientRepository) UpdatePartial(id int, updates map[string]any) error {
 			current.Address = s
 		case "contact_info":
 			current.ContactInfo = s
+		case "telegram_username":
+			current.TelegramUsername = s
+		case "instagram_username":
+			current.InstagramUsername = s
 		case "last_name":
 			current.LastName = s
 		case "first_name":

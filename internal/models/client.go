@@ -19,6 +19,10 @@ type Client struct {
 	Address      string `json:"address"`      // Общий адрес (можно использовать как фактический)
 	ContactInfo  string `json:"contact_info"` // Доп. инфа (телеграм и т.п.)
 
+	// Мессенджер-хендлы для быстрой связи из карточки клиента.
+	TelegramUsername  string `json:"telegram_username" db:"telegram_username"`
+	InstagramUsername string `json:"instagram_username" db:"instagram_username"`
+
 	// Поля анкеты (физ. лицо)
 	LastName   string `json:"last_name"`   // Фамилия
 	FirstName  string `json:"first_name"`  // Имя
