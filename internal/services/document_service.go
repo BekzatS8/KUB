@@ -37,7 +37,11 @@ import (
 var (
 	ErrPDFCPUMissing           = errors.New("pdfcpu binary is not available")
 	ErrDocumentChangedAfterOTP = errors.New("DOCUMENT_CHANGED_AFTER_OTP")
-	logTTFFontsOnce            sync.Once
+	// ErrSignArtifactBuild оборачивает любой сбой сборки подписанного PDF
+	// (лист подписания gofpdf, merge через pdfcpu, выгрузка в S3). Раньше такие
+	// ошибки уходили наверх безымянными и терялись в общей ветке «Failed to sign».
+	ErrSignArtifactBuild = errors.New("failed to build signed artifact")
+	logTTFFontsOnce      sync.Once
 )
 
 type DocumentRepo interface {
@@ -1295,12 +1299,18 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 
 	signPageAbs := filepath.Join(s.FilesRoot, "pdf", fmt.Sprintf("%s_sign_page_%d.pdf", base, time.Now().UnixNano()))
 	if err := s.buildSigningPagePDF(doc, session, signPageAbs); err != nil {
-		return err
+		log.Printf("[doc][sign][artifact] build signing page doc=%d: %v", doc.ID, err)
+		return fmt.Errorf("%w: signing page: %v", ErrSignArtifactBuild, err)
 	}
 	defer os.Remove(signPageAbs)
 
 	if err := mergePDFsFunc(originalLocal, signPageAbs, signedLocalAbs); err != nil {
-		return err
+		// pdfcpu-специфику (нет бинаря) пробрасываем как есть — у неё свой код
+		if errors.Is(err, ErrPDFCPUMissing) {
+			return err
+		}
+		log.Printf("[doc][sign][artifact] merge pdf doc=%d: %v", doc.ID, err)
+		return fmt.Errorf("%w: merge: %v", ErrSignArtifactBuild, err)
 	}
 
 	// Upload merged PDF to S3 if enabled.

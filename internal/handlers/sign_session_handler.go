@@ -164,7 +164,15 @@ func handleSignSessionTokenError(c *gin.Context, err error) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PDFCPU_MISSING"})
 	case errors.Is(err, services.ErrDocumentChangedAfterOTP):
 		c.JSON(http.StatusConflict, gin.H{"error": "DOCUMENT_CHANGED_AFTER_OTP"})
+	case errors.Is(err, services.ErrSignArtifactBuild):
+		// сборка подписанного PDF (лист подписания + merge) не удалась —
+		// отдаём отдельный код, чтобы отличать от «документ недоступен»
+		log.Printf("[sign][session][artifact][error] err=%v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "SIGN_ARTIFACT_BUILD_FAILED"})
 	default:
+		// раньше эта ветка молчала — реальная причина (pdfcpu/шрифт/S3)
+		// терялась. Логируем, чтобы диагностировать по продовым логам.
+		log.Printf("[sign][session][error] err=%v", err)
 		internalError(c, "Failed to sign")
 	}
 }

@@ -356,6 +356,9 @@
         const err = payload.error || 'UNKNOWN';
         if (err === 'Session expired')       setState('Сессия подписи истекла. Запросите новую ссылку.', 'error');
         else if (err === 'Session already signed') setState('Документ уже подписан.', 'error');
+        else if (err === 'DOCUMENT_CHANGED_AFTER_OTP') setState('Документ изменился после ввода кода. Откройте ссылку заново.', 'error');
+        else if (err === 'PDFCPU_MISSING' || err === 'SIGN_ARTIFACT_BUILD_FAILED')
+          setState('Не удалось собрать подписанный документ. Мы уже уведомлены — попробуйте позже или обратитесь к отправителю.', 'error');
         else setState('Не удалось завершить подпись. Попробуйте позже.', 'error');
         return;
       }
