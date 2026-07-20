@@ -492,9 +492,7 @@ func (h *DocumentSigningConfirmationHandler) PreviewByEmailToken(c *gin.Context)
 	if fileName == "" {
 		fileName = "document"
 	}
-	c.Header("Content-Type", contentType)
-	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileName))
-	c.File(preview.AbsPath)
+	h.streamPreview(c, preview, contentType, fileName)
 }
 
 func (h *DocumentSigningConfirmationHandler) PreviewBySMSToken(c *gin.Context) {
@@ -513,9 +511,30 @@ func (h *DocumentSigningConfirmationHandler) PreviewBySMSToken(c *gin.Context) {
 		return
 	}
 	_ = h.Service.RecordSMSPreviewOpened(c.Request.Context(), preview, c.ClientIP(), c.GetHeader("User-Agent"))
-	c.Header("Content-Type", preview.ContentType)
-	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, preview.FileName))
-	c.File(preview.AbsPath)
+	contentType := strings.TrimSpace(preview.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	fileName := strings.TrimSpace(preview.FileName)
+	if fileName == "" {
+		fileName = "document"
+	}
+	h.streamPreview(c, preview, contentType, fileName)
+}
+
+// streamPreview отдаёт документ клиенту: из объектного хранилища (S3) или с
+// локального диска — тем же способом, что и обычная отдача документов.
+func (h *DocumentSigningConfirmationHandler) streamPreview(c *gin.Context, preview *services.EmailDocumentPreview, contentType, fileName string) {
+	reader, err := h.Service.OpenDocument(preview)
+	if err != nil {
+		log.Printf("[sign][confirm][preview][open][error] doc=%d err=%v", preview.DocumentID, err)
+		internalError(c, "Failed to open document")
+		return
+	}
+	defer reader.Close()
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileName))
+	http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, reader)
 }
 
 func (h *DocumentSigningConfirmationHandler) VerifySMSToken(c *gin.Context) {

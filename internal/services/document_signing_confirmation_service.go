@@ -23,6 +23,7 @@ import (
 
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
+	"turcompany/internal/storage"
 )
 
 const (
@@ -142,6 +143,49 @@ type DocumentSigningConfirmationService struct {
 	serverTZ      *time.Location
 	now           func() time.Time
 	debug         *signConfirmDebugStore
+	// store — то же объектное хранилище, что у DocumentService. Без него
+	// предпросмотр и хеширование читали только локальный диск, и на S3-деплое
+	// сгенерированный PDF (лежит в S3, не на диске пода) не находился —
+	// клиент видел «Failed to confirm signing» вместо документа.
+	store storage.Storage
+}
+
+// SetStore подключает объектное хранилище (S3). nil = только локальный диск.
+func (s *DocumentSigningConfirmationService) SetStore(store storage.Storage) {
+	if s != nil {
+		s.store = store
+	}
+}
+
+// documentStorageKey нормализует относительный путь в ключ хранилища:
+// как в DocumentService — без ведущего слэша и префикса files/.
+func documentStorageKey(rel string) string {
+	rel = strings.ReplaceAll(strings.TrimSpace(rel), "\\", "/")
+	rel = strings.TrimPrefix(rel, "/")
+	return strings.TrimPrefix(rel, "files/")
+}
+
+// openDocumentContent открывает файл документа: сначала из хранилища (S3),
+// затем с локального диска. Ровно та же стратегия, что у serveDocumentFile.
+func (s *DocumentSigningConfirmationService) openDocumentContent(rel string) (io.ReadSeekCloser, error) {
+	key := documentStorageKey(rel)
+	if s.store != nil {
+		if reader, _, err := s.store.Open(context.Background(), key); err == nil {
+			return reader, nil
+		}
+		// не в S3 — пробуем локальный диск (файл ещё не выгружен)
+	}
+	return os.Open(filepath.Join(strings.TrimSpace(s.filesRoot), filepath.FromSlash(key)))
+}
+
+// documentContentExists проверяет доступность файла в хранилище или на диске.
+func (s *DocumentSigningConfirmationService) documentContentExists(rel string) bool {
+	reader, err := s.openDocumentContent(rel)
+	if err != nil {
+		return false
+	}
+	_ = reader.Close()
+	return true
 }
 
 func withSignConfirmTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -859,13 +903,24 @@ func (s *DocumentSigningConfirmationService) ValidateSMSToken(
 }
 
 type EmailDocumentPreview struct {
-	DocumentID       int64
-	ConfirmationID   string
-	FileName         string
-	ContentType      string
-	DocumentHash     string
+	DocumentID     int64
+	ConfirmationID string
+	FileName       string
+	ContentType    string
+	DocumentHash   string
+	// AbsPath — локальный путь (для local-режима). RelPath — ключ хранилища,
+	// по нему хендлер стримит из S3, если оно настроено.
 	AbsPath          string
+	RelPath          string
 	ConfirmationMeta json.RawMessage
+}
+
+// OpenDocument открывает содержимое документа предпросмотра (S3 или диск).
+func (s *DocumentSigningConfirmationService) OpenDocument(p *EmailDocumentPreview) (io.ReadSeekCloser, error) {
+	if p == nil {
+		return nil, errors.New("nil preview")
+	}
+	return s.openDocumentContent(p.RelPath)
 }
 
 func (s *DocumentSigningConfirmationService) PrepareEmailDocumentPreview(
@@ -907,13 +962,8 @@ func (s *DocumentSigningConfirmationService) PrepareEmailDocumentPreview(
 	if err != nil {
 		return nil, err
 	}
-	root := strings.TrimSpace(s.filesRoot)
-	if root == "" {
-		return nil, errors.New("files root is required")
-	}
-	absPath := filepath.Join(root, relPath)
-	if _, err := os.Stat(absPath); err != nil {
-		return nil, fmt.Errorf("open document: %w", err)
+	if !s.documentContentExists(relPath) {
+		return nil, fmt.Errorf("open document: %w", os.ErrNotExist)
 	}
 	fileName := documentFileName(doc)
 	documentHash := ""
@@ -926,7 +976,8 @@ func (s *DocumentSigningConfirmationService) PrepareEmailDocumentPreview(
 		FileName:         fileName,
 		ContentType:      documentContentType(fileName),
 		DocumentHash:     documentHash,
-		AbsPath:          absPath,
+		AbsPath:          filepath.Join(strings.TrimSpace(s.filesRoot), filepath.FromSlash(documentStorageKey(relPath))),
+		RelPath:          relPath,
 		ConfirmationMeta: pending.Meta,
 	}, nil
 }
@@ -1452,9 +1503,8 @@ func (s *DocumentSigningConfirmationService) prepareDocumentPreviewByChannel(
 	if err != nil {
 		return nil, err
 	}
-	absPath := filepath.Join(strings.TrimSpace(s.filesRoot), relPath)
-	if _, err := os.Stat(absPath); err != nil {
-		return nil, fmt.Errorf("open document: %w", err)
+	if !s.documentContentExists(relPath) {
+		return nil, fmt.Errorf("open document: %w", os.ErrNotExist)
 	}
 	documentHash := ""
 	if hash, hashErr := s.hashDocumentContent(doc.ID); hashErr == nil && strings.TrimSpace(hash) != "" {
@@ -1466,7 +1516,8 @@ func (s *DocumentSigningConfirmationService) prepareDocumentPreviewByChannel(
 		FileName:         documentFileName(doc),
 		ContentType:      documentContentType(documentFileName(doc)),
 		DocumentHash:     documentHash,
-		AbsPath:          absPath,
+		AbsPath:          filepath.Join(strings.TrimSpace(s.filesRoot), filepath.FromSlash(documentStorageKey(relPath))),
+		RelPath:          relPath,
 		ConfirmationMeta: pending.Meta,
 	}, nil
 }
@@ -1476,12 +1527,7 @@ func (s *DocumentSigningConfirmationService) hashDocumentContent(documentID int6
 	if err != nil {
 		return "", err
 	}
-	root := strings.TrimSpace(s.filesRoot)
-	if root == "" {
-		return "", errors.New("files root is required")
-	}
-	path := filepath.Join(root, rel)
-	file, err := os.Open(path)
+	file, err := s.openDocumentContent(rel)
 	if err != nil {
 		return "", fmt.Errorf("open document: %w", err)
 	}

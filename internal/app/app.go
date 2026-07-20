@@ -342,6 +342,9 @@ func Run() {
 		nowProvider,
 	)
 	signConfirmService.SetSMSSender(smsSender)
+	// то же хранилище, что у документов: иначе на S3-деплое предпросмотр и
+	// подтверждение подписи не находят сгенерированный PDF
+	signConfirmService.SetStore(fileStore)
 	if gin.Mode() != gin.ReleaseMode {
 		signConfirmService.EnableDebug(os.Getenv("DEBUG_KEY"))
 	}
