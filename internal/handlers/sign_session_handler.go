@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -142,6 +143,41 @@ func (h *SignSessionHandler) SignByID(c *gin.Context) {
 		"status":    "signed",
 		"signed_at": session.SignedAt,
 	})
+}
+
+// DownloadSignedByID — GET /api/v1/sign/sessions/id/:id/download?token=..&format=pdf|docx
+// Публичное скачивание подписанного документа после подписания.
+func (h *SignSessionHandler) DownloadSignedByID(c *gin.Context) {
+	if h.Service == nil {
+		internalError(c, "Service unavailable")
+		return
+	}
+	sessionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid session id")
+		return
+	}
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		badRequest(c, "Token required")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(c.Query("format")))
+	if format != "docx" {
+		format = "pdf"
+	}
+	reader, fileName, contentType, err := h.Service.OpenSignedDownload(c.Request.Context(), sessionID, token, format)
+	if err != nil {
+		handleSignSessionTokenError(c, err)
+		return
+	}
+	defer reader.Close()
+	if fileName == "" {
+		fileName = "document." + format
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, reader)
 }
 
 func handleSignSessionTokenError(c *gin.Context, err error) {

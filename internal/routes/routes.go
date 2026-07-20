@@ -79,6 +79,8 @@ func SetupRoutes(
 		{
 			signPublic.GET("/id/:id/page", signHandler.ServeSessionPage)
 			signPublic.POST("/id/:id/sign", signHandler.SignByID)
+			// скачивание подписанного документа (pdf/docx) — только после подписания
+			signPublic.GET("/id/:id/download", signHandler.DownloadSignedByID)
 			signPublic.POST("/token/:token/verify", signHandler.Verify)
 			signPublic.POST("/token/:token/sign", signHandler.Sign)
 		}

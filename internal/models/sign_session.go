@@ -19,4 +19,8 @@ type SignSession struct {
 	SignedUserAgent string     `json:"signed_user_agent,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+
+	// SignatureImage — нарисованная клиентом подпись (data URL). Транзитное
+	// поле: в БД не хранится, живёт только на время сборки листа подписания.
+	SignatureImage string `json:"-"`
 }

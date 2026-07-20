@@ -1,8 +1,10 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1582,6 +1584,56 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 }
 
 // storeSave saves reader content under key; falls back to local disk when Store is nil.
+// OpenSignedDocumentForDownload открывает файл подписанного документа для
+// скачивания клиентом с публичной страницы. format:
+//   - "pdf"  → подписанный PDF (лист подписания + подпись клиента);
+//   - "docx" → исходный DOCX договора (без подписи, для правок).
+// Читает из S3 или с диска. Возвращает reader, имя файла и content-type.
+func (s *DocumentService) OpenSignedDocumentForDownload(docID int64, format string) (io.ReadSeekCloser, string, string, error) {
+	doc, err := s.DocRepo.GetByID(docID)
+	if err != nil || doc == nil {
+		return nil, "", "", errors.New("not found")
+	}
+	var rel string
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "docx":
+		rel = strings.TrimSpace(doc.FilePathDocx)
+	default: // pdf
+		if signed := extractSignedPDFPath(doc.SignMetadata); signed != "" {
+			rel = signed // подписанный вариант
+		} else if strings.TrimSpace(doc.FilePathPdf) != "" {
+			rel = doc.FilePathPdf
+		} else {
+			rel = doc.FilePath
+		}
+	}
+	if strings.TrimSpace(rel) == "" {
+		return nil, "", "", errors.New("file not found")
+	}
+
+	key := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(rel), "\\", "/"), "/")
+	key = strings.TrimPrefix(key, "files/")
+	if strings.Contains(key, "..") || key == "" || key == "." {
+		return nil, "", "", errors.New("bad filepath")
+	}
+
+	var reader io.ReadSeekCloser
+	if s.Store != nil {
+		if r, _, oerr := s.Store.Open(context.Background(), key); oerr == nil {
+			reader = r
+		}
+	}
+	if reader == nil {
+		f, oerr := os.Open(filepath.Join(s.FilesRoot, filepath.FromSlash(key)))
+		if oerr != nil {
+			return nil, "", "", errors.New("file not found")
+		}
+		reader = f
+	}
+	fileName := filepath.Base(key)
+	return reader, fileName, documentContentType(fileName), nil
+}
+
 func (s *DocumentService) storeSave(key string, reader io.Reader) error {
 	if s.Store != nil {
 		return s.Store.Save(context.Background(), reader, key)
@@ -2650,11 +2702,66 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 	pdfFile.MultiCell(0, 4.8, "Подписание выполнено с подтверждением одноразовым кодом, направленным на email подписанта.", "", "L", false)
 	pdfFile.SetTextColor(0, 0, 0)
 
+	// Нарисованная клиентом подпись — здесь, на листе подписания. Раньше её
+	// накладывали на фиксированные страницы договора и на новых шаблонах
+	// теряли; на нашей странице место под неё гарантировано.
+	if err := drawClientSignature(pdfFile, session.SignatureImage); err != nil {
+		// подпись не критична для целостности артефакта — не валим генерацию,
+		// но громко логируем, чтобы заметить
+		log.Printf("[sign][artifact] draw client signature doc=%d: %v", doc.ID, err)
+	}
+
 	// Диагностика результата: `pdffonts signed.pdf` — должен показывать embedded DejaVu для страницы подписания.
 	if err := pdfFile.OutputFileAndClose(outPath); err != nil {
 		return fmt.Errorf("create signing page: %w", err)
 	}
 	return nil
+}
+
+// drawClientSignature рисует нарисованную клиентом подпись (data:image/png)
+// на текущей странице листа подписания. Пустая подпись — не ошибка (клиент мог
+// подписать без рисунка, ПЭП подтверждается кодом).
+func drawClientSignature(pdfFile *gofpdf.Fpdf, signatureDataURL string) error {
+	signatureDataURL = strings.TrimSpace(signatureDataURL)
+	if signatureDataURL == "" {
+		return nil
+	}
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(signatureDataURL, prefix) {
+		return fmt.Errorf("unsupported signature format")
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(signatureDataURL, prefix))
+	if err != nil {
+		return fmt.Errorf("decode signature: %w", err)
+	}
+
+	pdfFile.Ln(4)
+	drawSectionTitle(pdfFile, "Подпись клиента")
+	y := pdfFile.GetY()
+
+	// имя регистрации уникально на документ — gofpdf кэширует по имени
+	imgName := fmt.Sprintf("client_sig_%d", time.Now().UnixNano())
+	info := pdfFile.RegisterImageOptionsReader(imgName, gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(raw))
+	if pdfFile.Error() != nil {
+		return fmt.Errorf("register signature image: %w", pdfFile.Error())
+	}
+
+	// вписываем в рамку 70×30 мм с сохранением пропорций
+	const boxW, boxH = 70.0, 30.0
+	w, h := boxW, boxH
+	if iw, ih := info.Extent(); iw > 0 && ih > 0 {
+		if iw/ih > boxW/boxH {
+			h = boxW * ih / iw
+		} else {
+			w = boxH * iw / ih
+		}
+	}
+	pdfFile.ImageOptions(imgName, 15, y, w, h, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+	pdfFile.SetY(y + h + 1)
+	pdfFile.SetDrawColor(150, 150, 150)
+	pdfFile.Line(15, pdfFile.GetY(), 95, pdfFile.GetY())
+	pdfFile.SetDrawColor(0, 0, 0)
+	return pdfFile.Error()
 }
 
 func formatSignedAtForSigningSheet(signedAt *time.Time, loc *time.Location) string {

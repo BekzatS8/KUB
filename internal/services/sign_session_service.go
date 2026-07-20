@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"strings"
@@ -68,6 +69,7 @@ type SignDocumentService interface {
 	FinalizeSigning(docID int64) error
 	FinalizeSignedArtifact(session *models.SignSession) error
 	StampSessionSignature(docID int64, signatureImageBase64 string) error
+	OpenSignedDocumentForDownload(docID int64, format string) (io.ReadSeekCloser, string, string, error)
 }
 
 type SignSessionService struct {
@@ -359,6 +361,12 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 	session.SignedAt = &now
 	session.SignedIP = ip
 	session.SignedUserAgent = userAgent
+	// Подпись клиента встраивается в лист подписания при сборке артефакта —
+	// детерминированно, независимо от вёрстки конкретного документа. Раньше её
+	// пытались наложить на фиксированные страницы 8/10/12 договора: у новых
+	// шаблонов (заявления — 1 стр., другое расположение) эти страницы либо
+	// отсутствовали, либо подпись падала мимо — поэтому её не было видно.
+	session.SignatureImage = strings.TrimSpace(signatureImage)
 
 	if s.docService == nil {
 		return nil, errors.New("document service unavailable")
@@ -386,12 +394,6 @@ func (s *SignSessionService) SignByID(ctx context.Context, sessionID int64, toke
 
 	s.logSessionState("signed", session, "signed_success")
 
-	if strings.TrimSpace(signatureImage) != "" {
-		if stampErr := s.docService.StampSessionSignature(session.DocumentID, signatureImage); stampErr != nil {
-			log.Printf("[sign][session][stamp] document_id=%d err=%v", session.DocumentID, stampErr)
-		}
-	}
-
 	return session, nil
 }
 
@@ -409,6 +411,37 @@ func (s *SignSessionService) isExpired(session *models.SignSession) bool {
 		return true
 	}
 	return s.now().After(session.ExpiresAt)
+}
+
+// OpenSignedDownload отдаёт подписанный документ для скачивания с публичной
+// страницы: доступно только после подписания и только по валидному токену
+// сессии. format: "pdf" (подписанный) | "docx" (исходный).
+func (s *SignSessionService) OpenSignedDownload(ctx context.Context, sessionID int64, token, format string) (io.ReadSeekCloser, string, string, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	token = normalizeSessionToken(token)
+	if token == "" {
+		return nil, "", "", ErrSignSessionInvalidToken
+	}
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if session == nil {
+		return nil, "", "", ErrSignSessionNotFound
+	}
+	// сравнение токена в постоянном времени — как в остальных проверках
+	if subtle.ConstantTimeCompare([]byte(session.TokenHash), []byte(hashToken(token))) != 1 {
+		return nil, "", "", ErrSignSessionInvalidToken
+	}
+	if session.Status != "signed" {
+		// качать нечего, пока не подписан
+		return nil, "", "", ErrSignSessionInvalidStatus
+	}
+	if s.docService == nil {
+		return nil, "", "", errors.New("document service unavailable")
+	}
+	return s.docService.OpenSignedDocumentForDownload(session.DocumentID, format)
 }
 
 func (s *SignSessionService) validateByIDToken(ctx context.Context, sessionID int64, token string) (*models.SignSession, error) {

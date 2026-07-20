@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -76,6 +77,9 @@ func (f *fakeDocService) FinalizeSignedArtifact(*models.SignSession) error {
 	return nil
 }
 func (f *fakeDocService) StampSessionSignature(int64, string) error { return nil }
+func (f *fakeDocService) OpenSignedDocumentForDownload(int64, string) (io.ReadSeekCloser, string, string, error) {
+	return nil, "", "", nil
+}
 
 type fakeConfirmRepo struct {
 	createdExpiresAt time.Time
@@ -147,11 +151,13 @@ func (f *fakeUserRepo) ClearRefresh(int) error                         { return 
 func (f *fakeUserRepo) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (f *fakeUserRepo) VerifyUser(int) error                           { return nil }
 func (f *fakeUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (f *fakeUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
-func (f *fakeUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
-func (f *fakeUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
-func (f *fakeUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
-func (f *fakeUserRepo) DeleteAvatar(int) error                                             { return nil }
+func (f *fakeUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (f *fakeUserRepo) UpdateProfile(int, *models.User) error          { return nil }
+func (f *fakeUserRepo) UpdateAvatar(int, string, string, string) error { return nil }
+func (f *fakeUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {
+	return nil
+}
+func (f *fakeUserRepo) DeleteAvatar(int) error { return nil }
 func (f *fakeUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
