@@ -259,6 +259,7 @@ func Run() {
 	clientFilesService := services.NewClientFilesService(cfg.Files.RootDir, clientService, clientFileRepo, fileStore)
 	leadService := services.NewLeadService(leadRepo, dealRepo, clientRepo, userRepo)
 	leadService.SetStageRepo(funnelStageRepo)
+	leadService.SetTransitionRuleRepo(funnelTransitionRuleRepo)
 	// Real-time доска: хаб рассылает подписчикам сигнал «воронка изменилась».
 	boardHub := realtime.NewBoardHub()
 	go boardHub.Run()

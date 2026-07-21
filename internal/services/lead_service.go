@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type LeadService struct {
 	UserRepo  repositories.UserRepository
 	StageRepo *repositories.FunnelStageRepository
 	BoardNotifier BoardNotifier
+	TransitionRuleRepo *repositories.FunnelTransitionRuleRepository
 }
 
 // SetStageRepo подключает репозиторий этапов воронки — нужен для авто-архива
@@ -29,6 +31,52 @@ func (s *LeadService) SetStageRepo(stageRepo *repositories.FunnelStageRepository
 // SetBoardNotifier подключает real-time рассыльщик обновлений доски (WebSocket).
 func (s *LeadService) SetBoardNotifier(n BoardNotifier) {
 	s.BoardNotifier = n
+}
+
+// SetTransitionRuleRepo подключает репозиторий правил перехода между воронками —
+// чтобы лиды (а не только сделки) автоматически переходили в целевую воронку.
+func (s *LeadService) SetTransitionRuleRepo(repo *repositories.FunnelTransitionRuleRepository) {
+	s.TransitionRuleRepo = repo
+}
+
+// applyLeadTransitionRules применяет активные правила перехода к лиду по образцу
+// сделок (DealService.applyTransitionRules). Если для (funnelID, stageID) есть
+// активное правило — лид уходит в целевую воронку на целевой этап; рекурсивно
+// проверяем и целевой этап. Возвращает true, если лид был перенесён правилом.
+func (s *LeadService) applyLeadTransitionRules(leadID, funnelID, stageID, depth int) bool {
+	if depth > 10 || s.TransitionRuleRepo == nil || s.StageRepo == nil || funnelID <= 0 {
+		log.Printf("[lead_transition] skip lead=%d funnel=%d stage=%d (ruleRepo=%v stageRepo=%v depth=%d)",
+			leadID, funnelID, stageID, s.TransitionRuleRepo != nil, s.StageRepo != nil, depth)
+		return false
+	}
+	rules, err := s.TransitionRuleRepo.FindActiveByTrigger(funnelID, stageID)
+	if err != nil {
+		log.Printf("[lead_transition] lead=%d find rules error: %v", leadID, err)
+		return false
+	}
+	if len(rules) == 0 {
+		log.Printf("[lead_transition] lead=%d: НЕТ активного правила для funnel=%d stage=%d — переход не выполнен",
+			leadID, funnelID, stageID)
+		return false
+	}
+	rule := rules[0]
+	toStage, err := s.StageRepo.GetByID(rule.ToStageID)
+	if err != nil || toStage == nil {
+		log.Printf("[lead_transition] lead=%d rule=%q target stage %d not found", leadID, rule.Name, rule.ToStageID)
+		return false
+	}
+	if err := s.Repo.MoveStageAndFunnel(leadID, rule.ToStageID, rule.ToFunnelID); err != nil {
+		log.Printf("[lead_transition] lead=%d rule=%q move failed: %v", leadID, rule.Name, err)
+		return false
+	}
+	log.Printf("[lead_transition] lead=%d: правило %q → воронка=%d этап=%d ✓", leadID, rule.Name, rule.ToFunnelID, rule.ToStageID)
+	if s.BoardNotifier != nil {
+		s.BoardNotifier.NotifyBoardChanged(funnelID)
+		s.BoardNotifier.NotifyBoardChanged(rule.ToFunnelID)
+	}
+	// Целевой этап тоже может иметь правило перехода.
+	s.applyLeadTransitionRules(leadID, rule.ToFunnelID, rule.ToStageID, depth+1)
+	return true
 }
 
 func NewLeadService(leadRepo *repositories.LeadRepository, dealRepo *repositories.DealRepository, clientRepo *repositories.ClientRepository, userRepo ...repositories.UserRepository) *LeadService {
@@ -422,29 +470,38 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if err := s.Repo.MoveStage(id, stageID, userID, s.claimsOwnershipOnMove(lead, userID, roleID)); err != nil {
 		return err
 	}
-	// Авто-архив: если целевой этап помечен в настройках воронки как
-	// «отправлять в архив» — убираем лид с доски автоматически (обратная связь
-	// заказчика 17.07.2026: «когда всё уже выполнится»).
 	targetFunnelID := 0
+	autoArchive := false
 	if s.StageRepo != nil {
 		if stage, err := s.StageRepo.GetByID(stageID); err == nil && stage != nil {
 			targetFunnelID = stage.FunnelID
-			// Авто-архив: если целевой этап помечен как «отправлять в архив».
-			if stage.AutoArchive && !lead.IsArchived {
-				if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
-					return err
-				}
-			}
+			autoArchive = stage.AutoArchive
 		}
 	}
-	// Real-time: сообщаем подписчикам доски, что воронку нужно перечитать —
-	// и целевую (из этапа), и исходную, если лид сменил воронку.
-	if s.BoardNotifier != nil {
-		if targetFunnelID > 0 {
-			s.BoardNotifier.NotifyBoardChanged(targetFunnelID)
+
+	// Правила перехода между воронками — теперь и для лидов, не только сделок.
+	// Ключевой сценарий «Передача клиента в Визовый отдел»: лид на этапе
+	// «Договор подписан» автоматически уходит в целевую воронку. Раньше правила
+	// срабатывали только у сделок, и лид просто оставался на месте.
+	ruleMoved := s.applyLeadTransitionRules(id, targetFunnelID, stageID, 1)
+
+	// Авто-архив финального этапа — только если правило перехода НЕ увело лид
+	// в другую воронку.
+	if !ruleMoved && autoArchive && !lead.IsArchived {
+		if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
+			return err
 		}
-		if lead.FunnelID != nil && *lead.FunnelID != targetFunnelID {
+	}
+
+	// Real-time: перечитать доску исходной и целевой воронки. Если сработало
+	// правило перехода, оно уже уведомило свои воронки (лишние сигналы
+	// безвредны — на клиенте дебаунс).
+	if s.BoardNotifier != nil {
+		if lead.FunnelID != nil {
 			s.BoardNotifier.NotifyBoardChanged(*lead.FunnelID)
+		}
+		if targetFunnelID > 0 && (lead.FunnelID == nil || *lead.FunnelID != targetFunnelID) {
+			s.BoardNotifier.NotifyBoardChanged(targetFunnelID)
 		}
 	}
 	return nil

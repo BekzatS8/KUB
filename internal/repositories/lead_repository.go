@@ -311,6 +311,25 @@ var ErrLeadStageMismatch = errors.New("stage does not belong to lead funnel")
 // who may take one over). A lead that has no funnel yet adopts the funnel of
 // the target stage. Moving to a "lost" stage marks the lead cancelled (список
 // отказников); otherwise a fresh lead becomes in_progress.
+// MoveStageAndFunnel принудительно переносит лид в другую воронку на конкретный
+// этап — для автоматических правил перехода между воронками (аналог
+// DealRepository.MoveStageAndFunnel). Статус и владельца не трогаем.
+func (r *LeadRepository) MoveStageAndFunnel(leadID, stageID, funnelID int) error {
+	const q = `UPDATE leads SET funnel_id = $2, stage_id = $1 WHERE id = $3`
+	res, err := r.db.Exec(q, stageID, funnelID, leadID)
+	if err != nil {
+		return fmt.Errorf("move lead stage+funnel: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("move lead stage+funnel: %w", err)
+	}
+	if affected == 0 {
+		return ErrLeadStageMismatch
+	}
+	return nil
+}
+
 func (r *LeadRepository) MoveStage(leadID, stageID, actorID int, claimOwner bool) error {
 	const q = `
 		UPDATE leads l
