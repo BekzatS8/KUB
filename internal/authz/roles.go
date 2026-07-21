@@ -185,6 +185,17 @@ func CanProcessDocuments(roleID int) bool {
 		roleID == RoleHR || roleID == RoleLegal
 }
 
+// CanSubmitDocument — кто может отправить документ на проверку. Это базовое
+// действие для любого, кто работает с документами: создаёт (sales/visa/partner)
+// ИЛИ редактирует (management/quality_control/hr/legal/admin) их. Раньше сабмит
+// требовал строго documents.update, из-за чего менеджер по продажам (только
+// documents.create) получал 403. Реальная граница доступа — доступ к сделке
+// документа (проверяется в сервисе) и статус draft.
+func CanSubmitDocument(roleID int) bool {
+	code := RoleCodeByID(roleID)
+	return HasPermission(code, "documents.create") || HasPermission(code, "documents.update")
+}
+
 func CanWorkWithLeads(roleID int) bool {
 	switch roleID {
 	case RoleSales, RoleManagement, RoleSystemAdmin, RoleVisa, RolePartner:

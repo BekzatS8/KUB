@@ -425,7 +425,10 @@ func SetupRoutes(
 		docs.GET("/deal/:dealid", middleware.RequirePermission("documents.view", "document"), documentHandler.ListDocumentsByDeal)
 		docs.GET("/:id/file", middleware.RequirePermission("documents.view", "document"), documentHandler.ServeFile)
 		docs.GET("/:id/download", middleware.RequirePermission("documents.download", "document"), documentHandler.Download)
-		docs.POST("/:id/submit", middleware.RequirePermission("documents.update", "document"), documentHandler.Submit)
+		// Отправка на проверку — для всех, кто работает с документами (см.
+		// authz.CanSubmitDocument в сервисе). Роут-гейт мягкий (documents.view),
+		// точная граница — в сервисе (create|update + доступ к сделке + draft).
+		docs.POST("/:id/submit", middleware.RequirePermission("documents.view", "document"), documentHandler.Submit)
 		docs.POST("/:id/review", middleware.RequirePermission("documents.update", "document"), documentHandler.Review)
 		docs.POST("/:id/send-for-signature", middleware.RequirePermission("documents.send", "document"), documentHandler.SendForSignature)
 		docs.POST("/:id/sign", middleware.RequirePermission("documents.update", "document"), documentHandler.Sign)

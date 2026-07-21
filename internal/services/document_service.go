@@ -1155,7 +1155,10 @@ func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error 
 // ================== Статусы ==================
 
 func (s *DocumentService) Submit(id int64, userID, roleID int) error {
-	if !authz.HasPermission(authz.RoleCodeByID(roleID), "documents.update") {
+	// Отправить на проверку может любой, кто работает с документами (создаёт
+	// ИЛИ редактирует) — включая менеджера по продажам. Дальше проверяется
+	// доступ к сделке и статус draft.
+	if !authz.CanSubmitDocument(roleID) {
 		return errors.New("forbidden")
 	}
 	doc, err := s.DocRepo.GetByID(id)
