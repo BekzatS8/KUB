@@ -103,10 +103,8 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 		return 0, ErrReadOnly
 	}
 
-	// Validate required fields first
-	if deal.LeadID == 0 {
-		return 0, ErrLeadIDRequired
-	}
+	// Лид теперь ОПЦИОНАЛЕН: клиент «с улицы» (без переписки/лида) или давний
+	// клиент, у которого лида уже нет — сделку всё равно можно завести.
 	if deal.Amount <= 0 {
 		return 0, ErrAmountInvalid
 	}
@@ -150,6 +148,30 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 
 	if deal.Status == "" {
 		deal.Status = "new"
+	}
+
+	// Воронка: если не выбрана — воронка продаж по умолчанию, чтобы сделка
+	// попадала на доску отдела, а не висела «Без этапа».
+	if deal.FunnelID == nil || *deal.FunnelID == 0 {
+		if fid, ferr := s.Repo.DefaultSalesFunnelID(); ferr == nil && fid > 0 {
+			deal.FunnelID = &fid
+		}
+	}
+	// Первый активный этап воронки: новая сделка сразу видна на доске как
+	// «Новая заявка», а не «Без этапа» (обратная связь заказчика 21.07.2026).
+	if deal.StageID == nil && deal.FunnelID != nil && *deal.FunnelID > 0 && s.StageRepo != nil {
+		if stages, serr := s.StageRepo.ListByFunnel(*deal.FunnelID); serr == nil && len(stages) > 0 {
+			// ListByFunnel сортирует по position ASC — берём первый активный.
+			for i := range stages {
+				if stages[i].IsActive {
+					deal.StageID = &stages[i].ID
+					break
+				}
+			}
+			if deal.StageID == nil {
+				deal.StageID = &stages[0].ID
+			}
+		}
 	}
 
 	id, err := s.Repo.Create(deal)
@@ -212,11 +234,10 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 
 	// 4) Заполняем пропущенные поля из current
 
+	// Лид опционален: если в запросе не пришёл — сохраняем текущий (может быть
+	// пустым для сделок клиентов «с улицы»). Не требуем лид принудительно.
 	if deal.LeadID == 0 {
 		deal.LeadID = current.LeadID
-	}
-	if deal.LeadID == 0 {
-		return ErrLeadIDRequired
 	}
 
 	if deal.ClientID == 0 {

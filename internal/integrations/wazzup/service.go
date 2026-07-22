@@ -46,6 +46,10 @@ type SetupResponse struct {
 type IframeOptions struct {
 	Transport string `json:"transport,omitempty"`
 	ChannelID string `json:"channel_id,omitempty"`
+	// ChatID — открыть iframe сразу на этой переписке (deep-link из карточки
+	// клиента/лида). Для WhatsApp — номер телефона (цифры), для Telegram/
+	// Instagram — username.
+	ChatID string `json:"chat_id,omitempty"`
 }
 
 type IframeResponse struct {
@@ -172,9 +176,21 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		log.Printf("integration=wazzup operation=iframe_upsert_users status=failed owner_user_id=%d err=%v", ownerUserID, err)
 		return nil, fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
 	}
+	// Deep-link: если запрошен конкретный чат — открываем iframe сразу на нём
+	// (карточка клиента/лида → переписка в нашем мессенджере, без ручного
+	// поиска). chatType берём из транспорта (whatsapp/telegram/instagram).
+	var activeChat *IframeActiveChat
+	if chatID := strings.TrimSpace(opts.ChatID); chatID != "" && transport != "" {
+		activeChat = &IframeActiveChat{
+			ChannelID: channelID,
+			ChatType:  transport,
+			ChatID:    chatID,
+		}
+	}
 	url, err := s.client.CreateIframe(ctx, apiKey, CreateIframeRequest{
-		User:  UserUpsert{ID: wazzupUserID, Name: name},
-		Scope: "global",
+		User:       UserUpsert{ID: wazzupUserID, Name: name},
+		Scope:      "global",
+		ActiveChat: activeChat,
 	})
 	if err != nil {
 		log.Printf("integration=wazzup operation=iframe_create status=failed owner_user_id=%d err=%v", ownerUserID, err)

@@ -51,6 +51,9 @@ type wazzupSetupRequest struct {
 type wazzupIframeRequest struct {
 	Transport string `json:"transport"`
 	ChannelID string `json:"channel_id"`
+	// ChatID — открыть iframe сразу на этой переписке (deep-link). Для WhatsApp
+	// это номер телефона (цифры), для Telegram/Instagram — username.
+	ChatID string `json:"chat_id"`
 }
 
 type wazzupSendMessageRequest struct {
@@ -184,6 +187,7 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 	resp, err := h.svc.GetIframe(ctx, userID, companyID, userName, wz.IframeOptions{
 		Transport: req.Transport,
 		ChannelID: req.ChannelID,
+		ChatID:    req.ChatID,
 	})
 	if err != nil {
 		log.Printf("[WAZZUP][iframe] user_id=%d err=%v", userID, err)

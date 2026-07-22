@@ -61,13 +61,16 @@ func dealArchiveWhere(scope ArchiveScope, alias string) string {
 	}
 }
 
-// Создание сделки — возвращает ID новой записи
+// Создание сделки — возвращает ID новой записи.
+// lead_id опционален (NULLIF): сделки для клиентов «с улицы» создаются без лида.
+// funnel_id/stage_id теперь сохраняются, иначе сделка висела «Без этапа».
+// department_id берём из отдела воронки сделки (а если нет — из отдела автора).
 func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 	query := `
-		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, amount, prepayment, currency, status, created_at, department_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+		INSERT INTO deals (lead_id, client_id, owner_id, branch_id, funnel_id, stage_id, amount, prepayment, currency, status, created_at, department_id)
+		VALUES (NULLIF($1, 0), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
 			COALESCE(
-				(SELECT f.department_id FROM funnels f JOIN leads l ON l.funnel_id = f.id WHERE l.id = $1 LIMIT 1),
+				(SELECT f.department_id FROM funnels f WHERE f.id = $5),
 				(SELECT u.department_id FROM users u WHERE u.id = $3)
 			)
 		)
@@ -80,15 +83,28 @@ func (r *DealRepository) Create(deal *models.Deals) (int64, error) {
 		deal.ClientID,   // $2
 		deal.OwnerID,    // $3
 		deal.BranchID,   // $4
-		deal.Amount,     // $5
-		deal.Prepayment, // $6
-		deal.Currency,   // $7
-		deal.Status,     // $8
-		deal.CreatedAt,  // $9
+		deal.FunnelID,   // $5
+		deal.StageID,    // $6
+		deal.Amount,     // $7
+		deal.Prepayment, // $8
+		deal.Currency,   // $9
+		deal.Status,     // $10
+		deal.CreatedAt,  // $11
 	).Scan(&id)
 
 	if err != nil {
 		return 0, fmt.Errorf("создание сделки: %w", err)
+	}
+	return id, nil
+}
+
+// DefaultSalesFunnelID возвращает id воронки продаж по умолчанию (code
+// 'sales_default') — на неё сажаем новую сделку, если воронка не выбрана.
+func (r *DealRepository) DefaultSalesFunnelID() (int, error) {
+	var id int
+	err := r.db.QueryRow(`SELECT id FROM funnels WHERE code = 'sales_default' LIMIT 1`).Scan(&id)
+	if err != nil {
+		return 0, err
 	}
 	return id, nil
 }
