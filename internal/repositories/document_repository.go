@@ -125,7 +125,7 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 		scope = "deal"
 	}
 	const q = `
-		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, COALESCE(file_path,''), COALESCE(file_path_docx,''), COALESCE(file_path_pdf,''), status, is_hidden, created_by, scope, title, description, target_user_id)
+		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by, scope, title, description, target_user_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at`
 	var id int64
