@@ -51,7 +51,7 @@ func documentArchiveWhere(scope ArchiveScope) string {
 }
 
 const documentBaseSelect = `
-	SELECT dcm.id, dcm.deal_id, dcm.client_id, dcm.branch_id, COALESCE(br.name,''), dcm.doc_type, dcm.file_path, dcm.file_path_docx, dcm.file_path_pdf, dcm.status,
+	SELECT dcm.id, dcm.deal_id, dcm.client_id, dcm.branch_id, COALESCE(br.name,''), dcm.doc_type, COALESCE(dcm.file_path,''), COALESCE(dcm.file_path_docx,''), COALESCE(dcm.file_path_pdf,''), dcm.status,
 	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
 	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,''),
@@ -125,7 +125,7 @@ func (r *DocumentRepository) Create(doc *models.Document) (int64, error) {
 		scope = "deal"
 	}
 	const q = `
-		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status, is_hidden, created_by, scope, title, description, target_user_id)
+		INSERT INTO documents (deal_id, client_id, branch_id, doc_type, COALESCE(file_path,''), COALESCE(file_path_docx,''), COALESCE(file_path_pdf,''), status, is_hidden, created_by, scope, title, description, target_user_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at`
 	var id int64
@@ -147,7 +147,7 @@ func (r *DocumentRepository) GetByID(id int64) (*models.Document, error) {
 
 func (r *DocumentRepository) GetByIDWithArchiveScope(id int64, scope ArchiveScope) (*models.Document, error) {
 	const q = `
-		SELECT id, deal_id, client_id, branch_id, doc_type, file_path, file_path_docx, file_path_pdf, status,
+		SELECT id, deal_id, client_id, branch_id, doc_type, COALESCE(file_path,''), COALESCE(file_path_docx,''), COALESCE(file_path_pdf,''), status,
 		       signed_at, created_at, COALESCE(sign_method,''), COALESCE(sign_ip,''),
 		       COALESCE(sign_user_agent,''), COALESCE(sign_metadata,''), COALESCE(signed_by,''),
 		       is_archived, archived_at, archived_by, COALESCE(archive_reason,''),
