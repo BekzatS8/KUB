@@ -94,22 +94,21 @@ func (r *userRepository) Update(user *models.User) error {
 	const q = `
 		UPDATE users SET
 			company_name=$1, bin_iin=$2, first_name=$3, last_name=$4, middle_name=$5, position=$6,
-			email=$7, password_hash=$8, role_id=$9, branch_id=$10, is_active=$11,
-			phone=$12, internal_phone=$25, address=$13, extra_info=$14, avatar_url=$15, avatar_path=$16, avatar_original_path=$17,
-			avatar_crop_x=$18, avatar_crop_y=$19, avatar_crop_scale=$20, avatar_crop_size=$21,
-			is_verified=$22, verified_at=$23, updated_at=NOW()
-		WHERE id=$24
+			email=$7, password_hash=$8, role_id=$9, branch_id=$10, department_id=$11, is_active=$12,
+			phone=$13, internal_phone=$14, address=$15, extra_info=$16, avatar_url=$17, avatar_path=$18, avatar_original_path=$19,
+			avatar_crop_x=$20, avatar_crop_y=$21, avatar_crop_scale=$22, avatar_crop_size=$23,
+			is_verified=$24, verified_at=$25, updated_at=NOW()
+		WHERE id=$26
 	`
 	_, err := r.DB.Exec(q,
 		user.CompanyName, user.BinIin,
 		nullableString(user.FirstName), nullableString(user.LastName), nullableString(user.MiddleName), nullableString(user.Position),
-		user.Email, user.PasswordHash, user.RoleID, user.BranchID, user.IsActive,
-		nullableString(user.Phone), nullableString(user.Address), nullableString(user.ExtraInfo),
+		user.Email, user.PasswordHash, user.RoleID, user.BranchID, user.DepartmentID, user.IsActive,
+		nullableString(user.Phone), nullableString(user.InternalPhone), nullableString(user.Address), nullableString(user.ExtraInfo),
 		nullableString(user.AvatarURL), nullableString(user.AvatarPath), nullableString(user.AvatarOriginalPath),
 		user.AvatarCropX, user.AvatarCropY, user.AvatarCropScale, user.AvatarCropSize,
 		user.IsVerified, user.VerifiedAt,
 		user.ID,
-		nullableString(user.InternalPhone),
 	)
 	return err
 }

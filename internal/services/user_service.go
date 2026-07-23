@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -62,6 +64,9 @@ func (s *userService) CreateUserWithPassword(user *models.User, plainPassword st
 		return err
 	}
 	user.PasswordHash = hashedPassword
+	if err := s.syncDepartmentByRole(user); err != nil {
+		return err
+	}
 	normalizeUserVerificationForCreate(user)
 
 	if err := s.repo.Create(user); err != nil {
@@ -94,6 +99,9 @@ func (s *userService) CreateUser(user *models.User) error {
 		user.PasswordHash = h
 	} else {
 		user.PasswordHash = ph
+	}
+	if err := s.syncDepartmentByRole(user); err != nil {
+		return err
 	}
 	normalizeUserVerificationForCreate(user)
 
@@ -129,6 +137,9 @@ func (s *userService) GetUserByID(id int) (*models.User, error) {
 }
 
 func (s *userService) UpdateUser(user *models.User) error {
+	if err := s.syncDepartmentByRole(user); err != nil {
+		return err
+	}
 	return s.repo.Update(user)
 }
 
@@ -229,4 +240,21 @@ func normalizeUserVerificationForCreate(user *models.User) {
 		return
 	}
 	user.VerifiedAt = nil
+}
+
+func (s *userService) syncDepartmentByRole(user *models.User) error {
+	if user == nil {
+		return nil
+	}
+	roleCode := authz.RoleCodeByID(user.RoleID)
+	if roleCode == "" {
+		user.DepartmentID = nil
+		return nil
+	}
+	departmentID, err := s.repo.GetDepartmentIDByCode(roleCode)
+	if err != nil {
+		return err
+	}
+	user.DepartmentID = departmentID
+	return nil
 }

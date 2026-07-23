@@ -5,11 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 )
 
 type captureUserRepo struct {
-	created *models.User
+	created    *models.User
+	updated    *models.User
+	deptByCode map[string]*int
 }
 
 func (r *captureUserRepo) Create(user *models.User) error {
@@ -21,8 +24,12 @@ func (r *captureUserRepo) Create(user *models.User) error {
 func (r *captureUserRepo) ApplyUserPatch(int, *models.UserApprovalUpdatePayload) error {
 	return nil
 }
-func (r *captureUserRepo) GetByID(int) (*models.User, error)           { return nil, nil }
-func (r *captureUserRepo) Update(*models.User) error                   { return nil }
+func (r *captureUserRepo) GetByID(int) (*models.User, error) { return nil, nil }
+func (r *captureUserRepo) Update(user *models.User) error {
+	cp := *user
+	r.updated = &cp
+	return nil
+}
 func (r *captureUserRepo) Delete(int) error                            { return nil }
 func (r *captureUserRepo) List(int, int) ([]*models.User, error)       { return nil, nil }
 func (r *captureUserRepo) GetByEmail(string) (*models.User, error)     { return nil, nil }
@@ -38,16 +45,23 @@ func (r *captureUserRepo) ClearRefresh(int) error                         { retu
 func (r *captureUserRepo) GetByRefreshToken(string) (*models.User, error) { return nil, nil }
 func (r *captureUserRepo) VerifyUser(int) error                           { return nil }
 func (r *captureUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
-func (r *captureUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
-func (r *captureUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
-func (r *captureUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
-func (r *captureUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }
-func (r *captureUserRepo) DeleteAvatar(int) error                                             { return nil }
+func (r *captureUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *captureUserRepo) UpdateProfile(int, *models.User) error          { return nil }
+func (r *captureUserRepo) UpdateAvatar(int, string, string, string) error { return nil }
+func (r *captureUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {
+	return nil
+}
+func (r *captureUserRepo) DeleteAvatar(int) error { return nil }
 func (r *captureUserRepo) GetTelegramSettings(context.Context, int64) (int64, bool, error) {
 	return 0, false, nil
 }
 func (r *captureUserRepo) GetByChatID(context.Context, int64) (*models.User, error) { return nil, nil }
-func (r *captureUserRepo) GetDepartmentIDByCode(string) (*int, error)               { return nil, nil }
+func (r *captureUserRepo) GetDepartmentIDByCode(code string) (*int, error) {
+	if r.deptByCode == nil {
+		return nil, nil
+	}
+	return r.deptByCode[code], nil
+}
 
 type noopMailService struct{}
 
@@ -93,5 +107,41 @@ func TestCreateUserWithPassword_VerifiedUserGetsVerifiedAt(t *testing.T) {
 	}
 	if repo.created.VerifiedAt == nil {
 		t.Fatal("expected VerifiedAt to be set for verified user")
+	}
+}
+
+func TestCreateUserWithPassword_SetsDepartmentFromRole(t *testing.T) {
+	deptID := 1
+	repo := &captureUserRepo{deptByCode: map[string]*int{"sales": &deptID}}
+	auth := NewAuthService([]byte("01234567890123456789012345678901"), nil, 0, 0, nil)
+	svc := NewUserService(repo, noopMailService{}, auth)
+
+	u := &models.User{CompanyName: "Acme", Email: "u@example.com", RoleID: authz.RoleSales, Phone: "+77001234567"}
+	if err := svc.CreateUserWithPassword(u, "Passw0rd"); err != nil {
+		t.Fatalf("CreateUserWithPassword error: %v", err)
+	}
+	if repo.created == nil {
+		t.Fatal("repo Create was not called")
+	}
+	if repo.created.DepartmentID == nil || *repo.created.DepartmentID != deptID {
+		t.Fatalf("expected DepartmentID=%d, got %v", deptID, repo.created.DepartmentID)
+	}
+}
+
+func TestUpdateUser_SetsDepartmentFromRole(t *testing.T) {
+	deptID := 2
+	repo := &captureUserRepo{deptByCode: map[string]*int{"visa": &deptID}}
+	auth := NewAuthService([]byte("01234567890123456789012345678901"), nil, 0, 0, nil)
+	svc := NewUserService(repo, noopMailService{}, auth)
+
+	u := &models.User{ID: 7, Email: "u@example.com", RoleID: authz.RoleVisa, BranchID: intPtr(1)}
+	if err := svc.UpdateUser(u); err != nil {
+		t.Fatalf("UpdateUser error: %v", err)
+	}
+	if repo.updated == nil {
+		t.Fatal("repo Update was not called")
+	}
+	if repo.updated.DepartmentID == nil || *repo.updated.DepartmentID != deptID {
+		t.Fatalf("expected DepartmentID=%d, got %v", deptID, repo.updated.DepartmentID)
 	}
 }
