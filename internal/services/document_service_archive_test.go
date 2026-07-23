@@ -71,6 +71,7 @@ func (d *dealRepoArchiveStub) GetByID(id int) (*models.Deals, error) {
 	}
 	return nil, errors.New("not found")
 }
+func (d *dealRepoArchiveStub) GetByIDAnyScope(id int) (*models.Deals, error) { return d.GetByID(id) }
 func (d *dealRepoArchiveStub) GetByLeadID(int) (*models.Deals, error)         { return nil, nil }
 func (d *dealRepoArchiveStub) GetLatestByClientID(int) (*models.Deals, error) { return nil, nil }
 func (d *dealRepoArchiveStub) GetLatestByClientRef(int, string) (*models.Deals, error) {

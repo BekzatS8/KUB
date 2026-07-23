@@ -178,13 +178,24 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 	}
 	// Deep-link: если запрошен конкретный чат — открываем iframe сразу на нём
 	// (карточка клиента/лида → переписка в нашем мессенджере, без ручного
-	// поиска). chatType берём из транспорта (whatsapp/telegram/instagram).
+	// поиска). Wazzup для activeChat требует channelId — БЕЗ него показывается
+	// пустой вид (заказчик: «отправляет на ватсап, но нет информации»). Поэтому
+	// резолвим канал по транспорту; если канал не найден — activeChat НЕ ставим,
+	// откроется обычный рабочий инбокс (а не пустой экран).
 	var activeChat *IframeActiveChat
 	if chatID := strings.TrimSpace(opts.ChatID); chatID != "" && transport != "" {
-		activeChat = &IframeActiveChat{
-			ChannelID: channelID,
-			ChatType:  transport,
-			ChatID:    chatID,
+		acChannelID := channelID
+		if acChannelID == "" {
+			if ch, rerr := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, ""); rerr == nil && ch != nil {
+				acChannelID = strings.TrimSpace(ch.ExternalChannelID)
+			}
+		}
+		if acChannelID != "" {
+			activeChat = &IframeActiveChat{
+				ChannelID: acChannelID,
+				ChatType:  transport,
+				ChatID:    chatID,
+			}
 		}
 	}
 	url, err := s.client.CreateIframe(ctx, apiKey, CreateIframeRequest{

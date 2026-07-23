@@ -60,6 +60,7 @@ type testDealRepo struct {
 }
 
 func (r *testDealRepo) GetByID(id int) (*models.Deals, error) { return r.byID, nil }
+func (r *testDealRepo) GetByIDAnyScope(id int) (*models.Deals, error) { return r.byID, nil }
 func (r *testDealRepo) GetByLeadID(leadID int) (*models.Deals, error) {
 	return nil, nil
 }

@@ -194,6 +194,7 @@ func (r *docRepoStub) UpdateSigningMeta(int64, string, string, string, string) e
 type dealRepoStub struct{ deal *models.Deals }
 
 func (r *dealRepoStub) GetByID(int) (*models.Deals, error)                    { return r.deal, nil }
+func (r *dealRepoStub) GetByIDAnyScope(int) (*models.Deals, error)            { return r.deal, nil }
 func (r *dealRepoStub) GetByLeadID(int) (*models.Deals, error)                { return nil, nil }
 func (r *dealRepoStub) GetLatestByClientID(int) (*models.Deals, error)        { return nil, nil }
 func (r *dealRepoStub) GetLatestByClientRef(int, string) (*models.Deals, error) { return nil, nil }

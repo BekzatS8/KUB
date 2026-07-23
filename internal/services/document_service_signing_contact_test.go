@@ -46,6 +46,7 @@ type signerDealRepoStub struct {
 }
 
 func (r *signerDealRepoStub) GetByID(id int) (*models.Deals, error)         { return r.deal, nil }
+func (r *signerDealRepoStub) GetByIDAnyScope(id int) (*models.Deals, error) { return r.deal, nil }
 func (r *signerDealRepoStub) GetByLeadID(leadID int) (*models.Deals, error) { return nil, nil }
 func (r *signerDealRepoStub) GetLatestByClientID(clientID int) (*models.Deals, error) {
 	return nil, nil

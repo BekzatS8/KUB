@@ -79,6 +79,10 @@ type LeadRepo interface {
 
 type DealRepo interface {
 	GetByID(id int) (*models.Deals, error)
+	// GetByIDAnyScope — сделка независимо от архива/корзины. Нужна для операций
+	// с ДОКУМЕНТАМИ: документ архивной сделки всё равно нужно уметь удалить/
+	// отправить/провести (архив-статус сделки к документу отношения не имеет).
+	GetByIDAnyScope(id int) (*models.Deals, error)
 	GetByLeadID(leadID int) (*models.Deals, error)
 	GetLatestByClientID(clientID int) (*models.Deals, error)
 	GetLatestByClientRef(clientID int, clientType string) (*models.Deals, error)
@@ -183,7 +187,7 @@ func (s *DocumentService) loadDocumentDealForAccess(doc *models.Document, userID
 	if doc == nil {
 		return nil, ErrNotFound
 	}
-	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	deal, err := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if err != nil || deal == nil {
 		return nil, ErrNotFound
 	}
@@ -635,7 +639,7 @@ func (s *DocumentService) CreateDocument(doc *models.Document, userID, roleID in
 		return 0, errors.New("deal not found")
 	}
 
-	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	deal, err := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if err != nil || deal == nil {
 		return 0, errors.New("deal not found")
 	}
@@ -784,7 +788,7 @@ func (s *DocumentService) GetDocument(id int64, userID, roleID int) (*models.Doc
 	if s.DealRepo == nil {
 		return nil, errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return nil, errors.New("not found")
 	}
@@ -811,7 +815,7 @@ func (s *DocumentService) GetDocumentWithArchiveScope(id int64, userID, roleID i
 	if s.DealRepo == nil {
 		return nil, errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return nil, errors.New("not found")
 	}
@@ -870,7 +874,7 @@ func (s *DocumentService) GetSigningContactOptions(id int64, userID, roleID int)
 	if s.DealRepo == nil {
 		return SigningContactOptions{DocumentID: id}, nil
 	}
-	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	deal, err := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if err != nil || deal == nil {
 		return SigningContactOptions{}, err
 	}
@@ -915,7 +919,7 @@ func (s *DocumentService) resolveSignerBase(id int64, userID, roleID int, overri
 	if s.DealRepo == nil || s.ClientRepo == nil {
 		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: normalizedOverridePhone}, nil
 	}
-	deal, err := s.DealRepo.GetByID(int(doc.DealID))
+	deal, err := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if err != nil || deal == nil {
 		return ResolvedSigner{Email: overrides.Email, FullName: overrides.FullName, Position: overrides.Position, Phone: normalizedOverridePhone}, nil
 	}
@@ -1068,7 +1072,7 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	// у департаментных документов (scope != deal) сделки нет — проверка доступа
 	// по сделке применяется только к deal-документам
 	if doc.DealID != 0 {
-		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 		if derr != nil || deal == nil {
 			return errors.New("not found")
 		}
@@ -1115,7 +1119,7 @@ func (s *DocumentService) ArchiveDocument(id int64, userID, roleID int, reason s
 	if !isHiddenDocVisible(doc, userID, roleID) {
 		return errors.New("forbidden")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
@@ -1139,7 +1143,7 @@ func (s *DocumentService) UnarchiveDocument(id int64, userID, roleID int) error 
 	if !isHiddenDocVisible(doc, userID, roleID) {
 		return errors.New("forbidden")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
@@ -1165,7 +1169,7 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
@@ -1446,7 +1450,7 @@ func (s *DocumentService) resolveAndAuthorizeFile(docID int64, userID, roleID in
 	if err != nil || doc == nil {
 		return "", "", errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return "", "", errors.New("not found")
 	}
@@ -1487,7 +1491,7 @@ func (s *DocumentService) EnsureSigningAllowed(docID int64, userID, roleID int) 
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+	deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 	if derr != nil || deal == nil {
 		return errors.New("not found")
 	}
@@ -1515,7 +1519,7 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 		return "", "", errors.New("forbidden")
 	}
 	if doc.DealID != 0 {
-		deal, derr := s.DealRepo.GetByID(int(doc.DealID))
+		deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
 		if derr != nil || deal == nil {
 			return "", "", errors.New("not found")
 		}

@@ -233,7 +233,7 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 
 	rows, err := r.db.Query(`
 		SELECT
-			d.id, d.lead_id, d.funnel_id, d.stage_id,
+			d.id, COALESCE(d.lead_id, 0), d.funnel_id, d.stage_id,
 			d.client_id, COALESCE(c.client_type, ''),
 			COALESCE(NULLIF(c.display_name, ''), c.name, '') AS client_name,
 			d.owner_id, COALESCE(TRIM(CONCAT(u.first_name, ' ', u.last_name)), '') AS owner_name,
