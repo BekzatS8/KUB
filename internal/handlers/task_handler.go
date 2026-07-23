@@ -490,6 +490,62 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Restore возвращает задачу из корзины (только тот, кто может окончательно
+// удалять — как у сделок/документов).
+func (h *TaskHandler) Restore(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	updated, err := h.service.RestoreTask(c.Request.Context(), id, int64(userID), roleID)
+	if err != nil {
+		if err == services.ErrForbidden {
+			forbidden(c, "Forbidden")
+			return
+		}
+		if err.Error() == "task not found" {
+			notFound(c, ValidationFailed, "Task not found")
+			return
+		}
+		internalError(c, "Failed to restore task")
+		return
+	}
+	c.JSON(http.StatusOK, updated)
+}
+
+// Purge окончательно удаляет задачу из корзины.
+func (h *TaskHandler) Purge(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if err := h.service.PurgeTask(c.Request.Context(), id, int64(userID), roleID); err != nil {
+		if err == services.ErrForbidden {
+			forbidden(c, "Forbidden")
+			return
+		}
+		if err.Error() == "task not found" {
+			notFound(c, ValidationFailed, "Task not found")
+			return
+		}
+		internalError(c, "Failed to purge task")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 type archiveTaskRequest struct {
 	Reason string `json:"reason"`
 }

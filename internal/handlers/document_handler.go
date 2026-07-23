@@ -835,7 +835,13 @@ func (h *DocumentHandler) ServeFile(c *gin.Context) {
 	}
 	userID, roleID := getUserAndRole(c)
 
-	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, "original")
+	// Просмотр отдаёт ОСНОВНОЙ файл (FilePath): у сгенерированных договоров это
+	// PDF, который браузер рендерит нативно и который всегда залит в S3; у
+	// отчётов — xlsx; у загруженных — сам файл. Вариант "original" здесь брать
+	// нельзя: он предпочитает DOCX, а docx-ключа в S3 может не быть → 404 в
+	// предпросмотре, хотя скачивание исходника работает. Скачивание (/download)
+	// по-прежнему отдаёт исходник.
+	abs, name, err := h.Service.ResolveFileForHTTP(id, userID, roleID, "main")
 	if err != nil {
 		switch err.Error() {
 		case "not found", "file not found":

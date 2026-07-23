@@ -157,15 +157,32 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 			deal.FunnelID = &fid
 		}
 	}
-	// Первый активный этап воронки: новая сделка сразу видна на доске как
-	// «Новая заявка», а не «Без этапа» (обратная связь заказчика 21.07.2026).
+	// Этап воронки для новой сделки. Если пользователь выбрал статус (напр.
+	// «Переговоры») — сажаем сделку на этап, чей код/тип соответствует статусу,
+	// чтобы на доске она попала в нужную колонку, а не всегда в «Новую заявку»
+	// (обратная связь заказчика 23.07.2026). Если подходящего этапа нет —
+	// первый активный этап (сделка видна на доске, а не «Без этапа»).
 	if deal.StageID == nil && deal.FunnelID != nil && *deal.FunnelID > 0 && s.StageRepo != nil {
 		if stages, serr := s.StageRepo.ListByFunnel(*deal.FunnelID); serr == nil && len(stages) > 0 {
-			// ListByFunnel сортирует по position ASC — берём первый активный.
-			for i := range stages {
-				if stages[i].IsActive {
-					deal.StageID = &stages[i].ID
-					break
+			// 1) этап, соответствующий выбранному статусу
+			if deal.Status != "" {
+				for i := range stages {
+					if !stages[i].IsActive {
+						continue
+					}
+					if stageMatchesStatus(stages[i], deal.Status) {
+						deal.StageID = &stages[i].ID
+						break
+					}
+				}
+			}
+			// 2) иначе — первый активный этап (ListByFunnel сортирует по position ASC)
+			if deal.StageID == nil {
+				for i := range stages {
+					if stages[i].IsActive {
+						deal.StageID = &stages[i].ID
+						break
+					}
 				}
 			}
 			if deal.StageID == nil {
@@ -203,6 +220,20 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 		return 0, err
 	}
 	return id, nil
+}
+
+// stageMatchesStatus сообщает, соответствует ли этап воронки статусу сделки.
+// Зеркалит логику вывода статуса при перемещении по доске (MoveStage): won/lost
+// определяются типом этапа, остальные — совпадением кода этапа со статусом.
+func stageMatchesStatus(stage *models.FunnelStage, status string) bool {
+	switch status {
+	case "won":
+		return stage.Type == models.FunnelStageTypeWon || stage.Code == "won"
+	case "lost":
+		return stage.Type == models.FunnelStageTypeLost || stage.Code == "lost"
+	default:
+		return stage.Type == models.FunnelStageTypeRegular && stage.Code == status
+	}
 }
 
 func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {

@@ -245,6 +245,22 @@ func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 		}
 		return nil, fmt.Errorf("get lead by id: %w", err)
 	}
+	// Мессенджер-диалог лида (Telegram/Instagram): даём фронту external_chat_id,
+	// чтобы кнопка «Переписка» открывала переписку без телефона. Отдельным
+	// запросом, а не в общий scanLead — он используется и списками.
+	if lead != nil {
+		var transport, chatID sql.NullString
+		_ = r.db.QueryRow(`
+			SELECT external_transport, external_chat_id
+			FROM chats
+			WHERE lead_ref_id = $1 AND external_provider = 'wazzup'
+			  AND COALESCE(external_chat_id, '') <> ''
+			ORDER BY id
+			LIMIT 1
+		`, id).Scan(&transport, &chatID)
+		lead.MessengerTransport = strings.TrimSpace(transport.String)
+		lead.MessengerChatID = strings.TrimSpace(chatID.String)
+	}
 	return lead, nil
 }
 

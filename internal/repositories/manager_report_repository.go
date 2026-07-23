@@ -48,7 +48,7 @@ func (r *ManagerReportRepository) ListByUser(ctx context.Context, userID int) ([
 		       mr.title, mr.created_at, mr.updated_at
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
-		WHERE mr.user_id = $1
+		WHERE mr.user_id = $1 AND mr.deleted_at IS NULL
 		ORDER BY mr.updated_at DESC, mr.id DESC
 	`
 	rows, err := r.db.QueryContext(ctx, q, userID)
@@ -76,7 +76,7 @@ func (r *ManagerReportRepository) GetByID(ctx context.Context, id int) (*Manager
 		       mr.title, mr.content, mr.created_at, mr.updated_at
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
-		WHERE mr.id = $1
+		WHERE mr.id = $1 AND mr.deleted_at IS NULL
 	`
 	rep := &ManagerReport{}
 	err := r.db.QueryRowContext(ctx, q, id).Scan(
@@ -122,11 +122,112 @@ func (r *ManagerReportRepository) Update(ctx context.Context, id, userID int, ti
 	return n > 0, err
 }
 
-// Delete удаляет отчёт сотрудника. false — отчёта нет или он чужой.
+// Delete мягко удаляет отчёт сотрудника в корзину. false — отчёта нет или он чужой.
 func (r *ManagerReportRepository) Delete(ctx context.Context, id, userID int) (bool, error) {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM manager_reports WHERE id = $1 AND user_id = $2`, id, userID)
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE manager_reports SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+		id, userID)
 	if err != nil {
 		return false, fmt.Errorf("delete manager report: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// ListDeletedByUser возвращает корзину сотрудника (его мягко удалённые отчёты).
+func (r *ManagerReportRepository) ListDeletedByUser(ctx context.Context, userID int) ([]*ManagerReport, error) {
+	const q = `
+		SELECT mr.id, mr.user_id,
+		       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email) AS user_name,
+		       mr.title, mr.created_at, mr.updated_at
+		FROM manager_reports mr
+		JOIN users u ON u.id = mr.user_id
+		WHERE mr.user_id = $1 AND mr.deleted_at IS NOT NULL
+		ORDER BY mr.deleted_at DESC, mr.id DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list deleted manager reports by user: %w", err)
+	}
+	defer rows.Close()
+	out := []*ManagerReport{}
+	for rows.Next() {
+		rep := &ManagerReport{}
+		if err := rows.Scan(&rep.ID, &rep.UserID, &rep.UserName, &rep.Title, &rep.CreatedAt, &rep.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rep)
+	}
+	return out, rows.Err()
+}
+
+// ListAllDeleted возвращает корзину для админа — все мягко удалённые отчёты.
+func (r *ManagerReportRepository) ListAllDeleted(ctx context.Context) ([]*ManagerReport, error) {
+	const q = `
+		SELECT mr.id, mr.user_id,
+		       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email) AS user_name,
+		       mr.title, mr.created_at, mr.updated_at
+		FROM manager_reports mr
+		JOIN users u ON u.id = mr.user_id
+		WHERE mr.deleted_at IS NOT NULL
+		ORDER BY mr.deleted_at DESC, mr.id DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list all deleted manager reports: %w", err)
+	}
+	defer rows.Close()
+	out := []*ManagerReport{}
+	for rows.Next() {
+		rep := &ManagerReport{}
+		if err := rows.Scan(&rep.ID, &rep.UserID, &rep.UserName, &rep.Title, &rep.CreatedAt, &rep.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rep)
+	}
+	return out, rows.Err()
+}
+
+// Restore возвращает отчёт сотрудника из корзины (проверка владельца в UPDATE).
+func (r *ManagerReportRepository) Restore(ctx context.Context, id, userID int) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE manager_reports SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
+		id, userID)
+	if err != nil {
+		return false, fmt.Errorf("restore manager report: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// RestoreByID возвращает любой отчёт из корзины — для админа.
+func (r *ManagerReportRepository) RestoreByID(ctx context.Context, id int) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE manager_reports SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		return false, fmt.Errorf("restore manager report by id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// Purge окончательно удаляет отчёт сотрудника из корзины (проверка владельца).
+func (r *ManagerReportRepository) Purge(ctx context.Context, id, userID int) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM manager_reports WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`, id, userID)
+	if err != nil {
+		return false, fmt.Errorf("purge manager report: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// PurgeByID окончательно удаляет любой отчёт из корзины — для админа.
+func (r *ManagerReportRepository) PurgeByID(ctx context.Context, id int) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM manager_reports WHERE id = $1 AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		return false, fmt.Errorf("purge manager report by id: %w", err)
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
@@ -143,9 +244,11 @@ func (r *ManagerReportRepository) UpdateByID(ctx context.Context, id int, title 
 	return n > 0, err
 }
 
-// DeleteByID удаляет любой отчёт без проверки владельца — для админа.
-func (r *ManagerReportRepository) DeleteByID(ctx context.Context, id int) (bool, error) {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM manager_reports WHERE id = $1`, id)
+// DeleteByID мягко удаляет любой отчёт в корзину без проверки владельца — для админа.
+func (r *ManagerReportRepository) DeleteByID(ctx context.Context, id int, deletedBy int) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE manager_reports SET deleted_at = NOW(), deleted_by = NULLIF($2, 0) WHERE id = $1 AND deleted_at IS NULL`,
+		id, deletedBy)
 	if err != nil {
 		return false, fmt.Errorf("delete manager report by id: %w", err)
 	}
@@ -163,7 +266,7 @@ func (r *ManagerReportRepository) ListOwners(ctx context.Context) ([]*ManagerRep
 		       MAX(mr.updated_at) AS updated_at
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
-		WHERE COALESCE(u.is_active, TRUE) = TRUE
+		WHERE COALESCE(u.is_active, TRUE) = TRUE AND mr.deleted_at IS NULL
 		GROUP BY mr.user_id, user_name
 		ORDER BY updated_at DESC
 	`

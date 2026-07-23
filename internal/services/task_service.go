@@ -21,6 +21,8 @@ type TaskService interface {
 	GetAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, int, error)
 	Update(ctx context.Context, id int64, updateData *models.Task) (*models.Task, error)
 	Delete(ctx context.Context, id int64, userID int64, roleID int) error
+	RestoreTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error)
+	PurgeTask(ctx context.Context, id int64, userID int64, roleID int) error
 	ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error)
 	UnarchiveTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error)
 
@@ -141,7 +143,41 @@ func (s *taskService) Delete(ctx context.Context, id int64, userID int64, roleID
 	if task == nil {
 		return errors.New("task not found")
 	}
-	return s.repo.Delete(ctx, id)
+	return s.repo.Delete(ctx, id, userID)
+}
+
+// RestoreTask возвращает задачу из корзины (только тот, кто может окончательно
+// удалять сущности — как у сделок/документов).
+func (s *taskService) RestoreTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error) {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return nil, ErrForbidden
+	}
+	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeDeleted)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, errors.New("task not found")
+	}
+	if err := s.repo.Restore(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(ctx, id)
+}
+
+// PurgeTask окончательно удаляет задачу из корзины.
+func (s *taskService) PurgeTask(ctx context.Context, id int64, userID int64, roleID int) error {
+	if !authz.CanHardDeleteBusinessEntity(roleID) {
+		return ErrForbidden
+	}
+	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeDeleted)
+	if err != nil {
+		return err
+	}
+	if task == nil {
+		return errors.New("task not found")
+	}
+	return s.repo.Purge(ctx, id)
 }
 
 func (s *taskService) ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error) {

@@ -18,7 +18,11 @@ type TaskRepository interface {
 	FindAllPaginated(ctx context.Context, filter models.TaskFilter, limit, offset int) ([]models.Task, error)
 	CountAll(ctx context.Context, filter models.TaskFilter) (int, error)
 	Update(ctx context.Context, task *models.Task) error
-	Delete(ctx context.Context, id int64) error
+	// Delete — мягкое удаление в корзину (deletedBy = кто удалил, 0 = неизвестно).
+	Delete(ctx context.Context, id int64, deletedBy int64) error
+	// Restore возвращает задачу из корзины, Purge удаляет окончательно.
+	Restore(ctx context.Context, id int64) error
+	Purge(ctx context.Context, id int64) error
 	Archive(ctx context.Context, id int64, archivedBy int64, reason string) error
 	Unarchive(ctx context.Context, id int64) error
 
@@ -46,11 +50,15 @@ func NewTaskRepository(db *sql.DB) TaskRepository {
 func taskArchiveWhere(scope ArchiveScope) string {
 	switch scope {
 	case ArchiveScopeArchivedOnly:
-		return "is_archived = TRUE"
+		return "is_archived = TRUE AND deleted_at IS NULL"
 	case ArchiveScopeAll:
-		return "1=1"
+		// «все» — активные и архивные, но НЕ корзина
+		return "deleted_at IS NULL"
+	case ArchiveScopeDeleted:
+		// корзина — мягко удалённые задачи
+		return "deleted_at IS NOT NULL"
 	default:
-		return "is_archived = FALSE"
+		return "is_archived = FALSE AND deleted_at IS NULL"
 	}
 }
 
@@ -336,6 +344,8 @@ func buildTaskFilterWhere(filter models.TaskFilter, startAt int) (string, []inte
 		scope = ArchiveScopeArchivedOnly
 	case "all":
 		scope = ArchiveScopeAll
+	case "deleted":
+		scope = ArchiveScopeDeleted
 	}
 	conditions = append(conditions, taskArchiveWhere(scope))
 
@@ -401,8 +411,24 @@ func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {
 	return tx.Commit()
 }
 
-func (r *taskRepository) Delete(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+// Delete мягко удаляет задачу в корзину (ТЗ 04.07.2026, п.7.1).
+func (r *taskRepository) Delete(ctx context.Context, id int64, deletedBy int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET deleted_at = NOW(), deleted_by = NULLIF($2, 0), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+		id, deletedBy)
+	return err
+}
+
+// Restore возвращает задачу из корзины.
+func (r *taskRepository) Restore(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET deleted_at = NULL, deleted_by = NULL, updated_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+// Purge окончательно удаляет задачу (только из корзины).
+func (r *taskRepository) Purge(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = $1 AND deleted_at IS NOT NULL`, id)
 	return err
 }
 
@@ -462,6 +488,7 @@ SELECT id, COALESCE(creator_id, 0), COALESCE(assignee_id, 0), branch_id, entity_
 FROM tasks
 WHERE reminder_at IS NOT NULL
   AND is_archived = FALSE
+  AND deleted_at IS NULL
   AND reminder_at <= NOW()
   AND (last_reminded_at IS NULL OR last_reminded_at < reminder_at)
   AND status NOT IN ('done','cancelled')
@@ -514,6 +541,7 @@ SELECT t.id, COALESCE(t.creator_id, 0), COALESCE(t.assignee_id, 0), t.branch_id,
 FROM tasks t
 JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = $1
 WHERE t.is_archived = FALSE
+  AND t.deleted_at IS NULL
   AND t.status NOT IN ('done','cancelled')
   AND (
         ta.last_notified_at IS NULL
@@ -558,6 +586,7 @@ SELECT COUNT(*)
 FROM tasks t
 JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = $1
 WHERE t.is_archived = FALSE
+  AND t.deleted_at IS NULL
   AND t.status NOT IN ('done','cancelled')`, userID).Scan(&count)
 	return count, err
 }

@@ -179,6 +179,55 @@ func (h *ManagerReportHandler) DeleteMy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// ListMyTrash — GET /reports/table/my/trash: мои отчёты в корзине.
+func (h *ManagerReportHandler) ListMyTrash(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	reports, err := h.repo.ListDeletedByUser(c.Request.Context(), userID)
+	if err != nil {
+		internalError(c, "Failed to load trash")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": reports, "count": len(reports)})
+}
+
+// RestoreMy — POST /reports/table/my/:id/restore: восстановить свой отчёт.
+func (h *ManagerReportHandler) RestoreMy(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	restored, err := h.repo.Restore(c.Request.Context(), reportID, userID)
+	if err != nil {
+		internalError(c, "Failed to restore report")
+		return
+	}
+	if !restored {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// PurgeMy — DELETE /reports/table/my/:id/purge: удалить свой отчёт из корзины навсегда.
+func (h *ManagerReportHandler) PurgeMy(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	purged, err := h.repo.Purge(c.Request.Context(), reportID, userID)
+	if err != nil {
+		internalError(c, "Failed to purge report")
+		return
+	}
+	if !purged {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 // List — GET /reports/table: сотрудники, которые ведут отчёты
 // (руководство/админ/КК: кто, сколько отчётов, когда обновлял).
 func (h *ManagerReportHandler) List(c *gin.Context) {
@@ -296,12 +345,74 @@ func (h *ManagerReportHandler) DeleteReport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	deleted, err := h.repo.DeleteByID(c.Request.Context(), reportID)
+	adminID, _ := getUserAndRole(c)
+	deleted, err := h.repo.DeleteByID(c.Request.Context(), reportID, adminID)
 	if err != nil {
 		internalError(c, "Failed to delete report")
 		return
 	}
 	if !deleted {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// ListTrash — GET /reports/table/trash: корзина для админа (все удалённые отчёты).
+func (h *ManagerReportHandler) ListTrash(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reports, err := h.repo.ListAllDeleted(c.Request.Context())
+	if err != nil {
+		internalError(c, "Failed to load trash")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": reports, "count": len(reports)})
+}
+
+// RestoreReport — POST /reports/table/report/:id/restore: админ восстанавливает любой отчёт.
+func (h *ManagerReportHandler) RestoreReport(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	restored, err := h.repo.RestoreByID(c.Request.Context(), reportID)
+	if err != nil {
+		internalError(c, "Failed to restore report")
+		return
+	}
+	if !restored {
+		notFound(c, NotFoundCode, "Отчёт не найден")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// PurgeReport — DELETE /reports/table/report/:id/purge: админ удаляет любой отчёт из корзины навсегда.
+func (h *ManagerReportHandler) PurgeReport(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanManageSystem(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	reportID, ok := parseReportID(c)
+	if !ok {
+		return
+	}
+	purged, err := h.repo.PurgeByID(c.Request.Context(), reportID)
+	if err != nil {
+		internalError(c, "Failed to purge report")
+		return
+	}
+	if !purged {
 		notFound(c, NotFoundCode, "Отчёт не найден")
 		return
 	}
