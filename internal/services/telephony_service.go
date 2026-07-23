@@ -228,6 +228,7 @@ func (s *TelephonyService) ingestCall(ctx context.Context, call *models.Telephon
 	if call.NormalizedPhone != nil {
 		normalizedPhone = *call.NormalizedPhone
 	}
+	isInternalNumber := isInternalBinotelNumber(normalizedPhone)
 
 	if normalizedPhone != "" {
 		clientID, cErr := s.repo.FindClientByPhone(ctx, normalizedPhone)
@@ -243,7 +244,7 @@ func (s *TelephonyService) ingestCall(ctx context.Context, call *models.Telephon
 			}
 			if leadID > 0 {
 				call.LeadID = &leadID
-			} else if call.Direction == models.CallDirectionInbound {
+			} else if call.Direction == models.CallDirectionInbound && !isInternalNumber {
 				newLeadID, lcErr := s.repo.CreateLeadFromCall(ctx, call.Phone, normalizedPhone, call.ManagerID, call.BranchID)
 				if lcErr != nil {
 					log.Printf("integration=binotel operation=ingest status=warn create_lead error=%v", lcErr)
@@ -290,6 +291,10 @@ func (s *TelephonyService) ingestCall(ctx context.Context, call *models.Telephon
 	}
 
 	return callID, isNew, nil
+}
+
+func isInternalBinotelNumber(normalizedPhone string) bool {
+	return len(strings.TrimSpace(normalizedPhone)) > 0 && len(strings.TrimSpace(normalizedPhone)) <= 3
 }
 
 // ListCalls returns a paginated list of calls with role scope enforcement
@@ -728,4 +733,3 @@ func maskPhone(s string) string {
 	}
 	return s[:len(s)-4] + "****"
 }
-
