@@ -99,7 +99,9 @@ func TestResolveUserContext_DeptFallbackByRoleCode(t *testing.T) {
 
 // ─── resolveLeadScope dept behaviour ─────────────────────────────────────────
 
-func TestResolveLeadScope_Sales_HasDepartmentID(t *testing.T) {
+// Обратная связь 24.07.2026: лиды стали общим пулом (ScopeKindAll) для всех
+// менеджеров — отделовой фильтр по лидам больше не применяется.
+func TestResolveLeadScope_Sales_IsAllNoDepartment(t *testing.T) {
 	branchID, deptID := 10, 2
 	repo := &deptScopeUserRepoStub{
 		user: &models.User{RoleID: authz.RoleSales, BranchID: &branchID, DepartmentID: &deptID},
@@ -108,12 +110,12 @@ func TestResolveLeadScope_Sales_HasDepartmentID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope.DepartmentID == nil || *scope.DepartmentID != deptID {
-		t.Errorf("sales scope.DepartmentID: want %d, got %v", deptID, scope.DepartmentID)
+	if scope.Kind != ScopeKindAll || scope.DepartmentID != nil {
+		t.Errorf("sales lead scope: want All without department, got %+v", scope)
 	}
 }
 
-func TestResolveLeadScope_Visa_HasDepartmentID(t *testing.T) {
+func TestResolveLeadScope_Visa_IsAllNoDepartment(t *testing.T) {
 	branchID, deptID := 10, 4
 	repo := &deptScopeUserRepoStub{
 		user: &models.User{RoleID: authz.RoleVisa, BranchID: &branchID, DepartmentID: &deptID},
@@ -122,8 +124,8 @@ func TestResolveLeadScope_Visa_HasDepartmentID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope.DepartmentID == nil || *scope.DepartmentID != deptID {
-		t.Errorf("visa scope.DepartmentID: want %d, got %v", deptID, scope.DepartmentID)
+	if scope.Kind != ScopeKindAll || scope.DepartmentID != nil {
+		t.Errorf("visa lead scope: want All without department, got %+v", scope)
 	}
 }
 

@@ -267,6 +267,9 @@ func (r *ManagerReportRepository) ListOwners(ctx context.Context) ([]*ManagerRep
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
 		WHERE COALESCE(u.is_active, TRUE) = TRUE AND mr.deleted_at IS NULL
+		  -- отчёты системного администратора (role_id=50) приватны: видны только
+		  -- ему самому в «Мои отчёты», в списке «Отчёты сотрудников» их нет
+		  AND u.role_id <> 50
 		GROUP BY mr.user_id, user_name
 		ORDER BY updated_at DESC
 	`

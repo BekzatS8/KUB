@@ -21,22 +21,19 @@ func TestResolveLeadScope_AdminAndManagementReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveLeadScope_SalesVisaPartnerReturnBranch(t *testing.T) {
+func TestResolveLeadScope_SalesVisaPartnerReturnAll(t *testing.T) {
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
-	// quality_control is no longer branch-scoped — see TestQualityControlScopeIsAll.
-	// partner is now department-scoped (same as sales/visa), not own-scoped.
+	// Обратная связь заказчика 24.07.2026: все менеджеры видят все лиды (общий
+	// пул для создания сделок), поэтому lead-scope теперь ScopeKindAll.
 	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
 		scope, err := resolveLeadScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
 		}
-		if scope.Kind != ScopeKindBranch {
-			t.Errorf("role %d: expected ScopeKindBranch, got %v", roleID, scope.Kind)
-		}
-		if scope.BranchID == nil || *scope.BranchID != branchID {
-			t.Errorf("role %d: expected branchID=%d, got %+v", roleID, branchID, scope.BranchID)
+		if scope.Kind != ScopeKindAll {
+			t.Errorf("role %d: expected ScopeKindAll, got %v", roleID, scope.Kind)
 		}
 	}
 }
@@ -288,19 +285,16 @@ func TestHRScopeAlwaysForbidden(t *testing.T) {
 	}
 }
 
-// TestPartnerScope_BranchLeadsAllClients verifies partner gets Branch scope for leads (dept-scoped)
-// and All scope for clients (общая база).
-func TestPartnerScope_BranchLeadsAllClients(t *testing.T) {
+// TestPartnerScope_AllLeadsAllClients verifies partner gets All scope for both
+// leads (общий пул, обратная связь 24.07.2026) and clients (общая база).
+func TestPartnerScope_AllLeadsAllClients(t *testing.T) {
 	const partnerID = 55
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
 	leadScope, err := resolveLeadScope(partnerID, authz.RolePartner, userRepo)
-	if err != nil || leadScope.Kind != ScopeKindBranch {
-		t.Errorf("partner must be Branch-scoped for leads, got %+v err=%v", leadScope, err)
-	}
-	if leadScope.BranchID == nil || *leadScope.BranchID != branchID {
-		t.Errorf("partner leads: expected branchID=%d, got %v", branchID, leadScope.BranchID)
+	if err != nil || leadScope.Kind != ScopeKindAll {
+		t.Errorf("partner must be All-scoped for leads, got %+v err=%v", leadScope, err)
 	}
 
 	clientScope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
@@ -326,12 +320,13 @@ func TestQualityControlScopeIsAll(t *testing.T) {
 	}
 }
 
-// TestResolveUserBranch_NilRepoReturnsForbidden verifies that branch-scoped roles
-// (sales/visa/partner) fail closed when userRepo is missing. quality_control is excluded —
-// it is now ScopeKindAll and needs no branch lookup.
+// TestResolveUserBranch_NilRepoReturnsForbidden verifies that branch-scoped DEAL
+// roles (sales/visa) fail closed when userRepo is missing. Leads are now
+// ScopeKindAll for managers and need no branch lookup, so this now checks the
+// deal scope (which stays branch-scoped).
 func TestResolveUserBranch_NilRepoReturnsForbidden(t *testing.T) {
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
-		_, err := resolveLeadScope(1, roleID, nil)
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
+		_, err := resolveDealScope(1, roleID, nil)
 		if err == nil {
 			t.Errorf("role %d: expected error when userRepo is nil, got nil", roleID)
 		}

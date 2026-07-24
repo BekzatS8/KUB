@@ -72,22 +72,20 @@ func resolveUserBranch(userID int, userRepo repositories.UserRepository) (*int, 
 //
 // LEADS mapping (from permission matrix + ТЗ):
 //   admin / management / quality_control → All
-//   sales / visa / partner               → Branch+Department(user.BranchID, user.DepartmentID)
+//   sales / visa / partner               → All (общий пул лидов для создания
+//                                           сделок — обратная связь заказчика
+//                                           24.07.2026; раньше был Branch+Dept)
 //   hr / legal / unknown                 → Forbidden
+//
+// Все менеджеры видят все лиды (как и общая база клиентов), чтобы любой мог
+// завести сделку по любому лиду.
 func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
-		// quality_control is an all-funnel READ observer across all departments/branches.
-		// Read-only is enforced separately (ReadOnlyGuard + service IsReadOnly checks).
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl,
+		authz.RoleSales, authz.RoleVisa, authz.RolePartner:
+		// quality_control is a read-only observer (enforced separately); менеджеры
+		// (sales/visa/partner) теперь тоже видят все лиды.
 		return DataScope{Kind: ScopeKindAll}, nil
-	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
-		branchID, deptID, err := resolveUserContext(userID, userRepo)
-		if err != nil {
-			return DataScope{Kind: ScopeKindForbidden}, err
-		}
-		// UserID is carried so a department-scoped role can still see leads it owns
-		// (incl. department_id IS NULL ones) without leaking NULL-dept leads to peers.
-		return DataScope{Kind: ScopeKindBranch, BranchID: branchID, DepartmentID: deptID, UserID: userID}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}

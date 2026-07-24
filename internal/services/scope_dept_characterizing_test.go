@@ -13,35 +13,30 @@ import (
 	"turcompany/internal/models"
 )
 
-// TestCharacterize_SalesLeadScope_IsBranch confirms sales is Branch-scoped.
-func TestCharacterize_SalesLeadScope_IsBranch(t *testing.T) {
+// TestCharacterize_SalesLeadScope_IsAll confirms sales sees all leads
+// (общий пул для создания сделок, обратная связь 24.07.2026).
+func TestCharacterize_SalesLeadScope_IsAll(t *testing.T) {
 	branchID := 7
 	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 	scope, err := resolveLeadScope(1, authz.RoleSales, repo)
 	if err != nil {
 		t.Fatalf("sales: unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Errorf("sales lead scope: want ScopeKindBranch, got %v", scope.Kind)
-	}
-	if scope.BranchID == nil || *scope.BranchID != branchID {
-		t.Errorf("sales lead scope: want branchID=%d, got %v", branchID, scope.BranchID)
+	if scope.Kind != ScopeKindAll {
+		t.Errorf("sales lead scope: want ScopeKindAll, got %v", scope.Kind)
 	}
 }
 
-// TestCharacterize_VisaLeadScope_IsBranch confirms visa is Branch-scoped.
-func TestCharacterize_VisaLeadScope_IsBranch(t *testing.T) {
+// TestCharacterize_VisaLeadScope_IsAll confirms visa sees all leads.
+func TestCharacterize_VisaLeadScope_IsAll(t *testing.T) {
 	branchID := 3
 	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 	scope, err := resolveLeadScope(1, authz.RoleVisa, repo)
 	if err != nil {
 		t.Fatalf("visa: unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Errorf("visa lead scope: want ScopeKindBranch, got %v", scope.Kind)
-	}
-	if scope.BranchID == nil || *scope.BranchID != branchID {
-		t.Errorf("visa lead scope: want branchID=%d, got %v", branchID, scope.BranchID)
+	if scope.Kind != ScopeKindAll {
+		t.Errorf("visa lead scope: want ScopeKindAll, got %v", scope.Kind)
 	}
 }
 

@@ -78,9 +78,9 @@ func TestGetByID_Client_HRForbidden(t *testing.T) {
 
 // ─── Lead GetByID Own ─────────────────────────────────────────────────────────
 
-// По матрице партнёрский отдел видит лиды ТОЛЬКО своего отдела/филиала (ScopeKindBranch):
-// лид своего филиала+отдела доступен, лид другого филиала — нет.
-func TestGetByID_Lead_PartnerSeesOwnDepartmentLeads(t *testing.T) {
+// Обратная связь 24.07.2026: лиды — общий пул (ScopeKindAll). Партнёр (как и
+// любой менеджер) видит все лиды: и свои, и чужого филиала.
+func TestGetByID_Lead_PartnerSeesAllLeads(t *testing.T) {
 	const partnerID = 7
 	branchID, deptID := 5, 3
 	repo := &deptScopeUserRepoStub{
@@ -90,17 +90,17 @@ func TestGetByID_Lead_PartnerSeesOwnDepartmentLeads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveLeadScope: %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Fatalf("partner must get ScopeKindBranch for leads, got %v", scope.Kind)
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("partner must get ScopeKindAll for leads, got %v", scope.Kind)
 	}
 	ownLead := &models.Leads{ID: 1, OwnerID: partnerID, BranchID: &branchID, DepartmentID: &deptID}
 	if !leadMatchesScope(scope, ownLead) {
-		t.Errorf("partner must access lead in own branch+department")
+		t.Errorf("partner must access own lead")
 	}
 	otherBranch := 6
 	foreignLead := &models.Leads{ID: 2, OwnerID: 99, BranchID: &otherBranch, DepartmentID: &deptID}
-	if leadMatchesScope(scope, foreignLead) {
-		t.Errorf("partner must NOT access lead in a different branch")
+	if !leadMatchesScope(scope, foreignLead) {
+		t.Errorf("partner must now access lead in a different branch (общий пул)")
 	}
 }
 

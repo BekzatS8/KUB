@@ -232,11 +232,10 @@ func TestLeadListForRole_LegalForbidden(t *testing.T) {
 	}
 }
 
-// TestLeadListForRole_SalesResolvesToBranch verifies sales is no longer hard-blocked
-// in ListForRole and instead resolves to ScopeKindBranch (свой отдел+филиал по
-// воронкам per ТЗ). Previously the guard forced sales onto /leads/my which returned
-// ALL leads, leaking every department.
-func TestLeadListForRole_SalesResolvesToBranch(t *testing.T) {
+// TestLeadListForRole_SalesResolvesToAll verifies sales sees all leads (общий
+// пул для создания сделок, обратная связь 24.07.2026) — ScopeKindAll, без
+// фильтра по филиалу/отделу.
+func TestLeadListForRole_SalesResolvesToAll(t *testing.T) {
 	const salesID = 11
 	branchID, deptID := 4, 2
 	repo := &deptScopeUserRepoStub{
@@ -246,14 +245,11 @@ func TestLeadListForRole_SalesResolvesToBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sales resolveLeadScope: unexpected error %v", err)
 	}
-	if scope.Kind != ScopeKindBranch {
-		t.Fatalf("sales: expected ScopeKindBranch (свой отдел+филиал), got %v", scope.Kind)
+	if scope.Kind != ScopeKindAll {
+		t.Fatalf("sales: expected ScopeKindAll (общий пул лидов), got %v", scope.Kind)
 	}
-	if scope.BranchID == nil || *scope.BranchID != branchID {
-		t.Errorf("sales: expected BranchID=%d, got %v", branchID, scope.BranchID)
-	}
-	if scope.DepartmentID == nil || *scope.DepartmentID != deptID {
-		t.Errorf("sales: expected DepartmentID=%d, got %v", deptID, scope.DepartmentID)
+	if scope.BranchID != nil || scope.DepartmentID != nil {
+		t.Errorf("sales: expected no branch/department filter, got %+v", scope)
 	}
 }
 
