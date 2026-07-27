@@ -628,9 +628,9 @@ func (r *wazzupRepository) UpsertExternalChat(ctx context.Context, in ExternalCh
 				$1, $2, FALSE, COALESCE($3, (SELECT branch_id FROM users WHERE id = $2)),
 				'wazzup', $4, $5, NULLIF($6, ''),
 				NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10::jsonb,
-				$11,
-				CASE WHEN $12 = 'incoming' THEN $11 ELSE NULL END,
-				CASE WHEN $12 = 'outgoing' THEN $11 ELSE NULL END,
+				$11::timestamptz,
+				CASE WHEN $12 = 'incoming' THEN $11::timestamptz ELSE NULL END,
+				CASE WHEN $12 = 'outgoing' THEN $11::timestamptz ELSE NULL END,
 				$13, $14
 			)
 			RETURNING id
