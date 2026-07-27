@@ -223,7 +223,20 @@ func (r *FunnelRepository) GetLeadFunnelAccess(leadID int) (*LeadFunnelAccess, e
 }
 
 func (r *FunnelRepository) MoveLeadToFunnel(leadID, funnelID int) error {
-	result, err := r.db.Exec(`UPDATE leads SET funnel_id=$1, department_id=(SELECT department_id FROM funnels WHERE id=$1) WHERE id=$2`, funnelID, leadID)
+	// Ставим лид на ПЕРВЫЙ активный этап целевой воронки — иначе он сохранял
+	// stage_id из старой воронки и показывался «Без этапа» на новой доске
+	// (обратная связь заказчика 26.07.2026).
+	result, err := r.db.Exec(`
+		UPDATE leads
+		SET funnel_id=$1,
+		    department_id=(SELECT department_id FROM funnels WHERE id=$1),
+		    stage_id=(
+		        SELECT id FROM funnel_stages
+		        WHERE funnel_id=$1 AND COALESCE(is_active, TRUE) = TRUE
+		        ORDER BY position ASC, id ASC
+		        LIMIT 1
+		    )
+		WHERE id=$2`, funnelID, leadID)
 	if err != nil {
 		return err
 	}
