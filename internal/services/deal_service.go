@@ -313,6 +313,12 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 		}
 	}
 
+	// Филиал в форме редактирования не передаётся — сохраняем текущий, иначе
+	// UPDATE обнулял branch_id и сделка «теряла» филиал (ломались scope/отчёты).
+	if deal.BranchID == nil {
+		deal.BranchID = current.BranchID
+	}
+
 	// 6) Сохраняем изменения в БД
 	err = s.Repo.Update(deal)
 	if err != nil {

@@ -202,9 +202,12 @@ func (r *DealRepository) GetByLeadIDWithArchiveScope(leadID int, scope ArchiveSc
 }
 
 func (r *DealRepository) Update(deal *models.Deals) error {
+	// lead_id оборачиваем в NULLIF($1,0): у сделок «с улицы» лида нет (LeadID=0),
+	// и без NULLIF UPDATE писал lead_id=0 → нарушение внешнего ключа → сделка не
+	// сохранялась с ошибкой LEAD_NOT_FOUND (как в INSERT).
 	query := `
 		UPDATE deals
-		SET lead_id=$1, client_id=$2, owner_id=$3, branch_id=$4, amount=$5, prepayment=$6, currency=$7, status=$8
+		SET lead_id=NULLIF($1, 0), client_id=$2, owner_id=$3, branch_id=$4, amount=$5, prepayment=$6, currency=$7, status=$8
 		WHERE id=$9
 	`
 	_, err := r.db.Exec(query,
