@@ -93,6 +93,10 @@ LEFT JOIN LATERAL (
     WHERE m.chat_id = c.id AND m.id > COALESCE(crs.last_read_message_id, 0)
 ) unread ON true
 WHERE c.id IN (SELECT chat_id FROM chat_members WHERE user_id = $1)
+  -- «Чат» — только внутренние переписки между сотрудниками. Внешние переписки
+  -- с клиентами (Wazzup: WhatsApp/Instagram/Telegram) живут в «Мессенджере» и
+  -- не должны показываться/удаляться здесь (обратная связь заказчика 27.07.2026).
+  AND c.external_provider IS NULL
 GROUP BY c.id, c.name, c.is_group, c.created_at, lm.text, lm.created_at, us.online, us.last_seen, unread.unread_count
 ORDER BY c.id
 `
@@ -300,7 +304,10 @@ WHERE chat_id = $1 AND user_id = $2
 }
 
 func (r *chatRepository) DeleteChat(chatID int) error {
-	const q = `DELETE FROM chats WHERE id = $1`
+	// Через внутренний «Чат» удаляем только внутренние переписки. Внешние
+	// (Wazzup-переписки с клиентами) удалять отсюда нельзя — иначе теряется
+	// связь лида с мессенджером (обратная связь заказчика 27.07.2026).
+	const q = `DELETE FROM chats WHERE id = $1 AND external_provider IS NULL`
 	_, err := r.DB.Exec(q, chatID)
 	return err
 }
@@ -929,6 +936,7 @@ LEFT JOIN LATERAL (
     WHERE m.chat_id = c.id AND m.id > COALESCE(crs.last_read_message_id, 0)
 ) unread ON true
 WHERE c.id IN (SELECT chat_id FROM chat_members WHERE user_id = $1)
+  AND c.external_provider IS NULL
   AND (
       c.name ILIKE $3
       OR COALESCE(lm.text, '') ILIKE $3
