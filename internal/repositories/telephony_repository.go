@@ -373,14 +373,19 @@ func (r *telephonyRepository) FindManagerByExtension(ctx context.Context, extens
 		return 0, 0, nil
 	}
 	normalized := NormalizePhoneForTelephony(extension)
+	// Каждое условие требует НЕПУСТОГО значения сравнения. Иначе, когда добавочный
+	// нормализуется в пустую строку (например, Binotel прислал текст IVR вместо
+	// номера), условие regexp_replace(internal_phone,'\D','') = '' матчило бы
+	// ЛЮБОГО пользователя с пустым internal_phone и возвращало случайного (баг с
+	// «чужим сотрудником», обратная связь 27.07.2026).
 	const q = `
 		SELECT u.id, COALESCE(u.branch_id, 0)
 		FROM users u
-		WHERE regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2
-		   OR TRIM(COALESCE(u.internal_phone, '')) = $1
-		   OR regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $1
-		   OR regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $2
-		ORDER BY (regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2) DESC
+		WHERE ($2 <> '' AND regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2)
+		   OR ($1 <> '' AND TRIM(COALESCE(u.internal_phone, '')) = $1)
+		   OR ($1 <> '' AND regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $1)
+		   OR ($2 <> '' AND regexp_replace(COALESCE(u.phone, ''), '\D', '', 'g') = $2)
+		ORDER BY ($2 <> '' AND regexp_replace(COALESCE(u.internal_phone, ''), '\D', '', 'g') = $2) DESC
 		LIMIT 1
 	`
 	var userID, branchID int

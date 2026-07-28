@@ -146,7 +146,7 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 	internalExt := strings.TrimSpace(coalesceStr(p.EmployeePhone, p.InternalNumber, p.EmployeeID))
 
 	direction := resolveDirection(p)
-	status := resolveStatus(p)
+	status := resolveStatus(p, direction == models.CallDirectionInbound)
 
 	normalizedPhone := repositories.NormalizePhoneForTelephony(phone)
 
@@ -201,7 +201,15 @@ func (s *TelephonyService) HandleBinotelWebhook(ctx context.Context, rawBody []b
 
 // resolveManager maps a Binotel internal extension to a CRM user + branch.
 func (s *TelephonyService) resolveManager(ctx context.Context, internalExt string) (*int, *int) {
-	if strings.TrimSpace(internalExt) == "" {
+	internalExt = strings.TrimSpace(internalExt)
+	if internalExt == "" {
+		return nil, nil
+	}
+	// В нерабочее время Binotel кладёт в internalNumber ТЕКСТ IVR-приветствия
+	// («Вас приветствует ... нерабочее») вместо добавочного. У такого «номера»
+	// нет цифр — не привязываем сотрудника, иначе неотвеченный звонок цепляется
+	// к случайному менеджеру с пустым internal_phone (обратная связь 27.07.2026).
+	if strings.IndexFunc(internalExt, func(r rune) bool { return r >= '0' && r <= '9' }) < 0 {
 		return nil, nil
 	}
 	uid, bid, err := s.repo.FindManagerByExtension(ctx, internalExt)
@@ -499,7 +507,7 @@ func (s *TelephonyService) binotelCallToModel(ctx context.Context, bc binotelcli
 	if bc.CallType.Int() == 1 {
 		direction = models.CallDirectionOutbound
 	}
-	status := dispositionToStatus(bc.Disposition)
+	status := dispositionToStatus(bc.Disposition, direction == models.CallDirectionInbound)
 
 	phone := strings.TrimSpace(bc.ExternalNumber)
 	normalizedPhone := repositories.NormalizePhoneForTelephony(phone)
@@ -595,13 +603,20 @@ func (s *TelephonyService) parseWebhookCallDetails(ctx context.Context, rawBody 
 }
 
 // dispositionToStatus maps Binotel disposition codes to CRM call statuses.
-func dispositionToStatus(disp string) string {
+func dispositionToStatus(disp string, inbound bool) string {
 	switch strings.ToUpper(strings.TrimSpace(disp)) {
 	case "ANSWER", "TRANSFER", "ONLINE", "VM-SUCCESS", "SUCCESS", "SMS-SUCCESS":
 		return models.CallStatusAnswered
 	case "BUSY", "NOANSWER", "CANCEL", "VM":
 		return models.CallStatusMissed
 	case "CONGESTION", "CHANUNAVAIL", "FAILED", "SMS-FAILED":
+		// Входящий, не дошедший до сотрудника (техсбой, нерабочее время →
+		// автоприветствие), — это ПРОПУЩЕННЫЙ звонок (недозвон клиента), а не
+		// «Ошибка». «Ошибку»/failed оставляем только исходящим, где звонок
+		// инициировали мы (обратная связь заказчика 27.07.2026).
+		if inbound {
+			return models.CallStatusMissed
+		}
 		return models.CallStatusFailed
 	default:
 		return models.CallStatusUnknown
@@ -636,7 +651,7 @@ func resolveDirection(p models.BinotelWebhookPayload) string {
 	return models.CallDirectionInbound // safe default
 }
 
-func resolveStatus(p models.BinotelWebhookPayload) string {
+func resolveStatus(p models.BinotelWebhookPayload, inbound bool) string {
 	disp := strings.ToLower(strings.TrimSpace(p.Disposition))
 	switch disp {
 	case "answered":
@@ -646,6 +661,10 @@ func resolveStatus(p models.BinotelWebhookPayload) string {
 	case "busy":
 		return models.CallStatusMissed
 	case "failed":
+		// Входящий недозвон = пропущенный, не «Ошибка» (см. dispositionToStatus).
+		if inbound {
+			return models.CallStatusMissed
+		}
 		return models.CallStatusFailed
 	case "completed":
 		return models.CallStatusCompleted
