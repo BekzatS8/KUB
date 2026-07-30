@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE IF EXISTS funnel_stages
+    DROP COLUMN IF EXISTS is_rejection;
+
+COMMIT;

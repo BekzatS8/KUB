@@ -79,6 +79,8 @@ type SigningTelegramSender interface {
 
 type DocumentSigner interface {
 	FinalizeSigning(docID int64) error
+	ResolveSignerForSMS(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error)
+	ResolveSignerForEmail(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error)
 }
 
 type SignatureConfirmationStore interface {
@@ -516,6 +518,34 @@ func (s *DocumentSigningConfirmationService) StartSigningBySMS(ctx context.Conte
 	}
 	channels := []SigningChannelStatus{{Channel: "sms", Status: "pending", ExpiresAt: expiresAt}}
 	return &SigningStartResult{DocumentID: documentID, UserID: userID, Policy: s.policy, Channels: channels}, nil
+}
+
+// StartSigningForDocument резолвит подписанта и запускает отправку на подпись
+// одним вызовом. Используется одобрением feed-события pending_send_document:
+// администратор одобряет — документ реально уходит клиенту (его правами).
+func (s *DocumentSigningConfirmationService) StartSigningForDocument(ctx context.Context, docID int64, channel, manualPhone, manualEmail, signerFullName, signerPosition string, userID, roleID int) error {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	overrides := SignerOverrides{
+		Email:    manualEmail,
+		Phone:    manualPhone,
+		FullName: signerFullName,
+		Position: signerPosition,
+	}
+	var signer ResolvedSigner
+	var err error
+	switch channel {
+	case "sms":
+		signer, err = s.docSigner.ResolveSignerForSMS(docID, userID, roleID, overrides)
+	case "email":
+		signer, err = s.docSigner.ResolveSignerForEmail(docID, userID, roleID, overrides)
+	default:
+		return errors.New("unsupported signing channel")
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.StartSigningByChannel(ctx, channel, docID, int64(userID), signer.Phone, signer.Email)
+	return err
 }
 
 func (s *DocumentSigningConfirmationService) StartSigningByChannel(ctx context.Context, channel string, documentID, userID int64, signerPhone, signerEmail string) (*SigningStartResult, error) {

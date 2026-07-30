@@ -22,6 +22,9 @@ type FunnelStage struct {
 	// AutoArchive — при переходе карточки на этот этап она автоматически
 	// уходит в архив (настраивается в параметрах воронки).
 	AutoArchive bool      `json:"auto_archive"`
+	// IsRejection — этап отказа: при переходе карточка получает статус "отказ"
+	// (cancelled), уходит из активной воронки и попадает в «Отказники».
+	IsRejection bool      `json:"is_rejection"`
 	CreatedAt   time.Time `json:"created_at,omitempty"`
 	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }

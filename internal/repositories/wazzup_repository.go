@@ -421,14 +421,30 @@ func (r *wazzupRepository) FindClientByPhone(ctx context.Context, phone string) 
 
 func (r *wazzupRepository) FindLeadByPhone(ctx context.Context, phone string) (int, error) {
 	normalizedPhone := normalizePhone(phone)
-	// leads.phone should be stored normalized (digits only).
-	const q = `
-		SELECT id
-		FROM leads
-		WHERE phone = $1
-		ORDER BY id
-		LIMIT 1
-	`
+	if normalizedPhone == "" {
+		return 0, nil
+	}
+	// Матчим по ПОСЛЕДНИМ 10 цифрам (абонентский номер без кода страны/префикса),
+	// чтобы разные представления одного номера — 77.., 87.., 7.. — склеивались в
+	// ОДИН лид (Binotel + WhatsApp с одного номера = одна карточка). Для коротких
+	// номеров (<10 цифр) — точное совпадение цифр.
+	var q string
+	if len(normalizedPhone) >= 10 {
+		q = `
+			SELECT id FROM leads
+			WHERE length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
+			  AND RIGHT(regexp_replace(COALESCE(phone, ''), '\D', '', 'g'), 10) = RIGHT($1, 10)
+			ORDER BY id
+			LIMIT 1
+		`
+	} else {
+		q = `
+			SELECT id FROM leads
+			WHERE regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
+			ORDER BY id
+			LIMIT 1
+		`
+	}
 	var leadID int
 	err := r.db.QueryRowContext(ctx, q, normalizedPhone).Scan(&leadID)
 	if errors.Is(err, sql.ErrNoRows) {

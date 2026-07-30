@@ -81,6 +81,14 @@ func (s *validateSignerSpy) FinalizeSigning(int64) error {
 	return nil
 }
 
+func (s *validateSignerSpy) ResolveSignerForSMS(int64, int, int, SignerOverrides) (ResolvedSigner, error) {
+	return ResolvedSigner{}, nil
+}
+
+func (s *validateSignerSpy) ResolveSignerForEmail(int64, int, int, SignerOverrides) (ResolvedSigner, error) {
+	return ResolvedSigner{}, nil
+}
+
 func TestValidateEmailTokenDoesNotFinalizeDocument(t *testing.T) {
 	token := "verify-token"
 	hash := hashConfirmTokenWithPepper(token, "")

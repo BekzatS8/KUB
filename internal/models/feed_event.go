@@ -21,6 +21,9 @@ const (
 	FeedEventTypePendingCreateDocument = "pending_create_document"
 	FeedEventTypePendingEditDocument   = "pending_edit_document"
 	FeedEventTypePendingDeleteDocument = "pending_delete_document"
+	// PendingSendDocument — менеджер отправил документ на подпись; отправка ждёт
+	// одобрения администратора и на approve реально уходит клиенту.
+	FeedEventTypePendingSendDocument = "pending_send_document"
 
 	FeedEventStatusPending  = "pending"
 	FeedEventStatusApproved = "approved"

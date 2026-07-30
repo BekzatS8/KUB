@@ -472,10 +472,12 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	}
 	targetFunnelID := 0
 	autoArchive := false
+	isRejection := false
 	if s.StageRepo != nil {
 		if stage, err := s.StageRepo.GetByID(stageID); err == nil && stage != nil {
 			targetFunnelID = stage.FunnelID
 			autoArchive = stage.AutoArchive
+			isRejection = stage.IsRejection
 		}
 	}
 
@@ -485,9 +487,18 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	// срабатывали только у сделок, и лид просто оставался на месте.
 	ruleMoved := s.applyLeadTransitionRules(id, targetFunnelID, stageID, 1)
 
+	// Этап отказа: лид получает статус «отказ» (cancelled) — уходит из активной
+	// воронки и попадает в «Отказники». Только если правило перехода не увело
+	// лид в другую воронку.
+	if !ruleMoved && isRejection {
+		if err := s.Repo.UpdateStatus(id, "cancelled"); err != nil {
+			return err
+		}
+	}
+
 	// Авто-архив финального этапа — только если правило перехода НЕ увело лид
-	// в другую воронку.
-	if !ruleMoved && autoArchive && !lead.IsArchived {
+	// в другую воронку и это НЕ этап отказа (отказ уходит в Отказники, не в Архив).
+	if !ruleMoved && autoArchive && !isRejection && !lead.IsArchived {
 		if err := s.Repo.Archive(id, userID, "Этап завершён (автоархив)"); err != nil {
 			return err
 		}

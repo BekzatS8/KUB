@@ -72,6 +72,14 @@ func (f *fakeDocService) FinalizeSigning(int64) error {
 	f.finalizeCalls++
 	return nil
 }
+
+func (f *fakeDocService) ResolveSignerForSMS(int64, int, int, SignerOverrides) (ResolvedSigner, error) {
+	return ResolvedSigner{}, nil
+}
+
+func (f *fakeDocService) ResolveSignerForEmail(int64, int, int, SignerOverrides) (ResolvedSigner, error) {
+	return ResolvedSigner{}, nil
+}
 func (f *fakeDocService) FinalizeSignedArtifact(*models.SignSession) error {
 	f.finalizeArtifactCalls++
 	return nil

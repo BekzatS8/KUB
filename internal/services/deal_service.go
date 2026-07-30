@@ -596,7 +596,20 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 	// (MoveStageAndFunnel меняет funnel_id), поэтому сверяем именно воронку.
 	// (Раньше проверялся after.StageID, но GetByID его не выбирает — поле
 	// всегда было nil, и автоархив у сделок фактически не срабатывал.)
-	if stage.Type == models.FunnelStageTypeWon || stage.AutoArchive {
+	// Этап отказа: сделка получает статус «отказ» (cancelled) — уходит из
+	// воронки в «Отказники» (НЕ в Архив). Только если правило перехода не увело
+	// сделку в другую воронку.
+	if stage.IsRejection {
+		if after, err := s.Repo.GetByID(dealID); err == nil && after != nil &&
+			after.FunnelID != nil && *after.FunnelID == stage.FunnelID {
+			if err := s.Repo.UpdateStatus(dealID, "cancelled"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Автоархив финального этапа — но не для этапа отказа (тот идёт в Отказники).
+	if (stage.Type == models.FunnelStageTypeWon || stage.AutoArchive) && !stage.IsRejection {
 		if after, err := s.Repo.GetByID(dealID); err == nil && after != nil &&
 			!after.IsArchived && after.FunnelID != nil && *after.FunnelID == stage.FunnelID {
 			if err := s.Repo.Archive(dealID, userID, "Этап завершён (автоархив)"); err != nil {

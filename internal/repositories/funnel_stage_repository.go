@@ -33,6 +33,7 @@ func scanFunnelStage(scanner interface{ Scan(dest ...any) error }) (*models.Funn
 		&description,
 		&s.IsActive,
 		&s.AutoArchive,
+		&s.IsRejection,
 		&s.CreatedAt,
 		&s.UpdatedAt,
 	); err != nil {
@@ -42,7 +43,7 @@ func scanFunnelStage(scanner interface{ Scan(dest ...any) error }) (*models.Funn
 	return s, nil
 }
 
-const funnelStageColumns = `id, funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive, created_at, updated_at`
+const funnelStageColumns = `id, funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive, is_rejection, created_at, updated_at`
 
 func (r *FunnelStageRepository) ListByFunnel(funnelID int) ([]*models.FunnelStage, error) {
 	rows, err := r.db.Query(`SELECT `+funnelStageColumns+` FROM funnel_stages WHERE funnel_id = $1 ORDER BY position ASC, id ASC`, funnelID)
@@ -82,19 +83,19 @@ func (r *FunnelStageRepository) Create(s *models.FunnelStage) error {
 		s.Position = int(maxPos.Int64) + 10
 	}
 	return r.db.QueryRow(`
-		INSERT INTO funnel_stages (funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		INSERT INTO funnel_stages (funnel_id, name, code, color, type, position, probability, description, is_active, auto_archive, is_rejection)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING id, created_at, updated_at
-	`, s.FunnelID, s.Name, s.Code, s.Color, s.Type, s.Position, s.Probability, s.Description, s.IsActive, s.AutoArchive).
+	`, s.FunnelID, s.Name, s.Code, s.Color, s.Type, s.Position, s.Probability, s.Description, s.IsActive, s.AutoArchive, s.IsRejection).
 		Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 }
 
 func (r *FunnelStageRepository) Update(s *models.FunnelStage) error {
 	result, err := r.db.Exec(`
 		UPDATE funnel_stages
-		SET name=$1, code=$2, color=$3, type=$4, probability=$5, description=$6, is_active=$7, auto_archive=$8, updated_at=NOW()
-		WHERE id=$9
-	`, s.Name, s.Code, s.Color, s.Type, s.Probability, s.Description, s.IsActive, s.AutoArchive, s.ID)
+		SET name=$1, code=$2, color=$3, type=$4, probability=$5, description=$6, is_active=$7, auto_archive=$8, is_rejection=$9, updated_at=NOW()
+		WHERE id=$10
+	`, s.Name, s.Code, s.Color, s.Type, s.Probability, s.Description, s.IsActive, s.AutoArchive, s.IsRejection, s.ID)
 	if err != nil {
 		return err
 	}
@@ -219,7 +220,9 @@ func (r *FunnelStageRepository) Duplicate(id int) (*models.FunnelStage, error) {
 func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
 	// Include deals that belong to this funnel OR have no funnel yet (so they
 	// appear in the "unassigned" column and can be dragged into a stage).
-	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE", "d.deleted_at IS NULL"}
+	// Закрытые сделки (проигранные/отказные) на доске не показываем — они уходят
+	// в «Отказники». Won-этап уводит сделку в архив отдельно (см. deal_service).
+	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE", "d.deleted_at IS NULL", "COALESCE(d.status, 'new') NOT IN ('lost', 'cancelled')"}
 	args := []any{funnelID}
 
 	if branchID != nil {
@@ -287,7 +290,8 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 		"l.funnel_id = $1",
 		"l.is_archived = FALSE",
 		"l.deleted_at IS NULL",
-		"COALESCE(l.status, 'new') NOT IN ('converted')",
+		// converted → ушёл в сделку; cancelled → этап отказа, уехал в «Отказники».
+		"COALESCE(l.status, 'new') NOT IN ('converted', 'cancelled')",
 	}
 	args := []any{funnelID}
 

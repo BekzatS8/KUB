@@ -56,6 +56,23 @@ type feedCreateDocumentPayload struct {
 	Extra      map[string]string `json:"extra"`
 }
 
+// feedDocumentSender применяет одобренную отправку документа на подпись
+// (pending_send_document): на approve документ реально уходит клиенту правами
+// администратора.
+type feedDocumentSender interface {
+	StartSigningForDocument(ctx context.Context, docID int64, channel, manualPhone, manualEmail, signerFullName, signerPosition string, userID, roleID int) error
+}
+
+// feedSendDocumentPayload — JSON отправки на подпись, отложенной на одобрение.
+type feedSendDocumentPayload struct {
+	DocumentID     int64  `json:"document_id"`
+	Channel        string `json:"channel"`
+	ManualPhone    string `json:"manual_phone"`
+	ManualEmail    string `json:"manual_email"`
+	SignerFullName string `json:"signer_full_name"`
+	SignerPosition string `json:"signer_position"`
+}
+
 type FeedEventService struct {
 	repo          *repositories.FeedEventRepository
 	userRepo      repositories.UserRepository
@@ -63,6 +80,7 @@ type FeedEventService struct {
 	leadUpdater   feedLeadUpdater
 	dealUpdater   feedDealUpdater
 	docCreator    feedDocumentCreator
+	docSender     feedDocumentSender
 }
 
 func NewFeedEventService(
@@ -72,6 +90,7 @@ func NewFeedEventService(
 	leadUpdater feedLeadUpdater,
 	dealUpdater feedDealUpdater,
 	docCreator feedDocumentCreator,
+	docSender feedDocumentSender,
 ) *FeedEventService {
 	return &FeedEventService{
 		repo:          repo,
@@ -80,6 +99,7 @@ func NewFeedEventService(
 		leadUpdater:   leadUpdater,
 		dealUpdater:   dealUpdater,
 		docCreator:    docCreator,
+		docSender:     docSender,
 	}
 }
 
@@ -264,6 +284,23 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		}
 		// Deleted with admin credentials (CanHardDeleteBusinessEntity).
 		return s.docCreator.DeleteDocument(int64(*e.ResourceID), reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingSendDocument:
+		if s.docSender == nil {
+			return errors.New("cannot apply document send: missing document sender")
+		}
+		var p feedSendDocumentPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		if p.DocumentID == 0 && e.ResourceID != nil {
+			p.DocumentID = int64(*e.ResourceID)
+		}
+		// Отправка выполняется правами администратора, одобрившего заявку.
+		return s.docSender.StartSigningForDocument(
+			ctx, p.DocumentID, p.Channel, p.ManualPhone, p.ManualEmail,
+			p.SignerFullName, p.SignerPosition, reviewerID, authz.RoleSystemAdmin,
+		)
 
 	default:
 		// For event types not wired to an apply action (create_lead, create_deal,

@@ -307,16 +307,30 @@ func (r *telephonyRepository) FindClientByPhone(ctx context.Context, normalizedP
 
 // FindLeadByPhone searches leads by normalized phone.
 func (r *telephonyRepository) FindLeadByPhone(ctx context.Context, normalizedPhone string) (int64, error) {
-	if strings.TrimSpace(normalizedPhone) == "" {
+	normalizedPhone = strings.TrimSpace(normalizedPhone)
+	if normalizedPhone == "" {
 		return 0, nil
 	}
-	const q = `
-		SELECT id
-		FROM leads
-		WHERE phone = $1
-		ORDER BY id
-		LIMIT 1
-	`
+	// Матчим по ПОСЛЕДНИМ 10 цифрам (абонентский номер без кода страны/префикса),
+	// чтобы 77.., 87.., 7.. одного номера склеивались в ОДИН лид (звонок Binotel +
+	// сообщение WhatsApp с одного номера = одна карточка). Короткие (<10) — точно.
+	var q string
+	if len(normalizedPhone) >= 10 {
+		q = `
+			SELECT id FROM leads
+			WHERE length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
+			  AND RIGHT(regexp_replace(COALESCE(phone, ''), '\D', '', 'g'), 10) = RIGHT($1, 10)
+			ORDER BY id
+			LIMIT 1
+		`
+	} else {
+		q = `
+			SELECT id FROM leads
+			WHERE regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
+			ORDER BY id
+			LIMIT 1
+		`
+	}
 	var id int64
 	err := r.db.QueryRowContext(ctx, q, normalizedPhone).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
