@@ -45,6 +45,7 @@ func (s stubRepo) RegisterDedup(context.Context, int, string) (bool, error)     
 func (s stubRepo) FindClientByPhone(context.Context, string) (int, error)                 { return 0, nil }
 func (s stubRepo) FindLeadByPhone(context.Context, string) (int, error)                   { return 0, nil }
 func (s stubRepo) FindLeadByExternalChatID(context.Context, string, string) (int, error)  { return 0, nil }
+func (s stubRepo) GetChatChannelID(context.Context, string, string) (string, error)       { return "", nil }
 func (s stubRepo) CreateLeadFromInbound(context.Context, int, string, string, string) (int, error) {
 	return 123, nil
 }

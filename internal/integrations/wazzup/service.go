@@ -185,6 +185,14 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 	var activeChat *IframeActiveChat
 	if chatID := strings.TrimSpace(opts.ChatID); chatID != "" && transport != "" {
 		acChannelID := channelID
+		// 1) Канал САМОГО чата (из нашей БД) — чтобы переписка открывалась от
+		//    правильного номера, а не от «первого активного»/пустого канала.
+		if acChannelID == "" {
+			if chID, cerr := s.repo.GetChatChannelID(ctx, transport, chatID); cerr == nil && chID != "" {
+				acChannelID = chID
+			}
+		}
+		// 2) Fallback: первый активный канал транспорта (старое поведение).
 		if acChannelID == "" {
 			if ch, rerr := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, ""); rerr == nil && ch != nil {
 				acChannelID = strings.TrimSpace(ch.ExternalChannelID)

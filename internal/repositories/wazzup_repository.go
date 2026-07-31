@@ -29,6 +29,7 @@ type WazzupRepository interface {
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
 	FindLeadByPhone(ctx context.Context, phone string) (leadID int, err error)
 	FindLeadByExternalChatID(ctx context.Context, transport, externalChatID string) (leadID int, err error)
+	GetChatChannelID(ctx context.Context, transport, externalChatID string) (channelID string, err error)
 	CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (leadID int, err error)
 	UpdateLeadDescriptionIfEmpty(ctx context.Context, leadID int, firstMessage string) error
 	GetLeadPhoneByID(ctx context.Context, leadID int) (string, error)
@@ -476,6 +477,32 @@ func (r *wazzupRepository) FindLeadByExternalChatID(ctx context.Context, transpo
 		return 0, fmt.Errorf("find lead by external chat id: %w", err)
 	}
 	return leadID, nil
+}
+
+// GetChatChannelID возвращает external_channel_id чата по (транспорт, chat_id).
+// Нужен, чтобы deep-link «Переписка» открывал iframe на КАНАЛЕ самого чата, а не
+// на «первом активном» (иначе переписка открывается от имени чужого/пустого
+// канала нового филиала).
+func (r *wazzupRepository) GetChatChannelID(ctx context.Context, transport, externalChatID string) (string, error) {
+	const q = `
+		SELECT COALESCE(external_channel_id, '')
+		FROM chats
+		WHERE external_provider = 'wazzup'
+		  AND external_transport = $1
+		  AND external_chat_id = $2
+		  AND COALESCE(external_channel_id, '') <> ''
+		ORDER BY id DESC
+		LIMIT 1
+	`
+	var channelID string
+	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).Scan(&channelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get chat channel id: %w", err)
+	}
+	return channelID, nil
 }
 
 func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (int, error) {
