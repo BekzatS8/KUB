@@ -39,6 +39,7 @@ func (r *reportTestUserRepo) GetCountByRole(roleID int) (int, error) { return 0,
 func (r *reportTestUserRepo) UpdatePassword(userID int, passwordHash string) error {
 	return nil
 }
+func (r *reportTestUserRepo) GetPasswordHash(int) (string, error) { return "", nil }
 func (r *reportTestUserRepo) UpdateRefresh(userID int, token string, expiresAt time.Time) error {
 	return nil
 }

@@ -37,6 +37,7 @@ func (r *captureUserRepo) GetAuthByEmail(string) (*models.User, error) { return 
 func (r *captureUserRepo) GetCount() (int, error)                      { return 0, nil }
 func (r *captureUserRepo) GetCountByRole(int) (int, error)             { return 0, nil }
 func (r *captureUserRepo) UpdatePassword(int, string) error            { return nil }
+func (r *captureUserRepo) GetPasswordHash(int) (string, error) { return "", nil }
 func (r *captureUserRepo) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *captureUserRepo) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil

@@ -414,7 +414,9 @@ func applyDefaults(cfg *Config) {
 		cfg.SignEmailTTLMinutes = 30
 	}
 	if cfg.SignSMSTTLMinutes <= 0 {
-		cfg.SignSMSTTLMinutes = cfg.SignEmailTTLMinutes
+		// SMS-ссылка на подпись действует 3 часа: клиент редко открывает её сразу,
+		// а при 30 минутах она успевала «протухнуть» (обратная связь 31.07.2026).
+		cfg.SignSMSTTLMinutes = 180
 	}
 	if cfg.SignSessionTTLMinutes <= 0 {
 		cfg.SignSessionTTLMinutes = cfg.SignEmailTTLMinutes

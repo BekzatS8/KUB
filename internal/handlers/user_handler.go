@@ -1049,6 +1049,33 @@ func (h *UserHandler) ChangeUserPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Пароль успешно изменён"})
 }
 
+// ChangeOwnPassword — PUT /users/me/password: пользователь меняет СВОЙ пароль,
+// подтверждая текущим. Доступно любому авторизованному пользователю.
+func (h *UserHandler) ChangeOwnPassword(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	if userID <= 0 {
+		unauthorized(c, "Не авторизован")
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Некорректный запрос")
+		return
+	}
+	if err := h.service.ChangeOwnPassword(userID, req.CurrentPassword, req.NewPassword); err != nil {
+		if errors.Is(err, services.ErrInvalidCurrentPassword) {
+			badRequest(c, "Текущий пароль указан неверно")
+			return
+		}
+		badRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Пароль успешно изменён"})
+}
+
 // BlockUser — POST /users/:id/block
 // Устанавливает is_active=false напрямую (без подтверждения), доступно юристу и выше.
 func (h *UserHandler) BlockUser(c *gin.Context) {

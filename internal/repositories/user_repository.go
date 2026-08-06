@@ -25,6 +25,7 @@ type UserRepository interface {
 	UpdateAvatarCrop(userID int, cropX, cropY, cropScale, cropSize *float64) error
 	DeleteAvatar(userID int) error
 	UpdatePassword(userID int, passwordHash string) error
+	GetPasswordHash(userID int) (string, error)
 	UpdateRefresh(userID int, token string, expiresAt time.Time) error
 	RotateRefresh(oldToken, newToken string, newExpiresAt time.Time) (*models.User, error)
 	ClearRefresh(userID int) error
@@ -156,6 +157,14 @@ func (r *userRepository) Delete(id int) error {
 func (r *userRepository) UpdatePassword(userID int, passwordHash string) error {
 	_, err := r.DB.Exec(`UPDATE users SET password_hash=$1, refresh_token=NULL, refresh_expires_at=NULL, refresh_revoked=TRUE WHERE id=$2`, passwordHash, userID)
 	return err
+}
+
+// GetPasswordHash возвращает bcrypt-хеш пользователя по id — нужен для проверки
+// текущего пароля при самостоятельной смене (GetByID хеш не отдаёт).
+func (r *userRepository) GetPasswordHash(userID int) (string, error) {
+	var hash string
+	err := r.DB.QueryRow(`SELECT password_hash FROM users WHERE id=$1`, userID).Scan(&hash)
+	return hash, err
 }
 
 func (r *userRepository) List(limit, offset int) ([]*models.User, error) {

@@ -40,6 +40,7 @@ func (r *deptScopeUserRepoStub) GetAuthByEmail(string) (*models.User, error) { r
 func (r *deptScopeUserRepoStub) GetCount() (int, error)                      { return 0, nil }
 func (r *deptScopeUserRepoStub) GetCountByRole(int) (int, error)             { return 0, nil }
 func (r *deptScopeUserRepoStub) UpdatePassword(int, string) error            { return nil }
+func (r *deptScopeUserRepoStub) GetPasswordHash(int) (string, error) { return "", nil }
 func (r *deptScopeUserRepoStub) UpdateRefresh(int, string, time.Time) error { return nil }
 func (r *deptScopeUserRepoStub) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -10,6 +11,9 @@ import (
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
+
+// ErrInvalidCurrentPassword — текущий пароль не совпал при самостоятельной смене.
+var ErrInvalidCurrentPassword = errors.New("current password is incorrect")
 
 type UserService interface {
 	CreateUser(user *models.User) error
@@ -37,6 +41,7 @@ type UserService interface {
 	VerifyUser(userID int) error
 
 	AdminChangePassword(userID int, newPassword string) error
+	ChangeOwnPassword(userID int, currentPassword, newPassword string) error
 }
 
 type userService struct {
@@ -124,6 +129,28 @@ func (s *userService) CreateUser(user *models.User) error {
 func (s *userService) AdminChangePassword(userID int, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {
 		return fmt.Errorf("password is required")
+	}
+	hashed, err := s.authService.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePassword(userID, hashed)
+}
+
+// ChangeOwnPassword — самостоятельная смена пароля пользователем: сверяет
+// текущий пароль, затем ставит новый. В отличие от AdminChangePassword требует
+// подтверждения текущим паролем.
+func (s *userService) ChangeOwnPassword(userID int, currentPassword, newPassword string) error {
+	newPassword = strings.TrimSpace(newPassword)
+	if len([]rune(newPassword)) < 6 {
+		return fmt.Errorf("новый пароль должен быть не короче 6 символов")
+	}
+	hash, err := s.repo.GetPasswordHash(userID)
+	if err != nil {
+		return err
+	}
+	if !s.authService.VerifyPassword(hash, currentPassword) {
+		return ErrInvalidCurrentPassword
 	}
 	hashed, err := s.authService.HashPassword(newPassword)
 	if err != nil {

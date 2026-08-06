@@ -505,7 +505,7 @@ func (s *DocumentSigningConfirmationService) StartSigningBySMS(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	message := BuildSigningSMS(doc.DocType, otp, verifyURL, expiresAt)
+	message := BuildSigningSMS(doc.DocType, otp, verifyURL, expiresAt, s.serverTZ)
 	sendResult, err := s.sms.Send(ctx, SMSMessage{To: signerPhone, Text: message})
 	if err != nil {
 		return nil, fmt.Errorf("send signing sms: %w", err)

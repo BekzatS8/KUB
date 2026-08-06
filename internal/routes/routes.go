@@ -243,6 +243,9 @@ func SetupRoutes(
 		users.GET("/:id/avatar/content", userHandler.ServeUserAvatar)
 		users.GET("/:id", middleware.RequirePermission("users.view", "user"), userHandler.GetUserByID)
 		users.PUT("/:id", middleware.RequirePermission("users.update", "user"), userHandler.UpdateUser)
+		// Самостоятельная смена своего пароля — любому авторизованному (подтверждая
+		// текущим). Регистрируем ДО /:id/password (статический /me приоритетнее).
+		users.PUT("/me/password", userHandler.ChangeOwnPassword)
 		users.PUT("/:id/password", middleware.RequirePermission("users.update", "user"), userHandler.ChangeUserPassword)
 		users.DELETE("/:id", middleware.RequirePermission("users.delete", "user"), userHandler.DeleteUser)
 		// Блокировка/разблокировка — прямое действие для юриста (без подтверждения)

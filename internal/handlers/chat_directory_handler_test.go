@@ -317,6 +317,7 @@ func (r *chatTestUserRepo) GetAuthByEmail(string) (*models.User, error) { return
 func (r *chatTestUserRepo) GetCount() (int, error)                      { return 0, nil }
 func (r *chatTestUserRepo) GetCountByRole(int) (int, error)             { return 0, nil }
 func (r *chatTestUserRepo) UpdatePassword(int, string) error            { return nil }
+func (r *chatTestUserRepo) GetPasswordHash(int) (string, error) { return "", nil }
 func (r *chatTestUserRepo) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *chatTestUserRepo) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil

@@ -36,7 +36,8 @@ func (s *stubUserService) CreateUserWithPassword(user *models.User, _ string) er
 	return s.createErr
 }
 func (s *stubUserService) GetUserByID(int) (*models.User, error) { return s.byID, nil }
-func (s *stubUserService) AdminChangePassword(int, string) error { return nil }
+func (s *stubUserService) AdminChangePassword(int, string) error         { return nil }
+func (s *stubUserService) ChangeOwnPassword(int, string, string) error    { return nil }
 func (s *stubUserService) ApplyUpdatePatch(int, *models.UserApprovalUpdatePayload) error {
 	return nil
 }

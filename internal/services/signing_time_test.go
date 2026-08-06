@@ -151,6 +151,7 @@ func (f *fakeUserRepo) GetAuthByEmail(string) (*models.User, error)    { return 
 func (f *fakeUserRepo) GetCount() (int, error)                         { return 0, nil }
 func (f *fakeUserRepo) GetCountByRole(int) (int, error)                { return 0, nil }
 func (f *fakeUserRepo) UpdatePassword(int, string) error               { return nil }
+func (f *fakeUserRepo) GetPasswordHash(int) (string, error) { return "", nil }
 func (f *fakeUserRepo) UpdateRefresh(int, string, time.Time) error     { return nil }
 func (f *fakeUserRepo) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil

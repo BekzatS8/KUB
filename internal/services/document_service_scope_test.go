@@ -27,6 +27,7 @@ func (r *docScopeUserRepoStub) GetAuthByEmail(string) (*models.User, error) { re
 func (r *docScopeUserRepoStub) GetCount() (int, error)                      { return 0, nil }
 func (r *docScopeUserRepoStub) GetCountByRole(int) (int, error)             { return 0, nil }
 func (r *docScopeUserRepoStub) UpdatePassword(int, string) error            { return nil }
+func (r *docScopeUserRepoStub) GetPasswordHash(int) (string, error)         { return "", nil }
 func (r *docScopeUserRepoStub) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *docScopeUserRepoStub) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil

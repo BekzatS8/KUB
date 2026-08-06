@@ -45,14 +45,15 @@ func (s *FunnelService) List(userID int) ([]*models.Funnel, error) {
 	switch p.RoleCode {
 	case "admin":
 		return s.repo.List(repositories.FunnelListFilter{})
-	case "management", "quality_control":
+	// sales/visa/partner видят все лиды → отдаём им воронки sales/visa/partner
+	// (как management), иначе они не могут открыть воронку своих лидов
+	// (обратная связь 31.07.2026).
+	case "management", "quality_control", "sales", "visa", "partner":
 		funnels, err := s.repo.List(repositories.FunnelListFilter{ActiveOnly: true})
 		if err != nil {
 			return nil, err
 		}
 		return filterFunnelsByDepartments(funnels, map[string]struct{}{"sales": {}, "visa": {}, "partner": {}}), nil
-	case "sales", "visa", "partner":
-		return s.repo.List(repositories.FunnelListFilter{DepartmentCode: p.RoleCode, BranchID: p.BranchID, ActiveOnly: true})
 	default:
 		return []*models.Funnel{}, nil
 	}
@@ -93,18 +94,15 @@ func (s *FunnelService) canViewFunnel(p *models.PermissionPrincipal, f *models.F
 	switch p.RoleCode {
 	case "admin":
 		return true
-	case "management", "quality_control":
+	// sales/visa/partner видят все лиды (leadScope=ALL) → и воронки
+	// sales/visa/partner доступны (обратная связь 31.07.2026).
+	case "management", "quality_control", "sales", "visa", "partner":
 		switch f.Department.Code {
 		case "sales", "visa", "partner":
 			return true
 		default:
 			return false
 		}
-	case "sales", "visa", "partner":
-		if f.Department.Code != p.RoleCode {
-			return false
-		}
-		return f.BranchID == nil || p.BranchID == nil || *f.BranchID == *p.BranchID
 	default:
 		return false
 	}

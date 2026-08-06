@@ -49,18 +49,16 @@ func (s *FunnelStageService) canViewFunnel(p *models.PermissionPrincipal, f *mod
 	switch p.RoleCode {
 	case "admin":
 		return true
-	case "management", "quality_control":
+	// sales/visa/partner видят все лиды (leadScope=ALL), поэтому и воронки
+	// sales/visa/partner им доступны — иначе визовый специалист видит лиды, но
+	// не может открыть воронку, где они лежат (обратная связь 31.07.2026).
+	case "management", "quality_control", "sales", "visa", "partner":
 		switch f.Department.Code {
 		case "sales", "visa", "partner":
 			return true
 		default:
 			return false
 		}
-	case "sales", "visa", "partner":
-		if f.Department.Code != p.RoleCode {
-			return false
-		}
-		return f.BranchID == nil || p.BranchID == nil || *f.BranchID == *p.BranchID
 	default:
 		return false
 	}

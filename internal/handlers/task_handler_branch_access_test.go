@@ -77,6 +77,7 @@ func (r *taskBranchUserRepoStub) GetAuthByEmail(string) (*models.User, error) { 
 func (r *taskBranchUserRepoStub) GetCount() (int, error)                      { return 0, nil }
 func (r *taskBranchUserRepoStub) GetCountByRole(int) (int, error)             { return 0, nil }
 func (r *taskBranchUserRepoStub) UpdatePassword(int, string) error            { return nil }
+func (r *taskBranchUserRepoStub) GetPasswordHash(int) (string, error) { return "", nil }
 func (r *taskBranchUserRepoStub) UpdateRefresh(int, string, time.Time) error  { return nil }
 func (r *taskBranchUserRepoStub) RotateRefresh(string, string, time.Time) (*models.User, error) {
 	return nil, nil
