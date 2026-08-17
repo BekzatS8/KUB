@@ -40,8 +40,8 @@ func (s *FunnelStageService) principal(userID int) (*models.PermissionPrincipal,
 }
 
 // canViewFunnel mirrors FunnelService.canViewFunnel: department-scoped visibility
-// per the access matrix (admin: all; management/quality_control: sales+visa+partner;
-// sales/visa/partner: own department only).
+// per the access matrix — admin: all; management/quality_control: all business
+// funnels (sales+visa+partner); sales/visa/partner: own department only.
 func (s *FunnelStageService) canViewFunnel(p *models.PermissionPrincipal, f *models.Funnel) bool {
 	if !authz.HasPermission(p.RoleCode, authz.ActionFunnelsView) || f == nil || f.Department == nil {
 		return false
@@ -49,16 +49,15 @@ func (s *FunnelStageService) canViewFunnel(p *models.PermissionPrincipal, f *mod
 	switch p.RoleCode {
 	case "admin":
 		return true
-	// sales/visa/partner видят все лиды (leadScope=ALL), поэтому и воронки
-	// sales/visa/partner им доступны — иначе визовый специалист видит лиды, но
-	// не может открыть воронку, где они лежат (обратная связь 31.07.2026).
-	case "management", "quality_control", "sales", "visa", "partner":
-		switch f.Department.Code {
-		case "sales", "visa", "partner":
-			return true
-		default:
-			return false
-		}
+	// Руководство и контроль качества видят все бизнес-воронки.
+	case "management", "quality_control":
+		_, ok := businessFunnelDepartments[f.Department.Code]
+		return ok
+	// Менеджер отдела — только этапы воронки своего отдела (обратная связь
+	// 17.08.2026). Раньше визовик мог открыть этапы чужой воронки по ID.
+	case "sales", "visa", "partner":
+		_, ok := ownDepartmentSet(p)[f.Department.Code]
+		return ok
 	default:
 		return false
 	}

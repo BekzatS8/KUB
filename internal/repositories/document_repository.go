@@ -50,16 +50,28 @@ func documentArchiveWhere(scope ArchiveScope) string {
 	}
 }
 
+// clientDisplayNameExpr резолвит отображаемое имя клиента сначала из клиента,
+// привязанного к самому документу (cli = dcm.client_id), затем — из клиента
+// сделки (c = d.client_id). Нужно, чтобы список документов показывал имя даже
+// когда фронт не догрузил массив клиентов (напр. МОП видит документ по чужой
+// сделке из общего пула — его клиента нет в list_my_clients).
+const clientDisplayNameExpr = `COALESCE(
+	NULLIF(cli.display_name,''), NULLIF(cli.name,''), NULLIF(TRIM(CONCAT_WS(' ', cli.last_name, cli.first_name)),''),
+	NULLIF(c.display_name,''),   NULLIF(c.name,''),   NULLIF(TRIM(CONCAT_WS(' ', c.last_name, c.first_name)),''),
+	'')`
+
 const documentBaseSelect = `
 	SELECT dcm.id, dcm.deal_id, dcm.client_id, dcm.branch_id, COALESCE(br.name,''), dcm.doc_type, COALESCE(dcm.file_path,''), COALESCE(dcm.file_path_docx,''), COALESCE(dcm.file_path_pdf,''), dcm.status,
 	       dcm.signed_at, dcm.created_at, COALESCE(dcm.sign_method,''), COALESCE(dcm.sign_ip,''),
 	       COALESCE(dcm.sign_user_agent,''), COALESCE(dcm.sign_metadata,''), COALESCE(dcm.signed_by,''),
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,''),
 	       dcm.is_hidden, dcm.created_by,
-	       COALESCE(dcm.scope,'deal'), COALESCE(dcm.title,''), COALESCE(dcm.description,''), dcm.target_user_id
+	       COALESCE(dcm.scope,'deal'), COALESCE(dcm.title,''), COALESCE(dcm.description,''), dcm.target_user_id,
+	       ` + clientDisplayNameExpr + `
 	FROM documents dcm
 	LEFT JOIN deals d ON d.id = dcm.deal_id
 	LEFT JOIN clients c ON c.id = d.client_id
+	LEFT JOIN clients cli ON cli.id = dcm.client_id
 	LEFT JOIN branches br ON br.id = dcm.branch_id
 `
 
@@ -75,10 +87,13 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 	var signedAt, createdAt, archivedAt sql.NullTime
 	var archivedBy, createdBy sql.NullInt64
 	var dealID, branchID, clientID sql.NullInt64
-	var branchName sql.NullString
+	var branchName, clientName sql.NullString
 	var targetUserID sql.NullInt64
-	if err := scanner.Scan(&d.ID, &dealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy, &d.Scope, &d.Title, &d.Description, &targetUserID); err != nil {
+	if err := scanner.Scan(&d.ID, &dealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy, &d.Scope, &d.Title, &d.Description, &targetUserID, &clientName); err != nil {
 		return nil, err
+	}
+	if clientName.Valid {
+		d.ClientName = clientName.String
 	}
 	if dealID.Valid {
 		d.DealID = dealID.Int64

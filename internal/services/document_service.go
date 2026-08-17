@@ -170,9 +170,11 @@ func (s *DocumentService) ensureDealAccess(deal *models.Deals, userID, roleID in
 	if deal == nil {
 		return errors.New("not found")
 	}
-	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return errors.New("forbidden")
-	}
+	// Доступ МОП к сделкам ограничен ФИЛИАЛОМ, а не владельцем: список документов
+	// показывает МОП все документы по сделкам его филиала (scope='deal', ТЗ
+	// 04.07.2026), и лиды/сделки в системе — общий пул. Прежняя проверка
+	// deal.OwnerID != userID давала 403 при открытии подписанного документа по
+	// чужой сделке, хотя документ виден в списке (обратная связь 17.08.2026).
 	branchScope, err := s.branchScopeForRole(userID, roleID)
 	if err != nil {
 		return err

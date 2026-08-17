@@ -45,18 +45,42 @@ func (s *FunnelService) List(userID int) ([]*models.Funnel, error) {
 	switch p.RoleCode {
 	case "admin":
 		return s.repo.List(repositories.FunnelListFilter{})
-	// sales/visa/partner видят все лиды → отдаём им воронки sales/visa/partner
-	// (как management), иначе они не могут открыть воронку своих лидов
-	// (обратная связь 31.07.2026).
-	case "management", "quality_control", "sales", "visa", "partner":
+	// Руководство и контроль качества — надведомственные роли: видят воронки
+	// всех бизнес-отделов (sales/visa/partner).
+	case "management", "quality_control":
 		funnels, err := s.repo.List(repositories.FunnelListFilter{ActiveOnly: true})
 		if err != nil {
 			return nil, err
 		}
-		return filterFunnelsByDepartments(funnels, map[string]struct{}{"sales": {}, "visa": {}, "partner": {}}), nil
+		return filterFunnelsByDepartments(funnels, businessFunnelDepartments), nil
+	// Менеджер отдела видит ТОЛЬКО воронки своего отдела — визовый отдел не должен
+	// видеть воронки продаж/партнёров и наоборот (обратная связь заказчика
+	// 17.08.2026). Раньше sales/visa/partner были свалены в одну группу и каждый
+	// видел все три отдела.
+	case "sales", "visa", "partner":
+		funnels, err := s.repo.List(repositories.FunnelListFilter{ActiveOnly: true})
+		if err != nil {
+			return nil, err
+		}
+		return filterFunnelsByDepartments(funnels, ownDepartmentSet(p)), nil
 	default:
 		return []*models.Funnel{}, nil
 	}
+}
+
+// businessFunnelDepartments — отделы, у которых вообще есть воронки. Надведом-
+// ственные роли (руководство, контроль качества) видят все их воронки.
+var businessFunnelDepartments = map[string]struct{}{"sales": {}, "visa": {}, "partner": {}}
+
+// ownDepartmentSet возвращает набор из одного отдела — того, к которому относится
+// пользователь. Берём department_code принципала; если он пуст, откатываемся на
+// код роли (для sales/visa/partner код роли совпадает с кодом отдела).
+func ownDepartmentSet(p *models.PermissionPrincipal) map[string]struct{} {
+	code := strings.TrimSpace(p.DepartmentCode)
+	if code == "" {
+		code = p.RoleCode
+	}
+	return map[string]struct{}{code: {}}
 }
 
 func filterFunnelsByDepartments(funnels []*models.Funnel, allowed map[string]struct{}) []*models.Funnel {
@@ -94,15 +118,14 @@ func (s *FunnelService) canViewFunnel(p *models.PermissionPrincipal, f *models.F
 	switch p.RoleCode {
 	case "admin":
 		return true
-	// sales/visa/partner видят все лиды (leadScope=ALL) → и воронки
-	// sales/visa/partner доступны (обратная связь 31.07.2026).
-	case "management", "quality_control", "sales", "visa", "partner":
-		switch f.Department.Code {
-		case "sales", "visa", "partner":
-			return true
-		default:
-			return false
-		}
+	// Руководство и контроль качества видят все бизнес-воронки.
+	case "management", "quality_control":
+		_, ok := businessFunnelDepartments[f.Department.Code]
+		return ok
+	// Менеджер отдела — только воронка своего отдела (обратная связь 17.08.2026).
+	case "sales", "visa", "partner":
+		_, ok := ownDepartmentSet(p)[f.Department.Code]
+		return ok
 	default:
 		return false
 	}
