@@ -7,6 +7,7 @@ type Document struct {
 	DealID       int64      `json:"deal_id"`
 	ClientID     *int64     `json:"client_id,omitempty"`
 	ClientName   string     `json:"client_name,omitempty"`
+	DealAmount   *float64   `json:"deal_amount,omitempty"`
 	BranchID     *int64     `json:"branch_id,omitempty"`
 	BranchName   string     `json:"branch_name,omitempty"`
 	DocType      string     `json:"doc_type"`

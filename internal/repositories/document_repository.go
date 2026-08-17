@@ -67,7 +67,7 @@ const documentBaseSelect = `
 	       dcm.is_archived, dcm.archived_at, dcm.archived_by, COALESCE(dcm.archive_reason,''),
 	       dcm.is_hidden, dcm.created_by,
 	       COALESCE(dcm.scope,'deal'), COALESCE(dcm.title,''), COALESCE(dcm.description,''), dcm.target_user_id,
-	       ` + clientDisplayNameExpr + `
+	       ` + clientDisplayNameExpr + `, d.amount
 	FROM documents dcm
 	LEFT JOIN deals d ON d.id = dcm.deal_id
 	LEFT JOIN clients c ON c.id = d.client_id
@@ -89,11 +89,16 @@ func scanDocument(scanner interface{ Scan(dest ...any) error }) (*models.Documen
 	var dealID, branchID, clientID sql.NullInt64
 	var branchName, clientName sql.NullString
 	var targetUserID sql.NullInt64
-	if err := scanner.Scan(&d.ID, &dealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy, &d.Scope, &d.Title, &d.Description, &targetUserID, &clientName); err != nil {
+	var dealAmount sql.NullFloat64
+	if err := scanner.Scan(&d.ID, &dealID, &clientID, &branchID, &branchName, &d.DocType, &d.FilePath, &d.FilePathDocx, &d.FilePathPdf, &d.Status, &signedAt, &createdAt, &d.SignMethod, &d.SignIP, &d.SignUserAgent, &d.SignMetadata, &d.SignedBy, &d.IsArchived, &archivedAt, &archivedBy, &d.ArchiveReason, &d.IsHidden, &createdBy, &d.Scope, &d.Title, &d.Description, &targetUserID, &clientName, &dealAmount); err != nil {
 		return nil, err
 	}
 	if clientName.Valid {
 		d.ClientName = clientName.String
+	}
+	if dealAmount.Valid {
+		v := dealAmount.Float64
+		d.DealAmount = &v
 	}
 	if dealID.Valid {
 		d.DealID = dealID.Int64
