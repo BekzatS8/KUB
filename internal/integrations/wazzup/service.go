@@ -536,23 +536,45 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 	return leadID, leadCreated, messageCreated, nil
 }
 
-func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, text string) (*SendMessageResponse, error) {
+func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, transport, text string) (*SendMessageResponse, error) {
 	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
 	if err != nil {
 		return nil, err
 	}
+	transport = normalizeTransport(transport)
+	if transport == "" {
+		transport = "whatsapp" // основной сценарий «написать первым» — WhatsApp
+	}
+	// channelId обязателен и должен соответствовать транспорту (иначе Wazzup не
+	// поймёт, откуда слать). Ищем канал нужного транспорта, откат на defaultChannelID.
+	channelID := s.resolveSendChannel(ctx, integration.ID, transport)
 	req := SendMessageRequest{
-		ChannelID: s.defaultChannelID,
+		ChannelID: channelID,
+		ChatType:  transport,
 		ChatID:    strings.TrimSpace(chatID),
 		Text:      strings.TrimSpace(text),
 	}
 	resp, err := s.client.SendMessage(ctx, s.resolveAPIKey(integration.APIKeyEnc), req)
 	if err != nil {
-		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d target_chat=%s err=%v", ownerUserID, maskChatID(chatID), err)
+		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d transport=%s target_chat=%s err=%v", ownerUserID, transport, maskChatID(chatID), err)
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
-	log.Printf("integration=wazzup operation=send_message status=ok owner_user_id=%d target_chat=%s message_id=%s", ownerUserID, maskChatID(chatID), tokenPrefix(resp.MessageID))
+	log.Printf("integration=wazzup operation=send_message status=ok owner_user_id=%d transport=%s target_chat=%s message_id=%s", ownerUserID, transport, maskChatID(chatID), tokenPrefix(resp.MessageID))
 	return resp, nil
+}
+
+// resolveSendChannel возвращает externalChannelID канала нужного транспорта.
+// Порядок: канал транспорта из БД → defaultChannelID из конфига.
+func (s *Service) resolveSendChannel(ctx context.Context, integrationID int, transport string) string {
+	channels, err := s.repo.ListChannels(ctx, integrationID)
+	if err == nil {
+		for _, ch := range channels {
+			if normalizeTransport(ch.Transport) == transport && strings.TrimSpace(ch.ExternalChannelID) != "" {
+				return strings.TrimSpace(ch.ExternalChannelID)
+			}
+		}
+	}
+	return s.defaultChannelID
 }
 
 func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, text string) (*models.WazzupDialogMessage, error) {
@@ -581,6 +603,7 @@ func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, t
 
 	resp, err := s.client.SendMessage(ctx, s.resolveAPIKey(integration.APIKeyEnc), SendMessageRequest{
 		ChannelID: channelID,
+		ChatType:  normalizeTransport(dialog.Transport),
 		ChatID:    dialog.ExternalChatID,
 		Text:      text,
 	})

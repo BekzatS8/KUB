@@ -51,7 +51,7 @@ func (s *stubWazzupService) ListDialogMessages(context.Context, int, int, int, i
 func (s *stubWazzupService) HandleWebhook(context.Context, string, string, []byte) (int, bool, error) {
 	return 0, false, nil
 }
-func (s *stubWazzupService) SendMessage(context.Context, int, string, string) (*wz.SendMessageResponse, error) {
+func (s *stubWazzupService) SendMessage(context.Context, int, string, string, string) (*wz.SendMessageResponse, error) {
 	return &wz.SendMessageResponse{}, nil
 }
 func (s *stubWazzupService) SendDialogMessage(context.Context, int, int, string) (*models.WazzupDialogMessage, error) {

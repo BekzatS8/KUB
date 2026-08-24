@@ -49,8 +49,12 @@ type IframeActiveChat struct {
 
 type SendMessageRequest struct {
 	ChannelID string `json:"channelId,omitempty"`
-	ChatID    string `json:"chatId"`
-	Text      string `json:"text"`
+	// ChatType — тип транспорта (whatsapp/telegram/instagram). Wazzup v3
+	// требует его для отправки, иначе не может создать диалог (нельзя написать
+	// первым). Раньше поле отсутствовало → «не удаётся написать клиенту».
+	ChatType string `json:"chatType,omitempty"`
+	ChatID   string `json:"chatId"`
+	Text     string `json:"text"`
 }
 
 type SendMessageResponse struct {
