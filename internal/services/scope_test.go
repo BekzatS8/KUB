@@ -21,19 +21,25 @@ func TestResolveLeadScope_AdminAndManagementReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveLeadScope_SalesVisaPartnerReturnAll(t *testing.T) {
+func TestResolveLeadScope_SalesVisaPartnerReturnBranch(t *testing.T) {
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
-	// Обратная связь заказчика 24.07.2026: все менеджеры видят все лиды (общий
-	// пул для создания сделок), поэтому lead-scope теперь ScopeKindAll.
+	// Обратная связь заказчика 22.08.2026: менеджеры видят лиды ТОЛЬКО своего
+	// филиала (каналы Wazzup = филиалы). Раньше был общий пул (ScopeKindAll).
 	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
 		scope, err := resolveLeadScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
 		}
-		if scope.Kind != ScopeKindAll {
-			t.Errorf("role %d: expected ScopeKindAll, got %v", roleID, scope.Kind)
+		if scope.Kind != ScopeKindBranch {
+			t.Errorf("role %d: expected ScopeKindBranch, got %v", roleID, scope.Kind)
+		}
+		if scope.BranchID == nil || *scope.BranchID != branchID {
+			t.Errorf("role %d: expected BranchID=%d, got %v", roleID, branchID, scope.BranchID)
+		}
+		if scope.DepartmentID != nil {
+			t.Errorf("role %d: lead scope must be branch-only (no department), got dept=%v", roleID, scope.DepartmentID)
 		}
 	}
 }
@@ -71,9 +77,10 @@ func TestResolveLeadScope_HRAndLegalAndUnknownReturnForbidden(t *testing.T) {
 
 // ─── resolveClientScope ──────────────────────────────────────────────────────
 
-func TestResolveClientScope_AdminManagementLegalPartnerReturnAll(t *testing.T) {
-	// partner now uses общая база (ScopeKindAll) for clients.
-	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleLegal, authz.RolePartner} {
+func TestResolveClientScope_AdminManagementLegalReturnAll(t *testing.T) {
+	// Надведомственные роли + юрист видят клиентов всех филиалов (partner теперь
+	// branch-scoped, обратная связь 22.08.2026).
+	for _, roleID := range []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleLegal, authz.RoleControl} {
 		scope, err := resolveClientScope(1, roleID, nil)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
@@ -84,15 +91,20 @@ func TestResolveClientScope_AdminManagementLegalPartnerReturnAll(t *testing.T) {
 	}
 }
 
-func TestResolveClientScope_SalesVisaReturnAll(t *testing.T) {
-	// sales/visa have общая база (ScopeKindAll) for clients — no branch restriction.
-	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa} {
-		scope, err := resolveClientScope(100, roleID, nil)
+func TestResolveClientScope_SalesVisaPartnerReturnBranch(t *testing.T) {
+	// sales/visa/partner видят клиентов ТОЛЬКО своего филиала (обратная связь 22.08.2026).
+	branchID := 4
+	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner} {
+		scope, err := resolveClientScope(100, roleID, userRepo)
 		if err != nil {
 			t.Errorf("role %d: unexpected error: %v", roleID, err)
 		}
-		if scope.Kind != ScopeKindAll {
-			t.Errorf("role %d: expected ScopeKindAll for clients, got %v", roleID, scope.Kind)
+		if scope.Kind != ScopeKindBranch {
+			t.Errorf("role %d: expected ScopeKindBranch for clients, got %v", roleID, scope.Kind)
+		}
+		if scope.BranchID == nil || *scope.BranchID != branchID {
+			t.Errorf("role %d: expected BranchID=%d, got %v", roleID, branchID, scope.BranchID)
 		}
 	}
 }
@@ -285,21 +297,21 @@ func TestHRScopeAlwaysForbidden(t *testing.T) {
 	}
 }
 
-// TestPartnerScope_AllLeadsAllClients verifies partner gets All scope for both
-// leads (общий пул, обратная связь 24.07.2026) and clients (общая база).
-func TestPartnerScope_AllLeadsAllClients(t *testing.T) {
+// TestPartnerScope_BranchLeadsBranchClients verifies partner is branch-scoped for
+// both leads and clients (обратная связь 22.08.2026 — разделение по филиалам).
+func TestPartnerScope_BranchLeadsBranchClients(t *testing.T) {
 	const partnerID = 55
 	branchID := 3
 	userRepo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
 
 	leadScope, err := resolveLeadScope(partnerID, authz.RolePartner, userRepo)
-	if err != nil || leadScope.Kind != ScopeKindAll {
-		t.Errorf("partner must be All-scoped for leads, got %+v err=%v", leadScope, err)
+	if err != nil || leadScope.Kind != ScopeKindBranch || leadScope.BranchID == nil || *leadScope.BranchID != branchID {
+		t.Errorf("partner must be branch-scoped for leads, got %+v err=%v", leadScope, err)
 	}
 
-	clientScope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
-	if err != nil || clientScope.Kind != ScopeKindAll {
-		t.Errorf("partner must be All (общая база) for clients, got %+v err=%v", clientScope, err)
+	clientScope, err := resolveClientScope(partnerID, authz.RolePartner, userRepo)
+	if err != nil || clientScope.Kind != ScopeKindBranch || clientScope.BranchID == nil || *clientScope.BranchID != branchID {
+		t.Errorf("partner must be branch-scoped for clients, got %+v err=%v", clientScope, err)
 	}
 }
 

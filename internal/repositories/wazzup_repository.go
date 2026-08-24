@@ -25,12 +25,14 @@ type WazzupRepository interface {
 	GetStatus(ctx context.Context) (*models.WazzupStatus, error)
 	UpsertChannels(ctx context.Context, integrationID int, channels []models.WazzupChannel) error
 	ListChannels(ctx context.Context, integrationID int) ([]models.WazzupChannel, error)
+	SetChannelBranch(ctx context.Context, channelID int64, branchID *int) error
+	GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
 	FindLeadByPhone(ctx context.Context, phone string) (leadID int, err error)
 	FindLeadByExternalChatID(ctx context.Context, transport, externalChatID string) (leadID int, err error)
 	GetChatChannelID(ctx context.Context, transport, externalChatID string) (channelID string, err error)
-	CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (leadID int, err error)
+	CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, phone, source, firstMessage string) (leadID int, err error)
 	UpdateLeadDescriptionIfEmpty(ctx context.Context, leadID int, firstMessage string) error
 	GetLeadPhoneByID(ctx context.Context, leadID int) (string, error)
 	GetClientPhoneByID(ctx context.Context, clientID int) (string, error)
@@ -343,12 +345,13 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 		args = append(args, integrationID)
 	}
 	q := fmt.Sprintf(`
-		SELECT id, integration_id, external_channel_id, transport, COALESCE(name, ''), COALESCE(username, ''),
-		       COALESCE(phone, ''), COALESCE(status, ''), provider, raw_payload, created_at, updated_at
-		FROM wazzup_channels
+		SELECT wc.id, wc.integration_id, wc.external_channel_id, wc.transport, COALESCE(wc.name, ''), COALESCE(wc.username, ''),
+		       COALESCE(wc.phone, ''), COALESCE(wc.status, ''), wc.provider, wc.branch_id, COALESCE(b.name, ''), wc.raw_payload, wc.created_at, wc.updated_at
+		FROM wazzup_channels wc
+		LEFT JOIN branches b ON b.id = wc.branch_id
 		%s
-		ORDER BY transport, name, external_channel_id
-	`, where)
+		ORDER BY wc.transport, wc.name, wc.external_channel_id
+	`, strings.ReplaceAll(where, "integration_id", "wc.integration_id"))
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list wazzup channels: %w", err)
@@ -358,6 +361,8 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 	for rows.Next() {
 		var ch models.WazzupChannel
 		var raw []byte
+		var branchID sql.NullInt64
+		var branchName sql.NullString
 		if err := rows.Scan(
 			&ch.ID,
 			&ch.IntegrationID,
@@ -368,16 +373,70 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			&ch.Phone,
 			&ch.Status,
 			&ch.Provider,
+			&branchID,
+			&branchName,
 			&raw,
 			&ch.CreatedAt,
 			&ch.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan wazzup channel: %w", err)
 		}
+		if branchID.Valid {
+			id := int(branchID.Int64)
+			ch.BranchID = &id
+			ch.BranchName = branchName.String
+		}
 		ch.RawPayload = append(json.RawMessage(nil), raw...)
 		out = append(out, ch)
 	}
 	return out, rows.Err()
+}
+
+// SetChannelBranch привязывает канал к филиалу (branchID=nil снимает привязку).
+// Используется админом в настройках мессенджера.
+func (r *wazzupRepository) SetChannelBranch(ctx context.Context, channelID int64, branchID *int) error {
+	var branchArg any
+	if branchID != nil {
+		branchArg = *branchID
+	}
+	res, err := r.db.ExecContext(ctx, `UPDATE wazzup_channels SET branch_id = $1::int, updated_at = NOW() WHERE id = $2`, branchArg, channelID)
+	if err != nil {
+		return fmt.Errorf("set channel branch: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set channel branch: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetChannelBranchID возвращает филиал канала по внешнему ID (для входящего лида).
+// nil без ошибки — канал не найден или не привязан к филиалу.
+func (r *wazzupRepository) GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error) {
+	externalChannelID = strings.TrimSpace(externalChannelID)
+	if externalChannelID == "" {
+		return nil, nil
+	}
+	var branchID sql.NullInt64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT branch_id FROM wazzup_channels
+		WHERE integration_id = $1 AND external_channel_id = $2
+		LIMIT 1
+	`, integrationID, externalChannelID).Scan(&branchID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get channel branch: %w", err)
+	}
+	if !branchID.Valid {
+		return nil, nil
+	}
+	id := int(branchID.Int64)
+	return &id, nil
 }
 
 func (r *wazzupRepository) RegisterDedup(ctx context.Context, integrationID int, externalID string) (bool, error) {
@@ -505,7 +564,7 @@ func (r *wazzupRepository) GetChatChannelID(ctx context.Context, transport, exte
 	return channelID, nil
 }
 
-func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, phone, source, firstMessage string) (int, error) {
+func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, phone, source, firstMessage string) (int, error) {
 	description := strings.TrimSpace(firstMessage)
 	normalizedPhone := normalizePhone(phone)
 	source = strings.ToLower(strings.TrimSpace(source))
@@ -536,12 +595,19 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 
+	// branch_id: филиал канала Wazzup (разделение по филиалам), с откатом на филиал
+	// владельца интеграции, если канал не привязан к филиалу.
+	var branchArg any
+	if branchID != nil {
+		branchArg = *branchID
+	}
+
 	// Inbound leads land on the first stage of the default sales funnel so they
 	// show up as "Новая заявка" cards on the kanban board (ТЗ 04.07.2026, п.1.1).
 	const q = `
 		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
 		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, 0),
-			(SELECT branch_id FROM users WHERE $5 > 0 AND id = $5),
+			COALESCE($7::int, (SELECT branch_id FROM users WHERE $5 > 0 AND id = $5)),
 			COALESCE(
 				(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
 				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
@@ -557,7 +623,7 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		RETURNING id
 	`
 	var leadID int
-	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, source, resolvedOwner, "new").Scan(&leadID); err != nil {
+	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, source, resolvedOwner, "new", branchArg).Scan(&leadID); err != nil {
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 	return leadID, nil

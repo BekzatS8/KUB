@@ -100,9 +100,9 @@ func TestResolveUserContext_DeptFallbackByRoleCode(t *testing.T) {
 
 // ─── resolveLeadScope dept behaviour ─────────────────────────────────────────
 
-// Обратная связь 24.07.2026: лиды стали общим пулом (ScopeKindAll) для всех
-// менеджеров — отделовой фильтр по лидам больше не применяется.
-func TestResolveLeadScope_Sales_IsAllNoDepartment(t *testing.T) {
+// Обратная связь 22.08.2026: лиды разделены по филиалам — sales/visa видят
+// лиды ТОЛЬКО своего филиала (branch-only, без отделового фильтра).
+func TestResolveLeadScope_Sales_IsBranchNoDepartment(t *testing.T) {
 	branchID, deptID := 10, 2
 	repo := &deptScopeUserRepoStub{
 		user: &models.User{RoleID: authz.RoleSales, BranchID: &branchID, DepartmentID: &deptID},
@@ -111,12 +111,12 @@ func TestResolveLeadScope_Sales_IsAllNoDepartment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindAll || scope.DepartmentID != nil {
-		t.Errorf("sales lead scope: want All without department, got %+v", scope)
+	if scope.Kind != ScopeKindBranch || scope.BranchID == nil || *scope.BranchID != branchID || scope.DepartmentID != nil {
+		t.Errorf("sales lead scope: want Branch(%d) without department, got %+v", branchID, scope)
 	}
 }
 
-func TestResolveLeadScope_Visa_IsAllNoDepartment(t *testing.T) {
+func TestResolveLeadScope_Visa_IsBranchNoDepartment(t *testing.T) {
 	branchID, deptID := 10, 4
 	repo := &deptScopeUserRepoStub{
 		user: &models.User{RoleID: authz.RoleVisa, BranchID: &branchID, DepartmentID: &deptID},
@@ -125,8 +125,8 @@ func TestResolveLeadScope_Visa_IsAllNoDepartment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope.Kind != ScopeKindAll || scope.DepartmentID != nil {
-		t.Errorf("visa lead scope: want All without department, got %+v", scope)
+	if scope.Kind != ScopeKindBranch || scope.BranchID == nil || *scope.BranchID != branchID || scope.DepartmentID != nil {
+		t.Errorf("visa lead scope: want Branch(%d) without department, got %+v", branchID, scope)
 	}
 }
 

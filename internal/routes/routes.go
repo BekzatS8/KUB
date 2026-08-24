@@ -193,6 +193,8 @@ func SetupRoutes(
 		{
 			wazzup.GET("/status", wazzupHandler.Status)
 			wazzup.GET("/channels", wazzupHandler.Channels)
+			// Привязка канала к филиалу (админ/руководство) — enforced в хендлере.
+			wazzup.PATCH("/channels/:id/branch", wazzupHandler.SetChannelBranch)
 			wazzup.GET("/dialogs", wazzupHandler.Dialogs)
 			wazzup.GET("/dialogs/:id/messages", wazzupHandler.DialogMessages)
 			wazzup.POST("/dialogs/:id/messages", wazzupHandler.SendDialogMessage)

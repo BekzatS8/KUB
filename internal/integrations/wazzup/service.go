@@ -410,6 +410,14 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 	createdAt := parseWebhookTime(firstNonEmpty(m.CreatedAt, m.DateTime, m.Timestamp))
 	raw, _ := json.Marshal(m)
 
+	// Филиал входящего лида определяется каналом Wazzup (Алматы/Шымкент = разные
+	// филиалы). Если канал не привязан к филиалу — nil, лид получит филиал
+	// владельца интеграции (fallback в CreateLeadFromInbound).
+	var inboundBranch *int
+	if b, berr := s.repo.GetChannelBranchID(ctx, integration.ID, channelID); berr == nil {
+		inboundBranch = b
+	}
+
 	var clientIDPtr *int
 	var leadIDPtr *int
 	phone := ""
@@ -430,7 +438,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 				return 0, false, false, err
 			}
 			if leadID == 0 && clientID == 0 {
-				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, "whatsapp", text)
+				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, phone, "whatsapp", text)
 				if err != nil {
 					return 0, false, false, err
 				}
@@ -474,7 +482,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 			}
 		}
 		if leadID == 0 {
-			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, phone, transport, text)
+			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, phone, transport, text)
 			if err != nil {
 				return 0, false, false, err
 			}

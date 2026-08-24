@@ -232,10 +232,10 @@ func TestLeadListForRole_LegalForbidden(t *testing.T) {
 	}
 }
 
-// TestLeadListForRole_SalesResolvesToAll verifies sales sees all leads (общий
-// пул для создания сделок, обратная связь 24.07.2026) — ScopeKindAll, без
-// фильтра по филиалу/отделу.
-func TestLeadListForRole_SalesResolvesToAll(t *testing.T) {
+// TestLeadListForRole_SalesResolvesToBranch verifies sales sees leads ONLY of its
+// own branch (разделение по филиалам, обратная связь 22.08.2026) — branch-only,
+// без фильтра по отделу.
+func TestLeadListForRole_SalesResolvesToBranch(t *testing.T) {
 	const salesID = 11
 	branchID, deptID := 4, 2
 	repo := &deptScopeUserRepoStub{
@@ -245,11 +245,14 @@ func TestLeadListForRole_SalesResolvesToAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sales resolveLeadScope: unexpected error %v", err)
 	}
-	if scope.Kind != ScopeKindAll {
-		t.Fatalf("sales: expected ScopeKindAll (общий пул лидов), got %v", scope.Kind)
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("sales: expected ScopeKindBranch (свой филиал), got %v", scope.Kind)
 	}
-	if scope.BranchID != nil || scope.DepartmentID != nil {
-		t.Errorf("sales: expected no branch/department filter, got %+v", scope)
+	if scope.BranchID == nil || *scope.BranchID != branchID {
+		t.Errorf("sales: expected BranchID=%d, got %v", branchID, scope.BranchID)
+	}
+	if scope.DepartmentID != nil {
+		t.Errorf("sales: lead scope must be branch-only (no department), got dept=%v", scope.DepartmentID)
 	}
 }
 
@@ -294,24 +297,25 @@ func TestClientListForRole_HRForbidden(t *testing.T) {
 	}
 }
 
-// TestClientListForRole_SalesSeesAll verifies sales now resolves to ScopeKindAll
-// for clients ("Общая база" per ТЗ) — the same shared base visa/partner/legal see.
-// Sales is no longer blocked at a hardcoded guard.
-func TestClientListForRole_SalesSeesAll(t *testing.T) {
-	scope, err := resolveClientScope(1, authz.RoleSales, nil)
+// TestClientListForRole_SalesSeesOwnBranch verifies sales resolves to branch scope
+// for clients — видит клиентов только своего филиала (обратная связь 22.08.2026).
+func TestClientListForRole_SalesSeesOwnBranch(t *testing.T) {
+	branchID := 4
+	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+	scope, err := resolveClientScope(1, authz.RoleSales, repo)
 	if err != nil {
 		t.Fatalf("sales resolveClientScope: unexpected error %v", err)
 	}
-	if scope.Kind != ScopeKindAll {
-		t.Fatalf("sales: expected ScopeKindAll (общая база), got %v", scope.Kind)
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("sales: expected ScopeKindBranch (свой филиал), got %v", scope.Kind)
 	}
-	spy := &clientListRepoSpy{clients: []*models.Client{{ID: 1, OwnerID: 99}}}
+	spy := &clientListRepoSpy{clients: []*models.Client{{ID: 1, OwnerID: 99, BranchID: &branchID}}}
 	clients, err := listClientsForScope(spy, scope, 10, 0, repositories.ClientListFilter{}, activeOnly)
 	if err != nil {
 		t.Fatalf("sales listClientsForScope: unexpected error %v", err)
 	}
-	if !spy.calledAll {
-		t.Errorf("sales: expected ListAll (общая база), got calledAll=%v", spy.calledAll)
+	if spy.calledBranch == nil || *spy.calledBranch != branchID {
+		t.Errorf("sales: expected branch filter=%d, got %v", branchID, spy.calledBranch)
 	}
 	if len(clients) == 0 {
 		t.Errorf("sales: expected at least one client returned")

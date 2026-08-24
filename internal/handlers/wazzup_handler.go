@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log"
@@ -232,6 +233,50 @@ func (h *WazzupHandler) Channels(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"value": channels, "count": len(channels)})
+}
+
+type setChannelBranchRequest struct {
+	BranchID *int `json:"branch_id"`
+}
+
+// SetChannelBranch привязывает канал Wazzup к филиалу (branch_id=null снимает
+// привязку). Входящий лид из этого канала будет попадать в указанный филиал.
+// Только админ/руководство — это конфигурация разделения по филиалам.
+func (h *WazzupHandler) SetChannelBranch(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if h.repo == nil {
+		internalError(c, "channel branch mapping unavailable")
+		return
+	}
+	channelID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || channelID <= 0 {
+		badRequest(c, "Invalid channel id")
+		return
+	}
+	var req setChannelBranchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if req.BranchID != nil && *req.BranchID <= 0 {
+		badRequest(c, "Invalid branch_id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer cancel()
+	if err := h.repo.SetChannelBranch(ctx, channelID, req.BranchID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			notFound(c, NotFoundCode, "Channel not found")
+			return
+		}
+		internalError(c, "Failed to set channel branch")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (h *WazzupHandler) Dialogs(c *gin.Context) {

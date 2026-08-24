@@ -16,22 +16,31 @@ import (
 
 // ─── Client GetByID Own ───────────────────────────────────────────────────────
 
-// По матрице партнёрский отдел видит ОБЩУЮ базу клиентов (ScopeKindAll):
-// доступны и свои, и чужие клиенты.
-func TestGetByID_Client_PartnerSeesAllClients(t *testing.T) {
+// Обратная связь 22.08.2026: партнёрский отдел видит клиентов ТОЛЬКО своего
+// филиала (разделение по филиалам), независимо от владельца.
+func TestGetByID_Client_PartnerSeesOwnBranchClients(t *testing.T) {
 	const partnerID = 7
-	scope, err := resolveClientScope(partnerID, authz.RolePartner, nil)
+	branchID := 5
+	repo := &docScopeUserRepoStub{user: &models.User{BranchID: &branchID}}
+	scope, err := resolveClientScope(partnerID, authz.RolePartner, repo)
 	if err != nil {
 		t.Fatalf("resolveClientScope: %v", err)
 	}
-	if scope.Kind != ScopeKindAll {
-		t.Fatalf("partner must get ScopeKindAll (общая база), got %v", scope.Kind)
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("partner must get ScopeKindBranch, got %v", scope.Kind)
 	}
+	// Клиент своего филиала (любой владелец) — доступен.
 	for _, ownerID := range []int{partnerID, 99} {
-		client := &models.Client{ID: 1, OwnerID: ownerID}
+		client := &models.Client{ID: 1, OwnerID: ownerID, BranchID: &branchID}
 		if !clientMatchesScope(scope, client) {
-			t.Errorf("partner must access any client (owner_id=%d, общая база)", ownerID)
+			t.Errorf("partner must access own-branch client (owner_id=%d)", ownerID)
 		}
+	}
+	// Клиент чужого филиала — недоступен.
+	otherBranch := 6
+	foreign := &models.Client{ID: 2, OwnerID: 99, BranchID: &otherBranch}
+	if clientMatchesScope(scope, foreign) {
+		t.Errorf("partner must NOT access foreign-branch client")
 	}
 }
 
@@ -78,9 +87,9 @@ func TestGetByID_Client_HRForbidden(t *testing.T) {
 
 // ─── Lead GetByID Own ─────────────────────────────────────────────────────────
 
-// Обратная связь 24.07.2026: лиды — общий пул (ScopeKindAll). Партнёр (как и
-// любой менеджер) видит все лиды: и свои, и чужого филиала.
-func TestGetByID_Lead_PartnerSeesAllLeads(t *testing.T) {
+// Обратная связь 22.08.2026: лиды разделены по филиалам. Партнёр (как любой
+// менеджер) видит лиды ТОЛЬКО своего филиала.
+func TestGetByID_Lead_PartnerSeesOwnBranchLeads(t *testing.T) {
 	const partnerID = 7
 	branchID, deptID := 5, 3
 	repo := &deptScopeUserRepoStub{
@@ -90,17 +99,19 @@ func TestGetByID_Lead_PartnerSeesAllLeads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveLeadScope: %v", err)
 	}
-	if scope.Kind != ScopeKindAll {
-		t.Fatalf("partner must get ScopeKindAll for leads, got %v", scope.Kind)
+	if scope.Kind != ScopeKindBranch {
+		t.Fatalf("partner must get ScopeKindBranch for leads, got %v", scope.Kind)
 	}
-	ownLead := &models.Leads{ID: 1, OwnerID: partnerID, BranchID: &branchID, DepartmentID: &deptID}
-	if !leadMatchesScope(scope, ownLead) {
-		t.Errorf("partner must access own lead")
+	// Лид своего филиала (любой владелец) — доступен.
+	ownBranchLead := &models.Leads{ID: 1, OwnerID: 99, BranchID: &branchID, DepartmentID: &deptID}
+	if !leadMatchesScope(scope, ownBranchLead) {
+		t.Errorf("partner must access own-branch lead")
 	}
+	// Лид чужого филиала — недоступен.
 	otherBranch := 6
 	foreignLead := &models.Leads{ID: 2, OwnerID: 99, BranchID: &otherBranch, DepartmentID: &deptID}
-	if !leadMatchesScope(scope, foreignLead) {
-		t.Errorf("partner must now access lead in a different branch (общий пул)")
+	if leadMatchesScope(scope, foreignLead) {
+		t.Errorf("partner must NOT access lead in a different branch")
 	}
 }
 

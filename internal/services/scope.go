@@ -70,22 +70,27 @@ func resolveUserBranch(userID int, userRepo repositories.UserRepository) (*int, 
 
 // resolveLeadScope returns the DataScope for the leads entity.
 //
-// LEADS mapping (from permission matrix + ТЗ):
-//   admin / management / quality_control → All
-//   sales / visa / partner               → All (общий пул лидов для создания
-//                                           сделок — обратная связь заказчика
-//                                           24.07.2026; раньше был Branch+Dept)
+// LEADS mapping (обратная связь заказчика 22.08.2026 — разделение по филиалам):
+//   admin / management / quality_control → All (надведомственные роли, все филиалы)
+//   sales / visa / partner               → Branch (только свой филиал)
 //   hr / legal / unknown                 → Forbidden
 //
-// Все менеджеры видят все лиды (как и общая база клиентов), чтобы любой мог
-// завести сделку по любому лиду.
+// Каналы Wazzup разделены по номерам = по филиалам, поэтому входящий лид
+// приходит в свой филиал, и менеджер видит лиды только своего филиала. Раньше
+// был общий пул (ScopeKindAll, обратная связь 24.07.2026) — заказчик отменил.
 func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl,
-		authz.RoleSales, authz.RoleVisa, authz.RolePartner:
-		// quality_control is a read-only observer (enforced separately); менеджеры
-		// (sales/visa/partner) теперь тоже видят все лиды.
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
+		// quality_control is a read-only observer (enforced separately).
 		return DataScope{Kind: ScopeKindAll}, nil
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
+		// Только свой филиал. Разделение чисто по branch_id (без department),
+		// как просил заказчик — «филиал видит только свои лиды».
+		branchID, err := resolveUserBranch(userID, userRepo)
+		if err != nil {
+			return DataScope{Kind: ScopeKindForbidden}, err
+		}
+		return DataScope{Kind: ScopeKindBranch, BranchID: branchID}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}
@@ -93,16 +98,23 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 
 // resolveClientScope returns the DataScope for the clients entity.
 //
-// CLIENTS mapping (from permission matrix + ТЗ):
-//   admin / management / sales / visa / partner / legal → All (общая база)
-//   quality_control                                     → All (read-only enforced elsewhere)
-//   hr / unknown                                        → Forbidden
+// CLIENTS mapping (обратная связь заказчика 22.08.2026 — разделение по филиалам):
+//   admin / management / quality_control / legal → All (надведомственные роли)
+//   sales / visa / partner                       → Branch (только свой филиал)
+//   hr / unknown                                 → Forbidden
+//
+// legal остаётся All — юрист работает с договорами клиентов всех филиалов.
 func resolveClientScope(userID, roleID int, userRepo repositories.UserRepository) (DataScope, error) {
 	switch roleID {
-	case authz.RoleSales, authz.RoleVisa, authz.RolePartner,
-		authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl:
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl:
 		// quality_control observes all clients (read-only enforced elsewhere).
 		return DataScope{Kind: ScopeKindAll}, nil
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
+		branchID, err := resolveUserBranch(userID, userRepo)
+		if err != nil {
+			return DataScope{Kind: ScopeKindForbidden}, err
+		}
+		return DataScope{Kind: ScopeKindBranch, BranchID: branchID}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}

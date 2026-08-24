@@ -15,6 +15,8 @@ type WazzupChannel struct {
 	Phone             string          `json:"phone,omitempty"`
 	Status            string          `json:"status"`
 	Provider          string          `json:"provider"`
+	BranchID          *int            `json:"branch_id,omitempty"`
+	BranchName        string          `json:"branch_name,omitempty"`
 	RawPayload        json.RawMessage `json:"raw_payload,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
