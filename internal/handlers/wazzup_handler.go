@@ -27,7 +27,7 @@ type WazzupService interface {
 	ListDialogs(ctx context.Context, userID int, transport string) ([]models.WazzupDialog, error)
 	ListDialogMessages(ctx context.Context, userID, dialogID, limit, offset int) ([]models.WazzupDialogMessage, error)
 	HandleWebhook(ctx context.Context, token string, authHeader string, payload []byte) (leadID int, created bool, err error)
-	SendMessage(ctx context.Context, ownerUserID int, chatID, transport, text string) (*wz.SendMessageResponse, error)
+	SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*wz.SendMessageResponse, error)
 	SendDialogMessage(ctx context.Context, userID, dialogID int, text string) (*models.WazzupDialogMessage, error)
 }
 
@@ -60,6 +60,7 @@ type wazzupIframeRequest struct {
 type wazzupSendMessageRequest struct {
 	ChatID    string `json:"chat_id"`
 	Transport string `json:"transport"`
+	ChannelID string `json:"channel_id"`
 	Text      string `json:"text"`
 }
 
@@ -145,7 +146,7 @@ func (h *WazzupHandler) SendMessage(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
 	defer cancel()
-	resp, err := h.svc.SendMessage(ctx, userID, req.ChatID, req.Transport, req.Text)
+	resp, err := h.svc.SendMessage(ctx, userID, req.ChatID, req.Transport, req.ChannelID, req.Text)
 	if err != nil {
 		switch {
 		case errors.Is(err, wz.ErrDisabled), errors.Is(err, wz.ErrNotFound):

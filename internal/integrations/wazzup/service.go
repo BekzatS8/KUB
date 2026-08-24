@@ -536,7 +536,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 	return leadID, leadCreated, messageCreated, nil
 }
 
-func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, transport, text string) (*SendMessageResponse, error) {
+func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*SendMessageResponse, error) {
 	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
 	if err != nil {
 		return nil, err
@@ -545,9 +545,12 @@ func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, tran
 	if transport == "" {
 		transport = "whatsapp" // основной сценарий «написать первым» — WhatsApp
 	}
-	// channelId обязателен и должен соответствовать транспорту (иначе Wazzup не
-	// поймёт, откуда слать). Ищем канал нужного транспорта, откат на defaultChannelID.
-	channelID := s.resolveSendChannel(ctx, integration.ID, transport)
+	// channelId обязателен. Если фронт указал канал явно (выбор филиала «с какого
+	// номера писать») — используем его; иначе подбираем канал нужного транспорта.
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		channelID = s.resolveSendChannel(ctx, integration.ID, transport)
+	}
 	req := SendMessageRequest{
 		ChannelID: channelID,
 		ChatType:  transport,

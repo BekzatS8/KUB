@@ -114,7 +114,7 @@ func TestSendMessageUsesSharedEnabledIntegration(t *testing.T) {
 		sharedIntegration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true},
 	}, noopClient{}, "", "channel", "", "")
 
-	resp, err := svc.SendMessage(context.Background(), 22, "chat-id", "whatsapp", "hello")
+	resp, err := svc.SendMessage(context.Background(), 22, "chat-id", "whatsapp", "", "hello")
 	if err != nil {
 		t.Fatalf("expected shared integration to allow send, got %v", err)
 	}
