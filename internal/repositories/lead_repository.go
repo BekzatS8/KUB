@@ -37,6 +37,10 @@ type LeadListFilter struct {
 	// ScopeUserID, when set alongside DepartmentID, widens the department filter so
 	// the owner still sees their own NULL-department leads (fail-closed for peers).
 	ScopeUserID *int
+	// IncludeNullBranch, when true alongside BranchID, also matches leads with no
+	// branch (branch_id IS NULL) — «общий пул» (напр. Instagram-канал без филиала),
+	// который виден всем филиалам (обратная связь заказчика 22.08.2026).
+	IncludeNullBranch bool
 }
 
 type ArchiveScope string
@@ -581,7 +585,12 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		idx++
 	}
 	if filter.BranchID != nil {
-		where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
+		if filter.IncludeNullBranch {
+			// свой филиал ИЛИ общий (без филиала — напр. Instagram)
+			where += fmt.Sprintf(" AND (l.branch_id = $%d OR l.branch_id IS NULL)", idx)
+		} else {
+			where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
+		}
 		args = append(args, *filter.BranchID)
 		idx++
 	}

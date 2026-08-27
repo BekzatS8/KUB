@@ -154,6 +154,7 @@ func listLeadsForScope(repo leadListRepo, scope DataScope, limit, offset int, fi
 		filter.BranchID = scope.BranchID
 		filter.DepartmentID = scope.DepartmentID
 		filter.ScopeUserID = scopeOwnerForDept(scope)
+		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
@@ -182,6 +183,7 @@ func countLeadsForScope(repo leadListRepo, scope DataScope, filter repositories.
 		filter.BranchID = scope.BranchID
 		filter.DepartmentID = scope.DepartmentID
 		filter.ScopeUserID = scopeOwnerForDept(scope)
+		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
@@ -197,6 +199,7 @@ func listClientsForScope(repo clientListRepo, scope DataScope, limit, offset int
 		return repo.ListByOwnerWithFilterAndArchiveScope(scope.UserID, limit, offset, filter, archiveScope)
 	case ScopeKindBranch:
 		filter.BranchID = scope.BranchID
+		filter.IncludeNullBranch = true // + общий пул (клиенты без филиала, напр. Instagram)
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
@@ -213,6 +216,7 @@ func countClientsForScope(repo clientListRepo, scope DataScope, forcedType strin
 		return repo.CountWithFilterAndArchiveScope(&ownerID, forcedType, filter, archiveScope)
 	case ScopeKindBranch:
 		filter.BranchID = scope.BranchID
+		filter.IncludeNullBranch = true // + общий пул (клиенты без филиала, напр. Instagram)
 		return repo.CountWithFilterAndArchiveScope(nil, forcedType, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.CountWithFilterAndArchiveScope(nil, forcedType, filter, archiveScope)
@@ -231,7 +235,8 @@ func leadMatchesScope(scope DataScope, lead *models.Leads) bool {
 		return lead.OwnerID == scope.UserID
 	case ScopeKindBranch:
 		if scope.BranchID != nil {
-			if lead.BranchID == nil || *lead.BranchID != *scope.BranchID {
+			// свой филиал ИЛИ общий (лид без филиала — напр. Instagram, виден всем).
+			if lead.BranchID != nil && *lead.BranchID != *scope.BranchID {
 				return false
 			}
 		}
@@ -268,7 +273,11 @@ func clientMatchesScope(scope DataScope, client *models.Client) bool {
 		if scope.BranchID == nil {
 			return false
 		}
-		return client.BranchID != nil && *client.BranchID == *scope.BranchID
+		// свой филиал ИЛИ общий (клиент без филиала — напр. Instagram, виден всем).
+		if client.BranchID == nil {
+			return true
+		}
+		return *client.BranchID == *scope.BranchID
 	default:
 		return false
 	}

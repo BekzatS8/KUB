@@ -160,8 +160,16 @@ func dealMatchesBranch(scope *int, deal *models.Deals) bool {
 	if scope == nil {
 		return true
 	}
-	if deal == nil || deal.BranchID == nil {
+	if deal == nil {
 		return false
+	}
+	// Сделка без филиала — общая (напр. документ по сделке из общего пула /
+	// Instagram): доступна менеджеру любого филиала. Согласовано с моделью
+	// «NULL branch = общий» для лидов/клиентов (обратная связь 22.08.2026).
+	// Раньше NULL-филиал сделки → forbidden, из-за чего у менеджера не работала
+	// отправка на подписание, а у админа (scope=nil) работала.
+	if deal.BranchID == nil {
+		return true
 	}
 	return *scope == *deal.BranchID
 }

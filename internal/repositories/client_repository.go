@@ -24,6 +24,10 @@ type ClientListFilter struct {
 	DealStatusGroup string
 	SortBy          string
 	Order           string
+	// IncludeNullBranch, when true alongside BranchID, also matches clients with no
+	// branch (branch_id IS NULL) — «общий пул», виден всем филиалам (Instagram и
+	// т.п., обратная связь заказчика 22.08.2026).
+	IncludeNullBranch bool
 }
 
 type clientRowScanner interface{ Scan(dest ...any) error }
@@ -762,7 +766,12 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 		idx++
 	}
 	if filter.BranchID != nil {
-		conditions = append(conditions, fmt.Sprintf("c.branch_id = $%d", idx))
+		if filter.IncludeNullBranch {
+			// свой филиал ИЛИ общий (без филиала — напр. Instagram)
+			conditions = append(conditions, fmt.Sprintf("(c.branch_id = $%d OR c.branch_id IS NULL)", idx))
+		} else {
+			conditions = append(conditions, fmt.Sprintf("c.branch_id = $%d", idx))
+		}
 		args = append(args, *filter.BranchID)
 		idx++
 	}

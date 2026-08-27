@@ -160,8 +160,10 @@ func TestLeadMatchesScope_BranchScopeMatchesSameBranchOnly(t *testing.T) {
 	if leadMatchesScope(scope, otherBranchLead) {
 		t.Error("branch scope must NOT match different-branch lead")
 	}
-	if leadMatchesScope(scope, noBranchLead) {
-		t.Error("branch scope must NOT match lead with no branch")
+	// Обратная связь 22.08.2026: лид без филиала — общий (напр. Instagram), виден
+	// всем филиалам.
+	if !leadMatchesScope(scope, noBranchLead) {
+		t.Error("branch scope must match lead with no branch (общий пул)")
 	}
 }
 
@@ -220,8 +222,10 @@ func TestClientMatchesScope_BranchScopeMatchesSameBranchOnly(t *testing.T) {
 	if clientMatchesScope(scope, otherBranchClient) {
 		t.Error("branch scope must NOT match different-branch client")
 	}
-	if clientMatchesScope(scope, noBranchClient) {
-		t.Error("branch scope must NOT match client with no branch")
+	// Обратная связь 22.08.2026: клиент без филиала — общий (напр. Instagram),
+	// виден всем филиалам.
+	if !clientMatchesScope(scope, noBranchClient) {
+		t.Error("branch scope must match client with no branch (общий пул)")
 	}
 }
 
