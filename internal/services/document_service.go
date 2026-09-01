@@ -1539,6 +1539,17 @@ func (s *DocumentService) ResolveFileForHTTP(docID int64, userID, roleID int, va
 	}
 
 	variant = strings.ToLower(strings.TrimSpace(variant))
+
+	// После подписания скачивание/просмотр по умолчанию отдаёт ПОДПИСАННЫЙ PDF
+	// для любого варианта, кроме явного запроса исходного docx. Раньше варианты
+	// "original"/"main"/"" отдавали неподписанный файл — «после подписания
+	// скачивается не тот документ / не скачивается» (обратная связь 24.08.2026).
+	if doc.Status == "signed" && variant != "docx" {
+		if signedPath := extractSignedPDFPath(doc.SignMetadata); strings.TrimSpace(signedPath) != "" {
+			variant = "pdf"
+		}
+	}
+
 	var rel string
 	switch variant {
 	case "", "main":

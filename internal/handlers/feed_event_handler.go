@@ -60,6 +60,7 @@ func (h *FeedEventHandler) Create(c *gin.Context) {
 		models.FeedEventTypePendingEditDocument:   true,
 		models.FeedEventTypePendingDeleteDocument: true,
 		models.FeedEventTypePendingSendDocument:   true,
+		models.FeedEventTypePendingReviewDocument: true,
 	}
 	if !validTypes[req.Type] {
 		badRequest(c, "Некорректный тип события")

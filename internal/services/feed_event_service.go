@@ -44,6 +44,9 @@ type feedDealUpdater interface {
 type feedDocumentCreator interface {
 	CreateDocumentFromClient(clientID int, clientType string, dealID int, docType string, userID, roleID int, extra map[string]string) (*models.Document, error)
 	DeleteDocument(id int64, userID, roleID int) error
+	// Review применяет ревью документа (approve/return) — используется одобрением
+	// feed-события pending_review_document правами администратора.
+	Review(id int64, action string, userID, roleID int) error
 }
 
 // feedCreateDocumentPayload is the JSON shape stored for a
@@ -284,6 +287,13 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		}
 		// Deleted with admin credentials (CanHardDeleteBusinessEntity).
 		return s.docCreator.DeleteDocument(int64(*e.ResourceID), reviewerID, authz.RoleSystemAdmin)
+
+	case models.FeedEventTypePendingReviewDocument:
+		if s.docCreator == nil || e.ResourceID == nil {
+			return errors.New("cannot apply document review: missing document service or resource_id")
+		}
+		// Ревью-approve правами администратора (under_review → approved).
+		return s.docCreator.Review(int64(*e.ResourceID), "approve", reviewerID, authz.RoleSystemAdmin)
 
 	case models.FeedEventTypePendingSendDocument:
 		if s.docSender == nil {

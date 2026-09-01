@@ -24,6 +24,10 @@ const (
 	// PendingSendDocument — менеджер отправил документ на подпись; отправка ждёт
 	// одобрения администратора и на approve реально уходит клиенту.
 	FeedEventTypePendingSendDocument = "pending_send_document"
+	// PendingReviewDocument — менеджер отправил документ на проверку (submit →
+	// under_review). Событие показывается админу в Ленте; на approve документ
+	// проходит ревью-approve (under_review → approved) правами администратора.
+	FeedEventTypePendingReviewDocument = "pending_review_document"
 
 	FeedEventStatusPending  = "pending"
 	FeedEventStatusApproved = "approved"
