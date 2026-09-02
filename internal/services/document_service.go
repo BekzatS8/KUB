@@ -108,6 +108,19 @@ type DocumentService struct {
 	Store     storage.Storage // nil = local disk only
 	now       func() time.Time
 	displayTZ *time.Location
+
+	feedNotifier FeedNotifier // уведомления в Ленту (может быть nil)
+}
+
+// FeedNotifier создаёт событие в Ленте. Реализуется FeedEventService (тот же
+// пакет services), внедряется в app.go — прямой зависимости/цикла нет.
+type FeedNotifier interface {
+	Create(ctx context.Context, requesterID int, eventType string, payload json.RawMessage, resourceID *int) (*models.FeedEvent, error)
+}
+
+// SetFeedNotifier подключает уведомления в Ленту (создание feed-событий).
+func (s *DocumentService) SetFeedNotifier(n FeedNotifier) {
+	s.feedNotifier = n
 }
 
 func (s *DocumentService) SetUserRepo(userRepo repositories.UserRepository) {
@@ -1189,7 +1202,31 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if doc.Status != "draft" {
 		return errors.New("invalid status")
 	}
-	return s.DocRepo.UpdateStatus(id, "under_review")
+	if err := s.DocRepo.UpdateStatus(id, "under_review"); err != nil {
+		return err
+	}
+	// Не-ревьюер (МОП/визовый/партнёр/кадры/юрист) отправил на проверку →
+	// уведомляем администратора в Ленте (pending_review_document). Ревьюеры
+	// (админ/руководство/контроль) утверждают сами — событие не нужно.
+	// Ошибку уведомления не пробрасываем: submit уже прошёл.
+	if s.feedNotifier != nil && !isDocumentReviewerRole(roleID) {
+		docID := int(id)
+		payload, _ := json.Marshal(map[string]any{
+			"document_id": id,
+			"doc_type":    doc.DocType,
+		})
+		if _, ferr := s.feedNotifier.Create(context.Background(), userID, models.FeedEventTypePendingReviewDocument, payload, &docID); ferr != nil {
+			log.Printf("[doc][submit] feed notify failed doc=%d: %v", id, ferr)
+		}
+	}
+	return nil
+}
+
+// isDocumentReviewerRole — роли, которые сами утверждают документы (approve).
+func isDocumentReviewerRole(roleID int) bool {
+	return roleID == authz.RoleSystemAdmin ||
+		roleID == authz.RoleManagement ||
+		roleID == authz.RoleControl
 }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {

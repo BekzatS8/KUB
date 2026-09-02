@@ -490,6 +490,8 @@ func Run() {
 
 	feedEventRepo := repositories.NewFeedEventRepository(db)
 	feedEventSvc := services.NewFeedEventService(feedEventRepo, userRepo, clientService, leadService, dealService, documentService, signConfirmService)
+	// Уведомления в Ленту из документного сервиса (напр. «на проверку» от МОП).
+	documentService.SetFeedNotifier(feedEventSvc)
 	feedEventHandler := handlers.NewFeedEventHandler(feedEventSvc)
 
 	// === Routes ===
