@@ -61,6 +61,16 @@ type WazzupConfig struct {
 	RequestTimeoutSec  int    `yaml:"request_timeout_sec"`
 	RetryCount         int    `yaml:"retry_count"`
 	RetryDelayMS       int    `yaml:"retry_delay_ms"`
+
+	// White Label (tech-partner): позволяет добавлять каналы прямо в CRM через
+	// встроенный iframe Wazzup. Секреты только на бэкенде. Если не заполнено —
+	// добавление каналов идёт через кабинет Wazzup (fallback).
+	WLBaseURL   string `yaml:"wl_base_url"`   // по умолчанию https://tech.wazzup24.com
+	WLEmail     string `yaml:"wl_email"`      // логин кабинета партнёра
+	WLPassword  string `yaml:"wl_password"`   // пароль кабинета партнёра
+	WLClientID  string `yaml:"wl_client_id"`  // partner_client_id (для refresh)
+	WLAccountID string `yaml:"wl_account_id"` // account_id дочернего аккаунта клиента
+	WLScope     string `yaml:"wl_scope"`      // напр. "transport,crm"
 }
 
 type SecurityConfig struct {
@@ -508,6 +518,12 @@ func applyEnvOverrides(cfg *Config) {
 	setInt(os.Getenv("WAZZUP_REQUEST_TIMEOUT_SEC"), &cfg.Wazzup.RequestTimeoutSec)
 	setInt(os.Getenv("WAZZUP_RETRY_COUNT"), &cfg.Wazzup.RetryCount)
 	setInt(os.Getenv("WAZZUP_RETRY_DELAY_MS"), &cfg.Wazzup.RetryDelayMS)
+	setString(os.Getenv("WAZZUP_WL_BASE_URL"), &cfg.Wazzup.WLBaseURL)
+	setString(os.Getenv("WAZZUP_WL_EMAIL"), &cfg.Wazzup.WLEmail)
+	setString(os.Getenv("WAZZUP_WL_PASSWORD"), &cfg.Wazzup.WLPassword)
+	setString(os.Getenv("WAZZUP_WL_CLIENT_ID"), &cfg.Wazzup.WLClientID)
+	setString(os.Getenv("WAZZUP_WL_ACCOUNT_ID"), &cfg.Wazzup.WLAccountID)
+	setString(os.Getenv("WAZZUP_WL_SCOPE"), &cfg.Wazzup.WLScope)
 	if val := strings.TrimSpace(os.Getenv("WAZZUP_ENABLE")); val != "" {
 		cfg.Wazzup.Enable = parseBoolEnvValue(val)
 	}

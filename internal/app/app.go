@@ -439,7 +439,17 @@ func Run() {
 			cfg.Wazzup.WebhookBaseURL,
 		)
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
-		log.Printf("[BOOT] Wazzup integration enabled base_url=%s timeout_s=%d retries=%d", cfg.Wazzup.APIBaseURL, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount)
+		// White Label: встроенный iframe добавления каналов (если заданы доступы).
+		wlClient := wazzupintegration.NewWhiteLabelClient(wazzupintegration.WhiteLabelConfig{
+			BaseURL:   cfg.Wazzup.WLBaseURL,
+			Email:     cfg.Wazzup.WLEmail,
+			Password:  cfg.Wazzup.WLPassword,
+			ClientID:  cfg.Wazzup.WLClientID,
+			AccountID: cfg.Wazzup.WLAccountID,
+			Scope:     cfg.Wazzup.WLScope,
+		}, time.Duration(cfg.Wazzup.RequestTimeoutSec)*time.Second)
+		wazzupHandler.SetWhiteLabel(wlClient)
+		log.Printf("[BOOT] Wazzup integration enabled base_url=%s timeout_s=%d retries=%d white_label=%t", cfg.Wazzup.APIBaseURL, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, wlClient.Configured())
 	} else {
 		log.Printf("[BOOT] Wazzup integration disabled")
 	}

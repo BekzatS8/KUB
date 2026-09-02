@@ -34,6 +34,7 @@ type WazzupService interface {
 type WazzupHandler struct {
 	svc  WazzupService
 	repo repositories.WazzupRepository
+	wl   *wz.WhiteLabelClient // White Label: встроенный iframe добавления каналов (может быть nil)
 }
 
 func NewWazzupHandler(svc WazzupService) *WazzupHandler {
@@ -42,6 +43,11 @@ func NewWazzupHandler(svc WazzupService) *WazzupHandler {
 
 func NewWazzupHandlerWithRepo(svc WazzupService, repo repositories.WazzupRepository) *WazzupHandler {
 	return &WazzupHandler{svc: svc, repo: repo}
+}
+
+// SetWhiteLabel подключает White Label клиент (встроенное добавление каналов).
+func (h *WazzupHandler) SetWhiteLabel(wl *wz.WhiteLabelClient) {
+	h.wl = wl
 }
 
 type wazzupSetupRequest struct {
@@ -279,6 +285,33 @@ func (h *WazzupHandler) SetChannelBranch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// GET /integrations/wazzup/channels/connect-link[?transport=...]
+//
+// Возвращает ссылку на встроенный iframe Wazzup для подключения канала (White
+// Label). Фронт вставляет её в <iframe>. Только админ/руководство. Если White
+// Label не настроен — 404 с кодом, фронт откатывается на кабинет Wazzup.
+func (h *WazzupHandler) ChannelConnectLink(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if h.wl == nil || !h.wl.Configured() {
+		notFound(c, "wazzup_white_label_not_configured", "White Label не настроен")
+		return
+	}
+	transport := strings.ToLower(strings.TrimSpace(c.Query("transport")))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+	link, err := h.wl.ChannelsIframeLink(ctx, transport)
+	if err != nil {
+		log.Printf("integration=wazzup operation=channel_connect_link status=failed transport=%s err=%v", transport, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "wazzup_white_label_error", "message": "Не удалось получить ссылку на добавление канала"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"link": link})
 }
 
 func (h *WazzupHandler) Dialogs(c *gin.Context) {
