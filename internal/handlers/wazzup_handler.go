@@ -308,7 +308,13 @@ func (h *WazzupHandler) ChannelConnectLink(c *gin.Context) {
 	link, err := h.wl.ChannelsIframeLink(ctx, transport)
 	if err != nil {
 		log.Printf("integration=wazzup operation=channel_connect_link status=failed transport=%s err=%v", transport, err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "wazzup_white_label_error", "message": "Не удалось получить ссылку на добавление канала"})
+		// detail отдаём в ответ (эндпоинт только для админа/руководства) — чтобы
+		// быстро диагностировать ошибки White Label (OAUTH_*, неверный account_id).
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   "wazzup_white_label_error",
+			"message": "Не удалось получить ссылку на добавление канала",
+			"detail":  err.Error(),
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"link": link})
