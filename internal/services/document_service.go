@@ -1207,10 +1207,54 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if doc.Status != "draft" {
 		return errors.New("invalid status")
 	}
-	// Событие в Ленту («на проверку») создаёт фронт (documents/page.tsx) — так же,
-	// как остальные заявки ленты; здесь только меняем статус.
-	return s.DocRepo.UpdateStatus(id, "under_review")
+	if err := s.DocRepo.UpdateStatus(id, "under_review"); err != nil {
+		return err
+	}
+	// Не-ревьюер (МОП/визовый/партнёр/кадры/юрист) отправил на проверку →
+	// создаём заявку в Ленту (pending_review_document) на СЕРВЕРЕ по реальной
+	// роли из JWT — надёжнее, чем логика прав на фронте. Ревьюеры
+	// (админ/руководство/контроль) утверждают сами. Ошибку не пробрасываем.
+	if s.feedNotifier != nil && !isDocumentReviewerRole(roleID) {
+		docID := int(id)
+		payload, _ := json.Marshal(map[string]any{"document_id": id, "doc_type": doc.DocType})
+		if _, ferr := s.feedNotifier.Create(context.Background(), userID, models.FeedEventTypePendingReviewDocument, payload, &docID); ferr != nil {
+			log.Printf("[doc][submit] feed notify failed doc=%d: %v", id, ferr)
+		}
+	}
+	return nil
 }
+
+// isDocumentReviewerRole — роли, которые сами утверждают документы (approve):
+// админ, руководство, контроль качества. Остальные (МОП/визовый/партнёр/кадры/
+// юрист) отправляют на проверку/подпись через одобрение в Ленте.
+func isDocumentReviewerRole(roleID int) bool {
+	return roleID == authz.RoleSystemAdmin ||
+		roleID == authz.RoleManagement ||
+		roleID == authz.RoleControl
+}
+
+// RequestSendApproval создаёт заявку в Ленту на отправку документа на подпись
+// (pending_send_document). Вызывается, когда на подпись отправляет не-ревьюер:
+// админ/руководство одобряют в Ленте, и только потом документ уходит клиенту.
+func (s *DocumentService) RequestSendApproval(docID int64, requesterID int, channel, manualPhone, manualEmail, signerFullName, signerPosition string) error {
+	if s.feedNotifier == nil {
+		return errors.New("feed notifier not configured")
+	}
+	id := int(docID)
+	payload, _ := json.Marshal(map[string]any{
+		"document_id":      docID,
+		"channel":          channel,
+		"manual_phone":     manualPhone,
+		"manual_email":     manualEmail,
+		"signer_full_name": signerFullName,
+		"signer_position":  signerPosition,
+	})
+	_, err := s.feedNotifier.Create(context.Background(), requesterID, models.FeedEventTypePendingSendDocument, payload, &id)
+	return err
+}
+
+// IsDocumentReviewerRole — экспортируемая обёртка для хендлеров.
+func IsDocumentReviewerRole(roleID int) bool { return isDocumentReviewerRole(roleID) }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
 	if !authz.CanProcessDocuments(roleID) {

@@ -71,6 +71,30 @@ func (h *DocumentSigningConfirmationHandler) StartSigning(c *gin.Context) {
 		return
 	}
 	userID, roleID := getUserAndRole(c)
+
+	// Не-ревьюер (МОП/визовый/партнёр) не отправляет клиенту напрямую — заявка
+	// уходит админу/руководству в Ленту (pending_send_document), документ уйдёт
+	// после одобрения. Решение принимается на СЕРВЕРЕ по роли из JWT.
+	if !services.IsDocumentReviewerRole(roleID) {
+		if _, gerr := h.DocumentSvc.GetDocument(documentID, userID, roleID); gerr != nil {
+			switch gerr.Error() {
+			case "forbidden":
+				forbidden(c, "Forbidden")
+			case "not found":
+				notFound(c, DocumentNotFound, "Document not found")
+			default:
+				internalError(c, "Failed to fetch document")
+			}
+			return
+		}
+		if aerr := h.DocumentSvc.RequestSendApproval(documentID, userID, channel, body.ManualPhone, body.ManualEmail, body.SignerFullName, body.SignerPosition); aerr != nil {
+			internalError(c, "Не удалось отправить запрос на одобрение")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "pending_approval"})
+		return
+	}
+
 	overrides := services.SignerOverrides{
 		Email:    body.ManualEmail,
 		Phone:    body.ManualPhone,
