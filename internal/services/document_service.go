@@ -1214,17 +1214,11 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	// создаём заявку в Ленту (pending_review_document) на СЕРВЕРЕ по реальной
 	// роли из JWT — надёжнее, чем логика прав на фронте. Ревьюеры
 	// (админ/руководство/контроль) утверждают сами. Ошибку не пробрасываем.
-	// TEMP DEBUG (09.09.2026): ловим, почему заявка «на проверку» не попадает в Ленту.
-	log.Printf("[doc][submit][dbg] doc=%d userID=%d roleID=%d reviewer=%t feedNotifier=%t",
-		id, userID, roleID, isDocumentReviewerRole(roleID), s.feedNotifier != nil)
 	if s.feedNotifier != nil && !isDocumentReviewerRole(roleID) {
 		docID := int(id)
 		payload, _ := json.Marshal(map[string]any{"document_id": id, "doc_type": doc.DocType})
-		ev, ferr := s.feedNotifier.Create(context.Background(), userID, models.FeedEventTypePendingReviewDocument, payload, &docID)
-		if ferr != nil {
-			log.Printf("[doc][submit][dbg] feed notify FAILED doc=%d: %v", id, ferr)
-		} else {
-			log.Printf("[doc][submit][dbg] feed event CREATED doc=%d event_id=%d", id, ev.ID)
+		if _, ferr := s.feedNotifier.Create(context.Background(), userID, models.FeedEventTypePendingReviewDocument, payload, &docID); ferr != nil {
+			log.Printf("[doc][submit] feed notify failed doc=%d: %v", id, ferr)
 		}
 	}
 	return nil
