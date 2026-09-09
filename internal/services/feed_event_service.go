@@ -144,8 +144,9 @@ func (s *FeedEventService) List(
 	status string,
 	limit, offset int,
 ) ([]*models.FeedEvent, error) {
+	// Админ и руководство видят все заявки (для одобрения); остальные — только свои.
 	var requesterFilter *int
-	if callerRoleID != authz.RoleSystemAdmin {
+	if callerRoleID != authz.RoleSystemAdmin && callerRoleID != authz.RoleManagement {
 		requesterFilter = &callerID
 	}
 	events, err := s.repo.List(ctx, requesterFilter, status, limit, offset)

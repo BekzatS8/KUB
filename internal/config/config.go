@@ -421,12 +421,13 @@ func applyDefaults(cfg *Config) {
 		cfg.SignPublicTokenPepper = cfg.SignEmailTokenPepper
 	}
 	if cfg.SignEmailTTLMinutes <= 0 {
-		cfg.SignEmailTTLMinutes = 30
+		// Ссылка на подпись действует 72 часа: клиент часто открывает её не сразу
+		// (на следующий день), а при 30 мин / 3 ч она «протухала» — «ссылка
+		// недействительна» (обратная связь 09.09.2026). Настраивается в config.
+		cfg.SignEmailTTLMinutes = 4320
 	}
 	if cfg.SignSMSTTLMinutes <= 0 {
-		// SMS-ссылка на подпись действует 3 часа: клиент редко открывает её сразу,
-		// а при 30 минутах она успевала «протухнуть» (обратная связь 31.07.2026).
-		cfg.SignSMSTTLMinutes = 180
+		cfg.SignSMSTTLMinutes = 4320
 	}
 	if cfg.SignSessionTTLMinutes <= 0 {
 		cfg.SignSessionTTLMinutes = cfg.SignEmailTTLMinutes

@@ -30,6 +30,13 @@ type rejectFeedEventRequest struct {
 	Reason string `json:"reason"`
 }
 
+// canReviewFeedEvents — кто может одобрять/отклонять заявки в Ленте: админ и
+// руководство (обратная связь заказчика 09.09.2026 — «дать доступ всем админам
+// и руководству»). Действие применяется правами администратора внутри сервиса.
+func canReviewFeedEvents(roleID int) bool {
+	return roleID == authz.RoleSystemAdmin || roleID == authz.RoleManagement
+}
+
 // POST /api/v1/feed-events
 func (h *FeedEventHandler) Create(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
@@ -98,8 +105,8 @@ func (h *FeedEventHandler) List(c *gin.Context) {
 // POST /api/v1/feed-events/:id/approve
 func (h *FeedEventHandler) Approve(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if roleID != authz.RoleSystemAdmin {
-		forbidden(c, "Только администратор может одобрять запросы")
+	if !canReviewFeedEvents(roleID) {
+		forbidden(c, "Недостаточно прав для одобрения запросов")
 		return
 	}
 
@@ -128,8 +135,8 @@ func (h *FeedEventHandler) Approve(c *gin.Context) {
 // POST /api/v1/feed-events/:id/reject
 func (h *FeedEventHandler) Reject(c *gin.Context) {
 	_, roleID := getUserAndRole(c)
-	if roleID != authz.RoleSystemAdmin {
-		forbidden(c, "Только администратор может отклонять запросы")
+	if !canReviewFeedEvents(roleID) {
+		forbidden(c, "Недостаточно прав для отклонения запросов")
 		return
 	}
 

@@ -153,12 +153,15 @@ func (c *WhiteLabelClient) fetchMachineToken(ctx context.Context) (string, error
 
 // exchangeToken — шаг 3 доки: token-exchange → client_access_token дочки.
 func (c *WhiteLabelClient) exchangeToken(ctx context.Context, machineToken string) (string, int, error) {
+	// Wazzup требует requested_subject как «number string» — только цифры.
+	// В кабинете account_id может отображаться с дефисом (7204-2419) — чистим.
+	requestedSubject := digitsOnly(c.cfg.AccountID)
 	payload := map[string]any{
 		"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
 		"token_exchange_data": map[string]any{
 			"subject_token":      machineToken,
 			"subject_token_type": "urn:wazzup:oauth:token-type:machine_token",
-			"requested_subject":  c.cfg.AccountID,
+			"requested_subject":  requestedSubject,
 			"scope":              c.cfg.Scope,
 		},
 	}
@@ -179,6 +182,17 @@ func (c *WhiteLabelClient) exchangeToken(ctx context.Context, machineToken strin
 		return "", 0, fmt.Errorf("empty client access token")
 	}
 	return resp.Data.AccessToken, resp.Data.ExpiresIn, nil
+}
+
+// digitsOnly оставляет в строке только цифры (для account_id/requested_subject).
+func digitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (c *WhiteLabelClient) doAuthed(ctx context.Context, method, path, authHeader string, payload any) ([]byte, error) {
