@@ -1092,15 +1092,17 @@ func (s *DocumentService) DeleteDocument(id int64, userID, roleID int) error {
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	// у департаментных документов (scope != deal) сделки нет — проверка доступа
-	// по сделке применяется только к deal-документам
+	// Проверка доступа по сделке — только когда сделка ЕСТЬ. Если сделка удалена
+	// (документ «осиротел») или её нет — не блокируем удаление: админ (единственный,
+	// кто сюда доходит) удаляет саму запись документа. Раньше отсутствие сделки
+	// возвращало "not found" (DOCUMENT_NOT_FOUND) и документ нельзя было удалить
+	// (обратная связь 09.09.2026).
 	if doc.DealID != 0 {
 		deal, derr := s.DealRepo.GetByIDAnyScope(int(doc.DealID))
-		if derr != nil || deal == nil {
-			return errors.New("not found")
-		}
-		if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
-			return err
+		if derr == nil && deal != nil {
+			if err := s.ensureDealAccess(deal, userID, roleID); err != nil {
+				return err
+			}
 		}
 	}
 	// мягкое удаление в корзину (ТЗ п.7.1): файлы сохраняются для возможного
@@ -1125,8 +1127,11 @@ func (s *DocumentService) PurgeDocument(id int64, userID, roleID int) error {
 	if err != nil || doc == nil {
 		return errors.New("not found")
 	}
-	if err := s.deleteDocumentFiles(doc); err != nil {
-		return err
+	// Сначала пробуем удалить файлы; если файла уже нет (или ошибка удаления) —
+	// НЕ блокируем: всё равно удаляем саму запись документа (обратная связь
+	// 09.09.2026: «нет файла — удаляй хотя бы запись»).
+	if ferr := s.deleteDocumentFiles(doc); ferr != nil {
+		log.Printf("[doc][purge] file delete skipped doc=%d: %v", id, ferr)
 	}
 	return s.DocRepo.Purge(id)
 }
@@ -1202,31 +1207,9 @@ func (s *DocumentService) Submit(id int64, userID, roleID int) error {
 	if doc.Status != "draft" {
 		return errors.New("invalid status")
 	}
-	if err := s.DocRepo.UpdateStatus(id, "under_review"); err != nil {
-		return err
-	}
-	// Не-ревьюер (МОП/визовый/партнёр/кадры/юрист) отправил на проверку →
-	// уведомляем администратора в Ленте (pending_review_document). Ревьюеры
-	// (админ/руководство/контроль) утверждают сами — событие не нужно.
-	// Ошибку уведомления не пробрасываем: submit уже прошёл.
-	if s.feedNotifier != nil && !isDocumentReviewerRole(roleID) {
-		docID := int(id)
-		payload, _ := json.Marshal(map[string]any{
-			"document_id": id,
-			"doc_type":    doc.DocType,
-		})
-		if _, ferr := s.feedNotifier.Create(context.Background(), userID, models.FeedEventTypePendingReviewDocument, payload, &docID); ferr != nil {
-			log.Printf("[doc][submit] feed notify failed doc=%d: %v", id, ferr)
-		}
-	}
-	return nil
-}
-
-// isDocumentReviewerRole — роли, которые сами утверждают документы (approve).
-func isDocumentReviewerRole(roleID int) bool {
-	return roleID == authz.RoleSystemAdmin ||
-		roleID == authz.RoleManagement ||
-		roleID == authz.RoleControl
+	// Событие в Ленту («на проверку») создаёт фронт (documents/page.tsx) — так же,
+	// как остальные заявки ленты; здесь только меняем статус.
+	return s.DocRepo.UpdateStatus(id, "under_review")
 }
 
 func (s *DocumentService) Review(id int64, action string, userID, roleID int) error {
