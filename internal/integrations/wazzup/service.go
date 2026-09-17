@@ -306,6 +306,21 @@ func (s *Service) SyncChannels(ctx context.Context, ownerUserID int) ([]models.W
 	if err := s.repo.UpsertChannels(ctx, integration.ID, channels); err != nil {
 		return nil, err
 	}
+	// Каналы, которых у провайдера больше нет, удаляем: раньше синхронизация
+	// только добавляла, и отключённые номера висели в справочнике навсегда —
+	// попадали в выбор «Написать первым» и в привязку к филиалам.
+	// Пустой ответ провайдера сюда не доходит (см. проверку в репозитории),
+	// поэтому случайно вычистить весь справочник нельзя.
+	keep := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		keep = append(keep, ch.ExternalChannelID)
+	}
+	if removed, pruneErr := s.repo.DeleteChannelsNotIn(ctx, integration.ID, keep); pruneErr != nil {
+		// Не роняем синхронизацию из-за уборки — список всё равно вернём.
+		log.Printf("integration=wazzup operation=channels_prune status=failed integration_id=%d err=%v", integration.ID, pruneErr)
+	} else if removed > 0 {
+		log.Printf("integration=wazzup operation=channels_prune status=ok integration_id=%d removed=%d", integration.ID, removed)
+	}
 	return s.repo.ListChannels(ctx, integration.ID)
 }
 

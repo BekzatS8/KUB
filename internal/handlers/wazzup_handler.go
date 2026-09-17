@@ -287,6 +287,41 @@ func (h *WazzupHandler) SetChannelBranch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// DeleteChannel убирает канал из справочника CRM.
+// DELETE /integrations/wazzup/channels/:id — админ/руководство.
+//
+// Нужен для «мусорных» строк: канал отключили на стороне Wazzup, а в CRM он
+// остался. Переписка не страдает — удаляется только запись справочника вместе
+// с привязкой к филиалу. Если канал ещё жив у провайдера, он вернётся при
+// следующей синхронизации (уже без филиала).
+func (h *WazzupHandler) DeleteChannel(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if h.repo == nil {
+		internalError(c, "channel directory unavailable")
+		return
+	}
+	channelID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || channelID <= 0 {
+		badRequest(c, "Invalid channel id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer cancel()
+	if err := h.repo.DeleteChannel(ctx, channelID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			notFound(c, NotFoundCode, "Channel not found")
+			return
+		}
+		internalError(c, "Failed to delete channel")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 // GET /integrations/wazzup/channels/connect-link[?transport=...]
 //
 // Возвращает ссылку на встроенный iframe Wazzup для подключения канала (White

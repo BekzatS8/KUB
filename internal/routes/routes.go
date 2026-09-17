@@ -195,6 +195,8 @@ func SetupRoutes(
 			wazzup.GET("/channels", wazzupHandler.Channels)
 			// Привязка канала к филиалу (админ/руководство) — enforced в хендлере.
 			wazzup.PATCH("/channels/:id/branch", wazzupHandler.SetChannelBranch)
+			// Удаление «мусорного» канала из справочника (админ/руководство).
+			wazzup.DELETE("/channels/:id", wazzupHandler.DeleteChannel)
 			// Ссылка на встроенный iframe добавления канала (White Label, админ/рук.).
 			wazzup.GET("/channels/connect-link", wazzupHandler.ChannelConnectLink)
 			wazzup.GET("/dialogs", wazzupHandler.Dialogs)

@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/lib/pq"
+
 	"turcompany/internal/models"
 )
 
@@ -26,6 +28,8 @@ type WazzupRepository interface {
 	UpsertChannels(ctx context.Context, integrationID int, channels []models.WazzupChannel) error
 	ListChannels(ctx context.Context, integrationID int) ([]models.WazzupChannel, error)
 	SetChannelBranch(ctx context.Context, channelID int64, branchID *int) error
+	DeleteChannel(ctx context.Context, channelID int64) error
+	DeleteChannelsNotIn(ctx context.Context, integrationID int, keepExternalIDs []string) (int64, error)
 	GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
@@ -411,6 +415,57 @@ func (r *wazzupRepository) SetChannelBranch(ctx context.Context, channelID int64
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// DeleteChannel убирает канал из справочника CRM. Нужен для «мусорных» строк:
+// канал отключили на стороне Wazzup, а у нас он остался навсегда — синхронизация
+// только добавляет и обновляет записи (UpsertChannels).
+//
+// Удаление затрагивает только справочник: переписка в chats хранит
+// external_channel_id текстом и не ломается. Пропадает лишь привязка канала к
+// филиалу и сам канал в выпадающих списках.
+func (r *wazzupRepository) DeleteChannel(ctx context.Context, channelID int64) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM wazzup_channels WHERE id = $1`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete wazzup channel: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete wazzup channel: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteChannelsNotIn вычищает каналы, которых больше нет у провайдера.
+// keepExternalIDs — список, пришедший из Wazzup при синхронизации. Пустой
+// список игнорируется: это защита от вычистки всего справочника, если провайдер
+// вернул пустой ответ.
+func (r *wazzupRepository) DeleteChannelsNotIn(ctx context.Context, integrationID int, keepExternalIDs []string) (int64, error) {
+	if integrationID <= 0 || len(keepExternalIDs) == 0 {
+		return 0, nil
+	}
+	keep := make([]string, 0, len(keepExternalIDs))
+	for _, id := range keepExternalIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			keep = append(keep, trimmed)
+		}
+	}
+	if len(keep) == 0 {
+		return 0, nil
+	}
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM wazzup_channels
+		WHERE integration_id = $1
+		  AND external_channel_id <> ALL($2)
+	`, integrationID, pq.Array(keep))
+	if err != nil {
+		return 0, fmt.Errorf("prune wazzup channels: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	return affected, nil
 }
 
 // GetChannelBranchID возвращает филиал канала по внешнему ID (для входящего лида).

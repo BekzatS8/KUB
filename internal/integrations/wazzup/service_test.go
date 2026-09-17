@@ -42,6 +42,8 @@ func (s stubRepo) GetStatus(context.Context) (*models.WazzupStatus, error) {
 func (s stubRepo) UpsertChannels(context.Context, int, []models.WazzupChannel) error { return nil }
 func (s stubRepo) ListChannels(context.Context, int) ([]models.WazzupChannel, error) { return nil, nil }
 func (s stubRepo) SetChannelBranch(context.Context, int64, *int) error               { return nil }
+func (s stubRepo) DeleteChannel(context.Context, int64) error                         { return nil }
+func (s stubRepo) DeleteChannelsNotIn(context.Context, int, []string) (int64, error)  { return 0, nil }
 func (s stubRepo) GetChannelBranchID(context.Context, int, string) (*int, error)     { return nil, nil }
 func (s stubRepo) RegisterDedup(context.Context, int, string) (bool, error)          { return true, nil }
 func (s stubRepo) FindClientByPhone(context.Context, string) (int, error)                 { return 0, nil }
