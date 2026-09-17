@@ -144,3 +144,42 @@ func TestGetSigningContactOptions_FallsBackToEmailWhenPhoneMissing(t *testing.T)
 func (r *signerDocRepoStub) SoftDelete(int64, int) error { return nil }
 func (r *signerDocRepoStub) Restore(int64) error         { return nil }
 func (r *signerDocRepoStub) Purge(int64) error           { return nil }
+
+// Документ удалён/недоступен: раньше resolveSignerBase возвращал пустого
+// подписанта без ошибки, и админ при одобрении заявки в Ленте видел
+// «signer phone is required» вместо «документ не найден».
+func TestResolveSignerForSMS_MissingDocumentReportsNotFound(t *testing.T) {
+	svc := &DocumentService{
+		DocRepo:    &signerDocRepoStub{doc: nil},
+		DealRepo:   &signerDealRepoStub{deal: &models.Deals{ID: 202, ClientID: 303}},
+		ClientRepo: &signerClientRepoStub{client: &models.Client{ID: 303}},
+	}
+	_, err := svc.ResolveSignerForSMS(101, 11, 1, SignerOverrides{})
+	if err == nil || err.Error() != "not found" {
+		t.Fatalf("expected \"not found\", got %v", err)
+	}
+}
+
+func TestResolveSignerForEmail_MissingDocumentReportsNotFound(t *testing.T) {
+	svc := &DocumentService{
+		DocRepo:    &signerDocRepoStub{doc: nil},
+		DealRepo:   &signerDealRepoStub{deal: &models.Deals{ID: 202, ClientID: 303}},
+		ClientRepo: &signerClientRepoStub{client: &models.Client{ID: 303}},
+	}
+	_, err := svc.ResolveSignerForEmail(101, 11, 1, SignerOverrides{})
+	if err == nil || err.Error() != "not found" {
+		t.Fatalf("expected \"not found\", got %v", err)
+	}
+}
+
+// Дедлайн отправки обязан быть больше таймаута SMS-провайдера (10 с по
+// умолчанию) с запасом на ретраи — иначе контекст обрывает отправку раньше,
+// чем провайдер успевает ответить.
+func TestSignSendTimeoutCoversProviderTimeout(t *testing.T) {
+	if signSendTimeout <= 10*time.Second {
+		t.Fatalf("signSendTimeout=%s must exceed the default SMS provider timeout (10s)", signSendTimeout)
+	}
+	if signSendTimeout <= signConfirmOpTimeout {
+		t.Fatalf("signSendTimeout=%s must exceed signConfirmOpTimeout=%s", signSendTimeout, signConfirmOpTimeout)
+	}
+}

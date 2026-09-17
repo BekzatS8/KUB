@@ -931,8 +931,14 @@ func (s *DocumentService) GetSigningContactOptions(id int64, userID, roleID int)
 
 func (s *DocumentService) resolveSignerBase(id int64, userID, roleID int, overrides SignerOverrides) (ResolvedSigner, error) {
 	doc, err := s.GetDocument(id, userID, roleID)
-	if err != nil || doc == nil {
+	if err != nil {
 		return ResolvedSigner{}, err
+	}
+	// Документ удалён/недоступен: раньше здесь возвращался пустой ResolvedSigner
+	// без ошибки, и наверх всплывало обманчивое «signer phone is required»
+	// вместо «документ не найден» (видно при одобрении заявки в Ленте).
+	if doc == nil {
+		return ResolvedSigner{}, errors.New("not found")
 	}
 	overrides.Email = strings.TrimSpace(overrides.Email)
 	overrides.FullName = strings.TrimSpace(overrides.FullName)

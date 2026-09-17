@@ -55,6 +55,7 @@ func (r *reportTestUserRepo) UpdateTelegramLink(userID int, chatID int64, enable
 	return nil
 }
 func (r *reportTestUserRepo) GetByIDSimple(id int) (*models.User, error)                              { return nil, nil }
+func (r *reportTestUserRepo) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *reportTestUserRepo) UpdateProfile(int, *models.User) error                                  { return nil }
 func (r *reportTestUserRepo) UpdateAvatar(int, string, string, string) error                         { return nil }
 func (r *reportTestUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error     { return nil }

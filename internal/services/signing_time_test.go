@@ -161,6 +161,7 @@ func (f *fakeUserRepo) GetByRefreshToken(string) (*models.User, error) { return 
 func (f *fakeUserRepo) VerifyUser(int) error                           { return nil }
 func (f *fakeUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (f *fakeUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (f *fakeUserRepo) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (f *fakeUserRepo) UpdateProfile(int, *models.User) error          { return nil }
 func (f *fakeUserRepo) UpdateAvatar(int, string, string, string) error { return nil }
 func (f *fakeUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {

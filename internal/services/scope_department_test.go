@@ -50,6 +50,7 @@ func (r *deptScopeUserRepoStub) GetByRefreshToken(string) (*models.User, error) 
 func (r *deptScopeUserRepoStub) VerifyUser(int) error                           { return nil }
 func (r *deptScopeUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (r *deptScopeUserRepoStub) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *deptScopeUserRepoStub) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *deptScopeUserRepoStub) UpdateProfile(int, *models.User) error          { return nil }
 func (r *deptScopeUserRepoStub) UpdateAvatar(int, string, string, string) error { return nil }
 func (r *deptScopeUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {

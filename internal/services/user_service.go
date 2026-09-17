@@ -167,7 +167,18 @@ func (s *userService) UpdateUser(user *models.User) error {
 	if err := s.syncDepartmentByRole(user); err != nil {
 		return err
 	}
-	return s.repo.Update(user)
+	if err := s.repo.Update(user); err != nil {
+		return err
+	}
+	// Закрыли доступ (блокировка или статус «Не подтверждён») — сразу гасим
+	// refresh-токен, чтобы активная сессия сотрудника не пережила изменение
+	// (обратная связь заказчика 17.09.2026).
+	if !user.IsActive || !user.IsVerified {
+		if err := s.repo.ClearRefresh(user.ID); err != nil {
+			log.Printf("[users][update] failed to revoke refresh for user_id=%d: %v", user.ID, err)
+		}
+	}
+	return nil
 }
 
 func (s *userService) ApplyUpdatePatch(userID int, patch *models.UserApprovalUpdatePayload) error {

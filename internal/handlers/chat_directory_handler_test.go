@@ -327,6 +327,7 @@ func (r *chatTestUserRepo) GetByRefreshToken(string) (*models.User, error) { ret
 func (r *chatTestUserRepo) VerifyUser(int) error                           { return nil }
 func (r *chatTestUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (r *chatTestUserRepo) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *chatTestUserRepo) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *chatTestUserRepo) UpdateProfile(int, *models.User) error                              { return nil }
 func (r *chatTestUserRepo) UpdateAvatar(int, string, string, string) error                     { return nil }
 func (r *chatTestUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }

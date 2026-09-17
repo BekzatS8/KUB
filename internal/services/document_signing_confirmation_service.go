@@ -28,6 +28,12 @@ import (
 
 const (
 	signConfirmMaxAttempts = 5
+
+	// signConfirmOpTimeout — дедлайн для «быстрых» операций подписания (только БД).
+	signConfirmOpTimeout = 5 * time.Second
+	// signSendTimeout — дедлайн для отправки через внешний канал (SMS/SMTP).
+	// Должен быть заведомо больше таймаута провайдера с учётом ретраев.
+	signSendTimeout = 45 * time.Second
 )
 
 const (
@@ -194,7 +200,19 @@ func withSignConfirmTimeout(ctx context.Context) (context.Context, context.Cance
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithTimeout(ctx, 5*time.Second)
+	return context.WithTimeout(ctx, signConfirmOpTimeout)
+}
+
+// withSignSendTimeout — дедлайн для операций, которые ходят во ВНЕШНИЙ канал
+// (SMS-шлюз, SMTP). Общий 5-секундный дедлайн был короче собственного таймаута
+// Mobizon (10 с по умолчанию) и таймаута SMTP: медленный ответ провайдера
+// обрывался контекстом, и отправка на подпись падала с «context deadline
+// exceeded», хотя сообщение могло уже уйти.
+func withSignSendTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, signSendTimeout)
 }
 
 func NewDocumentSigningConfirmationService(
@@ -340,7 +358,7 @@ func debugKey(documentID, userID int64) string {
 }
 
 func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, documentID, userID int64, signerEmail string) (*SigningStartResult, error) {
-	ctx, cancel := withSignConfirmTimeout(ctx)
+	ctx, cancel := withSignSendTimeout(ctx)
 	defer cancel()
 	if s.repo == nil {
 		return nil, errors.New("signature confirmation repo is nil")
@@ -443,7 +461,7 @@ func (s *DocumentSigningConfirmationService) StartSigning(ctx context.Context, d
 }
 
 func (s *DocumentSigningConfirmationService) StartSigningBySMS(ctx context.Context, documentID, userID int64, signerPhone, signerEmail string) (*SigningStartResult, error) {
-	ctx, cancel := withSignConfirmTimeout(ctx)
+	ctx, cancel := withSignSendTimeout(ctx)
 	defer cancel()
 	if s.repo == nil {
 		return nil, errors.New("signature confirmation repo is nil")

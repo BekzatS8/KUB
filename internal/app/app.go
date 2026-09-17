@@ -534,7 +534,10 @@ func Run() {
 		feedHandler,
 		approvalHandler,
 		feedEventHandler,
-		middleware.NewAuthMiddleware(jwtSecret),
+		// Проверка актуального состояния учётки на каждом запросе: блокировка
+		// и статус «Не подтверждён» должны отсекать доступ сразу, а не после
+		// истечения access-токена (обратная связь заказчика 17.09.2026).
+		middleware.NewAuthMiddleware(jwtSecret, middleware.AccountStatusChecker(userRepo.GetAccountStatus)),
 	)
 	log.Printf("[BOOT] routes mounted. Starting server...")
 

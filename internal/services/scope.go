@@ -120,6 +120,25 @@ func resolveClientScope(userID, roleID int, userRepo repositories.UserRepository
 	}
 }
 
+// resolveClientReadScope returns the DataScope for READING clients.
+//
+// Обратная связь заказчика 17.09.2026: «нужно, чтобы все менеджеры видели
+// информацию всех клиентов в системе». Поэтому на чтение карточки клиента и
+// списков клиентов филиального разделения больше нет — все роли, которым
+// вообще разрешён раздел клиентов, видят всех клиентов (ScopeKindAll).
+//
+// Запись (создание/редактирование/удаление/архивация) по-прежнему идёт через
+// resolveClientScope: там остаются и филиал, и проверка владельца для МОП.
+func resolveClientReadScope(_ int, roleID int, _ repositories.UserRepository) (DataScope, error) {
+	switch roleID {
+	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleLegal, authz.RoleControl,
+		authz.RoleSales, authz.RoleVisa, authz.RolePartner:
+		return DataScope{Kind: ScopeKindAll}, nil
+	default:
+		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
+	}
+}
+
 // ─── Repo interfaces for scope-based listing ─────────────────────────────────
 
 // leadListRepo is the minimal interface covering the listing methods of

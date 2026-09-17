@@ -57,7 +57,21 @@ func extractBearerToken(authHeader string) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
+// AccountStatusChecker возвращает актуальное состояние учётной записи из БД.
+// Нужен потому, что JWT живёт до 2 часов, а refresh-токен — 30 дней: без
+// проверки «на лету» заблокированный сотрудник или сотрудник со статусом
+// «Не подтверждён» продолжал работать в системе до истечения токена
+// (обратная связь заказчика 17.09.2026).
+type AccountStatusChecker func(userID int) (isActive bool, isVerified bool, err error)
+
+func NewAuthMiddleware(jwtSecret []byte, statusChecker ...AccountStatusChecker) gin.HandlerFunc {
+	var checkStatus AccountStatusChecker
+	for _, fn := range statusChecker {
+		if fn != nil {
+			checkStatus = fn
+			break
+		}
+	}
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
 			c.Next()
@@ -114,6 +128,26 @@ func NewAuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 			log.Printf("[auth][middleware] unauthorized: reason=expired_token_leeway path=%s method=%s exp=%v now=%s", c.Request.URL.Path, c.Request.Method, claims.ExpiresAt, now.Format(time.RFC3339))
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token expired"})
 			return
+		}
+
+		// Учётка могла быть заблокирована или переведена в «Не подтверждён»
+		// уже после выдачи токена — проверяем текущее состояние в БД.
+		if checkStatus != nil {
+			isActive, isVerified, err := checkStatus(claims.UserID)
+			switch {
+			case err != nil:
+				log.Printf("[auth][middleware] unauthorized: reason=account_lookup_failed user_id=%d path=%s err=%v", claims.UserID, c.Request.URL.Path, err)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Учётная запись недоступна"})
+				return
+			case !isActive:
+				log.Printf("[auth][middleware] unauthorized: reason=account_blocked user_id=%d path=%s", claims.UserID, c.Request.URL.Path)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Пользователь отключен"})
+				return
+			case !isVerified:
+				log.Printf("[auth][middleware] unauthorized: reason=account_not_verified user_id=%d path=%s", claims.UserID, c.Request.URL.Path)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Учётная запись не подтверждена"})
+				return
+			}
 		}
 
 		c.Set("user_id", claims.UserID)

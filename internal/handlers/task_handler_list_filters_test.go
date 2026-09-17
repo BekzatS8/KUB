@@ -66,6 +66,10 @@ func TestTaskHandler_GetAll_PaginatedEnvelope(t *testing.T) {
 	}
 }
 func (s *stubTaskListService) Delete(context.Context, int64, int64, int) error { return nil }
+func (s *stubTaskListService) PurgeTask(context.Context, int64, int64, int) error { return nil }
+func (s *stubTaskListService) RestoreTask(context.Context, int64, int64, int) (*models.Task, error) {
+	return nil, nil
+}
 func (s *stubTaskListService) ArchiveTask(context.Context, int64, int64, int, string) (*models.Task, error) {
 	return nil, nil
 }

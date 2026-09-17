@@ -47,6 +47,7 @@ func (r *captureUserRepo) GetByRefreshToken(string) (*models.User, error) { retu
 func (r *captureUserRepo) VerifyUser(int) error                           { return nil }
 func (r *captureUserRepo) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (r *captureUserRepo) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *captureUserRepo) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *captureUserRepo) UpdateProfile(int, *models.User) error          { return nil }
 func (r *captureUserRepo) UpdateAvatar(int, string, string, string) error { return nil }
 func (r *captureUserRepo) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {

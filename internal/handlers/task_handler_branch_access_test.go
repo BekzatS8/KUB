@@ -40,6 +40,10 @@ func (s *taskBranchServiceStub) Update(context.Context, int64, *models.Task) (*m
 	return s.task, nil
 }
 func (s *taskBranchServiceStub) Delete(context.Context, int64, int64, int) error { return nil }
+func (s *taskBranchServiceStub) PurgeTask(context.Context, int64, int64, int) error { return nil }
+func (s *taskBranchServiceStub) RestoreTask(context.Context, int64, int64, int) (*models.Task, error) {
+	return nil, nil
+}
 func (s *taskBranchServiceStub) ArchiveTask(context.Context, int64, int64, int, string) (*models.Task, error) {
 	return s.task, nil
 }
@@ -87,6 +91,7 @@ func (r *taskBranchUserRepoStub) GetByRefreshToken(string) (*models.User, error)
 func (r *taskBranchUserRepoStub) VerifyUser(int) error                           { return nil }
 func (r *taskBranchUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (r *taskBranchUserRepoStub) GetByIDSimple(int) (*models.User, error)        { return nil, nil }
+func (r *taskBranchUserRepoStub) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *taskBranchUserRepoStub) UpdateProfile(int, *models.User) error          { return nil }
 func (r *taskBranchUserRepoStub) UpdateAvatar(int, string, string, string) error { return nil }
 func (r *taskBranchUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error {

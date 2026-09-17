@@ -729,7 +729,11 @@ func (s *ClientService) GetByIDWithArchiveScope(id int, userID, roleID int, arch
 }
 
 func (s *ClientService) getClientByIDWithScope(id int, userID, roleID int, archiveScope repositories.ArchiveScope) (*models.Client, error) {
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	// Чтение карточки клиента — без филиального разделения и без проверки
+	// владельца: все менеджеры видят информацию всех клиентов (обратная связь
+	// заказчика 17.09.2026). Раньше МОП получал «У вас нет доступа к этому
+	// клиенту» по глазку в списке — клиент был виден в списке, но не открывался.
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -738,9 +742,6 @@ func (s *ClientService) getClientByIDWithScope(id int, userID, roleID int, archi
 		client, err := s.Repo.GetByIDWithBranchScope(id, dataScope.BranchID, archiveScope)
 		if err != nil || client == nil {
 			return client, err
-		}
-		if roleID == authz.RoleSales && client.OwnerID != userID {
-			return nil, ErrForbidden
 		}
 		return client, nil
 	case ScopeKindOwn:
@@ -928,7 +929,7 @@ func (s *ClientService) ListMine(userID, limit, offset int, clientType string) (
 }
 
 func (s *ClientService) ListIndividualsForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -944,7 +945,7 @@ func (s *ClientService) ListIndividualsForRoleWithTotal(userID, roleID, limit, o
 	if err != nil {
 		return nil, 0, err
 	}
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -956,7 +957,7 @@ func (s *ClientService) ListIndividualsForRoleWithTotal(userID, roleID, limit, o
 }
 
 func (s *ClientService) ListCompaniesForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -972,7 +973,7 @@ func (s *ClientService) ListCompaniesForRoleWithTotal(userID, roleID, limit, off
 	if err != nil {
 		return nil, 0, err
 	}
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -984,7 +985,7 @@ func (s *ClientService) ListCompaniesForRoleWithTotal(userID, roleID, limit, off
 }
 
 func (s *ClientService) ListForRole(userID, roleID, limit, offset int, filter repositories.ClientListFilter, archiveScope repositories.ArchiveScope) ([]*models.Client, error) {
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -999,7 +1000,7 @@ func (s *ClientService) ListForRoleWithTotal(userID, roleID, limit, offset int, 
 	if err != nil {
 		return nil, 0, err
 	}
-	dataScope, err := resolveClientScope(userID, roleID, s.UserRepo)
+	dataScope, err := resolveClientReadScope(userID, roleID, s.UserRepo)
 	if err != nil {
 		return nil, 0, err
 	}

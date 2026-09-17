@@ -33,6 +33,7 @@ type UserRepository interface {
 	VerifyUser(userID int) error
 	UpdateTelegramLink(userID int, chatID int64, enable bool) error
 	GetByIDSimple(id int) (*models.User, error)
+	GetAccountStatus(id int) (isActive bool, isVerified bool, err error)
 	GetDepartmentIDByCode(code string) (*int, error)
 	GetTelegramSettings(ctx context.Context, userID int64) (chatID int64, notify bool, err error)
 	GetByChatID(ctx context.Context, chatID int64) (*models.User, error)
@@ -478,6 +479,22 @@ func (r *userRepository) GetByIDSimple(id int) (*models.User, error) {
 		u.NotifyTasksTelegram = tgNotify.Bool
 	}
 	return &u, nil
+}
+
+// GetAccountStatus — лёгкая выборка состояния учётки (по PK) для проверки
+// доступа на каждом запросе: заблокированный (is_active=FALSE) или
+// неподтверждённый (is_verified=FALSE) сотрудник не должен работать в системе
+// даже с ещё живым access/refresh-токеном.
+func (r *userRepository) GetAccountStatus(id int) (bool, bool, error) {
+	var isActive, isVerified bool
+	err := r.DB.QueryRow(`
+		SELECT COALESCE(is_active, TRUE), COALESCE(is_verified, FALSE)
+		FROM users
+		WHERE id = $1`, id).Scan(&isActive, &isVerified)
+	if err != nil {
+		return false, false, err
+	}
+	return isActive, isVerified, nil
 }
 
 func (r *userRepository) GetTelegramSettings(ctx context.Context, userID int64) (int64, bool, error) {

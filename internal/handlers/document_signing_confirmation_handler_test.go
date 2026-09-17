@@ -514,6 +514,12 @@ func (r *confirmSignSessionRepoStub) IncrementAttempts(context.Context, int64) (
 type confirmDocSignerStub struct{}
 
 func (s *confirmDocSignerStub) FinalizeSigning(int64) error { return nil }
+func (s *confirmDocSignerStub) ResolveSignerForSMS(int64, int, int, services.SignerOverrides) (services.ResolvedSigner, error) {
+	return services.ResolvedSigner{}, nil
+}
+func (s *confirmDocSignerStub) ResolveSignerForEmail(int64, int, int, services.SignerOverrides) (services.ResolvedSigner, error) {
+	return services.ResolvedSigner{}, nil
+}
 
 func TestConfirmByEmailCodeRequiresAgreementFlags(t *testing.T) {
 	gin.SetMode(gin.TestMode)

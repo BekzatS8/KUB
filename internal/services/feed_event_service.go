@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 
 	"turcompany/internal/authz"
@@ -47,6 +49,9 @@ type feedDocumentCreator interface {
 	// Review применяет ревью документа (approve/return) — используется одобрением
 	// feed-события pending_review_document правами администратора.
 	Review(id int64, action string, userID, roleID int) error
+	// GetDocument нужен, чтобы отличить «документа больше нет» и «документ уже
+	// проверен» от настоящей ошибки применения заявки.
+	GetDocument(id int64, userID, roleID int) (*models.Document, error)
 }
 
 // feedCreateDocumentPayload is the JSON shape stored for a
@@ -178,7 +183,13 @@ func (s *FeedEventService) Approve(ctx context.Context, eventID, reviewerID int)
 
 	// Apply the action before marking approved, so failures roll back the status.
 	if err := s.applyEvent(ctx, e, reviewerID); err != nil {
-		return nil, err
+		resourceID := 0
+		if e.ResourceID != nil {
+			resourceID = *e.ResourceID
+		}
+		log.Printf("[feed][approve][failed] event_id=%d type=%s resource_id=%d requester_id=%d reviewer_id=%d err=%v",
+			e.ID, e.EventType, resourceID, e.RequesterID, reviewerID, err)
+		return nil, fmt.Errorf("%s: %w", feedEventActionLabel(e.EventType), translateFeedApplyError(err))
 	}
 
 	if err := s.repo.UpdateStatus(ctx, eventID, models.FeedEventStatusApproved, reviewerID, nil); err != nil {
@@ -293,8 +304,20 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		if s.docCreator == nil || e.ResourceID == nil {
 			return errors.New("cannot apply document review: missing document service or resource_id")
 		}
+		docID := int64(*e.ResourceID)
 		// Ревью-approve правами администратора (under_review → approved).
-		return s.docCreator.Review(int64(*e.ResourceID), "approve", reviewerID, authz.RoleSystemAdmin)
+		err := s.docCreator.Review(docID, "approve", reviewerID, authz.RoleSystemAdmin)
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid status") {
+			// Админ мог утвердить документ напрямую в карточке — заявка при этом
+			// осталась висеть в Ленте и потом падала с «invalid status».
+			// Считаем такую заявку уже выполненной, а не ошибочной.
+			if doc, gerr := s.docCreator.GetDocument(docID, reviewerID, authz.RoleSystemAdmin); gerr == nil && doc != nil && doc.Status != "draft" && doc.Status != "under_review" {
+				log.Printf("[feed][approve][already_applied] event_id=%d type=%s document_id=%d status=%s",
+					e.ID, e.EventType, docID, doc.Status)
+				return nil
+			}
+		}
+		return err
 
 	case models.FeedEventTypePendingSendDocument:
 		if s.docSender == nil {
@@ -307,6 +330,12 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		if p.DocumentID == 0 && e.ResourceID != nil {
 			p.DocumentID = int64(*e.ResourceID)
 		}
+		if p.DocumentID == 0 {
+			return errors.New("cannot apply document send: empty document_id in payload")
+		}
+		if strings.TrimSpace(p.Channel) == "" {
+			return errors.New("cannot apply document send: empty channel in payload")
+		}
 		// Отправка выполняется правами администратора, одобрившего заявку.
 		return s.docSender.StartSigningForDocument(
 			ctx, p.DocumentID, p.Channel, p.ManualPhone, p.ManualEmail,
@@ -317,5 +346,64 @@ func (s *FeedEventService) applyEvent(ctx context.Context, e *models.FeedEvent, 
 		// For event types not wired to an apply action (create_lead, create_deal,
 		// create_client — not used by the UI), approve simply records the decision.
 		return nil
+	}
+}
+
+// feedEventActionLabel — человекочитаемое название действия для сообщения об
+// ошибке одобрения: админ должен видеть, ЧТО именно не удалось применить.
+func feedEventActionLabel(eventType string) string {
+	switch eventType {
+	case models.FeedEventTypePendingSendDocument:
+		return "отправка документа на подпись"
+	case models.FeedEventTypePendingReviewDocument:
+		return "проверка документа"
+	case models.FeedEventTypePendingCreateDocument:
+		return "создание документа"
+	case models.FeedEventTypePendingDeleteDocument:
+		return "удаление документа"
+	case models.FeedEventTypePendingEditClient:
+		return "редактирование клиента"
+	case models.FeedEventTypePendingDeleteClient:
+		return "удаление клиента"
+	case models.FeedEventTypePendingEditLead, models.FeedEventTypePendingDeleteLead:
+		return "изменение лида"
+	case models.FeedEventTypePendingEditDeal, models.FeedEventTypePendingDeleteDeal:
+		return "изменение сделки"
+	default:
+		return "применение заявки"
+	}
+}
+
+// translateFeedApplyError переводит технические ошибки применения заявки в
+// понятный админу текст. Раньше в тост уходило английское «signer phone is
+// required» или вовсе ничего (при массовом одобрении — только счётчик ошибок).
+func translateFeedApplyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "not found"):
+		return errors.New("объект заявки не найден — возможно, он уже удалён")
+	case strings.Contains(text, "forbidden"):
+		return errors.New("недостаточно прав на применение заявки")
+	case strings.Contains(text, "invalid status"):
+		return errors.New("объект уже в другом статусе — действие выполнено или отменено ранее")
+	case strings.Contains(text, "signer phone is required"):
+		return errors.New("у клиента не указан телефон для отправки SMS — заполните его в карточке клиента")
+	case strings.Contains(text, "signer email is required"):
+		return errors.New("у клиента не указан e-mail для отправки — заполните его в карточке клиента")
+	case strings.Contains(text, "sms sending is disabled") || strings.Contains(text, "sms sender is nil"):
+		return errors.New("отправка SMS отключена в настройках сервера")
+	case strings.Contains(text, "sms api key"):
+		return errors.New("не настроен ключ SMS-провайдера")
+	case strings.Contains(text, "verify base url"):
+		return errors.New("не настроен адрес страницы подписания (sign verify base URL)")
+	case strings.Contains(text, "unsupported signing channel"):
+		return errors.New("некорректный канал отправки в заявке (ожидается SMS или e-mail)")
+	case strings.Contains(text, "context deadline exceeded") || strings.Contains(text, "timeout"):
+		return errors.New("превышено время ожидания провайдера отправки — попробуйте ещё раз")
+	default:
+		return err
 	}
 }

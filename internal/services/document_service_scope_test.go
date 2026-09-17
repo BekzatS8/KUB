@@ -37,6 +37,7 @@ func (r *docScopeUserRepoStub) GetByRefreshToken(string) (*models.User, error) {
 func (r *docScopeUserRepoStub) VerifyUser(int) error                           { return nil }
 func (r *docScopeUserRepoStub) UpdateTelegramLink(int, int64, bool) error      { return nil }
 func (r *docScopeUserRepoStub) GetByIDSimple(int) (*models.User, error)                            { return nil, nil }
+func (r *docScopeUserRepoStub) GetAccountStatus(int) (bool, bool, error) { return true, true, nil }
 func (r *docScopeUserRepoStub) UpdateProfile(int, *models.User) error                              { return nil }
 func (r *docScopeUserRepoStub) UpdateAvatar(int, string, string, string) error                     { return nil }
 func (r *docScopeUserRepoStub) UpdateAvatarCrop(int, *float64, *float64, *float64, *float64) error { return nil }

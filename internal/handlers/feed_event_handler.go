@@ -125,7 +125,9 @@ func (h *FeedEventHandler) Approve(c *gin.Context) {
 		case errors.Is(err, services.ErrFeedEventAlreadyResolved):
 			conflict(c, ConflictCode, "Запрос уже обработан")
 		default:
-			internalError(c, "Не удалось одобрить запрос: "+err.Error())
+			// Текст ошибки уже человекочитаемый (см. translateFeedApplyError) —
+			// отдаём его админу, иначе в Ленте видно только «с ошибкой».
+			internalError(c, "Не удалось одобрить запрос — "+err.Error())
 		}
 		return
 	}
@@ -158,7 +160,7 @@ func (h *FeedEventHandler) Reject(c *gin.Context) {
 		case errors.Is(err, services.ErrFeedEventAlreadyResolved):
 			conflict(c, ConflictCode, "Запрос уже обработан")
 		default:
-			internalError(c, "Не удалось отклонить запрос")
+			internalError(c, "Не удалось отклонить запрос: "+err.Error())
 		}
 		return
 	}

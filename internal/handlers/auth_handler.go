@@ -114,7 +114,10 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 	old := strings.TrimSpace(req.RefreshToken)
 	user, err := h.userService.GetByRefreshToken(old)
-	if err != nil || user == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked || !user.IsActive {
+	// !IsVerified здесь обязателен: без него сотрудник, которому админ выставил
+	// статус «Не подтверждён», продолжал обновлять токен и работать в системе
+	// (refresh живёт 30 дней) — обратная связь заказчика 17.09.2026.
+	if err != nil || user == nil || user.RefreshExpiresAt == nil || user.RefreshRevoked || !user.IsActive || !user.IsVerified {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}
@@ -129,7 +132,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 	rotatedUser, err := h.userService.RotateRefresh(old, newRT, newExp)
-	if err != nil || rotatedUser == nil || !rotatedUser.IsActive {
+	if err != nil || rotatedUser == nil || !rotatedUser.IsActive || !rotatedUser.IsVerified {
 		unauthorized(c, "Invalid refresh token")
 		return
 	}

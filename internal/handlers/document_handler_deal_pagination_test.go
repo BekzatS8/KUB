@@ -80,6 +80,9 @@ type documentDealPaginationDealRepoStub struct{}
 func (s *documentDealPaginationDealRepoStub) GetByID(id int) (*models.Deals, error) {
 	return &models.Deals{ID: id, OwnerID: 999}, nil
 }
+func (s *documentDealPaginationDealRepoStub) GetByIDAnyScope(id int) (*models.Deals, error) {
+	return &models.Deals{ID: id, OwnerID: 999}, nil
+}
 func (s *documentDealPaginationDealRepoStub) GetByLeadID(int) (*models.Deals, error) {
 	return nil, errors.New("not implemented")
 }

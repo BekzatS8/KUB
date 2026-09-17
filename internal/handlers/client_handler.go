@@ -937,11 +937,9 @@ func (h *ClientHandler) ListCompanies(c *gin.Context) {
 }
 
 func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
+	// Полный список клиентов доступен и МОП: заказчик просил, чтобы все
+	// менеджеры видели всех клиентов (17.09.2026). Раньше здесь был жёсткий 403.
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleSales {
-		forbidden(c, "У вашей роли нет доступа к полному списку клиентов")
-		return
-	}
 	paginate := isPaginatedMode(c)
 	page := 1
 	size := 100
@@ -1023,11 +1021,8 @@ func (h *ClientHandler) listByPresetType(c *gin.Context, kind string) {
 }
 
 func (h *ClientHandler) List(c *gin.Context) {
+	// См. listByPresetType: МОП тоже получает полный список клиентов.
 	userID, roleID := getUserAndRole(c)
-	if roleID == authz.RoleSales {
-		forbidden(c, "У вашей роли нет доступа к полному списку клиентов")
-		return
-	}
 	paginate := isPaginatedMode(c)
 	page := 1
 	size := 100
