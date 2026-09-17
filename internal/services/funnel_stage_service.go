@@ -218,11 +218,90 @@ func (s *FunnelStageService) DuplicateStage(id, userID int) (*models.FunnelStage
 	return s.repo.Duplicate(id)
 }
 
+// BoardOwnerScope — режим фильтра канбана по владельцу карточек.
+type BoardOwnerScope string
+
+const (
+	// BoardOwnerScopeDefault — режим по умолчанию: для менеджера это «мои + общие»,
+	// для руководства/админа/контроля — всё, что видно по роли.
+	BoardOwnerScopeDefault BoardOwnerScope = ""
+	// BoardOwnerScopeMine — только свои карточки плюс общий пул (новые лиды,
+	// которых ещё никто не взял: от админа или из входящего канала).
+	BoardOwnerScopeMine BoardOwnerScope = "mine"
+	// BoardOwnerScopeAll — все карточки в пределах филиала (ролевой scope всё
+	// равно применяется: чужой филиал не покажется никогда).
+	BoardOwnerScopeAll BoardOwnerScope = "all"
+)
+
+// BoardQuery — параметры канбана от клиента.
+type BoardQuery struct {
+	OwnerScope BoardOwnerScope
+	// OwnerID — конкретный менеджер (пункт «сортировка по менеджерам»).
+	// Имеет приоритет над OwnerScope.
+	OwnerID *int
+	Query   string
+}
+
+// resolveBoardFilter превращает запрос клиента в фильтр репозитория с учётом
+// роли. Менеджер по умолчанию видит свои карточки и общий пул — «друг друга не
+// должны видеть», но новые/ничьи лиды видны всем, пока их не возьмут в работу
+// (обратная связь заказчика 17.09.2026).
+func resolveBoardFilter(q BoardQuery, userID, roleID int) repositories.BoardFilter {
+	filter := repositories.BoardFilter{Query: q.Query}
+
+	if q.OwnerID != nil {
+		owner := *q.OwnerID
+		filter.OwnerID = &owner
+		return filter
+	}
+
+	scope := q.OwnerScope
+	if scope == BoardOwnerScopeDefault {
+		if boardDefaultsToOwnCards(roleID) {
+			scope = BoardOwnerScopeMine
+		} else {
+			scope = BoardOwnerScopeAll
+		}
+	}
+	if scope == BoardOwnerScopeMine {
+		owner := userID
+		filter.OwnerID = &owner
+		filter.IncludeUnowned = true
+		filter.UnownedRoleIDs = boardUnownedRoleIDs()
+	}
+	return filter
+}
+
+// boardUnownedRoleIDs — роли, на которых «паркуются» ещё не разобранные лиды.
+// Входящий лид из Instagram/WhatsApp/звонка создаётся на владельце интеграции,
+// а лид от админа — на админе; для менеджера такая карточка «ничья», пока он
+// не возьмёт её в работу. Ровно та же трактовка, что в
+// LeadService.claimsOwnershipOnMove — держим списки согласованными.
+func boardUnownedRoleIDs() []int {
+	return []int{authz.RoleSystemAdmin, authz.RoleManagement, authz.RoleControl}
+}
+
+// boardDefaultsToOwnCards — роли, которым канбан по умолчанию показывает только
+// свои карточки. Руководство, админ и контроль качества смотрят всё.
+func boardDefaultsToOwnCards(roleID int) bool {
+	switch roleID {
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *FunnelStageService) Board(funnelID, userID int) (*models.FunnelBoard, error) {
+	return s.BoardFiltered(funnelID, userID, BoardQuery{})
+}
+
+func (s *FunnelStageService) BoardFiltered(funnelID, userID int, query BoardQuery) (*models.FunnelBoard, error) {
 	p, err := s.principal(userID)
 	if err != nil {
 		return nil, err
 	}
+	boardFilter := resolveBoardFilter(query, userID, p.RoleID)
 	funnel, err := s.loadFunnelForView(funnelID, p)
 	if err != nil {
 		return nil, err
@@ -243,7 +322,7 @@ func (s *FunnelStageService) Board(funnelID, userID int) (*models.FunnelBoard, e
 			branchID = dealScope.BranchID
 			deptID = dealScope.DepartmentID
 		}
-		deals, err = s.repo.ListBoardDeals(funnelID, branchID, deptID)
+		deals, err = s.repo.ListBoardDeals(funnelID, branchID, deptID, boardFilter)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +340,7 @@ func (s *FunnelStageService) Board(funnelID, userID int) (*models.FunnelBoard, e
 			branchID = leadScope.BranchID
 			deptID = leadScope.DepartmentID
 		}
-		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID)
+		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID, boardFilter)
 		if leadsErr != nil {
 			return nil, leadsErr
 		}

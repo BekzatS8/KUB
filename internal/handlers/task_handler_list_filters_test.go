@@ -109,27 +109,56 @@ func TestTaskHandler_GetAll_ForwardsExtendedFilters(t *testing.T) {
 	}
 }
 
-func TestTaskHandler_GetAll_SalesSeesBranchTasksNotOwnOnly(t *testing.T) {
+// Обратная связь заказчика 17.09.2026: задача — личное дело исполнителя.
+// Менеджер ставит себе «перезвонить такого-то числа» как напоминание, и это не
+// должен видеть весь филиал. Раньше здесь форсился фильтр по филиалу.
+func TestTaskHandler_GetAll_ManagerSeesOnlyOwnTasks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, roleID := range []int{authz.RoleSales, authz.RoleVisa, authz.RolePartner, authz.RoleHR, authz.RoleLegal} {
+		svc := &stubTaskListService{}
+		h := NewTaskHandler(svc, nil, &taskBranchUserRepoStub{users: map[int]*models.User{42: {ID: 42, BranchID: ptrInt(1)}}})
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/tasks?status_group=active", nil)
+		c.Set("user_id", 42)
+		c.Set("role_id", roleID)
+
+		h.GetAll(c)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("role %d: expected 200, got %d body=%s", roleID, w.Code, w.Body.String())
+		}
+		if svc.lastFilter.ParticipantID == nil || *svc.lastFilter.ParticipantID != 42 {
+			t.Fatalf("role %d: expected tasks scoped to the caller, got %+v", roleID, svc.lastFilter.ParticipantID)
+		}
+		if svc.lastFilter.BranchID != nil {
+			t.Fatalf("role %d: branch filter must not widen personal tasks, got %+v", roleID, svc.lastFilter.BranchID)
+		}
+	}
+}
+
+// Контроль качества остаётся наблюдателем по своему филиалу, руководство и
+// админ видят всё — их фильтры не трогаем.
+func TestTaskHandler_GetAll_ControlKeepsBranchScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &stubTaskListService{}
 	h := NewTaskHandler(svc, nil, &taskBranchUserRepoStub{users: map[int]*models.User{42: {ID: 42, BranchID: ptrInt(1)}}})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/tasks?assignee_id=123&status_group=active", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/tasks?status_group=active", nil)
 	c.Set("user_id", 42)
-	c.Set("role_id", authz.RoleSales)
+	c.Set("role_id", authz.RoleControl)
 
 	h.GetAll(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
 	}
-	// Sales role must NOT be restricted to own assignee — they see all tasks in branch.
-	if svc.lastFilter.AssigneeID == nil || *svc.lastFilter.AssigneeID != 123 {
-		t.Fatalf("sales assignee filter must pass through as-is, got %+v", svc.lastFilter.AssigneeID)
-	}
 	if svc.lastFilter.BranchID == nil || *svc.lastFilter.BranchID != 1 {
 		t.Fatalf("expected branch forced to 1, got %+v", svc.lastFilter.BranchID)
+	}
+	if svc.lastFilter.ParticipantID != nil {
+		t.Fatalf("quality control must not be narrowed to own tasks, got %+v", svc.lastFilter.ParticipantID)
 	}
 }
 

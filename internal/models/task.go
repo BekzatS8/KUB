@@ -51,6 +51,11 @@ type Task struct {
 type TaskFilter struct {
 	AssigneeID  *int64
 	CreatorID   *int64
+	// ParticipantID ограничивает выборку задачами, где пользователь —
+	// исполнитель ИЛИ постановщик. Менеджер ставит задачу «перезвонить» себе как
+	// напоминание, и её не должен видеть весь филиал: видит тот, кого назначили
+	// ответственным (обратная связь заказчика 17.09.2026).
+	ParticipantID *int64
 	EntityID    *int64
 	EntityType  *string
 	Status      *TaskStatus

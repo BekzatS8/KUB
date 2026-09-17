@@ -306,6 +306,13 @@ func buildTaskFilterWhere(filter models.TaskFilter, startAt int) (string, []inte
 		args = append(args, *filter.CreatorID)
 		argID++
 	}
+	if filter.ParticipantID != nil {
+		conditions = append(conditions, fmt.Sprintf(
+			"(EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = tasks.id AND ta.user_id = $%d) OR tasks.assignee_id = $%d OR tasks.creator_id = $%d)",
+			argID, argID, argID))
+		args = append(args, *filter.ParticipantID)
+		argID++
+	}
 	if filter.BranchID != nil {
 		conditions = append(conditions, fmt.Sprintf("branch_id = $%d", argID))
 		args = append(args, *filter.BranchID)

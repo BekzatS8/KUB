@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/lib/pq"
 
 	"turcompany/internal/models"
 )
@@ -214,10 +217,65 @@ func (r *FunnelStageRepository) Duplicate(id int) (*models.FunnelStage, error) {
 	return dup, nil
 }
 
+// BoardFilter — фильтры канбана поверх ролевого scope (обратная связь заказчика
+// 17.09.2026: «менеджеры видят все общие лиды и только свои по умолчанию, друг
+// друга не видят, но должен быть пункт показать все лиды филиала» + «сделать
+// поиск лида, а то их сотни»).
+//
+// OwnerID          — показывать карточки этого менеджера;
+// IncludeUnowned   — плюс «общий пул»: новые лиды без владельца (их заводит
+//                    админ или входящий канал, и они должны быть видны всем,
+//                    пока кто-то не возьмёт их в работу);
+// Query            — поиск по имени/названию и телефону.
+//
+// Пустой BoardFilter = прежнее поведение (всё, что позволяет scope).
+type BoardFilter struct {
+	OwnerID        *int
+	IncludeUnowned bool
+	// UnownedRoleIDs — роли, «парковка» на которых означает, что карточку ещё
+	// никто не взял в работу. Входящие лиды (Instagram/WhatsApp/звонки) и лиды,
+	// заведённые админом, висят на аккаунте админа/руководства — ровно так же,
+	// как это трактует LeadService.claimsOwnershipOnMove при переносе карточки.
+	UnownedRoleIDs []int
+	Query          string
+}
+
+// ownerCondition собирает условие по владельцу для алиаса таблицы.
+// Возвращает пустую строку, когда фильтра по владельцу нет.
+func (f BoardFilter) ownerCondition(alias string, args *[]any) string {
+	if f.OwnerID == nil {
+		return ""
+	}
+	*args = append(*args, *f.OwnerID)
+	own := fmt.Sprintf("%s.owner_id = $%d", alias, len(*args))
+	if !f.IncludeUnowned {
+		return own
+	}
+	// «Мои + ничьи»: карточка без владельца ИЛИ припаркованная на
+	// админе/руководстве — её ещё никто не взял, и её должны видеть все
+	// менеджеры филиала, пока кто-то не заберёт себе.
+	parts := []string{own, fmt.Sprintf("%s.owner_id IS NULL", alias), fmt.Sprintf("%s.owner_id = 0", alias)}
+	if len(f.UnownedRoleIDs) > 0 {
+		*args = append(*args, pq.Array(f.UnownedRoleIDs))
+		parts = append(parts, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM users bu WHERE bu.id = %s.owner_id AND bu.role_id = ANY($%d))",
+			alias, len(*args)))
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func normalizedBoardQuery(q string) string {
+	q = strings.TrimSpace(strings.ToLower(q))
+	if q == "" {
+		return ""
+	}
+	return "%" + q + "%"
+}
+
 // ListBoardDeals returns deals belonging to funnelID enriched with client and
 // owner display names, for the kanban board. branchID/departmentID apply the
 // caller's scope restrictions (nil = unrestricted).
-func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
+func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmentID *int, filter BoardFilter) ([]*models.FunnelBoardDeal, error) {
 	// Include deals that belong to this funnel OR have no funnel yet (so they
 	// appear in the "unassigned" column and can be dragged into a stage).
 	// Закрытые сделки (проигранные/отказные) на доске не показываем — они уходят
@@ -232,6 +290,16 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 	if departmentID != nil {
 		args = append(args, *departmentID)
 		where = append(where, fmt.Sprintf("(d.department_id = $%d OR d.department_id IS NULL)", len(args)))
+	}
+	if cond := filter.ownerCondition("d", &args); cond != "" {
+		where = append(where, cond)
+	}
+	if like := normalizedBoardQuery(filter.Query); like != "" {
+		args = append(args, like)
+		where = append(where, fmt.Sprintf(`(
+			LOWER(COALESCE(NULLIF(c.display_name, ''), c.name, '')) LIKE $%d OR
+			LOWER(COALESCE(c.primary_phone, c.phone, '')) LIKE $%d
+		)`, len(args), len(args)))
 	}
 
 	rows, err := r.db.Query(`
@@ -285,7 +353,7 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 // cards (Kind="lead"). Leads whose stage was never set fall back to the first
 // stage in the Board() service. branchID/departmentID apply the caller's
 // scope restrictions (nil = unrestricted), mirroring ListBoardDeals.
-func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmentID *int) ([]*models.FunnelBoardDeal, error) {
+func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmentID *int, filter BoardFilter) ([]*models.FunnelBoardDeal, error) {
 	where := []string{
 		"l.funnel_id = $1",
 		"l.is_archived = FALSE",
@@ -302,6 +370,17 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 	if departmentID != nil {
 		args = append(args, *departmentID)
 		where = append(where, fmt.Sprintf("(l.department_id = $%d OR l.department_id IS NULL)", len(args)))
+	}
+	if cond := filter.ownerCondition("l", &args); cond != "" {
+		where = append(where, cond)
+	}
+	if like := normalizedBoardQuery(filter.Query); like != "" {
+		args = append(args, like)
+		where = append(where, fmt.Sprintf(`(
+			LOWER(COALESCE(l.title, '')) LIKE $%d OR
+			LOWER(COALESCE(l.phone, '')) LIKE $%d OR
+			LOWER(COALESCE(l.description, '')) LIKE $%d
+		)`, len(args), len(args), len(args)))
 	}
 
 	rows, err := r.db.Query(`

@@ -183,15 +183,15 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	}
 
 	switch roleID {
-	case authz.RoleSales:
-		branchID, ok := h.taskUserBranchID(userID)
-		if !ok {
-			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)
-			forbidden(c, "Forbidden")
-			return
-		}
-		filter.BranchID = &branchID
-	case authz.RoleVisa, authz.RoleControl:
+	case authz.RoleSales, authz.RoleVisa, authz.RolePartner, authz.RoleHR, authz.RoleLegal:
+		// Задача — личное дело исполнителя: менеджер ставит себе «перезвонить
+		// такого-то числа» как напоминание, и это не должен видеть весь филиал.
+		// Видит тот, кого назначили ответственным, и тот, кто поставил задачу
+		// (обратная связь заказчика 17.09.2026). Раньше здесь стоял фильтр по
+		// филиалу, и личные напоминания были видны всем коллегам.
+		participant := int64(userID)
+		filter.ParticipantID = &participant
+	case authz.RoleControl:
 		branchID, ok := h.taskUserBranchID(userID)
 		if !ok {
 			log.Printf("[task][list][deny] uid=%d role=%d has no branch", userID, roleID)
