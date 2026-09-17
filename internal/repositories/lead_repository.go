@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -576,13 +577,21 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 	}
 	if filter.Query != "" {
 		likePattern := "%" + strings.ToLower(strings.TrimSpace(filter.Query)) + "%"
-		where += fmt.Sprintf(` AND (
-			LOWER(COALESCE(l.title::text, '')) LIKE $%d OR
-			LOWER(COALESCE(l.description::text, '')) LIKE $%d OR
-			LOWER(COALESCE(l.phone::text, '')) LIKE $%d
-		)`, idx, idx, idx)
+		conds := []string{
+			fmt.Sprintf("LOWER(COALESCE(l.title::text, '')) LIKE $%d", idx),
+			fmt.Sprintf("LOWER(COALESCE(l.description::text, '')) LIKE $%d", idx),
+			fmt.Sprintf("LOWER(COALESCE(l.phone::text, '')) LIKE $%d", idx),
+		}
 		args = append(args, likePattern)
 		idx++
+		// Поиск по номеру лида: «#42244» и «42244» — одно и то же
+		// (обратная связь заказчика 17.09.2026).
+		if leadID := leadQueryID(filter.Query); leadID > 0 {
+			conds = append(conds, fmt.Sprintf("l.id = $%d", idx))
+			args = append(args, leadID)
+			idx++
+		}
+		where += " AND (" + strings.Join(conds, " OR ") + ")"
 	}
 	if filter.BranchID != nil {
 		if filter.IncludeNullBranch {
@@ -615,6 +624,20 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 	}
 
 	return where, args
+}
+
+// leadQueryID распознаёт поиск по номеру лида — с решёткой и без неё.
+// Возвращает 0, когда запрос не похож на номер.
+func leadQueryID(q string) int {
+	q = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(q), "#"))
+	if q == "" {
+		return 0
+	}
+	id, err := strconv.Atoi(q)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
 }
 
 func leadStatusesFromGroup(group string) []string {

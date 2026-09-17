@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/lib/pq"
@@ -272,6 +273,43 @@ func normalizedBoardQuery(q string) string {
 	return "%" + q + "%"
 }
 
+// boardQueryID распознаёт поиск по номеру карточки: «#42244» и «42244» — одно и
+// то же (обратная связь заказчика 17.09.2026). Возвращает 0, когда запрос не
+// является номером — тогда ищем только по тексту.
+func boardQueryID(q string) int {
+	q = strings.TrimSpace(q)
+	q = strings.TrimPrefix(q, "#")
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return 0
+	}
+	id, err := strconv.Atoi(q)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+// boardSearchCondition собирает условие поиска: текстовые поля плюс точное
+// совпадение по номеру карточки, когда запрос похож на номер.
+func boardSearchCondition(query string, args *[]any, textColumns []string, idColumn string) string {
+	like := normalizedBoardQuery(query)
+	if like == "" {
+		return ""
+	}
+	*args = append(*args, like)
+	likeArg := len(*args)
+	parts := make([]string, 0, len(textColumns)+1)
+	for _, col := range textColumns {
+		parts = append(parts, fmt.Sprintf("%s LIKE $%d", col, likeArg))
+	}
+	if id := boardQueryID(query); id > 0 {
+		*args = append(*args, id)
+		parts = append(parts, fmt.Sprintf("%s = $%d", idColumn, len(*args)))
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
 // ListBoardDeals returns deals belonging to funnelID enriched with client and
 // owner display names, for the kanban board. branchID/departmentID apply the
 // caller's scope restrictions (nil = unrestricted).
@@ -294,12 +332,11 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 	if cond := filter.ownerCondition("d", &args); cond != "" {
 		where = append(where, cond)
 	}
-	if like := normalizedBoardQuery(filter.Query); like != "" {
-		args = append(args, like)
-		where = append(where, fmt.Sprintf(`(
-			LOWER(COALESCE(NULLIF(c.display_name, ''), c.name, '')) LIKE $%d OR
-			LOWER(COALESCE(c.primary_phone, c.phone, '')) LIKE $%d
-		)`, len(args), len(args)))
+	if cond := boardSearchCondition(filter.Query, &args, []string{
+		"LOWER(COALESCE(NULLIF(c.display_name, ''), c.name, ''))",
+		"LOWER(COALESCE(c.primary_phone, c.phone, ''))",
+	}, "d.id"); cond != "" {
+		where = append(where, cond)
 	}
 
 	rows, err := r.db.Query(`
@@ -374,13 +411,12 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 	if cond := filter.ownerCondition("l", &args); cond != "" {
 		where = append(where, cond)
 	}
-	if like := normalizedBoardQuery(filter.Query); like != "" {
-		args = append(args, like)
-		where = append(where, fmt.Sprintf(`(
-			LOWER(COALESCE(l.title, '')) LIKE $%d OR
-			LOWER(COALESCE(l.phone, '')) LIKE $%d OR
-			LOWER(COALESCE(l.description, '')) LIKE $%d
-		)`, len(args), len(args), len(args)))
+	if cond := boardSearchCondition(filter.Query, &args, []string{
+		"LOWER(COALESCE(l.title, ''))",
+		"LOWER(COALESCE(l.phone, ''))",
+		"LOWER(COALESCE(l.description, ''))",
+	}, "l.id"); cond != "" {
+		where = append(where, cond)
 	}
 
 	rows, err := r.db.Query(`

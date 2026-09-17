@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // ManagerReport — именованный отчёт сотрудника: редактируемая таблица внутри CRM
@@ -49,7 +51,7 @@ func (r *ManagerReportRepository) ListByUser(ctx context.Context, userID int) ([
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
 		WHERE mr.user_id = $1 AND mr.deleted_at IS NULL
-		ORDER BY mr.updated_at DESC, mr.id DESC
+		ORDER BY mr.position ASC NULLS LAST, mr.updated_at DESC, mr.id DESC
 	`
 	rows, err := r.db.QueryContext(ctx, q, userID)
 	if err != nil {
@@ -93,9 +95,14 @@ func (r *ManagerReportRepository) GetByID(ctx context.Context, id int) (*Manager
 
 // Create заводит новый отчёт сотрудника и возвращает его.
 func (r *ManagerReportRepository) Create(ctx context.Context, userID int, title string, content json.RawMessage) (*ManagerReport, error) {
+	// Новый отчёт встаёт первым в списке — им сразу начинают пользоваться.
 	const q = `
-		INSERT INTO manager_reports (user_id, title, content, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO manager_reports (user_id, title, content, position, created_at, updated_at)
+		VALUES ($1, $2, $3,
+		        (SELECT COALESCE(MIN(position), 1) - 1
+		         FROM manager_reports
+		         WHERE user_id = $1 AND deleted_at IS NULL),
+		        NOW(), NOW())
 		RETURNING id
 	`
 	var id int
@@ -120,6 +127,59 @@ func (r *ManagerReportRepository) Update(ctx context.Context, id, userID int, ti
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// MoveToFront ставит отчёт первым в списке сотрудника. Вызывается при открытии
+// отчёта: «что последним открыто, то и становится первым» (обратная связь
+// заказчика 17.09.2026). Позиция считается от текущего минимума, поэтому
+// перенумеровывать остальные строки не нужно.
+//
+// false — отчёта нет, он чужой или лежит в корзине.
+func (r *ManagerReportRepository) MoveToFront(ctx context.Context, id, userID int) (bool, error) {
+	const q = `
+		UPDATE manager_reports
+		SET position = (SELECT COALESCE(MIN(position), 1) - 1
+		                FROM manager_reports
+		                WHERE user_id = $2 AND deleted_at IS NULL)
+		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`
+	res, err := r.db.ExecContext(ctx, q, id, userID)
+	if err != nil {
+		return false, fmt.Errorf("move manager report to front: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// Reorder задаёт порядок отчётов сотрудника: ids идут в том порядке, в каком
+// их расставили в интерфейсе. Чужие id и отчёты из корзины молча игнорируются
+// (WHERE user_id), поэтому подсунуть чужой отчёт в свой список нельзя.
+func (r *ManagerReportRepository) Reorder(ctx context.Context, userID int, ids []int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("reorder manager reports: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for i, id := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE manager_reports SET position = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL`,
+			i+1, id, userID); err != nil {
+			return fmt.Errorf("reorder manager reports: %w", err)
+		}
+	}
+	// Отчёты, которых не было в запросе (например, созданные в другой вкладке),
+	// уезжают в конец, а не остаются с устаревшей позицией впереди.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE manager_reports SET position = $1
+		 WHERE user_id = $2 AND deleted_at IS NULL AND NOT (id = ANY($3))`,
+		len(ids)+1, userID, pq.Array(ids)); err != nil {
+		return fmt.Errorf("reorder manager reports tail: %w", err)
+	}
+	return tx.Commit()
 }
 
 // Delete мягко удаляет отчёт сотрудника в корзину. false — отчёта нет или он чужой.

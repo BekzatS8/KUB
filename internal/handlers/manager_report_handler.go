@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -105,13 +106,58 @@ func (h *ManagerReportHandler) CreateMy(c *gin.Context) {
 }
 
 // GetMy — GET /reports/table/my/:id: один мой отчёт с содержимым.
+//
+// Открытие отчёта поднимает его в начало списка: «что последним открыто, то и
+// становится первым» (обратная связь заказчика 17.09.2026). Порядок применяется
+// при следующей загрузке списка, чтобы вкладки не прыгали под курсором прямо
+// во время переключения между отчётами.
 func (h *ManagerReportHandler) GetMy(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
 	rep, ok := h.loadOwned(c, userID)
 	if !ok {
 		return
 	}
+	if _, err := h.repo.MoveToFront(c.Request.Context(), rep.ID, userID); err != nil {
+		// Порядок вкладок — не повод не отдать отчёт.
+		log.Printf("[reports][my][open] failed to move report to front: report_id=%d user_id=%d err=%v", rep.ID, userID, err)
+	}
 	c.JSON(http.StatusOK, rep)
+}
+
+type reorderReportsRequest struct {
+	IDs []int `json:"ids"`
+}
+
+// ReorderMy — PUT /reports/table/my/order: порядок вкладок «Мои отчёты».
+// Тело — массив id в нужном порядке. Чужие отчёты в запросе игнорируются.
+func (h *ManagerReportHandler) ReorderMy(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	var req reorderReportsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if len(req.IDs) == 0 {
+		badRequest(c, "Пустой список отчётов")
+		return
+	}
+	seen := make(map[int]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		if id <= 0 {
+			badRequest(c, "Некорректный ID отчёта")
+			return
+		}
+		if _, dup := seen[id]; dup {
+			badRequest(c, "Повторяющийся ID отчёта")
+			return
+		}
+		seen[id] = struct{}{}
+	}
+	if err := h.repo.Reorder(c.Request.Context(), userID, req.IDs); err != nil {
+		internalError(c, "Failed to reorder reports")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 type saveReportRequest struct {

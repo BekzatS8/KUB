@@ -558,6 +558,8 @@ func SetupRoutes(
 		{
 			reportTables.GET("/my", managerReportHandler.ListMy)
 			reportTables.POST("/my", managerReportHandler.CreateMy)
+			// порядок вкладок «Мои отчёты» — до /my/:id, иначе wildcard перехватит
+			reportTables.PUT("/my/order", managerReportHandler.ReorderMy)
 			// корзина сотрудника — до /my/:id, отдельным путём (иначе конфликт wildcard)
 			reportTables.GET("/my-trash", managerReportHandler.ListMyTrash)
 			reportTables.GET("/my/:id", managerReportHandler.GetMy)
