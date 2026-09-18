@@ -170,7 +170,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 	if companyID <= 0 {
 		companyID = ownerUserID
 	}
-	wazzupUserID := fmt.Sprintf("kub-%d-%d", companyID, ownerUserID)
+	wazzupUserID := wazzupUserIDFor(companyID, ownerUserID)
 	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
 	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
 		log.Printf("integration=wazzup operation=iframe_upsert_users status=failed owner_user_id=%d err=%v", ownerUserID, err)
@@ -566,19 +566,87 @@ func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, tran
 	if channelID == "" {
 		channelID = s.resolveSendChannel(ctx, integration.ID, transport)
 	}
+	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
 	req := SendMessageRequest{
 		ChannelID: channelID,
 		ChatType:  transport,
 		ChatID:    strings.TrimSpace(chatID),
 		Text:      strings.TrimSpace(text),
+		// Автор — тот, кто реально пишет из CRM, а не владелец интеграции.
+		CRMUserID: s.ensureWazzupUser(ctx, apiKey, ownerUserID),
 	}
-	resp, err := s.client.SendMessage(ctx, s.resolveAPIKey(integration.APIKeyEnc), req)
+	resp, err := s.sendWithAuthor(ctx, apiKey, req)
 	if err != nil {
 		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d transport=%s target_chat=%s err=%v", ownerUserID, transport, maskChatID(chatID), err)
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	log.Printf("integration=wazzup operation=send_message status=ok owner_user_id=%d transport=%s target_chat=%s message_id=%s", ownerUserID, transport, maskChatID(chatID), tokenPrefix(resp.MessageID))
 	return resp, nil
+}
+
+// wazzupUserIDFor — id сотрудника в терминах Wazzup. Тот же формат, что уже
+// использует iframe, чтобы один и тот же человек не задваивался: сообщения,
+// отправленные из нашего интерфейса, и переписка в iframe принадлежат одному
+// пользователю Wazzup.
+func wazzupUserIDFor(companyID, userID int) string {
+	if userID <= 0 {
+		return ""
+	}
+	if companyID <= 0 {
+		companyID = userID
+	}
+	return fmt.Sprintf("kub-%d-%d", companyID, userID)
+}
+
+// ensureWazzupUser регистрирует автора сообщения в Wazzup и возвращает его id
+// для поля crmUserId. Без этого Wazzup считает автором саму интеграцию и
+// подписывает сообщение «API • Admin», хотя писал менеджер отдела (обратная
+// связь заказчика 18.09.2026).
+//
+// Ошибку синхронизации не пробрасываем: подпись автора не повод не отправить
+// сообщение клиенту — вернём пустой id и уйдём прежним путём.
+func (s *Service) ensureWazzupUser(ctx context.Context, apiKey string, userID int) string {
+	id := wazzupUserIDFor(0, userID)
+	if id == "" {
+		return ""
+	}
+	name := ""
+	if crmUser, err := s.repo.GetCRMUserByID(ctx, userID); err == nil && crmUser != nil {
+		name = strings.TrimSpace(crmUser.Name)
+	}
+	if name == "" {
+		name = fmt.Sprintf("User %d", userID)
+	}
+	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: id, Name: name}}); err != nil {
+		log.Printf("integration=wazzup operation=send_upsert_user status=failed user_id=%d err=%v", userID, err)
+		return ""
+	}
+	return id
+}
+
+// sendWithAuthor отправляет сообщение от имени сотрудника и, если провайдер не
+// принял автора, повторяет отправку без crmUserId. Клиент должен получить
+// сообщение даже тогда, когда Wazzup не знает такого пользователя.
+func (s *Service) sendWithAuthor(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
+	resp, err := s.client.SendMessage(ctx, apiKey, req)
+	if err == nil || req.CRMUserID == "" {
+		return resp, err
+	}
+	if !mentionsCRMUser(err) {
+		return resp, err
+	}
+	log.Printf("integration=wazzup operation=send_message status=retry_without_author err=%v", err)
+	req.CRMUserID = ""
+	return s.client.SendMessage(ctx, apiKey, req)
+}
+
+// mentionsCRMUser — провайдер отказал именно из-за автора сообщения.
+func mentionsCRMUser(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "crmuser") || strings.Contains(text, "crm_user") || strings.Contains(text, "user not found")
 }
 
 // resolveSendChannel возвращает externalChannelID канала нужного транспорта.
@@ -619,11 +687,13 @@ func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, t
 		return nil, fmt.Errorf("%w: channel id is required", ErrBadRequest)
 	}
 
-	resp, err := s.client.SendMessage(ctx, s.resolveAPIKey(integration.APIKeyEnc), SendMessageRequest{
+	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
+	resp, err := s.sendWithAuthor(ctx, apiKey, SendMessageRequest{
 		ChannelID: channelID,
 		ChatType:  normalizeTransport(dialog.Transport),
 		ChatID:    dialog.ExternalChatID,
 		Text:      text,
+		CRMUserID: s.ensureWazzupUser(ctx, apiKey, userID),
 	})
 	if err != nil {
 		log.Printf("integration=wazzup operation=dialog_send status=failed user_id=%d dialog_id=%d transport=%s err=%v", userID, dialogID, dialog.Transport, err)

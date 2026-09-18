@@ -680,7 +680,10 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
 func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int, branchID *int) ([]models.LeadSummaryRow, error) {
-	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE created_at BETWEEN $1 AND $2`
+	// Удалённые лиды в отчётах не считаем, архивные считаем (см. комментарий в
+	// DealRepository.GetDealsFunnelStats).
+	query := `SELECT COALESCE(status, 'new') AS status, '' AS source, COUNT(*) AS count FROM leads WHERE ` +
+		leadArchiveWhere(ArchiveScopeAll) + ` AND created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 	idx := 3
 

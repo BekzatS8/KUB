@@ -55,6 +55,11 @@ type SendMessageRequest struct {
 	ChatType string `json:"chatType,omitempty"`
 	ChatID   string `json:"chatId"`
 	Text     string `json:"text"`
+	// CRMUserID — автор сообщения из списка пользователей CRM (тот же id, что
+	// отдаёт /integrations/wazzup/crm/:token/users). Без него Wazzup считает
+	// автором саму интеграцию и подписывает сообщение «API • Admin», хотя писал
+	// менеджер (обратная связь заказчика 18.09.2026).
+	CRMUserID string `json:"crmUserId,omitempty"`
 }
 
 type SendMessageResponse struct {

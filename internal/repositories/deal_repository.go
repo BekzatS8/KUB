@@ -1043,7 +1043,13 @@ func (r *DealRepository) GetLatestByClientRef(clientID int, clientType string) (
 
 // GetDealsFunnelStats возвращает количество сделок по статусам за указанный период.
 func (r *DealRepository) GetDealsFunnelStats(ctx context.Context, from, to time.Time, ownerID *int, branchID *int) ([]models.FunnelRow, error) {
-	query := `SELECT COALESCE(status, 'new') AS status, COUNT(*) AS count FROM deals WHERE created_at BETWEEN $1 AND $2`
+	// ArchiveScopeAll = "deleted_at IS NULL": удалённые сделки из отчётов
+	// исключаем, архивные оставляем — выигранная сделка уезжает в архив
+	// автоматически, и без неё отчёт по выручке был бы пустым. Раньше фильтра
+	// не было вовсе, и удалённая тестовая сделка продолжала висеть в аналитике
+	// (обратная связь заказчика 18.09.2026).
+	query := `SELECT COALESCE(status, 'new') AS status, COUNT(*) AS count FROM deals WHERE ` +
+		dealArchiveWhere(ArchiveScopeAll, "") + ` AND created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 	idx := 3
 
@@ -1085,7 +1091,7 @@ func (r *DealRepository) GetDealsRevenueStats(ctx context.Context, from, to time
 			SUM(amount) AS total_amount,
 			currency
 		FROM deals
-		WHERE status = 'won' AND created_at BETWEEN $1 AND $2`
+		WHERE ` + dealArchiveWhere(ArchiveScopeAll, "") + ` AND status = 'won' AND created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 	idx := 3
 
@@ -1130,7 +1136,7 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 			d.currency
 		FROM deals d
 		JOIN clients c ON c.id = d.client_id
-		WHERE d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
+		WHERE ` + dealArchiveWhere(ArchiveScopeAll, "d") + ` AND d.status = 'won' AND d.created_at BETWEEN $1 AND $2`
 	args := []interface{}{from, to}
 	idx := 3
 
