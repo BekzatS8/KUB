@@ -336,11 +336,15 @@ func (s *FunnelStageService) BoardFiltered(funnelID, userID int, query BoardQuer
 	leadScope, leadErr := resolveLeadScope(userID, p.RoleID, s.userRepo)
 	if leadErr == nil && leadScope.Kind != ScopeKindForbidden {
 		var branchID, deptID *int
+		leadFilter := boardFilter
 		if leadScope.Kind == ScopeKindBranch {
 			branchID = leadScope.BranchID
 			deptID = leadScope.DepartmentID
+			// Лиды чужих закрытых отделов (линия жалоб ОКК) на доску не пускаем.
+			leadFilter.HidePrivateDepartments = leadScope.HidePrivateDepartments
+			leadFilter.ViewerDepartmentID = leadScope.ViewerDepartmentID
 		}
-		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID, boardFilter)
+		leads, leadsErr := s.repo.ListBoardLeads(funnelID, branchID, deptID, leadFilter)
 		if leadsErr != nil {
 			return nil, leadsErr
 		}

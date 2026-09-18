@@ -433,6 +433,14 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 		inboundBranch = b
 	}
 
+	// Отдел входящего лида — тоже по каналу. Выделенная линия отдела (например
+	// номер жалоб и претензий ОКК) не должна попадать в общий пул лидов
+	// филиалов (обратная связь заказчика 18.09.2026).
+	var inboundDepartment *int
+	if d, derr := s.repo.GetChannelDepartmentID(ctx, integration.ID, channelID); derr == nil {
+		inboundDepartment = d
+	}
+
 	var clientIDPtr *int
 	var leadIDPtr *int
 	phone := ""
@@ -453,7 +461,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 				return 0, false, false, err
 			}
 			if leadID == 0 && clientID == 0 {
-				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, phone, "whatsapp", text)
+				leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, inboundDepartment, phone, "whatsapp", text)
 				if err != nil {
 					return 0, false, false, err
 				}
@@ -497,7 +505,7 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 			}
 		}
 		if leadID == 0 {
-			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, phone, transport, text)
+			leadID, err = s.repo.CreateLeadFromInbound(ctx, integration.OwnerUserID, inboundBranch, inboundDepartment, phone, transport, text)
 			if err != nil {
 				return 0, false, false, err
 			}

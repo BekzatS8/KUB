@@ -42,6 +42,33 @@ type LeadListFilter struct {
 	// branch (branch_id IS NULL) — «общий пул» (напр. Instagram-канал без филиала),
 	// который виден всем филиалам (обратная связь заказчика 22.08.2026).
 	IncludeNullBranch bool
+	// HidePrivateDepartments прячет лиды закрытых отделов (departments.is_private):
+	// выделенная линия жалоб и претензий ОКК не должна попадать в общий пул
+	// филиалов. ViewerDepartmentID — отдел смотрящего: свой закрытый отдел он
+	// видит (обратная связь заказчика 18.09.2026).
+	HidePrivateDepartments bool
+	ViewerDepartmentID     *int
+}
+
+// privateDepartmentWhere собирает условие «лид не принадлежит чужому закрытому
+// отделу». Общая формулировка для списка лидов и для канбана, чтобы правило не
+// разъехалось между экранами.
+// idx — номер следующего плейсхолдера ($idx); возвращается сдвинутым, потому
+// что нумерация у вызывающих начинается не всегда с единицы.
+func privateDepartmentWhere(alias string, viewerDepartmentID *int, args *[]any, idx int) (string, int) {
+	col := "department_id"
+	if alias != "" {
+		col = alias + ".department_id"
+	}
+	parts := []string{col + " IS NULL"}
+	if viewerDepartmentID != nil {
+		*args = append(*args, *viewerDepartmentID)
+		parts = append(parts, fmt.Sprintf("%s = $%d", col, idx))
+		idx++
+	}
+	parts = append(parts, fmt.Sprintf(
+		"NOT EXISTS (SELECT 1 FROM departments pd WHERE pd.id = %s AND COALESCE(pd.is_private, FALSE))", col))
+	return "(" + strings.Join(parts, " OR ") + ")", idx
 }
 
 type ArchiveScope string
@@ -607,6 +634,11 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		where += fmt.Sprintf(" AND COALESCE(l.source, '') = $%d", idx)
 		args = append(args, filter.Source)
 		idx++
+	}
+	if filter.HidePrivateDepartments {
+		var cond string
+		cond, idx = privateDepartmentWhere("l", filter.ViewerDepartmentID, &args, idx)
+		where += " AND " + cond
 	}
 	if filter.DepartmentID != nil {
 		// fail-closed department scope: a lead is visible to a department-scoped role

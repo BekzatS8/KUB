@@ -231,6 +231,12 @@ func (r *FunnelStageRepository) Duplicate(id int) (*models.FunnelStage, error) {
 //
 // Пустой BoardFilter = прежнее поведение (всё, что позволяет scope).
 type BoardFilter struct {
+	// HidePrivateDepartments прячет с доски лиды закрытых отделов
+	// (departments.is_private) — например выделенную линию жалоб ОКК.
+	// ViewerDepartmentID — отдел смотрящего: свой закрытый отдел он видит.
+	HidePrivateDepartments bool
+	ViewerDepartmentID     *int
+
 	OwnerID        *int
 	IncludeUnowned bool
 	// UnownedRoleIDs — роли, «парковка» на которых означает, что карточку ещё
@@ -409,6 +415,10 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 		where = append(where, fmt.Sprintf("(l.department_id = $%d OR l.department_id IS NULL)", len(args)))
 	}
 	if cond := filter.ownerCondition("l", &args); cond != "" {
+		where = append(where, cond)
+	}
+	if filter.HidePrivateDepartments {
+		cond, _ := privateDepartmentWhere("l", filter.ViewerDepartmentID, &args, len(args)+1)
 		where = append(where, cond)
 	}
 	if cond := boardSearchCondition(filter.Query, &args, []string{

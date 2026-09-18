@@ -17,6 +17,11 @@ type WazzupChannel struct {
 	Provider          string          `json:"provider"`
 	BranchID          *int            `json:"branch_id,omitempty"`
 	BranchName        string          `json:"branch_name,omitempty"`
+	// DepartmentID — отдел-получатель входящих с этого канала. Нужен для
+	// выделенных номеров вроде линии жалоб отдела контроля качества: такие
+	// обращения не уходят в общий пул лидов филиалов.
+	DepartmentID   *int   `json:"department_id,omitempty"`
+	DepartmentName string `json:"department_name,omitempty"`
 	RawPayload        json.RawMessage `json:"raw_payload,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`

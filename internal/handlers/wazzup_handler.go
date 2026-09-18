@@ -287,6 +287,67 @@ func (h *WazzupHandler) SetChannelBranch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+type setChannelDepartmentRequest struct {
+	DepartmentID *int `json:"department_id"`
+}
+
+// SetChannelDepartment привязывает канал к отделу (department_id=null снимает
+// привязку). Входящие с этого канала становятся лидами этого отдела — нужно для
+// выделенных линий вроде номера жалоб и претензий отдела контроля качества.
+// Только админ/руководство, как и привязка к филиалу.
+func (h *WazzupHandler) SetChannelDepartment(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if h.repo == nil {
+		internalError(c, "channel department mapping unavailable")
+		return
+	}
+	channelID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || channelID <= 0 {
+		badRequest(c, "Invalid channel id")
+		return
+	}
+	var req setChannelDepartmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	if req.DepartmentID != nil && *req.DepartmentID <= 0 {
+		badRequest(c, "Invalid department_id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer cancel()
+	if err := h.repo.SetChannelDepartment(ctx, channelID, req.DepartmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			notFound(c, NotFoundCode, "Channel not found")
+			return
+		}
+		internalError(c, "Failed to set channel department")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// Departments — справочник отделов для выбора в настройках каналов.
+func (h *WazzupHandler) Departments(c *gin.Context) {
+	if h.repo == nil {
+		internalError(c, "departments repository is not configured")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	items, err := h.repo.ListDepartments(ctx)
+	if err != nil {
+		internalError(c, "Failed to list departments")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"value": items, "count": len(items)})
+}
+
 // DeleteChannel убирает канал из справочника CRM.
 // DELETE /integrations/wazzup/channels/:id — админ/руководство.
 //

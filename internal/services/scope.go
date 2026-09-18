@@ -22,6 +22,15 @@ type DataScope struct {
 	BranchID     *int // set when Kind == ScopeKindBranch
 	DepartmentID *int // set for sales/visa (branch+dept combined filter)
 	UserID       int  // set when Kind == ScopeKindOwn
+	// ViewerDepartmentID — отдел смотрящего. В отличие от DepartmentID он НЕ
+	// сужает выборку по отделу: используется только чтобы спрятать лиды чужих
+	// закрытых отделов (departments.is_private) — выделенная линия жалоб ОКК.
+	// Разделены намеренно: DepartmentID — фильтр «только мой отдел», и включать
+	// его для лидов нельзя, иначе пропадут все лиды с чужим department_id.
+	ViewerDepartmentID *int
+	// HidePrivateDepartments включает это правило (только для ролей,
+	// ограниченных филиалом; руководство/админ/контроль видят всё).
+	HidePrivateDepartments bool
 }
 
 // roleDeptCode maps role IDs that carry an implicit department to that
@@ -86,11 +95,17 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
 		// Только свой филиал. Разделение чисто по branch_id (без department),
 		// как просил заказчик — «филиал видит только свои лиды».
-		branchID, err := resolveUserBranch(userID, userRepo)
+		branchID, deptID, err := resolveUserContext(userID, userRepo)
 		if err != nil {
 			return DataScope{Kind: ScopeKindForbidden}, err
 		}
-		return DataScope{Kind: ScopeKindBranch, BranchID: branchID}, nil
+		// Плюс: лиды чужих закрытых отделов (жалобы ОКК) не показываем.
+		return DataScope{
+			Kind:                   ScopeKindBranch,
+			BranchID:               branchID,
+			ViewerDepartmentID:     deptID,
+			HidePrivateDepartments: true,
+		}, nil
 	default:
 		return DataScope{Kind: ScopeKindForbidden}, ErrForbidden
 	}
@@ -174,6 +189,8 @@ func listLeadsForScope(repo leadListRepo, scope DataScope, limit, offset int, fi
 		filter.DepartmentID = scope.DepartmentID
 		filter.ScopeUserID = scopeOwnerForDept(scope)
 		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
+		filter.HidePrivateDepartments = scope.HidePrivateDepartments
+		filter.ViewerDepartmentID = scope.ViewerDepartmentID
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
@@ -203,6 +220,8 @@ func countLeadsForScope(repo leadListRepo, scope DataScope, filter repositories.
 		filter.DepartmentID = scope.DepartmentID
 		filter.ScopeUserID = scopeOwnerForDept(scope)
 		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
+		filter.HidePrivateDepartments = scope.HidePrivateDepartments
+		filter.ViewerDepartmentID = scope.ViewerDepartmentID
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)

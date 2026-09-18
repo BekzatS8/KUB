@@ -197,6 +197,9 @@ func SetupRoutes(
 			wazzup.PATCH("/channels/:id/branch", wazzupHandler.SetChannelBranch)
 			// Удаление «мусорного» канала из справочника (админ/руководство).
 			wazzup.DELETE("/channels/:id", wazzupHandler.DeleteChannel)
+			// Привязка канала к отделу (выделенная линия — напр. жалобы ОКК).
+			wazzup.PATCH("/channels/:id/department", wazzupHandler.SetChannelDepartment)
+			wazzup.GET("/departments", wazzupHandler.Departments)
 			// Ссылка на встроенный iframe добавления канала (White Label, админ/рук.).
 			wazzup.GET("/channels/connect-link", wazzupHandler.ChannelConnectLink)
 			wazzup.GET("/dialogs", wazzupHandler.Dialogs)

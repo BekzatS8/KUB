@@ -28,6 +28,9 @@ type WazzupRepository interface {
 	UpsertChannels(ctx context.Context, integrationID int, channels []models.WazzupChannel) error
 	ListChannels(ctx context.Context, integrationID int) ([]models.WazzupChannel, error)
 	SetChannelBranch(ctx context.Context, channelID int64, branchID *int) error
+	SetChannelDepartment(ctx context.Context, channelID int64, departmentID *int) error
+	GetChannelDepartmentID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
+	ListDepartments(ctx context.Context) ([]DepartmentDTO, error)
 	DeleteChannel(ctx context.Context, channelID int64) error
 	DeleteChannelsNotIn(ctx context.Context, integrationID int, keepExternalIDs []string) (int64, error)
 	GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
@@ -36,7 +39,7 @@ type WazzupRepository interface {
 	FindLeadByPhone(ctx context.Context, phone string) (leadID int, err error)
 	FindLeadByExternalChatID(ctx context.Context, transport, externalChatID string) (leadID int, err error)
 	GetChatChannelID(ctx context.Context, transport, externalChatID string) (channelID string, err error)
-	CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, phone, source, firstMessage string) (leadID int, err error)
+	CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, departmentID *int, phone, source, firstMessage string) (leadID int, err error)
 	UpdateLeadDescriptionIfEmpty(ctx context.Context, leadID int, firstMessage string) error
 	GetLeadPhoneByID(ctx context.Context, leadID int) (string, error)
 	GetClientPhoneByID(ctx context.Context, clientID int) (string, error)
@@ -350,9 +353,12 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 	}
 	q := fmt.Sprintf(`
 		SELECT wc.id, wc.integration_id, wc.external_channel_id, wc.transport, COALESCE(wc.name, ''), COALESCE(wc.username, ''),
-		       COALESCE(wc.phone, ''), COALESCE(wc.status, ''), wc.provider, wc.branch_id, COALESCE(b.name, ''), wc.raw_payload, wc.created_at, wc.updated_at
+		       COALESCE(wc.phone, ''), COALESCE(wc.status, ''), wc.provider, wc.branch_id, COALESCE(b.name, ''),
+		       wc.department_id, COALESCE(d.name, ''),
+		       wc.raw_payload, wc.created_at, wc.updated_at
 		FROM wazzup_channels wc
 		LEFT JOIN branches b ON b.id = wc.branch_id
+		LEFT JOIN departments d ON d.id = wc.department_id
 		%s
 		ORDER BY wc.transport, wc.name, wc.external_channel_id
 	`, strings.ReplaceAll(where, "integration_id", "wc.integration_id"))
@@ -367,6 +373,8 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 		var raw []byte
 		var branchID sql.NullInt64
 		var branchName sql.NullString
+		var departmentID sql.NullInt64
+		var departmentName sql.NullString
 		if err := rows.Scan(
 			&ch.ID,
 			&ch.IntegrationID,
@@ -379,6 +387,8 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			&ch.Provider,
 			&branchID,
 			&branchName,
+			&departmentID,
+			&departmentName,
 			&raw,
 			&ch.CreatedAt,
 			&ch.UpdatedAt,
@@ -389,6 +399,11 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			id := int(branchID.Int64)
 			ch.BranchID = &id
 			ch.BranchName = branchName.String
+		}
+		if departmentID.Valid {
+			id := int(departmentID.Int64)
+			ch.DepartmentID = &id
+			ch.DepartmentName = departmentName.String
 		}
 		ch.RawPayload = append(json.RawMessage(nil), raw...)
 		out = append(out, ch)
@@ -415,6 +430,86 @@ func (r *wazzupRepository) SetChannelBranch(ctx context.Context, channelID int64
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// DepartmentDTO — строка справочника отделов для выбора в настройках каналов.
+type DepartmentDTO struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	IsPrivate bool   `json:"is_private"`
+}
+
+// ListDepartments возвращает активные отделы. Нужен для выпадающего списка
+// «канал → отдел» в настройках мессенджера.
+func (r *wazzupRepository) ListDepartments(ctx context.Context) ([]DepartmentDTO, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, code, COALESCE(is_private, FALSE)
+		FROM departments
+		WHERE COALESCE(is_active, TRUE) = TRUE
+		ORDER BY name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list departments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]DepartmentDTO, 0)
+	for rows.Next() {
+		var d DepartmentDTO
+		if err := rows.Scan(&d.ID, &d.Name, &d.Code, &d.IsPrivate); err != nil {
+			return nil, fmt.Errorf("scan department: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetChannelDepartment привязывает канал к отделу (departmentID=nil снимает
+// привязку). Входящие с этого канала становятся лидами этого отдела.
+func (r *wazzupRepository) SetChannelDepartment(ctx context.Context, channelID int64, departmentID *int) error {
+	var arg any
+	if departmentID != nil {
+		arg = *departmentID
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE wazzup_channels SET department_id = $1::int, updated_at = NOW() WHERE id = $2`, arg, channelID)
+	if err != nil {
+		return fmt.Errorf("set channel department: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set channel department: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetChannelDepartmentID возвращает отдел канала по внешнему ID (для входящего
+// лида). nil без ошибки — канал не найден или не привязан к отделу.
+func (r *wazzupRepository) GetChannelDepartmentID(ctx context.Context, integrationID int, externalChannelID string) (*int, error) {
+	externalChannelID = strings.TrimSpace(externalChannelID)
+	if externalChannelID == "" {
+		return nil, nil
+	}
+	var departmentID sql.NullInt64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT department_id FROM wazzup_channels
+		WHERE integration_id = $1 AND external_channel_id = $2
+		LIMIT 1
+	`, integrationID, externalChannelID).Scan(&departmentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get channel department: %w", err)
+	}
+	if !departmentID.Valid {
+		return nil, nil
+	}
+	id := int(departmentID.Int64)
+	return &id, nil
 }
 
 // DeleteChannel убирает канал из справочника CRM. Нужен для «мусорных» строк:
@@ -619,7 +714,7 @@ func (r *wazzupRepository) GetChatChannelID(ctx context.Context, transport, exte
 	return channelID, nil
 }
 
-func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, phone, source, firstMessage string) (int, error) {
+func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID int, branchID *int, departmentID *int, phone, source, firstMessage string) (int, error) {
 	description := strings.TrimSpace(firstMessage)
 	normalizedPhone := normalizePhone(phone)
 	source = strings.ToLower(strings.TrimSpace(source))
@@ -657,6 +752,13 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		branchArg = *branchID
 	}
 
+	// department_id: отдел канала (выделенная линия — напр. жалобы ОКК), с
+	// откатом на отдел владельца интеграции / воронки продаж, как было раньше.
+	var departmentArg any
+	if departmentID != nil {
+		departmentArg = *departmentID
+	}
+
 	// Inbound leads land on the first stage of the default sales funnel so they
 	// show up as "Новая заявка" cards on the kanban board (ТЗ 04.07.2026, п.1.1).
 	const q = `
@@ -664,6 +766,7 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, 0),
 			COALESCE($7::int, (SELECT branch_id FROM users WHERE $5 > 0 AND id = $5)),
 			COALESCE(
+				$8::int,
 				(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
 				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
 			),
@@ -678,7 +781,7 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 		RETURNING id
 	`
 	var leadID int
-	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, source, resolvedOwner, "new", branchArg).Scan(&leadID); err != nil {
+	if err := r.db.QueryRowContext(ctx, q, title, description, normalizedPhone, source, resolvedOwner, "new", branchArg, departmentArg).Scan(&leadID); err != nil {
 		return 0, fmt.Errorf("create lead from inbound: %w", err)
 	}
 	return leadID, nil
