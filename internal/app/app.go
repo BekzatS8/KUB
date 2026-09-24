@@ -424,12 +424,43 @@ func Run() {
 	orgHandler := handlers.NewOrganizationHandler(orgService)
 	signHistoryHandler := handlers.NewDocumentSignHistoryHandler(documentService, signSessionRepo, signatureConfirmRepo)
 	if cfg.Wazzup.Enable {
-		wazzupClient := wazzupintegration.NewHTTPClient(
-			cfg.Wazzup.APIBaseURL,
-			time.Duration(cfg.Wazzup.RequestTimeoutSec)*time.Second,
-			cfg.Wazzup.RetryCount,
-			time.Duration(cfg.Wazzup.RetryDelayMS)*time.Millisecond,
-		)
+		wazzupTimeout := time.Duration(cfg.Wazzup.RequestTimeoutSec) * time.Second
+		wazzupRetryDelay := time.Duration(cfg.Wazzup.RetryDelayMS) * time.Millisecond
+		// White Label: партнёрские доступы к дочернему аккаунту. Нужны и для
+		// iframe добавления каналов, и как поставщик токенов для драйвера partner.
+		wlClient := wazzupintegration.NewWhiteLabelClient(wazzupintegration.WhiteLabelConfig{
+			BaseURL:   cfg.Wazzup.WLBaseURL,
+			Email:     cfg.Wazzup.WLEmail,
+			Password:  cfg.Wazzup.WLPassword,
+			ClientID:  cfg.Wazzup.WLClientID,
+			AccountID: cfg.Wazzup.WLAccountID,
+			Scope:     cfg.Wazzup.WLScope,
+		}, wazzupTimeout)
+
+		// Выбор драйвера: partner — вся работа идёт под дочерним аккаунтом
+		// через tech.wazzup24.com/v2; иначе — User API v3 со статическим токеном.
+		usePartner := cfg.Wazzup.IsPartnerDriver()
+		if usePartner && !wlClient.Configured() {
+			log.Printf("[BOOT] Wazzup driver=partner requested, but White Label credentials are incomplete — falling back to v3")
+			usePartner = false
+		}
+		var wazzupClient wazzupintegration.Client
+		if usePartner {
+			wazzupClient = wazzupintegration.NewPartnerClient(
+				cfg.Wazzup.WLBaseURL,
+				wlClient,
+				wazzupTimeout,
+				cfg.Wazzup.RetryCount,
+				wazzupRetryDelay,
+			)
+		} else {
+			wazzupClient = wazzupintegration.NewHTTPClient(
+				cfg.Wazzup.APIBaseURL,
+				wazzupTimeout,
+				cfg.Wazzup.RetryCount,
+				wazzupRetryDelay,
+			)
+		}
 		wazzupService := wazzupintegration.NewService(
 			wazzupRepo,
 			wazzupClient,
@@ -438,18 +469,16 @@ func Run() {
 			cfg.Wazzup.WebhookVerifyToken,
 			cfg.Wazzup.WebhookBaseURL,
 		)
+		wazzupService.SetPartnerDriver(usePartner)
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
-		// White Label: встроенный iframe добавления каналов (если заданы доступы).
-		wlClient := wazzupintegration.NewWhiteLabelClient(wazzupintegration.WhiteLabelConfig{
-			BaseURL:   cfg.Wazzup.WLBaseURL,
-			Email:     cfg.Wazzup.WLEmail,
-			Password:  cfg.Wazzup.WLPassword,
-			ClientID:  cfg.Wazzup.WLClientID,
-			AccountID: cfg.Wazzup.WLAccountID,
-			Scope:     cfg.Wazzup.WLScope,
-		}, time.Duration(cfg.Wazzup.RequestTimeoutSec)*time.Second)
+		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
-		log.Printf("[BOOT] Wazzup integration enabled base_url=%s timeout_s=%d retries=%d white_label=%t", cfg.Wazzup.APIBaseURL, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, wlClient.Configured())
+		driverName, apiBase := "v3", cfg.Wazzup.APIBaseURL
+		if usePartner {
+			driverName, apiBase = "partner", wlClient.BaseURL()
+		}
+		log.Printf("[BOOT] Wazzup integration enabled driver=%s base_url=%s timeout_s=%d retries=%d white_label=%t account_id=%s",
+			driverName, apiBase, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, wlClient.Configured(), cfg.Wazzup.WLAccountID)
 	} else {
 		log.Printf("[BOOT] Wazzup integration disabled")
 	}

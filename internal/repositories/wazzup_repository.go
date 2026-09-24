@@ -355,6 +355,10 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 		SELECT wc.id, wc.integration_id, wc.external_channel_id, wc.transport, COALESCE(wc.name, ''), COALESCE(wc.username, ''),
 		       COALESCE(wc.phone, ''), COALESCE(wc.status, ''), wc.provider, wc.branch_id, COALESCE(b.name, ''),
 		       wc.department_id, COALESCE(d.name, ''),
+		       -- reason объясняет, ПОЧЕМУ канал не активен (qridle, unauthorized,
+		       -- not_enough_money…). Провайдер кладёт его в payload канала, своей
+		       -- колонки не заводим — читаем из уже сохранённого raw_payload.
+		       COALESCE(wc.raw_payload->>'reason', ''),
 		       wc.raw_payload, wc.created_at, wc.updated_at
 		FROM wazzup_channels wc
 		LEFT JOIN branches b ON b.id = wc.branch_id
@@ -389,6 +393,7 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			&branchName,
 			&departmentID,
 			&departmentName,
+			&ch.StatusReason,
 			&raw,
 			&ch.CreatedAt,
 			&ch.UpdatedAt,

@@ -6,25 +6,29 @@ import (
 )
 
 type WazzupChannel struct {
-	ID                int64           `json:"id"`
-	IntegrationID     int             `json:"integration_id"`
-	ExternalChannelID string          `json:"channel_id"`
-	Transport         string          `json:"transport"`
-	Name              string          `json:"name"`
-	Username          string          `json:"username,omitempty"`
-	Phone             string          `json:"phone,omitempty"`
-	Status            string          `json:"status"`
-	Provider          string          `json:"provider"`
-	BranchID          *int            `json:"branch_id,omitempty"`
-	BranchName        string          `json:"branch_name,omitempty"`
+	ID                int64  `json:"id"`
+	IntegrationID     int    `json:"integration_id"`
+	ExternalChannelID string `json:"channel_id"`
+	Transport         string `json:"transport"`
+	Name              string `json:"name"`
+	Username          string `json:"username,omitempty"`
+	Phone             string `json:"phone,omitempty"`
+	Status            string `json:"status"`
+	// StatusReason — причина неактивного состояния канала (qridle —
+	// не отсканирован QR, unauthorized, not_enough_money, openelsewhere…).
+	// Вычисляется из raw_payload при чтении, своей колонки не имеет.
+	StatusReason string `json:"status_reason,omitempty"`
+	Provider     string `json:"provider"`
+	BranchID     *int   `json:"branch_id,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
 	// DepartmentID — отдел-получатель входящих с этого канала. Нужен для
 	// выделенных номеров вроде линии жалоб отдела контроля качества: такие
 	// обращения не уходят в общий пул лидов филиалов.
-	DepartmentID   *int   `json:"department_id,omitempty"`
-	DepartmentName string `json:"department_name,omitempty"`
-	RawPayload        json.RawMessage `json:"raw_payload,omitempty"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	DepartmentID   *int            `json:"department_id,omitempty"`
+	DepartmentName string          `json:"department_name,omitempty"`
+	RawPayload     json.RawMessage `json:"raw_payload,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type WazzupStatus struct {

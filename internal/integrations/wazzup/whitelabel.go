@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,16 +27,37 @@ type WhiteLabelConfig struct {
 
 const defaultWLBaseURL = "https://tech.wazzup24.com"
 
-// WhiteLabelClient получает client_access_token дочернего аккаунта и строит
-// ссылку на iframe подключения каналов. Токен кэшируется в памяти (живёт сутки),
-// при истечении переполучается полным флоу (machine_token → token-exchange).
+// WhiteLabelClient получает client_access_token дочернего аккаунта, строит
+// ссылку на iframe подключения каналов и служит поставщиком токенов для
+// PartnerClient. Токен живёт час и кэшируется в памяти: при истечении
+// обновляется по refresh_token (живёт 7 суток), а если тот протух — полным
+// флоу (machine_token → token-exchange).
 type WhiteLabelClient struct {
 	cfg  WhiteLabelConfig
 	http *http.Client
 
-	mu          sync.Mutex
-	accessToken string
-	expiresAt   time.Time
+	mu           sync.Mutex
+	accessToken  string
+	refreshToken string
+	expiresAt    time.Time
+}
+
+// AccessToken отдаёт актуальный client_access_token дочернего аккаунта.
+// Реализует TokenProvider для PartnerClient.
+func (c *WhiteLabelClient) AccessToken(ctx context.Context) (string, error) {
+	if !c.Configured() {
+		return "", fmt.Errorf("white label is not configured")
+	}
+	return c.clientAccessToken(ctx)
+}
+
+// InvalidateToken сбрасывает кэш токена. Нужен, когда провайдер ответил 401
+// раньше расчётного истечения (отозвали токен, сменили доступы).
+func (c *WhiteLabelClient) InvalidateToken() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.accessToken = ""
+	c.expiresAt = time.Time{}
 }
 
 func NewWhiteLabelClient(cfg WhiteLabelConfig, timeout time.Duration) *WhiteLabelClient {
@@ -109,20 +131,70 @@ func (c *WhiteLabelClient) clientAccessToken(ctx context.Context) (string, error
 		return c.accessToken, nil
 	}
 
+	// Токен живёт час, refresh — неделю. Пока refresh жив, обновляемся им:
+	// это один запрос вместо двух и не дёргает Basic-авторизацию партнёра.
+	if c.refreshToken != "" && strings.TrimSpace(c.cfg.ClientID) != "" {
+		if access, refresh, expiresIn, err := c.refreshAccessToken(ctx); err == nil {
+			c.storeTokens(access, refresh, expiresIn)
+			return access, nil
+		} else {
+			// refresh протух (7 дней) или отозван — идём полным флоу.
+			log.Printf("integration=wazzup operation=wl_refresh status=failed err=%v", err)
+			c.refreshToken = ""
+		}
+	}
+
 	machineToken, err := c.fetchMachineToken(ctx)
 	if err != nil {
 		return "", err
 	}
-	access, expiresIn, err := c.exchangeToken(ctx, machineToken)
+	access, refresh, expiresIn, err := c.exchangeToken(ctx, machineToken)
 	if err != nil {
 		return "", err
 	}
+	c.storeTokens(access, refresh, expiresIn)
+	return access, nil
+}
+
+// storeTokens кладёт свежую пару токенов в кэш. Вызывается под c.mu.
+func (c *WhiteLabelClient) storeTokens(access, refresh string, expiresIn int) {
 	c.accessToken = access
+	if strings.TrimSpace(refresh) != "" {
+		c.refreshToken = refresh
+	}
 	if expiresIn <= 0 {
-		expiresIn = 86400 // сутки по умолчанию
+		expiresIn = 3600 // час — документированное время жизни client_access_token
 	}
 	c.expiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
-	return access, nil
+}
+
+// refreshAccessToken обновляет токен по refresh_token (grant_type=refresh_token).
+func (c *WhiteLabelClient) refreshAccessToken(ctx context.Context) (access, refresh string, expiresIn int, err error) {
+	payload := map[string]any{
+		"grant_type": "refresh_token",
+		"refresh_token_data": map[string]any{
+			"refresh_token": c.refreshToken,
+			"client_id":     strings.TrimSpace(c.cfg.ClientID),
+		},
+	}
+	body, err := c.doAuthed(ctx, http.MethodPost, "/v2/oauth/token", c.basicAuth(), payload)
+	if err != nil {
+		return "", "", 0, err
+	}
+	var resp struct {
+		Data struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			ExpiresIn    int    `json:"expires_in"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", "", 0, fmt.Errorf("decode refresh token: %w", err)
+	}
+	if strings.TrimSpace(resp.Data.AccessToken) == "" {
+		return "", "", 0, fmt.Errorf("empty access token in refresh response")
+	}
+	return resp.Data.AccessToken, resp.Data.RefreshToken, resp.Data.ExpiresIn, nil
 }
 
 // fetchMachineToken — шаг 2 доки: client_credentials → machine_token.
@@ -151,8 +223,9 @@ func (c *WhiteLabelClient) fetchMachineToken(ctx context.Context) (string, error
 	return resp.Data.AccessToken, nil
 }
 
-// exchangeToken — шаг 3 доки: token-exchange → client_access_token дочки.
-func (c *WhiteLabelClient) exchangeToken(ctx context.Context, machineToken string) (string, int, error) {
+// exchangeToken — шаг 3 доки: token-exchange → client_access_token дочки
+// плюс refresh_token для последующего обновления.
+func (c *WhiteLabelClient) exchangeToken(ctx context.Context, machineToken string) (string, string, int, error) {
 	// Wazzup требует requested_subject как «number string» — только цифры.
 	// В кабинете account_id может отображаться с дефисом (7204-2419) — чистим.
 	requestedSubject := digitsOnly(c.cfg.AccountID)
@@ -167,21 +240,22 @@ func (c *WhiteLabelClient) exchangeToken(ctx context.Context, machineToken strin
 	}
 	body, err := c.doAuthed(ctx, http.MethodPost, "/v2/oauth/token", c.basicAuth(), payload)
 	if err != nil {
-		return "", 0, fmt.Errorf("token exchange: %w", err)
+		return "", "", 0, fmt.Errorf("token exchange: %w", err)
 	}
 	var resp struct {
 		Data struct {
-			AccessToken string `json:"access_token"`
-			ExpiresIn   int    `json:"expires_in"`
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+			ExpiresIn    int    `json:"expires_in"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", 0, fmt.Errorf("decode token exchange: %w", err)
+		return "", "", 0, fmt.Errorf("decode token exchange: %w", err)
 	}
 	if strings.TrimSpace(resp.Data.AccessToken) == "" {
-		return "", 0, fmt.Errorf("empty client access token")
+		return "", "", 0, fmt.Errorf("empty client access token")
 	}
-	return resp.Data.AccessToken, resp.Data.ExpiresIn, nil
+	return resp.Data.AccessToken, resp.Data.RefreshToken, resp.Data.ExpiresIn, nil
 }
 
 // digitsOnly оставляет в строке только цифры (для account_id/requested_subject).
@@ -222,4 +296,12 @@ func (c *WhiteLabelClient) doAuthed(ctx context.Context, method, path, authHeade
 		return nil, fmt.Errorf("wazzup wl %s %s: status=%d body=%s", method, path, resp.StatusCode, string(body))
 	}
 	return body, nil
+}
+
+// BaseURL отдаёт базовый адрес партнёрского API (для логов и диагностики).
+func (c *WhiteLabelClient) BaseURL() string {
+	if c == nil {
+		return ""
+	}
+	return c.cfg.BaseURL
 }

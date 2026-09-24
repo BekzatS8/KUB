@@ -35,6 +35,15 @@ type Service struct {
 	defaultChannelID   string
 	webhookVerifyToken string
 	webhookBaseURL     string
+	// partnerDriver — работа идёт через Tech Partner API дочернего аккаунта.
+	// В этом режиме статического apiKey не существует: авторизацию берёт на
+	// себя клиент, поэтому проверки «токен обязателен» отключаются.
+	partnerDriver bool
+}
+
+// SetPartnerDriver включает режим Tech Partner API (White Label).
+func (s *Service) SetPartnerDriver(enabled bool) {
+	s.partnerDriver = enabled
 }
 
 type SetupResponse struct {
@@ -85,7 +94,7 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 		return nil, fmt.Errorf("%w: webhooks base url is required", ErrBadRequest)
 	}
 	apiKey := s.defaultAPIToken
-	if enabled && strings.TrimSpace(apiKey) == "" {
+	if enabled && !s.partnerDriver && strings.TrimSpace(apiKey) == "" {
 		return nil, fmt.Errorf("%w: wazzup api token is required", ErrBadRequest)
 	}
 	crmKey, crmHash, err := generateCRMKey()
@@ -363,13 +372,21 @@ func (s *Service) HandleWebhook(ctx context.Context, token string, authHeader st
 			return 0, false, ErrUnauthorized
 		}
 	}
+	// Сначала пробуем формат Tech Partner API (v2) — он приходит конвертом
+	// {"event":…,"data":[…]}. Если это не он, разбираем как User API v3.
 	var req webhookPayload
-	if err := json.Unmarshal(payload, &req); err != nil {
+	partnerMessages, isPartner := parsePartnerWebhook(payload)
+	if isPartner {
+		req.Messages = partnerMessages
+	} else if err := json.Unmarshal(payload, &req); err != nil {
 		return 0, false, ErrBadPayload
 	}
 	// Wazzup may not send Authorization header — rely on webhook token for auth.
 	// If header IS present, validate it as an extra security check.
-	if strings.TrimSpace(authHeader) != "" && !validateCRMKey(authHeader, integration.CRMKeyHash) {
+	//
+	// В v2 секрета нет вовсе: подписка задаётся одним лишь URL, поэтому
+	// проверять crmKey нечем и защитой служит неугадываемый токен в пути.
+	if !isPartner && strings.TrimSpace(authHeader) != "" && !validateCRMKey(authHeader, integration.CRMKeyHash) {
 		log.Printf("[WAZZUP][webhook] auth failed auth_header_len=%d", len(authHeader))
 		if req.Test || len(req.Messages) == 0 {
 			return 0, false, nil
@@ -927,7 +944,9 @@ func isOutgoing(m webhookMessage) bool {
 		return !*m.IsIncoming
 	}
 	d := strings.ToLower(strings.TrimSpace(m.Direction))
-	return d == "out" || d == "outgoing"
+	// "outbound" — формат Tech Partner API (v2). Без него исходящие сообщения
+	// считались бы входящими и плодили лиды на собственные ответы менеджеров.
+	return d == "out" || d == "outgoing" || d == "outbound"
 }
 
 func tokenPrefix(token string) string {
