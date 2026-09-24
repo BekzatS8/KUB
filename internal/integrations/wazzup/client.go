@@ -20,6 +20,10 @@ type Client interface {
 	CreateIframe(ctx context.Context, apiKey string, req CreateIframeRequest) (string, error)
 	ListChannels(ctx context.Context, apiKey string) ([]Channel, error)
 	SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error)
+	// DeleteChannel удаляет канал у провайдера. Возвращает
+	// ErrChannelDeleteUnsupported, если драйвер этого не умеет — тогда
+	// вызывающий код ограничивается удалением строки в CRM.
+	DeleteChannel(ctx context.Context, apiKey, externalChannelID string, deleteChats bool) error
 }
 
 type UserUpsert struct {
@@ -336,4 +340,10 @@ func normalizeTransport(value string) string {
 	default:
 		return v
 	}
+}
+
+// DeleteChannel в User API v3 не поддерживается: провайдер отдаёт только
+// GET /v3/channels, а отключают канал вручную в кабинете Wazzup.
+func (c *HTTPClient) DeleteChannel(_ context.Context, _, _ string, _ bool) error {
+	return ErrChannelDeleteUnsupported
 }

@@ -92,3 +92,5 @@ func TestSyncChannelsEmptyProviderListKeepsDirectory(t *testing.T) {
 		t.Fatalf("expected empty keep-list for an empty provider response, got %v", repo.pruneKeep)
 	}
 }
+
+func (c channelsClient) DeleteChannel(context.Context, string, string, bool) error { return nil }

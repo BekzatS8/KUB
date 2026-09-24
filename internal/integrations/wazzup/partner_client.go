@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -363,4 +364,19 @@ func (c *PartnerClient) doJSON(ctx context.Context, method, path string, payload
 		lastErr = errors.New("wazzup partner request failed")
 	}
 	return nil, lastErr
+}
+
+// DeleteChannel удаляет канал в дочернем аккаунте (DELETE /v2/channels/{id}).
+//
+// Для White Label это единственный способ убрать канал: кабинета у дочернего
+// аккаунта нет, и CRM — единственная точка управления. Операция необратима,
+// поэтому переписку по умолчанию сохраняем (delete_chats=false).
+func (c *PartnerClient) DeleteChannel(ctx context.Context, _, externalChannelID string, deleteChats bool) error {
+	id := strings.TrimSpace(externalChannelID)
+	if id == "" {
+		return fmt.Errorf("channel id is required")
+	}
+	path := fmt.Sprintf("/v2/channels/%s?delete_chats=%t", url.PathEscape(id), deleteChats)
+	_, err := c.doJSON(ctx, http.MethodDelete, path, nil)
+	return err
 }

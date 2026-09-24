@@ -3,6 +3,7 @@ package wazzup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -208,5 +209,36 @@ func TestPartnerClientRefreshesTokenOn401(t *testing.T) {
 	}
 	if attempts != 2 {
 		t.Errorf("expected a retry after 401, got %d attempts", attempts)
+	}
+}
+
+// TestPartnerClientDeleteChannel — переписку сохраняем, удаляем только канал.
+func TestPartnerClientDeleteChannel(t *testing.T) {
+	var gotMethod, gotURI string
+	client, _, closeFn := newTestPartnerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotURI = r.Method, r.URL.RequestURI()
+		_, _ = io.WriteString(w, `{"data":null,"meta":{"timestamp":1}}`)
+	})
+	defer closeFn()
+
+	const id = "808e0654-d0f5-4926-a7fa-4783f1c05eeb"
+	if err := client.DeleteChannel(context.Background(), "", id, false); err != nil {
+		t.Fatalf("DeleteChannel: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("expected DELETE, got %s", gotMethod)
+	}
+	if want := "/v2/channels/" + id + "?delete_chats=false"; gotURI != want {
+		t.Errorf("unexpected uri\n got: %s\nwant: %s", gotURI, want)
+	}
+}
+
+// TestHTTPClientDeleteChannelUnsupported — в User API v3 удаления нет, и код
+// обязан сказать об этом явно, а не делать вид, что канал удалён.
+func TestHTTPClientDeleteChannelUnsupported(t *testing.T) {
+	c := NewHTTPClient("https://example.invalid", time.Second, 0, time.Millisecond)
+	err := c.DeleteChannel(context.Background(), "key", "chan-1", false)
+	if !errors.Is(err, ErrChannelDeleteUnsupported) {
+		t.Fatalf("expected ErrChannelDeleteUnsupported, got %v", err)
 	}
 }

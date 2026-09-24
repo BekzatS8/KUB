@@ -26,6 +26,10 @@ var (
 	ErrBadRequest   = errors.New("wazzup bad request")
 	ErrUpstream     = errors.New("wazzup upstream error")
 	ErrUsersSync    = errors.New("wazzup users sync failed")
+	// ErrChannelDeleteUnsupported — провайдер не умеет удалять канал по API.
+	// В User API v3 метода удаления нет вовсе (только GET /v3/channels), канал
+	// отключают руками в кабинете Wazzup. В Tech Partner API удаление есть.
+	ErrChannelDeleteUnsupported = errors.New("wazzup channel delete is not supported by this driver")
 )
 
 type Service struct {
@@ -966,4 +970,58 @@ func keyPrefix(value string) string {
 		return v[:6] + "***"
 	}
 	return v + "***"
+}
+
+// DeleteChannel удаляет канал: сначала у провайдера, затем строку в CRM.
+//
+// Раньше удалялась только строка в базе, и на ближайшей синхронизации канал
+// возвращался из ответа провайдера — кнопка выглядела сломанной. Для White
+// Label это особенно важно: кабинета у дочернего аккаунта нет, и CRM остаётся
+// единственной точкой управления каналами.
+//
+// Второй результат говорит, удалось ли удалить канал у провайдера. На драйвере
+// v3 удаления в API нет (ErrChannelDeleteUnsupported) — тогда чистим только
+// строку в CRM, как и прежде, а канал нужно отключить в кабинете Wazzup.
+func (s *Service) DeleteChannel(ctx context.Context, ownerUserID int, channelID int64) (providerDeleted bool, err error) {
+	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
+	if err != nil {
+		return false, err
+	}
+	channels, err := s.repo.ListChannels(ctx, integration.ID)
+	if err != nil {
+		return false, err
+	}
+	externalID := ""
+	for _, ch := range channels {
+		if ch.ID == channelID {
+			externalID = strings.TrimSpace(ch.ExternalChannelID)
+			break
+		}
+	}
+	if externalID == "" {
+		// Канала нет среди актуальных: строка осталась от прежней интеграции —
+		// просто убираем её.
+		return false, s.repo.DeleteChannel(ctx, channelID)
+	}
+
+	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
+	// delete_chats=false: переписку сохраняем, удаляем только сам канал.
+	switch err := s.client.DeleteChannel(ctx, apiKey, externalID, false); {
+	case err == nil:
+		providerDeleted = true
+	case errors.Is(err, ErrChannelDeleteUnsupported):
+		providerDeleted = false
+	default:
+		// Не удалось удалить у провайдера — строку в CRM не трогаем, иначе
+		// канал вернётся на следующей синхронизации и это будет выглядеть как
+		// «удаление не работает».
+		log.Printf("integration=wazzup operation=channel_delete status=failed integration_id=%d channel=%s err=%v", integration.ID, externalID, err)
+		return false, fmt.Errorf("%w: %v", ErrUpstream, err)
+	}
+
+	if err := s.repo.DeleteChannel(ctx, channelID); err != nil {
+		return providerDeleted, err
+	}
+	log.Printf("integration=wazzup operation=channel_delete status=ok integration_id=%d channel=%s provider_deleted=%v", integration.ID, externalID, providerDeleted)
+	return providerDeleted, nil
 }
