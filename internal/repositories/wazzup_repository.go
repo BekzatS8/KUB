@@ -56,6 +56,9 @@ type CRMUserDTO struct {
 	Email  string
 	Phone  string
 	Active bool
+	// RoleID — роль в CRM. Нужна, чтобы выдать сотруднику соответствующую роль
+	// на канале Wazzup: без роли он вообще не видит чатов в мессенджере.
+	RoleID int
 }
 
 type ExternalChatUpsert struct {
@@ -135,7 +138,7 @@ func (r *wazzupRepository) ListCRMUsers(ctx context.Context) ([]CRMUserDTO, erro
 		return nil, err
 	}
 	q := fmt.Sprintf(`
-		SELECT id, email, %s AS name
+		SELECT id, email, %s AS name, COALESCE(role_id, 0)
 		FROM public.users
 		WHERE COALESCE(is_active, TRUE) = TRUE
 		ORDER BY id
@@ -149,7 +152,7 @@ func (r *wazzupRepository) ListCRMUsers(ctx context.Context) ([]CRMUserDTO, erro
 	users := make([]CRMUserDTO, 0)
 	for rows.Next() {
 		var u CRMUserDTO
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.RoleID); err != nil {
 			return nil, fmt.Errorf("scan crm users: %w", err)
 		}
 		u.Phone = ""

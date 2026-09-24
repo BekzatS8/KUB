@@ -97,3 +97,5 @@ func TestWazzupUserIDFor(t *testing.T) {
 }
 
 func (c *authorClient) DeleteChannel(context.Context, string, string, bool) error { return nil }
+
+func (c *authorClient) SyncUserRoles(context.Context, string, []UserChannelRole) error { return nil }

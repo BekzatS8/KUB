@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"turcompany/internal/authz"
 )
 
 type staticTokenProvider struct {
@@ -279,5 +281,69 @@ func TestPartnerClientCreateIframeUsesFlatUserID(t *testing.T) {
 	// chats[] при scope=global слать нельзя — провайдер его отвергает.
 	if _, exists := got["chats"]; exists {
 		t.Error("chats must not be sent for scope=global")
+	}
+}
+
+// TestWazzupRoleMapping — ОКК обязан остаться наблюдателем без права писать,
+// иначе read-only роль обходится через окно мессенджера.
+func TestWazzupRoleMapping(t *testing.T) {
+	cases := map[int]string{
+		authz.RoleControl:     "auditor",
+		authz.RoleManagement:  "manager",
+		authz.RoleSystemAdmin: "manager",
+		authz.RoleSales:       "seller",
+		authz.RoleVisa:        "seller",
+		authz.RolePartner:     "seller",
+		authz.RoleHR:          "seller",
+		authz.RoleLegal:       "seller",
+	}
+	for roleID, want := range cases {
+		if got := wazzupRoleFor(roleID); got != want {
+			t.Errorf("role %d: want %q, got %q", roleID, want, got)
+		}
+	}
+}
+
+// TestPartnerClientSyncUserRolesPreservesForeignSettings — PATCH заменяет весь
+// объект настроек, поэтому поля, которыми CRM не управляет, обязаны вернуться
+// без изменений. Иначе синхронизация ролей молча снимала бы скрытие номеров.
+func TestPartnerClientSyncUserRolesPreservesForeignSettings(t *testing.T) {
+	var sent partnerSettings
+	client, _, closeFn := newTestPartnerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = io.WriteString(w, `{"user_roles":[{"channel_id":"old","user_id":"u-old","role":"seller","allow_get_new_clients":true}],
+			  "hide_phone_numbers_for_user_ids":["kub-9-9"],"push_input_output_message_events_for_managers":true}`)
+		case http.MethodPatch:
+			_ = json.NewDecoder(r.Body).Decode(&sent)
+			_, _ = io.WriteString(w, `{"user_roles":[]}`)
+		default:
+			t.Errorf("unexpected method %s", r.Method)
+		}
+	})
+	defer closeFn()
+
+	err := client.SyncUserRoles(context.Background(), "", []UserChannelRole{
+		{ChannelID: "chan-1", UserID: "kub-7-7", Role: "manager", AllowGetNewClients: false},
+		{ChannelID: "chan-1", UserID: "kub-8-8", Role: "seller", AllowGetNewClients: true},
+	})
+	if err != nil {
+		t.Fatalf("SyncUserRoles: %v", err)
+	}
+
+	if len(sent.UserRoles) != 2 {
+		t.Fatalf("expected 2 roles sent, got %d", len(sent.UserRoles))
+	}
+	// Старые роли заменяются целиком — это семантика метода.
+	for _, r := range sent.UserRoles {
+		if r.UserID == "u-old" {
+			t.Error("stale role must not be resent")
+		}
+	}
+	if len(sent.HidePhoneNumbersForUserIDs) != 1 || sent.HidePhoneNumbersForUserIDs[0] != "kub-9-9" {
+		t.Errorf("hide_phone_numbers must be preserved, got %v", sent.HidePhoneNumbersForUserIDs)
+	}
+	if !sent.PushEventsForManagers {
+		t.Error("push_input_output_message_events_for_managers must be preserved")
 	}
 }

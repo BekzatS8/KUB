@@ -386,3 +386,74 @@ func (c *PartnerClient) DeleteChannel(ctx context.Context, _, externalChannelID 
 	_, err := c.doJSON(ctx, http.MethodDelete, path, nil)
 	return err
 }
+
+// partnerSettings — тело PATCH/GET /v2/settings.
+type partnerSettings struct {
+	UserRoles []partnerUserRole `json:"user_roles"`
+	// HidePhoneNumbersForUserIDs и PushEvents CRM не управляет — читаем и
+	// возвращаем как есть, чтобы не затереть настройки, выставленные в Wazzup.
+	HidePhoneNumbersForUserIDs []string `json:"hide_phone_numbers_for_user_ids"`
+	PushEventsForManagers      bool     `json:"push_input_output_message_events_for_managers"`
+}
+
+type partnerUserRole struct {
+	ChannelID          string `json:"channel_id"`
+	UserID             string `json:"user_id"`
+	Role               string `json:"role"`
+	AllowGetNewClients bool   `json:"allow_get_new_clients"`
+}
+
+// SyncUserRoles выдаёт сотрудникам роли на каналах (PATCH /v2/settings).
+//
+// Метод заменяет весь набор user_roles целиком, поэтому сначала читаем текущие
+// настройки: остальные поля (скрытие номеров, уведомления руководителям) CRM не
+// контролирует и обязана вернуть их без изменений.
+func (c *PartnerClient) SyncUserRoles(ctx context.Context, _ string, roles []UserChannelRole) error {
+	if len(roles) == 0 {
+		return nil
+	}
+
+	current := partnerSettings{}
+	if body, err := c.doJSON(ctx, http.MethodGet, "/v2/settings", nil); err == nil {
+		// Провайдер отдаёт настройки как плоский объект, но на случай обёртки
+		// в data пробуем оба варианта.
+		var wrapped struct {
+			Data *partnerSettings `json:"data"`
+		}
+		if json.Unmarshal(body, &wrapped) == nil && wrapped.Data != nil {
+			current = *wrapped.Data
+		} else {
+			_ = json.Unmarshal(body, &current)
+		}
+	}
+
+	items := make([]partnerUserRole, 0, len(roles))
+	for _, r := range roles {
+		channelID := strings.TrimSpace(r.ChannelID)
+		userID := strings.TrimSpace(r.UserID)
+		role := strings.TrimSpace(r.Role)
+		if channelID == "" || userID == "" || role == "" {
+			continue
+		}
+		items = append(items, partnerUserRole{
+			ChannelID:          channelID,
+			UserID:             userID,
+			Role:               role,
+			AllowGetNewClients: r.AllowGetNewClients,
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	payload := partnerSettings{
+		UserRoles:                  items,
+		HidePhoneNumbersForUserIDs: current.HidePhoneNumbersForUserIDs,
+		PushEventsForManagers:      current.PushEventsForManagers,
+	}
+	if payload.HidePhoneNumbersForUserIDs == nil {
+		payload.HidePhoneNumbersForUserIDs = []string{}
+	}
+	_, err := c.doJSON(ctx, http.MethodPatch, "/v2/settings", payload)
+	return err
+}

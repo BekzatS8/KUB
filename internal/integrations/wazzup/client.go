@@ -24,6 +24,21 @@ type Client interface {
 	// ErrChannelDeleteUnsupported, если драйвер этого не умеет — тогда
 	// вызывающий код ограничивается удалением строки в CRM.
 	DeleteChannel(ctx context.Context, apiKey, externalChannelID string, deleteChats bool) error
+	// SyncUserRoles выдаёт сотрудникам роли на каналах. Без роли сотрудник не
+	// видит чатов в окне мессенджера вообще. Возвращает
+	// ErrUserRolesUnsupported, если драйвер этого не умеет.
+	SyncUserRoles(ctx context.Context, apiKey string, roles []UserChannelRole) error
+}
+
+// UserChannelRole — роль сотрудника на конкретном канале.
+type UserChannelRole struct {
+	ChannelID string
+	UserID    string
+	// Role — seller (свои чаты), manager (все чаты + отправка),
+	// auditor (все чаты, без отправки).
+	Role string
+	// AllowGetNewClients — получает ли сотрудник обращения от новых контактов.
+	AllowGetNewClients bool
 }
 
 type UserUpsert struct {
@@ -346,4 +361,10 @@ func normalizeTransport(value string) string {
 // GET /v3/channels, а отключают канал вручную в кабинете Wazzup.
 func (c *HTTPClient) DeleteChannel(_ context.Context, _, _ string, _ bool) error {
 	return ErrChannelDeleteUnsupported
+}
+
+// SyncUserRoles в User API v3 не поддерживается: роли выдаются вручную в
+// кабинете Wazzup, отдельного метода у провайдера нет.
+func (c *HTTPClient) SyncUserRoles(_ context.Context, _ string, _ []UserChannelRole) error {
+	return ErrUserRolesUnsupported
 }

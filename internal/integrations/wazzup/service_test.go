@@ -133,3 +133,5 @@ func TestSendMessageUsesSharedEnabledIntegration(t *testing.T) {
 }
 
 func (noopClient) DeleteChannel(context.Context, string, string, bool) error { return nil }
+
+func (noopClient) SyncUserRoles(context.Context, string, []UserChannelRole) error { return nil }

@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"turcompany/internal/authz"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
@@ -30,6 +31,9 @@ var (
 	// В User API v3 метода удаления нет вовсе (только GET /v3/channels), канал
 	// отключают руками в кабинете Wazzup. В Tech Partner API удаление есть.
 	ErrChannelDeleteUnsupported = errors.New("wazzup channel delete is not supported by this driver")
+	// ErrUserRolesUnsupported — драйвер не умеет выдавать роли на каналах.
+	// В User API v3 это делается руками в кабинете Wazzup.
+	ErrUserRolesUnsupported = errors.New("wazzup user roles are not supported by this driver")
 )
 
 type Service struct {
@@ -334,7 +338,16 @@ func (s *Service) SyncChannels(ctx context.Context, ownerUserID int) ([]models.W
 	} else if removed > 0 {
 		log.Printf("integration=wazzup operation=channels_prune status=ok integration_id=%d removed=%d", integration.ID, removed)
 	}
-	return s.repo.ListChannels(ctx, integration.ID)
+
+	stored, err := s.repo.ListChannels(ctx, integration.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Роли на каналах: без них сотрудник видит в мессенджере «Нет доступа к
+	// чатам». Новый канал приходит без ролей, поэтому раздаём их здесь же —
+	// на каждой синхронизации, а не однократно при настройке.
+	s.syncUserRoles(ctx, apiKey, stored)
+	return stored, nil
 }
 
 func (s *Service) ListDialogs(ctx context.Context, userID int, transport string) ([]models.WazzupDialog, error) {
@@ -1024,4 +1037,78 @@ func (s *Service) DeleteChannel(ctx context.Context, ownerUserID int, channelID 
 	}
 	log.Printf("integration=wazzup operation=channel_delete status=ok integration_id=%d channel=%s provider_deleted=%v", integration.ID, externalID, providerDeleted)
 	return providerDeleted, nil
+}
+
+// wazzupRoleFor переводит роль CRM в роль Wazzup на канале.
+//
+//	seller  — пишет только своим контактам, чужих переписок не видит;
+//	manager — видит все чаты и может писать кому угодно;
+//	auditor — видит все чаты, но отправка запрещена.
+//
+// Отображение повторяет ролевую модель CRM: ОКК — наблюдатель без права
+// писать, руководство и админ видят всё, остальные бизнес-роли ведут своих
+// клиентов.
+func wazzupRoleFor(roleID int) string {
+	switch roleID {
+	case authz.RoleControl:
+		return "auditor"
+	case authz.RoleManagement, authz.RoleSystemAdmin:
+		return "manager"
+	default:
+		return "seller"
+	}
+}
+
+// syncUserRoles выдаёт всем активным сотрудникам роли на всех каналах.
+//
+// Без роли сотрудник открывает мессенджер и видит «Нет доступа к чатам». В
+// обычном аккаунте роли раздаются в кабинете Wazzup, но у дочернего White Label
+// аккаунта кабинета нет — значит это обязанность CRM.
+//
+// Вызывается после синхронизации каналов и работает по принципу «лучшее
+// усилие»: ошибка логируется, но не роняет выдачу списка каналов.
+func (s *Service) syncUserRoles(ctx context.Context, apiKey string, channels []models.WazzupChannel) {
+	if len(channels) == 0 {
+		return
+	}
+	users, err := s.repo.ListCRMUsers(ctx)
+	if err != nil {
+		log.Printf("integration=wazzup operation=user_roles status=failed reason=list_users err=%v", err)
+		return
+	}
+
+	roles := make([]UserChannelRole, 0, len(users)*len(channels))
+	for _, u := range users {
+		wazzupUserID := wazzupUserIDFor(u.ID, u.ID)
+		if wazzupUserID == "" {
+			continue
+		}
+		role := wazzupRoleFor(u.RoleID)
+		for _, ch := range channels {
+			externalID := strings.TrimSpace(ch.ExternalChannelID)
+			if externalID == "" {
+				continue
+			}
+			roles = append(roles, UserChannelRole{
+				ChannelID: externalID,
+				UserID:    wazzupUserID,
+				Role:      role,
+				// Обращения от новых контактов разбирают те, кто ведёт клиентов.
+				// Руководство и ОКК в очередь на новых клиентов не встают.
+				AllowGetNewClients: role == "seller",
+			})
+		}
+	}
+	if len(roles) == 0 {
+		return
+	}
+
+	switch err := s.client.SyncUserRoles(ctx, apiKey, roles); {
+	case err == nil:
+		log.Printf("integration=wazzup operation=user_roles status=ok users=%d channels=%d", len(users), len(channels))
+	case errors.Is(err, ErrUserRolesUnsupported):
+		// Драйвер v3: роли раздаются в кабинете Wazzup, это нормально.
+	default:
+		log.Printf("integration=wazzup operation=user_roles status=failed err=%v", err)
+	}
 }

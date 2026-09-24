@@ -94,3 +94,5 @@ func TestSyncChannelsEmptyProviderListKeepsDirectory(t *testing.T) {
 }
 
 func (c channelsClient) DeleteChannel(context.Context, string, string, bool) error { return nil }
+
+func (c channelsClient) SyncUserRoles(context.Context, string, []UserChannelRole) error { return nil }
