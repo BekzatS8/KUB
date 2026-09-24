@@ -36,6 +36,103 @@ White Label указана его «дочка»), то канал, подклю
 и повторный `POST /integrations/wazzup/setup` (перенастройка вебхуков). Каналы,
 чаты и лиды, заведённые на старом аккаунте, при этом не переезжают.
 
+### WL-токен НЕ является API-ключом (проверено 24.09.2026)
+
+Частое заблуждение при настройке дочернего аккаунта: кажется, что раз
+`WhiteLabelClient` уже получает `client_access_token` дочки, то его можно
+подставить в `WAZZUP_API_TOKEN` и всё заработает. **Нельзя.** Это два разных
+контура авторизации:
+
+| Контур | База | Чем авторизуемся | Что умеет |
+|---|---|---|---|
+| Партнёрский (tech-partner) | `tech.wazzup24.com/v2` | Basic (email+пароль партнёра) → `machine_token` → `client_access_token` дочки | Только партнёрские методы: ссылки на iframe подключения каналов |
+| Рабочий (user API) | `api.wazzup24.com/v3` | `Authorization: Bearer <apiKey>` | Каналы, сообщения, вебхуки, iframe чатов — всё, чем живёт CRM |
+
+Проверка на живых доступах: `client_access_token` дочки (JWT с `child_id`,
+`expires_in = 3600`) на `GET https://api.wazzup24.com/v3/channels` отвечает
+`401 INVALID_APIKEY — Invalid authorization header`. То же на `/v3/webhooks`.
+
+**Но apiKey у дочернего аккаунта выпустить нельзя — и он не нужен.** White Label
+живёт в отдельном контуре целиком: у Wazzup есть полноценный
+[Tech Partner API](https://wazzup24.com/help/api/) (`tech.wazzup24.com/v2`) со
+своими каналами, сообщениями, вебхуками, пользователями и контактами. Все
+вызовы в нём авторизуются тем же `Bearer <client_access_token>`.
+
+Официальных способов получить apiKey ровно три (`/help/api-en/connection-methods/`):
+из кабинета аккаунта, WAuth (маркетплейс) и Sidecar (Kommo/Bitrix). Дочерний
+WL-аккаунт своего кабинета не имеет — им управляет партнёр по API. Поэтому
+«зайти в кабинет дочки и выпустить ключ» — невозможно.
+
+### Два рабочих сценария
+
+**A. CRM остаётся на User API v3 (как сейчас).** Каналы подключаются в кабинете
+рабочего аккаунта, `WAZZUP_API_TOKEN` — ключ этого же аккаунта. Кнопка
+«Добавить канал» при этом бесполезна, если `WAZZUP_WL_ACCOUNT_ID` указывает на
+другой аккаунт: канал уйдёт в дочку и в CRM не появится.
+
+**B. CRM переводится на Tech Partner API v2.** Только так дочерний аккаунт
+заработает полностью. Требует второго драйвера в коде — см. ниже.
+
+### Сценарий B: как включить (реализовано)
+
+Драйвер выбирается переменной `WAZZUP_DRIVER` (`wazzup.driver` в yaml):
+
+```
+WAZZUP_DRIVER=partner
+WAZZUP_WL_BASE_URL=https://tech.wazzup24.com
+WAZZUP_WL_EMAIL=<логин партнёра>
+WAZZUP_WL_PASSWORD=<пароль партнёра>
+WAZZUP_WL_CLIENT_ID=<partner_client_id>
+WAZZUP_WL_ACCOUNT_ID=<account_id дочки>
+WAZZUP_WL_SCOPE=transport,crm
+```
+
+`WAZZUP_API_TOKEN` при `driver=partner` не нужен. Если доступы `wl_*` неполные,
+приложение пишет предупреждение в лог и откатывается на `v3` — «тихо сломаться»
+не может. На старте драйвер виден в логе:
+`[BOOT] Wazzup integration enabled driver=partner base_url=… account_id=…`
+
+Порядок включения:
+
+1. Прописать переменные выше, перезапустить бэкенд.
+2. `POST /integrations/wazzup/setup` с `{"webhooks_base_url":"https://<домен>","enabled":true}`
+   — подпишет дочку на события. **Это надо сделать до подключения каналов.**
+3. Настройки → Каналы мессенджера → «Добавить канал» → подключить каналы.
+4. «Обновить» — каналы появятся в списке.
+
+### Различия контуров, которые закрывает драйвер
+
+Текущая интеграция целиком написана под User API v3. Различия, которые
+пришлось закрыть:
+
+| Что | User API v3 (сейчас) | Tech Partner API v2 (нужно) |
+|---|---|---|
+| Авторизация | статический `apiKey` | `client_access_token`, живёт 1 час; `refresh_token` — 7 дней (`client_id` = `WAZZUP_WL_CLIENT_ID`) |
+| Каналы | `GET /v3/channels` | `GET /v2/channels`; поля `channel_id`, `messenger_id`, `state`, `status` |
+| Отправка | `POST /v3/message` | `POST /v2/messages` |
+| Вебхуки | `PATCH /v3/webhooks` — один URI + `subscriptions{}`, авторизация по `crmKey` | `POST /v2/webhooks` — список подписок `{url, event}`, у каждой свой `id` |
+| Формат вебхука | `{"messages":[…]}` | `{"event":"message.add","data":[…],"meta":{"idempotency_key":…}}` |
+| Дедупликация | `messageId` | `meta.idempotency_key` (таблица `wazzup_dedup` подходит как есть) |
+
+События, на которые надо подписаться: `message.add`, `message.status_update`,
+`channel.status_update`, `channel.create`, `channel.qr_update`.
+
+⚠️ **Подписка на вебхуки обязательна ДО подключения каналов** — документация
+Wazzup прямо предупреждает: без неё часть каналов не подключается и статусы
+не приходят.
+
+### Что НЕ переезжает при смене аккаунта
+
+- **Привязка каналов к филиалам и отделам** (миграции 078, 081) — каналы
+  создаются заново с новыми `external_channel_id`, привязки надо проставить
+  руками после шага 7.
+- **Старые диалоги и переписка** остаются в БД, но отвечать в них уже нельзя:
+  `channelId` старого аккаунта в дочке не существует, отправка вернёт ошибку.
+  Новые входящие создадут новые диалоги.
+- **Лиды и клиенты** остаются на месте — они привязаны к телефону, а не к
+  каналу; входящее с того же номера подтянется к существующему лиду
+  (см. `processIncomingWebhookMessage`).
+
 ## Config fields
 - `wazzup.enable` — enable/disable integration wiring.
 - `wazzup.api_base_url` — provider API base URL (default: `https://api.wazzup24.com`).

@@ -62,6 +62,13 @@ type WazzupConfig struct {
 	RetryCount         int    `yaml:"retry_count"`
 	RetryDelayMS       int    `yaml:"retry_delay_ms"`
 
+	// Driver выбирает, под каким аккаунтом работает CRM:
+	//   "v3" (по умолчанию) — User API api.wazzup24.com со статическим api_token;
+	//   "partner"           — Tech Partner API tech.wazzup24.com под дочерним
+	//                         White Label аккаунтом (api_token не нужен).
+	// Требует заполненных wl_* — иначе происходит откат на "v3".
+	Driver string `yaml:"driver"`
+
 	// White Label (tech-partner): позволяет добавлять каналы прямо в CRM через
 	// встроенный iframe Wazzup. Секреты только на бэкенде. Если не заполнено —
 	// добавление каналов идёт через кабинет Wazzup (fallback).
@@ -71,6 +78,12 @@ type WazzupConfig struct {
 	WLClientID  string `yaml:"wl_client_id"`  // partner_client_id (для refresh)
 	WLAccountID string `yaml:"wl_account_id"` // account_id дочернего аккаунта клиента
 	WLScope     string `yaml:"wl_scope"`      // напр. "transport,crm"
+}
+
+// IsPartnerDriver сообщает, работает ли интеграция через Tech Partner API
+// дочернего White Label аккаунта.
+func (w WazzupConfig) IsPartnerDriver() bool {
+	return strings.EqualFold(strings.TrimSpace(w.Driver), "partner")
 }
 
 type SecurityConfig struct {
@@ -293,7 +306,19 @@ func (cfg *Config) Validate() error {
 		}
 	}
 	if cfg.Wazzup.Enable {
-		if strings.TrimSpace(cfg.Wazzup.APIToken) == "" {
+		if cfg.Wazzup.IsPartnerDriver() {
+			// Драйвер partner авторизуется партнёрскими доступами, статического
+			// api_token в этой схеме не существует вовсе.
+			for name, value := range map[string]string{
+				"wazzup.wl_email":      cfg.Wazzup.WLEmail,
+				"wazzup.wl_password":   cfg.Wazzup.WLPassword,
+				"wazzup.wl_account_id": cfg.Wazzup.WLAccountID,
+			} {
+				if strings.TrimSpace(value) == "" {
+					return fmt.Errorf("%s is required when wazzup.driver=partner", name)
+				}
+			}
+		} else if strings.TrimSpace(cfg.Wazzup.APIToken) == "" {
 			return fmt.Errorf("wazzup.api_token is required when wazzup.enable=true")
 		}
 		if strings.TrimSpace(cfg.Wazzup.APIBaseURL) == "" {
@@ -519,6 +544,7 @@ func applyEnvOverrides(cfg *Config) {
 	setInt(os.Getenv("WAZZUP_REQUEST_TIMEOUT_SEC"), &cfg.Wazzup.RequestTimeoutSec)
 	setInt(os.Getenv("WAZZUP_RETRY_COUNT"), &cfg.Wazzup.RetryCount)
 	setInt(os.Getenv("WAZZUP_RETRY_DELAY_MS"), &cfg.Wazzup.RetryDelayMS)
+	setString(os.Getenv("WAZZUP_DRIVER"), &cfg.Wazzup.Driver)
 	setString(os.Getenv("WAZZUP_WL_BASE_URL"), &cfg.Wazzup.WLBaseURL)
 	setString(os.Getenv("WAZZUP_WL_EMAIL"), &cfg.Wazzup.WLEmail)
 	setString(os.Getenv("WAZZUP_WL_PASSWORD"), &cfg.Wazzup.WLPassword)
