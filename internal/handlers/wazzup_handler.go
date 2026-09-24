@@ -29,6 +29,7 @@ type WazzupService interface {
 	HandleWebhook(ctx context.Context, token string, authHeader string, payload []byte) (leadID int, created bool, err error)
 	SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*wz.SendMessageResponse, error)
 	SendDialogMessage(ctx context.Context, userID, dialogID int, text string) (*models.WazzupDialogMessage, error)
+	DeleteChannel(ctx context.Context, ownerUserID int, channelID int64) (providerDeleted bool, err error)
 }
 
 type WazzupHandler struct {
@@ -361,26 +362,27 @@ func (h *WazzupHandler) DeleteChannel(c *gin.Context) {
 		forbidden(c, "Forbidden")
 		return
 	}
-	if h.repo == nil {
-		internalError(c, "channel directory unavailable")
-		return
-	}
 	channelID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || channelID <= 0 {
 		badRequest(c, "Invalid channel id")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	userID, _ := getUserAndRole(c)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
-	if err := h.repo.DeleteChannel(ctx, channelID); err != nil {
+
+	// Удаление идёт через сервис: сначала у провайдера, затем строка в CRM.
+	// Иначе канал возвращался на ближайшей синхронизации (см. Service.DeleteChannel).
+	providerDeleted, err := h.svc.DeleteChannel(ctx, userID, channelID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			notFound(c, NotFoundCode, "Channel not found")
 			return
 		}
-		internalError(c, "Failed to delete channel")
+		writeWazzupError(c, err, "failed to delete wazzup channel")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "provider_deleted": providerDeleted})
 }
 
 // GET /integrations/wazzup/channels/connect-link[?transport=...]

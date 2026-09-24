@@ -182,3 +182,7 @@ func TestWazzupIframeContractWithoutDeadFields(t *testing.T) {
 		t.Fatalf("expected single iframe call, got %d", svc.iframeCalls)
 	}
 }
+
+func (s *stubWazzupService) DeleteChannel(context.Context, int, int64) (bool, error) {
+	return false, nil
+}

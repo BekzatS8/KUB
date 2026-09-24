@@ -95,3 +95,5 @@ func TestWazzupUserIDFor(t *testing.T) {
 		t.Fatalf("missing user must produce an empty id, got %q", got)
 	}
 }
+
+func (c *authorClient) DeleteChannel(context.Context, string, string, bool) error { return nil }
