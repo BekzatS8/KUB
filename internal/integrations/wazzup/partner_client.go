@@ -162,9 +162,15 @@ func (c *PartnerClient) CreateIframe(ctx context.Context, _ string, req CreateIf
 	if scope == "" {
 		scope = "global"
 	}
+	// user_id плоским полем, НЕ вложенным объектом user{id}.
+	//
+	// В документации схема запроса и пример противоречат друг другу: таблица
+	// рисует «user → id», а пример шлёт «user_id». Правдой оказался пример —
+	// проверено на живом API: с объектом user провайдер отвечает 400
+	// «property user should not exist; user_id should not be empty».
 	payload := map[string]any{
-		"scope": scope,
-		"user":  map[string]any{"id": strings.TrimSpace(req.User.ID)},
+		"scope":   scope,
+		"user_id": strings.TrimSpace(req.User.ID),
 	}
 	if name := strings.TrimSpace(req.User.Name); name != "" {
 		payload["author_name"] = name

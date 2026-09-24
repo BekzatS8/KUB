@@ -242,3 +242,42 @@ func TestHTTPClientDeleteChannelUnsupported(t *testing.T) {
 		t.Fatalf("expected ErrChannelDeleteUnsupported, got %v", err)
 	}
 }
+
+// TestPartnerClientCreateIframeUsesFlatUserID защищает от «починки» по таблице
+// из документации: она рисует вложенный user{id}, но живой API такой запрос
+// отвергает с 400 «property user should not exist». Правильно — плоское user_id.
+func TestPartnerClientCreateIframeUsesFlatUserID(t *testing.T) {
+	var got map[string]any
+	client, _, closeFn := newTestPartnerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/iframe-links/chats" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = io.WriteString(w, `{"data":{"link":"https://app.wazzup24.com/7509-7837/chat?token=x"}}`)
+	})
+	defer closeFn()
+
+	link, err := client.CreateIframe(context.Background(), "", CreateIframeRequest{
+		User:  UserUpsert{ID: "kub-7-7", Name: "Админич"},
+		Scope: "global",
+	})
+	if err != nil {
+		t.Fatalf("CreateIframe: %v", err)
+	}
+	if link == "" {
+		t.Fatal("empty iframe link")
+	}
+	if got["user_id"] != "kub-7-7" {
+		t.Errorf("expected flat user_id, got %v", got)
+	}
+	if _, exists := got["user"]; exists {
+		t.Error("nested user object must not be sent — provider rejects it with 400")
+	}
+	if got["author_name"] != "Админич" {
+		t.Errorf("unexpected author_name: %v", got["author_name"])
+	}
+	// chats[] при scope=global слать нельзя — провайдер его отвергает.
+	if _, exists := got["chats"]; exists {
+		t.Error("chats must not be sent for scope=global")
+	}
+}
