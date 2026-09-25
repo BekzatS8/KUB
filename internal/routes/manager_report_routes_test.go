@@ -19,6 +19,7 @@ func TestReportTableRoutes_OrderDoesNotShadowReportID(t *testing.T) {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		handlers.NewManagerReportHandler(nil),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, // driveHandler
 		func(c *gin.Context) { c.Next() },
 	)
 

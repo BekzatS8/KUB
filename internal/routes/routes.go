@@ -47,6 +47,7 @@ func SetupRoutes(
 	feedHandler *handlers.FeedHandler,
 	approvalHandler *handlers.UserApprovalHandler, // может быть nil
 	feedEventHandler *handlers.FeedEventHandler,   // может быть nil
+	driveHandler *handlers.DriveHandler,           // может быть nil
 	authMiddleware gin.HandlerFunc,
 ) *gin.Engine {
 
@@ -130,6 +131,14 @@ func SetupRoutes(
 	// PUBLIC: Organization contacts (no JWT — for external websites/landing pages)
 	if orgHandler != nil {
 		r.GET("/api/v1/public/organization/contacts", orgHandler.GetPublicContacts)
+	}
+
+	// PUBLIC: содержимое файла хранилища по временной подписанной ссылке.
+	// JWT здесь нет намеренно: <img>, <video> и <iframe> не умеют слать
+	// Authorization. Авторизация — подпись ссылки + перепроверка доступа.
+	if driveHandler != nil {
+		r.GET("/api/v1/drive/raw/:token", driveHandler.Raw)
+		r.HEAD("/api/v1/drive/raw/:token", driveHandler.Raw)
 	}
 
 	// =====================
@@ -591,6 +600,29 @@ func SetupRoutes(
 		reports.GET("/leads", reportHandler.GetLeadsSummary)
 		reports.GET("/revenue", reportHandler.GetRevenue)
 		reports.GET("/revenue/export", reportHandler.ExportRevenue)
+	}
+
+	// =====================
+	// DRIVE — хранилище файлов
+	// =====================
+	// Смотреть может любой авторизованный: сервис показывает только то, к чему
+	// у пользователя есть доступ. Управление — по праву drive.manage (админ).
+	if driveHandler != nil {
+		drive := r.Group("/api/v1/drive")
+		{
+			drive.GET("/nodes", driveHandler.List)
+			drive.GET("/nodes/:id/link", driveHandler.Link)
+
+			manage := drive.Group("", middleware.RequirePermission("drive.manage", "drive"))
+			manage.POST("/folders", driveHandler.CreateFolder)
+			manage.POST("/files", driveHandler.Upload)
+			manage.PATCH("/nodes/:id", driveHandler.Rename)
+			manage.DELETE("/nodes/:id", driveHandler.Delete)
+			manage.GET("/nodes/:id/shares", driveHandler.ListShares)
+			manage.POST("/nodes/:id/shares", driveHandler.Share)
+			manage.DELETE("/shares/:id", driveHandler.Unshare)
+			manage.GET("/users", driveHandler.Users)
+		}
 	}
 
 	return r

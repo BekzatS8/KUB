@@ -45,6 +45,10 @@ var allActions = []string{
 	"messenger.view",
 	"telephony.view",
 	"approvals.view", "approvals.create", "approvals.approve", "approvals.reject",
+	// Хранилище: создание папок, загрузка, удаление и выдача доступов. Выдаётся
+	// только администратору (он получает все действия через ScopeAll). Просмотр
+	// отдельного права не требует — каждый видит то, что ему открыли.
+	"drive.manage",
 }
 
 var baseRolePermissions = map[string][]Permission{

@@ -86,6 +86,12 @@ func (w WazzupConfig) IsPartnerDriver() bool {
 	return strings.EqualFold(strings.TrimSpace(w.Driver), "partner")
 }
 
+// DriveConfig — раздел «Хранилище».
+type DriveConfig struct {
+	// MaxUploadMB — предельный размер одного файла. 0 — по умолчанию (2048 МБ).
+	MaxUploadMB int `yaml:"max_upload_mb"`
+}
+
 type SecurityConfig struct {
 	JWTSecret string `yaml:"jwt_secret"`
 }
@@ -135,6 +141,7 @@ type Config struct {
 
 	Telegram  TelegramConfig  `yaml:"telegram"`
 	Wazzup    WazzupConfig    `yaml:"wazzup"`
+	Drive     DriveConfig     `yaml:"drive"`
 	Binotel   BinotelConfig   `yaml:"binotel"`
 	Frontend  FrontendConfig  `yaml:"frontend"`
 	Documents DocumentsConfig `yaml:"documents"`
@@ -545,6 +552,7 @@ func applyEnvOverrides(cfg *Config) {
 	setInt(os.Getenv("WAZZUP_RETRY_COUNT"), &cfg.Wazzup.RetryCount)
 	setInt(os.Getenv("WAZZUP_RETRY_DELAY_MS"), &cfg.Wazzup.RetryDelayMS)
 	setString(os.Getenv("WAZZUP_DRIVER"), &cfg.Wazzup.Driver)
+	setInt(os.Getenv("DRIVE_MAX_UPLOAD_MB"), &cfg.Drive.MaxUploadMB)
 	setString(os.Getenv("WAZZUP_WL_BASE_URL"), &cfg.Wazzup.WLBaseURL)
 	setString(os.Getenv("WAZZUP_WL_EMAIL"), &cfg.Wazzup.WLEmail)
 	setString(os.Getenv("WAZZUP_WL_PASSWORD"), &cfg.Wazzup.WLPassword)

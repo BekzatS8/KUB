@@ -75,3 +75,8 @@ func (s *LocalStorage) resolvePath(key string) (string, error) {
 	}
 	return full, nil
 }
+
+// SaveSized для локального диска: размер и тип не нужны, пишем как обычно.
+func (s *LocalStorage) SaveSized(ctx context.Context, reader io.Reader, key string, _ int64, _ string) error {
+	return s.Save(ctx, reader, key)
+}

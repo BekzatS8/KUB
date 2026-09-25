@@ -33,3 +33,22 @@ func New(localRoot string, s3 S3Config) (Storage, error) {
 	}
 	return NewLocalStorage(localRoot), nil
 }
+
+// SizedSaver — сохранение, когда размер и тип содержимого известны заранее.
+//
+// Для S3 это принципиально: при неизвестном размере minio-go режет объект на
+// части по ~537 МБ и держит часть целиком в памяти — пара одновременных
+// загрузок больших файлов способна уронить сервер. С известным размером
+// загрузка идёт частями по 16 МБ.
+type SizedSaver interface {
+	SaveSized(ctx context.Context, reader io.Reader, key string, size int64, contentType string) error
+}
+
+// SaveWithSize сохраняет через SizedSaver, если бэкенд его поддерживает, иначе —
+// обычным Save.
+func SaveWithSize(ctx context.Context, st Storage, reader io.Reader, key string, size int64, contentType string) error {
+	if sized, ok := st.(SizedSaver); ok && size >= 0 {
+		return sized.SaveSized(ctx, reader, key, size, contentType)
+	}
+	return st.Save(ctx, reader, key)
+}

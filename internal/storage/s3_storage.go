@@ -47,3 +47,10 @@ func (s *S3Storage) Open(ctx context.Context, key string) (io.ReadSeekCloser, in
 func (s *S3Storage) Delete(ctx context.Context, key string) error {
 	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 }
+
+// SaveSized загружает объект с известным размером и Content-Type.
+func (s *S3Storage) SaveSized(ctx context.Context, reader io.Reader, key string, size int64, contentType string) error {
+	opts := minio.PutObjectOptions{ContentType: contentType}
+	_, err := s.client.PutObject(ctx, s.bucket, key, reader, size, opts)
+	return err
+}

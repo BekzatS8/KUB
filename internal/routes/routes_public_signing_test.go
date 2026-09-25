@@ -117,6 +117,8 @@ func TestSetupRoutes_PublicSigningVerifyAPIWithoutAuth(t *testing.T) {
 		// approvalHandler
 		nil,
 		// feedEventHandler
+		// driveHandler
+		nil,
 		middleware.NewAuthMiddleware([]byte("test-secret")),
 		
 	)

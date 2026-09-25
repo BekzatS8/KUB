@@ -525,6 +525,24 @@ func Run() {
 
 	// === Routes ===
 	log.Printf("[BOOT] mounting routes...")
+	// === Хранилище файлов ===
+	// Содержимое уходит в тот же fileStore, что и остальные файлы системы: при
+	// s3.enabled=true — в бакет S3, локальный диск только для разработки.
+	driveMaxUpload := int64(cfg.Drive.MaxUploadMB) << 20
+	driveService := services.NewDriveService(repositories.NewDriveRepository(db), fileStore, services.DriveConfig{
+		MaxUploadBytes: driveMaxUpload,
+		LinkSecret:     services.DriveLinkSecret(jwtSecret),
+		OfficeEnabled:  cfg.LibreOffice.Enable,
+		OfficeBinary:   cfg.LibreOffice.Binary,
+	})
+	driveHandler := handlers.NewDriveHandler(driveService)
+	driveBackend := "local"
+	if cfg.S3.Enabled {
+		driveBackend = "s3 bucket=" + cfg.S3.Bucket
+	}
+	log.Printf("[BOOT] drive: storage=%s max_upload_mb=%d office_preview=%v",
+		driveBackend, driveService.MaxUploadBytes()>>20, cfg.LibreOffice.Enable)
+
 	routes.SetupRoutes(
 		router,
 		userHandler,
@@ -563,6 +581,7 @@ func Run() {
 		feedHandler,
 		approvalHandler,
 		feedEventHandler,
+		driveHandler,
 		// Проверка актуального состояния учётки на каждом запросе: блокировка
 		// и статус «Не подтверждён» должны отсекать доступ сразу, а не после
 		// истечения access-токена (обратная связь заказчика 17.09.2026).
