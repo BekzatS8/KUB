@@ -17,6 +17,10 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
   go build -trimpath -ldflags="-s -w" -o /out/turcompany ./cmd/web
+# Перенос файлов под префикс компании в общем S3-бакете
+# (docs/storage-company-prefix.md). Запускается вручную, один раз.
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+  go build -trimpath -ldflags="-s -w" -o /out/s3-company-prefix ./cmd/s3-company-prefix
 
 
 FROM alpine:3.19
@@ -46,6 +50,7 @@ RUN mkdir -p /opt/turcompany/files/pdf /opt/turcompany/files/docx /opt/turcompan
 
 # binaries
 COPY --from=builder /out/turcompany /usr/local/bin/turcompany
+COPY --from=builder /out/s3-company-prefix /usr/local/bin/s3-company-prefix
 COPY --from=builder /go/bin/pdfcpu /usr/local/bin/pdfcpu
 
 # assets + entrypoint

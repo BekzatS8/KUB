@@ -21,6 +21,8 @@ type S3Config struct {
 	AccessKey string `yaml:"access_key"`
 	SecretKey string `yaml:"secret_key"`
 	UseSSL    bool   `yaml:"use_ssl"`
+	// Prefix — код компании в общем бакете, например «kub».
+	Prefix string `yaml:"prefix"`
 }
 
 // New returns S3Storage when S3 is enabled, otherwise falls back to LocalStorage.
@@ -29,7 +31,7 @@ func New(localRoot string, s3 S3Config) (Storage, error) {
 		if s3.Endpoint == "" || s3.Bucket == "" || s3.AccessKey == "" || s3.SecretKey == "" {
 			return nil, fmt.Errorf("storage: S3 enabled but endpoint/bucket/access_key/secret_key are not set")
 		}
-		return NewS3Storage(s3.Endpoint, s3.Region, s3.Bucket, s3.AccessKey, s3.SecretKey, s3.UseSSL)
+		return NewS3Storage(s3.Endpoint, s3.Region, s3.Bucket, s3.AccessKey, s3.SecretKey, s3.UseSSL, s3.Prefix)
 	}
 	return NewLocalStorage(localRoot), nil
 }

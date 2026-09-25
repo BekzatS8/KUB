@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"turcompany/internal/storage"
 )
 
 type FilesConfig struct {
@@ -25,6 +27,10 @@ type S3Config struct {
 	AccessKey string `yaml:"access_key"`
 	SecretKey string `yaml:"secret_key"`
 	UseSSL    bool   `yaml:"use_ssl"`
+	// Prefix — код компании в общем бакете (например «kub»): все файлы этой
+	// инсталляции лежат под «<prefix>/». Обязателен, если в бакет пишут
+	// несколько компаний, — иначе их файлы перезаписывают друг друга.
+	Prefix string `yaml:"prefix"`
 }
 
 type TemplatesConfig struct {
@@ -312,6 +318,10 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("email settings required in release mode: %s", strings.Join(missing, ", "))
 		}
 	}
+	cfg.S3.Prefix = storage.NormalizeCompanyPrefix(cfg.S3.Prefix)
+	if err := storage.ValidateCompanyPrefix(cfg.S3.Prefix); err != nil {
+		return err
+	}
 	if cfg.Wazzup.Enable {
 		if cfg.Wazzup.IsPartnerDriver() {
 			// Драйвер partner авторизуется партнёрскими доступами, статического
@@ -498,6 +508,7 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("S3_BUCKET"), &cfg.S3.Bucket)
 	setString(os.Getenv("S3_ACCESS_KEY"), &cfg.S3.AccessKey)
 	setString(os.Getenv("S3_SECRET_KEY"), &cfg.S3.SecretKey)
+	setString(os.Getenv("S3_PREFIX"), &cfg.S3.Prefix)
 	if val := strings.TrimSpace(os.Getenv("S3_ENABLED")); val != "" {
 		cfg.S3.Enabled = parseBoolEnvValue(val)
 	} else if cfg.S3.Endpoint != "" && cfg.S3.Bucket != "" && cfg.S3.AccessKey != "" {

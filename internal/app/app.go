@@ -83,12 +83,18 @@ func Run() {
 		AccessKey: cfg.S3.AccessKey,
 		SecretKey: cfg.S3.SecretKey,
 		UseSSL:    cfg.S3.UseSSL,
+		Prefix:    cfg.S3.Prefix,
 	})
 	if err != nil {
 		log.Fatalf("[BOOT] failed to init storage: %v", err)
 	}
 	if cfg.S3.Enabled {
-		log.Printf("[BOOT] storage: S3 endpoint=%s bucket=%s", cfg.S3.Endpoint, cfg.S3.Bucket)
+		log.Printf("[BOOT] storage: S3 endpoint=%s bucket=%s prefix=%q", cfg.S3.Endpoint, cfg.S3.Bucket, cfg.S3.Prefix)
+		if cfg.S3.Prefix == "" {
+			log.Printf("[BOOT] WARNING: S3_PREFIX не задан — файлы пишутся в корень бакета. " +
+				"Если бакет общий для нескольких компаний, их файлы будут перезаписывать друг друга " +
+				"(ключи строятся из номеров в базе). Задайте код компании и перенесите файлы: go run ./cmd/s3-company-prefix")
+		}
 	} else {
 		log.Printf("[BOOT] storage: local root=%s", cfg.Files.RootDir)
 	}
@@ -539,6 +545,9 @@ func Run() {
 	driveBackend := "local"
 	if cfg.S3.Enabled {
 		driveBackend = "s3 bucket=" + cfg.S3.Bucket
+		if cfg.S3.Prefix != "" {
+			driveBackend += " prefix=" + cfg.S3.Prefix
+		}
 	}
 	log.Printf("[BOOT] drive: storage=%s max_upload_mb=%d office_preview=%v",
 		driveBackend, driveService.MaxUploadBytes()>>20, cfg.LibreOffice.Enable)
