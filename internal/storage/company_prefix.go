@@ -24,11 +24,15 @@ import (
 // существующих файлов трогает только эти папки — всё остальное в корне может
 // оказаться чужим и остаётся на месте.
 var LegacyTopLevelFolders = map[string]bool{
-	"pdf":            true,
-	"docx":           true,
-	"excel":          true,
-	"clients":        true,
-	"chat":           true,
+	"pdf":     true,
+	"docx":    true,
+	"excel":   true,
+	"clients": true,
+	"chat":    true,
+	// Вложения чата с 10.12.2025 по 28.02.2026 сохранялись в messages/, потом
+	// код перешёл на chat/. Старые вложения по-прежнему открываются по пути
+	// из базы (attachments.storage_key), так что это живые данные.
+	"messages":       true,
 	"avatars":        true,
 	"scoped":         true,
 	"signatures":     true,

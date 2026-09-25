@@ -17,6 +17,7 @@ func TestValidateCompanyPrefix(t *testing.T) {
 		"pdf",      // совпадает с системной папкой в корне
 		"drive",    // тоже
 		"versions", // тоже
+		"messages", // тоже — старые вложения чата
 		"a234567890123456789012345678901234567890123456789012345678901234", // 64 символа
 	}
 	for _, p := range bad {
@@ -70,10 +71,12 @@ func TestPlanPrefixMove(t *testing.T) {
 		{key: "/pdf/legacy.pdf", move: true, dest: "kub/pdf/legacy.pdf", top: "pdf"},
 		{key: "clients/5/passport/a.jpg", move: true, dest: "kub/clients/5/passport/a.jpg", top: "clients"},
 		{key: "drive-previews/5.pdf", move: true, dest: "kub/drive-previews/5.pdf", top: "drive-previews"},
+		// Старые вложения чата: папка есть в боевом бакете, в текущем коде не пишется.
+		{key: "messages/1734000000_scan.pdf", move: true, dest: "kub/messages/1734000000_scan.pdf", top: "messages"},
 		{key: "kub/pdf/already.pdf", already: true, top: "kub"},
 		{key: "company2/pdf/a.pdf", top: "company2"},      // чужая компания — не трогать
 		{key: "backup-2025/dump.sql", top: "backup-2025"}, // неизвестная папка — не трогать
-		{key: "readme.txt", top: ""}, // файл в корне — не трогать
+		{key: "readme.txt", top: ""},                      // файл в корне — не трогать
 	}
 	for _, c := range cases {
 		d := planPrefixMove(c.key, "kub", folders)
