@@ -34,6 +34,11 @@ type WazzupRepository interface {
 	ListDepartments(ctx context.Context) ([]DepartmentDTO, error)
 	DeleteChannel(ctx context.Context, channelID int64) error
 	DeleteChannelsNotIn(ctx context.Context, integrationID int, keepExternalIDs []string) (int64, error)
+	// Номера, удалённые вручную: синхронизация их пропускает, пока они не
+	// заработают снова (см. миграцию 084).
+	HideChannel(ctx context.Context, integrationID int, externalChannelID string) error
+	UnhideChannel(ctx context.Context, integrationID int, externalChannelID string) error
+	ListHiddenChannelIDs(ctx context.Context, integrationID int) ([]string, error)
 	GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
@@ -557,6 +562,51 @@ func (r *wazzupRepository) DeleteChannelsNotIn(ctx context.Context, integrationI
 	}
 	affected, _ := res.RowsAffected()
 	return affected, nil
+}
+
+func (r *wazzupRepository) HideChannel(ctx context.Context, integrationID int, externalChannelID string) error {
+	externalChannelID = strings.TrimSpace(externalChannelID)
+	if integrationID <= 0 || externalChannelID == "" {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO wazzup_hidden_channels (integration_id, external_channel_id)
+		VALUES ($1, $2)
+		ON CONFLICT (integration_id, external_channel_id) DO UPDATE SET hidden_at = NOW()
+	`, integrationID, externalChannelID)
+	if err != nil {
+		return fmt.Errorf("hide wazzup channel: %w", err)
+	}
+	return nil
+}
+
+func (r *wazzupRepository) UnhideChannel(ctx context.Context, integrationID int, externalChannelID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM wazzup_hidden_channels WHERE integration_id = $1 AND external_channel_id = $2
+	`, integrationID, strings.TrimSpace(externalChannelID))
+	if err != nil {
+		return fmt.Errorf("unhide wazzup channel: %w", err)
+	}
+	return nil
+}
+
+func (r *wazzupRepository) ListHiddenChannelIDs(ctx context.Context, integrationID int) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT external_channel_id FROM wazzup_hidden_channels WHERE integration_id = $1
+	`, integrationID)
+	if err != nil {
+		return nil, fmt.Errorf("list hidden wazzup channels: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("list hidden wazzup channels: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // GetChannelBranchID возвращает филиал канала по внешнему ID (для входящего лида).

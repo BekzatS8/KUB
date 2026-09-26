@@ -367,8 +367,31 @@ func (s *Service) syncAccountChannels(ctx context.Context, acc *AccountConfig, i
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 
+	// Номер, удалённый вручную, Wazzup может продолжать отдавать (так ведёт
+	// себя заблокированный Meta номер): пропускаем его, пока он не работает.
+	// Заработал снова — например, переподключили в кабинете — возвращаем.
+	hidden := map[string]bool{}
+	if ids, hiddenErr := s.repo.ListHiddenChannelIDs(ctx, integration.ID); hiddenErr != nil {
+		log.Printf("integration=wazzup operation=channels_hidden status=failed integration_id=%d err=%v", integration.ID, hiddenErr)
+	} else {
+		for _, id := range ids {
+			hidden[id] = true
+		}
+	}
+
 	channels := make([]models.WazzupChannel, 0, len(providerChannels))
 	for _, ch := range providerChannels {
+		externalID := strings.TrimSpace(ch.ID)
+		if hidden[externalID] {
+			if !isActiveChannelStatus(ch.Status) {
+				continue
+			}
+			if err := s.repo.UnhideChannel(ctx, integration.ID, externalID); err != nil {
+				log.Printf("integration=wazzup operation=channel_unhide status=failed integration_id=%d channel=%s err=%v", integration.ID, externalID, err)
+			} else {
+				log.Printf("integration=wazzup operation=channel_unhide status=ok integration_id=%d channel=%s", integration.ID, externalID)
+			}
+		}
 		raw, _ := json.Marshal(ch.RawPayload)
 		channels = append(channels, models.WazzupChannel{
 			IntegrationID:     integration.ID,
@@ -1079,6 +1102,11 @@ func (s *Service) DeleteChannel(ctx context.Context, ownerUserID int, channelID 
 		return false, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 
+	// Запоминаем удаление: иначе номер, который Wazzup продолжает отдавать,
+	// вернётся на ближайшей синхронизации.
+	if err := s.repo.HideChannel(ctx, integration.ID, externalID); err != nil {
+		return providerDeleted, err
+	}
 	if err := s.repo.DeleteChannel(ctx, channelID); err != nil {
 		return providerDeleted, err
 	}

@@ -40,6 +40,9 @@ func (s stubRepo) ListChannels(context.Context, int) ([]models.WazzupChannel, er
 func (s stubRepo) SetChannelBranch(context.Context, int64, *int) error               { return nil }
 func (s stubRepo) DeleteChannel(context.Context, int64) error                        { return nil }
 func (s stubRepo) DeleteChannelsNotIn(context.Context, int, []string) (int64, error) { return 0, nil }
+func (s stubRepo) HideChannel(context.Context, int, string) error                   { return nil }
+func (s stubRepo) UnhideChannel(context.Context, int, string) error                 { return nil }
+func (s stubRepo) ListHiddenChannelIDs(context.Context, int) ([]string, error)      { return nil, nil }
 func (s stubRepo) SetChannelDepartment(context.Context, int64, *int) error           { return nil }
 func (s stubRepo) GetChannelDepartmentID(context.Context, int, string) (*int, error) { return nil, nil }
 func (s stubRepo) ListDepartments(context.Context) ([]repositories.DepartmentDTO, error) {
