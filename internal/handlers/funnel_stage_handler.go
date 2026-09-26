@@ -252,7 +252,8 @@ func (h *FunnelStageHandler) Board(c *gin.Context) {
 	}
 	userID, _ := getUserAndRole(c)
 	// Фильтры доски: owner=mine|all (по умолчанию для менеджера — mine, т.е.
-	// свои карточки + общий пул), owner_id=<менеджер> и q=<поиск>.
+	// свои карточки + общий пул), owner_id=<менеджер>, branch_id=<филиал>
+	// и q=<поиск>.
 	query := services.BoardQuery{
 		OwnerScope: services.BoardOwnerScope(strings.ToLower(strings.TrimSpace(c.Query("owner")))),
 		Query:      strings.TrimSpace(c.Query("q")),
@@ -270,6 +271,14 @@ func (h *FunnelStageHandler) Board(c *gin.Context) {
 			return
 		}
 		query.OwnerID = &ownerID
+	}
+	if raw := strings.TrimSpace(c.Query("branch_id")); raw != "" {
+		branchID, convErr := strconv.Atoi(raw)
+		if convErr != nil || branchID <= 0 {
+			badRequest(c, "Некорректный ID филиала")
+			return
+		}
+		query.BranchID = &branchID
 	}
 	board, err := h.service.BoardFiltered(funnelID, userID, query)
 	if err != nil {

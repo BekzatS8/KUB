@@ -239,7 +239,9 @@ type BoardQuery struct {
 	// OwnerID — конкретный менеджер (пункт «сортировка по менеджерам»).
 	// Имеет приоритет над OwnerScope.
 	OwnerID *int
-	Query   string
+	// BranchID — только карточки этого филиала; сочетается с любым режимом.
+	BranchID *int
+	Query    string
 }
 
 // resolveBoardFilter превращает запрос клиента в фильтр репозитория с учётом
@@ -247,7 +249,7 @@ type BoardQuery struct {
 // должны видеть», но новые/ничьи лиды видны всем, пока их не возьмут в работу
 // (обратная связь заказчика 17.09.2026).
 func resolveBoardFilter(q BoardQuery, userID, roleID int) repositories.BoardFilter {
-	filter := repositories.BoardFilter{Query: q.Query}
+	filter := repositories.BoardFilter{Query: q.Query, BranchID: q.BranchID}
 
 	if q.OwnerID != nil {
 		owner := *q.OwnerID

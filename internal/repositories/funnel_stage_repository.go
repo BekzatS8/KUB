@@ -237,6 +237,10 @@ type BoardFilter struct {
 	HidePrivateDepartments bool
 	ViewerDepartmentID     *int
 
+	// BranchID — только карточки этого филиала (фильтр админа «весь филиал»).
+	// Сужает ролевой scope, но никогда не расширяет его.
+	BranchID *int
+
 	OwnerID        *int
 	IncludeUnowned bool
 	// UnownedRoleIDs — роли, «парковка» на которых означает, что карточку ещё
@@ -335,6 +339,10 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 		args = append(args, *departmentID)
 		where = append(where, fmt.Sprintf("(d.department_id = $%d OR d.department_id IS NULL)", len(args)))
 	}
+	if filter.BranchID != nil {
+		args = append(args, *filter.BranchID)
+		where = append(where, fmt.Sprintf("d.branch_id = $%d", len(args)))
+	}
 	if cond := filter.ownerCondition("d", &args); cond != "" {
 		where = append(where, cond)
 	}
@@ -413,6 +421,10 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 	if departmentID != nil {
 		args = append(args, *departmentID)
 		where = append(where, fmt.Sprintf("(l.department_id = $%d OR l.department_id IS NULL)", len(args)))
+	}
+	if filter.BranchID != nil {
+		args = append(args, *filter.BranchID)
+		where = append(where, fmt.Sprintf("l.branch_id = $%d", len(args)))
 	}
 	if cond := filter.ownerCondition("l", &args); cond != "" {
 		where = append(where, cond)

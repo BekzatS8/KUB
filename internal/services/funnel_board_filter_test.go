@@ -89,3 +89,17 @@ func TestResolveBoardFilter_UnownedRolesMatchOwnershipClaimRule(t *testing.T) {
 		}
 	}
 }
+
+// Фильтр админа «весь филиал» доходит до репозитория в любом режиме — и при
+// «все лиды», и вместе с выбранным сотрудником.
+func TestResolveBoardFilter_BranchPassesThrough(t *testing.T) {
+	branch, other := 3, 7
+	f := resolveBoardFilter(BoardQuery{OwnerScope: BoardOwnerScopeAll, BranchID: &branch}, 42, authz.RoleSystemAdmin)
+	if f.BranchID == nil || *f.BranchID != 3 || f.OwnerID != nil {
+		t.Fatalf("branch filter must narrow to branch only, got %+v", f)
+	}
+	f = resolveBoardFilter(BoardQuery{OwnerID: &other, BranchID: &branch}, 42, authz.RoleSystemAdmin)
+	if f.BranchID == nil || *f.BranchID != 3 || f.OwnerID == nil || *f.OwnerID != 7 {
+		t.Fatalf("branch must survive explicit owner, got %+v", f)
+	}
+}
