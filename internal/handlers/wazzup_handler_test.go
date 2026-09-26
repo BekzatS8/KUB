@@ -18,7 +18,7 @@ type stubWazzupService struct {
 	iframeCalls int
 }
 
-func (s *stubWazzupService) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error) {
+func (s *stubWazzupService) Setup(ctx context.Context, ownerUserID int, account, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error) {
 	s.called = true
 	return &wz.SetupResponse{WebhookURL: webhooksBaseURL}, nil
 }
@@ -186,3 +186,5 @@ func TestWazzupIframeContractWithoutDeadFields(t *testing.T) {
 func (s *stubWazzupService) DeleteChannel(context.Context, int, int64) (bool, error) {
 	return false, nil
 }
+
+func (s *stubWazzupService) Accounts(context.Context) ([]wz.AccountInfo, error) { return nil, nil }

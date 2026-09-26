@@ -12,6 +12,9 @@ type WazzupIntegration struct {
 	WebhooksURI  string    `json:"webhooks_uri"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	// Account — аккаунт Wazzup: main (основной) или child (дочерний White
+	// Label). Пусто — подключение, созданное до появления аккаунтов.
+	Account string `json:"account"`
 }
 
 type WazzupDedupEvent struct {

@@ -9,9 +9,10 @@ import (
 	"turcompany/internal/repositories"
 )
 
+// stubRepo — подключение основного аккаунта; по webhook-токену возвращается
+// оно же.
 type stubRepo struct {
-	integration       *models.WazzupIntegration
-	sharedIntegration *models.WazzupIntegration
+	integration *models.WazzupIntegration
 }
 
 func (s stubRepo) GetIntegrationByToken(context.Context, string) (*models.WazzupIntegration, error) {
@@ -21,21 +22,16 @@ func (s stubRepo) ListCRMUsers(context.Context) ([]repositories.CRMUserDTO, erro
 func (s stubRepo) GetCRMUserByID(context.Context, int) (*repositories.CRMUserDTO, error) {
 	return nil, nil
 }
-func (s stubRepo) GetIntegrationByOwnerUserID(context.Context, int) (*models.WazzupIntegration, error) {
-	return s.integration, nil
-}
-func (s stubRepo) GetAnyEnabledIntegration(context.Context) (*models.WazzupIntegration, error) {
-	if s.sharedIntegration != nil {
-		return s.sharedIntegration, nil
-	}
-	if s.integration != nil && s.integration.Enabled {
+func (s stubRepo) GetIntegrationByAccount(_ context.Context, account string) (*models.WazzupIntegration, error) {
+	if account == AccountMain {
 		return s.integration, nil
 	}
 	return nil, nil
 }
-func (s stubRepo) UpsertIntegrationByOwner(context.Context, int, string, string, string, bool) (int, string, error) {
+func (s stubRepo) UpsertIntegrationByAccount(context.Context, string, int, string, string, string, bool) (int, string, error) {
 	return 1, "tok", nil
 }
+func (s stubRepo) AdoptLegacyIntegration(context.Context, string) (int, error) { return 0, nil }
 func (s stubRepo) GetStatus(context.Context) (*models.WazzupStatus, error) {
 	return &models.WazzupStatus{Provider: "wazzup"}, nil
 }
@@ -107,25 +103,27 @@ func TestHandleWebhookVerifyToken(t *testing.T) {
 	}
 }
 
-func TestGetIframeURLUsesSharedEnabledIntegration(t *testing.T) {
+// Подключение аккаунта общее: сотрудник работает через него, даже если
+// подключал другой человек (раньше подключение было «на пользователя»).
+func TestGetIframeURLUsesAccountConnectionForAnyEmployee(t *testing.T) {
 	svc := NewService(stubRepo{
-		sharedIntegration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true},
+		integration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true, Account: AccountMain},
 	}, noopClient{}, "", "", "", "")
 
 	_, err := svc.GetIframeURL(context.Background(), 22, 1, "Seller")
 	if err != nil {
-		t.Fatalf("expected shared integration to allow iframe, got %v", err)
+		t.Fatalf("expected account connection to allow iframe, got %v", err)
 	}
 }
 
-func TestSendMessageUsesSharedEnabledIntegration(t *testing.T) {
+func TestSendMessageUsesAccountConnectionForAnyEmployee(t *testing.T) {
 	svc := NewService(stubRepo{
-		sharedIntegration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true},
+		integration: &models.WazzupIntegration{ID: 7, OwnerUserID: 1, APIKeyEnc: "shared-token", Enabled: true, Account: AccountMain},
 	}, noopClient{}, "", "channel", "", "")
 
 	resp, err := svc.SendMessage(context.Background(), 22, "chat-id", "whatsapp", "", "hello")
 	if err != nil {
-		t.Fatalf("expected shared integration to allow send, got %v", err)
+		t.Fatalf("expected account connection to allow send, got %v", err)
 	}
 	if resp == nil || resp.MessageID != "ok" {
 		t.Fatalf("unexpected response: %+v", resp)

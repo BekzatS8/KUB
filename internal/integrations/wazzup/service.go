@@ -38,29 +38,25 @@ var (
 
 type Service struct {
 	repo               repositories.WazzupRepository
-	client             Client
-	defaultAPIToken    string
 	defaultChannelID   string
 	webhookVerifyToken string
 	webhookBaseURL     string
-	// partnerDriver — работа идёт через Tech Partner API дочернего аккаунта.
-	// В этом режиме статического apiKey не существует: авторизацию берёт на
-	// себя клиент, поэтому проверки «токен обязателен» отключаются.
-	partnerDriver bool
-}
-
-// SetPartnerDriver включает режим Tech Partner API (White Label).
-func (s *Service) SetPartnerDriver(enabled bool) {
-	s.partnerDriver = enabled
+	// accounts — подключённые аккаунты Wazzup (см. accounts.go). Первый —
+	// аккаунт по умолчанию.
+	accounts []*AccountConfig
 }
 
 type SetupResponse struct {
+	Account      string `json:"account"`
 	WebhookURL   string `json:"webhook_url"`
 	WebhookToken string `json:"webhook_token"`
 	CRMKey       string `json:"crm_key"`
 }
 
 type IframeOptions struct {
+	// Account — чей мессенджер открыть (main | child). Для перехода на
+	// конкретную переписку аккаунт берётся по каналу этой переписки.
+	Account   string `json:"account,omitempty"`
 	Transport string `json:"transport,omitempty"`
 	ChannelID string `json:"channel_id,omitempty"`
 	// ChatID — открыть iframe сразу на этой переписке (deep-link из карточки
@@ -70,6 +66,9 @@ type IframeOptions struct {
 }
 
 type IframeResponse struct {
+	// Account — аккаунт, чей мессенджер открыт. Может отличаться от
+	// запрошенного, если переписка принадлежит другому аккаунту.
+	Account         string `json:"account"`
 	URL             string `json:"url"`
 	IframeURL       string `json:"iframe_url"`
 	ChannelSpecific bool   `json:"channel_specific"`
@@ -83,17 +82,31 @@ type SendDialogMessageResponse struct {
 }
 
 func NewService(repo repositories.WazzupRepository, client Client, defaultAPIToken, defaultChannelID, webhookVerifyToken, webhookBaseURL string) *Service {
-	return &Service{
+	s := &Service{
 		repo:               repo,
-		client:             client,
-		defaultAPIToken:    strings.TrimSpace(defaultAPIToken),
 		defaultChannelID:   strings.TrimSpace(defaultChannelID),
 		webhookVerifyToken: strings.TrimSpace(webhookVerifyToken),
 		webhookBaseURL:     strings.TrimSpace(webhookBaseURL),
 	}
+	// Основной аккаунт — из параметров конструктора; дочерний добавляется
+	// через RegisterAccount. client = nil — основного аккаунта нет.
+	if client != nil {
+		s.RegisterAccount(AccountConfig{Name: AccountMain, Title: "Основной аккаунт", Client: client, APIKey: defaultAPIToken})
+	}
+	return s
 }
 
-func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*SetupResponse, error) {
+// Setup подключает аккаунт: создаёт (или обновляет) его подключение и
+// регистрирует у провайдера вебхук на URL с токеном этого подключения.
+//
+// Новый crmKey сохраняется только после того, как провайдер его принял.
+// Раньше хэш писался в базу до регистрации вебхука, и неудачная регистрация
+// оставляла базу и Wazzup с разными ключами — входящие начинали отклоняться.
+func (s *Service) Setup(ctx context.Context, ownerUserID int, account, webhooksBaseURL string, enabled bool) (*SetupResponse, error) {
+	acc, err := s.accountByName(account)
+	if err != nil {
+		return nil, err
+	}
 	base := strings.TrimRight(strings.TrimSpace(webhooksBaseURL), "/")
 	if base == "" {
 		base = strings.TrimRight(s.webhookBaseURL, "/")
@@ -101,8 +114,12 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 	if base == "" {
 		return nil, fmt.Errorf("%w: webhooks base url is required", ErrBadRequest)
 	}
-	apiKey := s.defaultAPIToken
-	if enabled && !s.partnerDriver && strings.TrimSpace(apiKey) == "" {
+	existing, err := s.repo.GetIntegrationByAccount(ctx, acc.Name)
+	if err != nil {
+		return nil, err
+	}
+	apiKey := s.apiKeyFor(acc, existing)
+	if enabled && !acc.Partner && apiKey == "" {
 		return nil, fmt.Errorf("%w: wazzup api token is required", ErrBadRequest)
 	}
 	crmKey, crmHash, err := generateCRMKey()
@@ -110,36 +127,31 @@ func (s *Service) Setup(ctx context.Context, ownerUserID int, webhooksBaseURL st
 		return nil, err
 	}
 
-	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
+	// Шаг 1: получить токен подключения, не трогая действующий ключ.
+	currentHash := crmHash
+	if existing != nil && existing.CRMKeyHash != "" {
+		currentHash = existing.CRMKeyHash
+	}
+	_, webhookToken, err := s.repo.UpsertIntegrationByAccount(ctx, acc.Name, ownerUserID, apiKey, currentHash, "", enabled)
 	if err != nil {
 		return nil, err
 	}
-	webhookToken := ""
-	if integration != nil {
-		webhookToken = integration.WebhookToken
-	}
-
-	if webhookToken == "" {
-		_, webhookToken, err = s.repo.UpsertIntegrationByOwner(ctx, ownerUserID, strings.TrimSpace(apiKey), crmHash, "", enabled)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	webhooksURI := base + "/integrations/wazzup/webhook/" + webhookToken
-	_, webhookToken, err = s.repo.UpsertIntegrationByOwner(ctx, ownerUserID, strings.TrimSpace(apiKey), crmHash, webhooksURI, enabled)
-	if err != nil {
-		return nil, err
-	}
 
+	// Шаг 2: зарегистрировать вебхук у провайдера.
 	if enabled {
-		log.Printf("integration=wazzup operation=setup owner_user_id=%d enabled=%v webhook_configured=%v", ownerUserID, enabled, webhooksURI != "")
-		if err := s.client.PatchWebhooks(ctx, apiKey, webhooksURI, crmKey); err != nil {
-			log.Printf("integration=wazzup operation=setup status=failed owner_user_id=%d err=%v", ownerUserID, err)
+		log.Printf("integration=wazzup operation=setup account=%s owner_user_id=%d", acc.Name, ownerUserID)
+		if err := acc.Client.PatchWebhooks(ctx, apiKey, webhooksURI, crmKey); err != nil {
+			log.Printf("integration=wazzup operation=setup status=failed account=%s owner_user_id=%d err=%v", acc.Name, ownerUserID, err)
 			return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 		}
 	}
-	return &SetupResponse{WebhookURL: webhooksURI, WebhookToken: webhookToken, CRMKey: crmKey}, nil
+
+	// Шаг 3: провайдер принял ключ — теперь можно сохранить его хэш.
+	if _, webhookToken, err = s.repo.UpsertIntegrationByAccount(ctx, acc.Name, ownerUserID, apiKey, crmHash, webhooksURI, enabled); err != nil {
+		return nil, err
+	}
+	return &SetupResponse{Account: acc.Name, WebhookURL: webhooksURI, WebhookToken: webhookToken, CRMKey: crmKey}, nil
 }
 
 func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error) {
@@ -151,7 +163,7 @@ func (s *Service) GetIframeURL(ctx context.Context, ownerUserID int, companyID i
 }
 
 func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int, userName string, opts IframeOptions) (*IframeResponse, error) {
-	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
+	acc, integration, err := s.iframeAccount(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +173,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		return nil, fmt.Errorf("%w: unsupported transport", ErrBadRequest)
 	}
 	if channelID != "" {
-		ch, err := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, channelID)
+		ch, err := s.resolveIframeChannel(ctx, acc, integration, transport, channelID)
 		if err != nil {
 			return nil, err
 		}
@@ -188,8 +200,8 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		companyID = ownerUserID
 	}
 	wazzupUserID := wazzupUserIDFor(companyID, ownerUserID)
-	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
-	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
+	apiKey := s.apiKeyFor(acc, integration)
+	if err := acc.Client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: wazzupUserID, Name: name}}); err != nil {
 		log.Printf("integration=wazzup operation=iframe_upsert_users status=failed owner_user_id=%d err=%v", ownerUserID, err)
 		return nil, fmt.Errorf("%w: %v", ErrUsersSync, ErrUpstream)
 	}
@@ -211,7 +223,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		}
 		// 2) Fallback: первый активный канал транспорта (старое поведение).
 		if acChannelID == "" {
-			if ch, rerr := s.resolveIframeChannel(ctx, ownerUserID, integration.ID, transport, ""); rerr == nil && ch != nil {
+			if ch, rerr := s.resolveIframeChannel(ctx, acc, integration, transport, ""); rerr == nil && ch != nil {
 				acChannelID = strings.TrimSpace(ch.ExternalChannelID)
 			}
 		}
@@ -223,7 +235,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 			}
 		}
 	}
-	url, err := s.client.CreateIframe(ctx, apiKey, CreateIframeRequest{
+	url, err := acc.Client.CreateIframe(ctx, apiKey, CreateIframeRequest{
 		User:       UserUpsert{ID: wazzupUserID, Name: name},
 		Scope:      "global",
 		ActiveChat: activeChat,
@@ -233,6 +245,7 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	resp := &IframeResponse{
+		Account:   acc.Name,
 		URL:       url,
 		IframeURL: url,
 		Transport: transport,
@@ -244,10 +257,29 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 	return resp, nil
 }
 
-func (s *Service) resolveIframeChannel(ctx context.Context, ownerUserID, integrationID int, transport, channelID string) (*models.WazzupChannel, error) {
-	channels, err := s.SyncChannels(ctx, ownerUserID)
+// iframeAccount выбирает аккаунт для окна мессенджера. Переход на конкретную
+// переписку (из карточки клиента или лида) открывается в аккаунте, к номеру
+// которого относится эта переписка, — даже если пришли из другого пункта
+// меню: в чужом аккаунте её просто нет.
+func (s *Service) iframeAccount(ctx context.Context, opts IframeOptions) (*AccountConfig, *models.WazzupIntegration, error) {
+	transport := normalizeTransport(opts.Transport)
+	if chatID := strings.TrimSpace(opts.ChatID); chatID != "" && transport != "" {
+		if chID, err := s.repo.GetChatChannelID(ctx, transport, chatID); err == nil && chID != "" {
+			if acc, integration, err := s.accountOfChannel(ctx, chID); err == nil && acc != nil {
+				return acc, integration, nil
+			}
+		}
+	}
+	if strings.TrimSpace(opts.Account) != "" {
+		return s.connectedAccount(ctx, opts.Account)
+	}
+	return s.firstConnected(ctx)
+}
+
+func (s *Service) resolveIframeChannel(ctx context.Context, acc *AccountConfig, integration *models.WazzupIntegration, transport, channelID string) (*models.WazzupChannel, error) {
+	channels, err := s.syncAccountChannels(ctx, acc, integration)
 	if err != nil {
-		cached, cacheErr := s.repo.ListChannels(ctx, integrationID)
+		cached, cacheErr := s.repo.ListChannels(ctx, integration.ID)
 		if cacheErr != nil || len(cached) == 0 {
 			return nil, err
 		}
@@ -277,7 +309,7 @@ func (s *Service) GetStatus(ctx context.Context, ownerUserID int) (*models.Wazzu
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.activeIntegrationForUser(ctx, ownerUserID); err != nil {
+	if _, _, err := s.firstConnected(ctx); err != nil {
 		status.IframeAvailable = false
 		if errors.Is(err, ErrNotFound) {
 			status.Configured = false
@@ -289,18 +321,48 @@ func (s *Service) GetStatus(ctx context.Context, ownerUserID int) (*models.Wazzu
 	return status, nil
 }
 
+// SyncChannels обновляет справочник номеров всех подключённых аккаунтов и
+// возвращает их одним списком; у каждого номера указан его аккаунт. Сбой у
+// одного аккаунта не прячет номера другого.
 func (s *Service) SyncChannels(ctx context.Context, ownerUserID int) ([]models.WazzupChannel, error) {
-	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
-	if err != nil {
-		return nil, err
+	all := make([]models.WazzupChannel, 0)
+	connectedAny := false
+	var lastErr error
+	for _, acc := range s.accounts {
+		integration, err := s.connection(ctx, acc)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) || errors.Is(err, ErrDisabled) {
+				continue
+			}
+			return nil, err
+		}
+		connectedAny = true
+		channels, err := s.syncAccountChannels(ctx, acc, integration)
+		if err != nil {
+			log.Printf("integration=wazzup operation=channels_sync status=failed account=%s owner_user_id=%d err=%v", acc.Name, ownerUserID, err)
+			lastErr = err
+			continue
+		}
+		all = append(all, channels...)
 	}
-	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
-	providerChannels, err := s.client.ListChannels(ctx, apiKey)
+	if !connectedAny {
+		return nil, ErrAccountNotConnected
+	}
+	if len(all) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+	return all, nil
+}
+
+// syncAccountChannels — синхронизация номеров одного аккаунта.
+func (s *Service) syncAccountChannels(ctx context.Context, acc *AccountConfig, integration *models.WazzupIntegration) ([]models.WazzupChannel, error) {
+	apiKey := s.apiKeyFor(acc, integration)
+	providerChannels, err := acc.Client.ListChannels(ctx, apiKey)
 	if err != nil {
-		log.Printf("integration=wazzup operation=channels_sync status=failed owner_user_id=%d err=%v", ownerUserID, err)
+		log.Printf("integration=wazzup operation=channels_sync status=failed account=%s err=%v", acc.Name, err)
 		cached, cacheErr := s.repo.ListChannels(ctx, integration.ID)
 		if cacheErr == nil && len(cached) > 0 {
-			return cached, nil
+			return withAccount(cached, acc.Name), nil
 		}
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
@@ -346,19 +408,27 @@ func (s *Service) SyncChannels(ctx context.Context, ownerUserID int) ([]models.W
 	// Роли на каналах: без них сотрудник видит в мессенджере «Нет доступа к
 	// чатам». Новый канал приходит без ролей, поэтому раздаём их здесь же —
 	// на каждой синхронизации, а не однократно при настройке.
-	s.syncUserRoles(ctx, apiKey, stored)
-	return stored, nil
+	s.syncUserRoles(ctx, acc, apiKey, stored)
+	return withAccount(stored, acc.Name), nil
+}
+
+// withAccount помечает номера их аккаунтом — интерфейс группирует по нему.
+func withAccount(channels []models.WazzupChannel, account string) []models.WazzupChannel {
+	for i := range channels {
+		channels[i].Account = account
+	}
+	return channels
 }
 
 func (s *Service) ListDialogs(ctx context.Context, userID int, transport string) ([]models.WazzupDialog, error) {
-	if _, err := s.activeIntegrationForUser(ctx, userID); err != nil {
+	if _, _, err := s.firstConnected(ctx); err != nil {
 		return nil, err
 	}
 	return s.repo.ListExternalDialogs(ctx, userID, normalizeTransport(transport))
 }
 
 func (s *Service) ListDialogMessages(ctx context.Context, userID, dialogID, limit, offset int) ([]models.WazzupDialogMessage, error) {
-	if _, err := s.activeIntegrationForUser(ctx, userID); err != nil {
+	if _, _, err := s.firstConnected(ctx); err != nil {
 		return nil, err
 	}
 	dialog, err := s.repo.GetExternalDialog(ctx, userID, dialogID)
@@ -594,9 +664,16 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 }
 
 func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*SendMessageResponse, error) {
-	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
+	// Писать нужно через аккаунт того номера, с которого отправляем: чужой
+	// аккаунт о таком канале не знает и отправку отклонит.
+	acc, integration, err := s.accountOfChannel(ctx, channelID)
 	if err != nil {
 		return nil, err
+	}
+	if acc == nil {
+		if acc, integration, err = s.firstConnected(ctx); err != nil {
+			return nil, err
+		}
 	}
 	transport = normalizeTransport(transport)
 	if transport == "" {
@@ -608,16 +685,16 @@ func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, tran
 	if channelID == "" {
 		channelID = s.resolveSendChannel(ctx, integration.ID, transport)
 	}
-	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
+	apiKey := s.apiKeyFor(acc, integration)
 	req := SendMessageRequest{
 		ChannelID: channelID,
 		ChatType:  transport,
 		ChatID:    strings.TrimSpace(chatID),
 		Text:      strings.TrimSpace(text),
 		// Автор — тот, кто реально пишет из CRM, а не владелец интеграции.
-		CRMUserID: s.ensureWazzupUser(ctx, apiKey, ownerUserID),
+		CRMUserID: s.ensureWazzupUser(ctx, acc, apiKey, ownerUserID),
 	}
-	resp, err := s.sendWithAuthor(ctx, apiKey, req)
+	resp, err := s.sendWithAuthor(ctx, acc, apiKey, req)
 	if err != nil {
 		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d transport=%s target_chat=%s err=%v", ownerUserID, transport, maskChatID(chatID), err)
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
@@ -647,7 +724,7 @@ func wazzupUserIDFor(companyID, userID int) string {
 //
 // Ошибку синхронизации не пробрасываем: подпись автора не повод не отправить
 // сообщение клиенту — вернём пустой id и уйдём прежним путём.
-func (s *Service) ensureWazzupUser(ctx context.Context, apiKey string, userID int) string {
+func (s *Service) ensureWazzupUser(ctx context.Context, acc *AccountConfig, apiKey string, userID int) string {
 	id := wazzupUserIDFor(0, userID)
 	if id == "" {
 		return ""
@@ -659,7 +736,7 @@ func (s *Service) ensureWazzupUser(ctx context.Context, apiKey string, userID in
 	if name == "" {
 		name = fmt.Sprintf("User %d", userID)
 	}
-	if err := s.client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: id, Name: name}}); err != nil {
+	if err := acc.Client.UpsertUsers(ctx, apiKey, []UserUpsert{{ID: id, Name: name}}); err != nil {
 		log.Printf("integration=wazzup operation=send_upsert_user status=failed user_id=%d err=%v", userID, err)
 		return ""
 	}
@@ -669,8 +746,8 @@ func (s *Service) ensureWazzupUser(ctx context.Context, apiKey string, userID in
 // sendWithAuthor отправляет сообщение от имени сотрудника и, если провайдер не
 // принял автора, повторяет отправку без crmUserId. Клиент должен получить
 // сообщение даже тогда, когда Wazzup не знает такого пользователя.
-func (s *Service) sendWithAuthor(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
-	resp, err := s.client.SendMessage(ctx, apiKey, req)
+func (s *Service) sendWithAuthor(ctx context.Context, acc *AccountConfig, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
+	resp, err := acc.Client.SendMessage(ctx, apiKey, req)
 	if err == nil || req.CRMUserID == "" {
 		return resp, err
 	}
@@ -679,7 +756,7 @@ func (s *Service) sendWithAuthor(ctx context.Context, apiKey string, req SendMes
 	}
 	log.Printf("integration=wazzup operation=send_message status=retry_without_author err=%v", err)
 	req.CRMUserID = ""
-	return s.client.SendMessage(ctx, apiKey, req)
+	return acc.Client.SendMessage(ctx, apiKey, req)
 }
 
 // mentionsCRMUser — провайдер отказал именно из-за автора сообщения.
@@ -710,16 +787,22 @@ func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, t
 	if text == "" {
 		return nil, fmt.Errorf("%w: text is required", ErrBadRequest)
 	}
-	integration, err := s.activeIntegrationForUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 	dialog, err := s.repo.GetExternalDialog(ctx, userID, dialogID)
 	if err != nil {
 		return nil, err
 	}
 	if dialog == nil {
 		return nil, ErrNotFound
+	}
+	// Ответ уходит через аккаунт номера, на который писал клиент.
+	acc, integration, err := s.accountOfChannel(ctx, dialog.ExternalChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if acc == nil {
+		if acc, integration, err = s.firstConnected(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(dialog.ExternalChatID) == "" {
 		return nil, fmt.Errorf("%w: external chat id is required", ErrBadRequest)
@@ -729,13 +812,13 @@ func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, t
 		return nil, fmt.Errorf("%w: channel id is required", ErrBadRequest)
 	}
 
-	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
-	resp, err := s.sendWithAuthor(ctx, apiKey, SendMessageRequest{
+	apiKey := s.apiKeyFor(acc, integration)
+	resp, err := s.sendWithAuthor(ctx, acc, apiKey, SendMessageRequest{
 		ChannelID: channelID,
 		ChatType:  normalizeTransport(dialog.Transport),
 		ChatID:    dialog.ExternalChatID,
 		Text:      text,
-		CRMUserID: s.ensureWazzupUser(ctx, apiKey, userID),
+		CRMUserID: s.ensureWazzupUser(ctx, acc, apiKey, userID),
 	})
 	if err != nil {
 		log.Printf("integration=wazzup operation=dialog_send status=failed user_id=%d dialog_id=%d transport=%s err=%v", userID, dialogID, dialog.Transport, err)
@@ -776,35 +859,6 @@ func (s *Service) SendDialogMessage(ctx context.Context, userID, dialogID int, t
 	}
 	log.Printf("integration=wazzup operation=dialog_send status=ok user_id=%d dialog_id=%d transport=%s message_id=%s", userID, dialogID, dialog.Transport, tokenPrefix(resp.MessageID))
 	return saved, nil
-}
-
-func (s *Service) activeIntegrationForUser(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error) {
-	integration, err := s.repo.GetIntegrationByOwnerUserID(ctx, ownerUserID)
-	if err != nil {
-		return nil, err
-	}
-	if integration != nil && integration.Enabled {
-		return integration, nil
-	}
-
-	shared, err := s.repo.GetAnyEnabledIntegration(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if shared != nil {
-		return shared, nil
-	}
-	if integration != nil {
-		return nil, ErrDisabled
-	}
-	return nil, ErrNotFound
-}
-
-func (s *Service) resolveAPIKey(saved string) string {
-	if strings.TrimSpace(s.defaultAPIToken) != "" {
-		return s.defaultAPIToken
-	}
-	return strings.TrimSpace(saved)
 }
 
 func maskChatID(chatID string) string {
@@ -996,30 +1050,23 @@ func keyPrefix(value string) string {
 // v3 удаления в API нет (ErrChannelDeleteUnsupported) — тогда чистим только
 // строку в CRM, как и прежде, а канал нужно отключить в кабинете Wazzup.
 func (s *Service) DeleteChannel(ctx context.Context, ownerUserID int, channelID int64) (providerDeleted bool, err error) {
-	integration, err := s.activeIntegrationForUser(ctx, ownerUserID)
-	if err != nil {
-		return false, err
-	}
-	channels, err := s.repo.ListChannels(ctx, integration.ID)
+	acc, integration, channel, err := s.accountOfChannelRow(ctx, channelID)
 	if err != nil {
 		return false, err
 	}
 	externalID := ""
-	for _, ch := range channels {
-		if ch.ID == channelID {
-			externalID = strings.TrimSpace(ch.ExternalChannelID)
-			break
-		}
+	if channel != nil {
+		externalID = strings.TrimSpace(channel.ExternalChannelID)
 	}
-	if externalID == "" {
+	if acc == nil || externalID == "" {
 		// Канала нет среди актуальных: строка осталась от прежней интеграции —
 		// просто убираем её.
 		return false, s.repo.DeleteChannel(ctx, channelID)
 	}
 
-	apiKey := s.resolveAPIKey(integration.APIKeyEnc)
+	apiKey := s.apiKeyFor(acc, integration)
 	// delete_chats=false: переписку сохраняем, удаляем только сам канал.
-	switch err := s.client.DeleteChannel(ctx, apiKey, externalID, false); {
+	switch err := acc.Client.DeleteChannel(ctx, apiKey, externalID, false); {
 	case err == nil:
 		providerDeleted = true
 	case errors.Is(err, ErrChannelDeleteUnsupported):
@@ -1067,7 +1114,7 @@ func wazzupRoleFor(roleID int) string {
 //
 // Вызывается после синхронизации каналов и работает по принципу «лучшее
 // усилие»: ошибка логируется, но не роняет выдачу списка каналов.
-func (s *Service) syncUserRoles(ctx context.Context, apiKey string, channels []models.WazzupChannel) {
+func (s *Service) syncUserRoles(ctx context.Context, acc *AccountConfig, apiKey string, channels []models.WazzupChannel) {
 	if len(channels) == 0 {
 		return
 	}
@@ -1103,7 +1150,7 @@ func (s *Service) syncUserRoles(ctx context.Context, apiKey string, channels []m
 		return
 	}
 
-	switch err := s.client.SyncUserRoles(ctx, apiKey, roles); {
+	switch err := acc.Client.SyncUserRoles(ctx, apiKey, roles); {
 	case err == nil:
 		log.Printf("integration=wazzup operation=user_roles status=ok users=%d channels=%d", len(users), len(channels))
 	case errors.Is(err, ErrUserRolesUnsupported):

@@ -23,8 +23,11 @@ CREATE INDEX IF NOT EXISTS wazzup_integrations_owner_user_idx
     ON wazzup_integrations(owner_user_id);
 
 
-CREATE UNIQUE INDEX IF NOT EXISTS wazzup_integrations_owner_user_uq
-    ON wazzup_integrations(owner_user_id);
+-- Уникальный индекс по owner_user_id здесь больше не создаётся: подключение
+-- теперь одно на аккаунт Wazzup (основной и дочерний), и один админ может
+-- подключить оба (миграция 083). Миграции перезапускаются при каждом деплое,
+-- поэтому оставь его здесь — и 013 падала бы на двух подключениях одного
+-- владельца, срывая весь деплой.
 
 CREATE INDEX IF NOT EXISTS wazzup_integrations_enabled_idx
     ON wazzup_integrations(enabled);

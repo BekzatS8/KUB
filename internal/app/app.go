@@ -443,24 +443,13 @@ func Run() {
 			Scope:     cfg.Wazzup.WLScope,
 		}, wazzupTimeout)
 
-		// Выбор драйвера: partner — вся работа идёт под дочерним аккаунтом
-		// через tech.wazzup24.com/v2; иначе — User API v3 со статическим токеном.
-		usePartner := cfg.Wazzup.IsPartnerDriver()
-		if usePartner && !wlClient.Configured() {
-			log.Printf("[BOOT] Wazzup driver=partner requested, but White Label credentials are incomplete — falling back to v3")
-			usePartner = false
-		}
-		var wazzupClient wazzupintegration.Client
-		if usePartner {
-			wazzupClient = wazzupintegration.NewPartnerClient(
-				cfg.Wazzup.WLBaseURL,
-				wlClient,
-				wazzupTimeout,
-				cfg.Wazzup.RetryCount,
-				wazzupRetryDelay,
-			)
-		} else {
-			wazzupClient = wazzupintegration.NewHTTPClient(
+		// Аккаунты Wazzup работают одновременно:
+		//   main  — основной, User API по статическому WAZZUP_API_TOKEN;
+		//   child — дочерний White Label, Tech Partner API по доступам WAZZUP_WL_*.
+		// Каждый регистрируется, если для него заданы доступы.
+		var mainClient wazzupintegration.Client
+		if strings.TrimSpace(cfg.Wazzup.APIToken) != "" {
+			mainClient = wazzupintegration.NewHTTPClient(
 				cfg.Wazzup.APIBaseURL,
 				wazzupTimeout,
 				cfg.Wazzup.RetryCount,
@@ -469,22 +458,46 @@ func Run() {
 		}
 		wazzupService := wazzupintegration.NewService(
 			wazzupRepo,
-			wazzupClient,
+			mainClient,
 			cfg.Wazzup.APIToken,
 			cfg.Wazzup.ChannelID,
 			cfg.Wazzup.WebhookVerifyToken,
 			cfg.Wazzup.WebhookBaseURL,
 		)
-		wazzupService.SetPartnerDriver(usePartner)
+		if wlClient.Configured() {
+			wazzupService.RegisterAccount(wazzupintegration.AccountConfig{
+				Name:  wazzupintegration.AccountChild,
+				Title: "Дочерний аккаунт",
+				Client: wazzupintegration.NewPartnerClient(
+					cfg.Wazzup.WLBaseURL,
+					wlClient,
+					wazzupTimeout,
+					cfg.Wazzup.RetryCount,
+					wazzupRetryDelay,
+				),
+				Partner: true,
+			})
+		}
+
+		// Подключение, созданное до появления аккаунтов, закрепляется за тем
+		// аккаунтом, который работал до обновления (его выбирал WAZZUP_DRIVER):
+		// те же каналы, филиалы и webhook-токен — ничего не нужно настраивать
+		// заново. Второй аккаунт подключается кнопкой в настройках каналов.
+		legacyAccount := wazzupintegration.AccountMain
+		if cfg.Wazzup.IsPartnerDriver() && wlClient.Configured() {
+			legacyAccount = wazzupintegration.AccountChild
+		}
+		if adoptedID, err := wazzupService.AdoptLegacy(context.Background(), legacyAccount); err != nil {
+			log.Printf("[BOOT] Wazzup: не удалось закрепить прежнее подключение за аккаунтом %s: %v", legacyAccount, err)
+		} else if adoptedID > 0 {
+			log.Printf("[BOOT] Wazzup: прежнее подключение id=%d закреплено за аккаунтом %s", adoptedID, legacyAccount)
+		}
+
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
-		driverName, apiBase := "v3", cfg.Wazzup.APIBaseURL
-		if usePartner {
-			driverName, apiBase = "partner", wlClient.BaseURL()
-		}
-		log.Printf("[BOOT] Wazzup integration enabled driver=%s base_url=%s timeout_s=%d retries=%d white_label=%t account_id=%s",
-			driverName, apiBase, cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, wlClient.Configured(), cfg.Wazzup.WLAccountID)
+		log.Printf("[BOOT] Wazzup integration enabled accounts: main=%t child=%t timeout_s=%d retries=%d wl_account_id=%s",
+			mainClient != nil, wlClient.Configured(), cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, cfg.Wazzup.WLAccountID)
 	} else {
 		log.Printf("[BOOT] Wazzup integration disabled")
 	}

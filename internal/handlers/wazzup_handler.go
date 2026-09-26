@@ -19,7 +19,8 @@ import (
 )
 
 type WazzupService interface {
-	Setup(ctx context.Context, ownerUserID int, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error)
+	Setup(ctx context.Context, ownerUserID int, account, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error)
+	Accounts(ctx context.Context) ([]wz.AccountInfo, error)
 	GetIframeURL(ctx context.Context, ownerUserID int, companyID int, userName string) (string, error)
 	GetIframe(ctx context.Context, ownerUserID int, companyID int, userName string, opts wz.IframeOptions) (*wz.IframeResponse, error)
 	GetStatus(ctx context.Context, ownerUserID int) (*models.WazzupStatus, error)
@@ -52,11 +53,16 @@ func (h *WazzupHandler) SetWhiteLabel(wl *wz.WhiteLabelClient) {
 }
 
 type wazzupSetupRequest struct {
+	// Account — какой аккаунт подключить: main (основной) или child
+	// (дочерний). Пусто — основной, как раньше.
+	Account         string `json:"account"`
 	WebhooksBaseURL string `json:"webhooks_base_url"`
 	Enabled         bool   `json:"enabled"`
 }
 
 type wazzupIframeRequest struct {
+	// Account — чей мессенджер открыть (main | child).
+	Account   string `json:"account"`
 	Transport string `json:"transport"`
 	ChannelID string `json:"channel_id"`
 	// ChatID — открыть iframe сразу на этой переписке (deep-link). Для WhatsApp
@@ -125,13 +131,15 @@ func (h *WazzupHandler) Setup(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	resp, err := h.svc.Setup(ctx, userID, req.WebhooksBaseURL, req.Enabled)
+	resp, err := h.svc.Setup(ctx, userID, req.Account, req.WebhooksBaseURL, req.Enabled)
 	if err != nil {
 		log.Printf("[WAZZUP][setup] user_id=%d base_url=%q enabled=%v err=%v", userID, req.WebhooksBaseURL, req.Enabled, err)
 		if errors.Is(err, wz.ErrUpstream) {
 			log.Printf("[WAZZUP][setup] upstream_error=%v", err)
 		}
 		switch {
+		case errors.Is(err, wz.ErrAccountNotConfigured):
+			notFound(c, "wazzup_account_not_configured", "Аккаунт Wazzup не настроен на сервере")
 		case errors.Is(err, wz.ErrBadRequest):
 			badRequest(c, err.Error())
 		case errors.Is(err, wz.ErrUpstream):
@@ -195,6 +203,7 @@ func (h *WazzupHandler) Iframe(c *gin.Context) {
 	}
 
 	resp, err := h.svc.GetIframe(ctx, userID, companyID, userName, wz.IframeOptions{
+		Account:   req.Account,
 		Transport: req.Transport,
 		ChannelID: req.ChannelID,
 		ChatID:    req.ChatID,
@@ -559,6 +568,10 @@ func (h *WazzupHandler) CRMUserByID(c *gin.Context) {
 
 func writeWazzupError(c *gin.Context, err error, fallback string) {
 	switch {
+	case errors.Is(err, wz.ErrAccountNotConnected):
+		notFound(c, "wazzup_account_not_connected", "Аккаунт Wazzup не подключён — нажмите «Подключить» в настройках каналов мессенджера")
+	case errors.Is(err, wz.ErrAccountNotConfigured):
+		notFound(c, "wazzup_account_not_configured", "Аккаунт Wazzup не настроен на сервере")
 	case errors.Is(err, wz.ErrBadRequest):
 		badRequest(c, err.Error())
 	case errors.Is(err, wz.ErrUnauthorized):
@@ -583,4 +596,30 @@ func tokenPrefix(token string) string {
 		return ""
 	}
 	return t + "***"
+}
+
+// GET /integrations/wazzup/accounts — аккаунты Wazzup и их состояние.
+//
+// can_add_channels — можно ли добавлять номера прямо из CRM (встроенное окно
+// White Label). Это доступно только дочернему аккаунту; номера основного
+// подключаются в кабинете Wazzup.
+func (h *WazzupHandler) Accounts(c *gin.Context) {
+	accounts, err := h.svc.Accounts(c.Request.Context())
+	if err != nil {
+		writeWazzupError(c, err, "failed to list wazzup accounts")
+		return
+	}
+	items := make([]gin.H, 0, len(accounts))
+	for _, a := range accounts {
+		items = append(items, gin.H{
+			"account":          a.Account,
+			"title":            a.Title,
+			"partner":          a.Partner,
+			"connected":        a.Connected,
+			"enabled":          a.Enabled,
+			"webhook_url":      a.WebhookURL,
+			"can_add_channels": a.Partner && h.wl != nil && h.wl.Configured(),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }

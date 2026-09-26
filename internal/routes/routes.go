@@ -201,6 +201,8 @@ func SetupRoutes(
 		wazzup := r.Group("/integrations/wazzup", middleware.RequirePermission("messenger.view", "messenger"))
 		{
 			wazzup.GET("/status", wazzupHandler.Status)
+			// Аккаунты Wazzup (основной и дочерний) и их состояние — для меню и настроек.
+			wazzup.GET("/accounts", wazzupHandler.Accounts)
 			wazzup.GET("/channels", wazzupHandler.Channels)
 			// Привязка канала к филиалу (админ/руководство) — enforced в хендлере.
 			wazzup.PATCH("/channels/:id/branch", wazzupHandler.SetChannelBranch)

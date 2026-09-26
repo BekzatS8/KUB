@@ -68,11 +68,12 @@ type WazzupConfig struct {
 	RetryCount         int    `yaml:"retry_count"`
 	RetryDelayMS       int    `yaml:"retry_delay_ms"`
 
-	// Driver выбирает, под каким аккаунтом работает CRM:
-	//   "v3" (по умолчанию) — User API api.wazzup24.com со статическим api_token;
-	//   "partner"           — Tech Partner API tech.wazzup24.com под дочерним
-	//                         White Label аккаунтом (api_token не нужен).
-	// Требует заполненных wl_* — иначе происходит откат на "v3".
+	// Driver — какой аккаунт работал до появления двух аккаунтов одновременно:
+	//   "v3" (по умолчанию) — основной (User API, api_token);
+	//   "partner"           — дочерний White Label (Tech Partner API, wl_*).
+	// Теперь оба аккаунта работают рядом, если заданы их доступы. Driver нужен
+	// только при первом запуске новой версии: прежнее подключение (каналы,
+	// филиалы, webhook-токен) закрепляется за указанным аккаунтом.
 	Driver string `yaml:"driver"`
 
 	// White Label (tech-partner): позволяет добавлять каналы прямо в CRM через
@@ -90,6 +91,13 @@ type WazzupConfig struct {
 // дочернего White Label аккаунта.
 func (w WazzupConfig) IsPartnerDriver() bool {
 	return strings.EqualFold(strings.TrimSpace(w.Driver), "partner")
+}
+
+// HasWhiteLabel — заданы доступы дочернего White Label аккаунта.
+func (w WazzupConfig) HasWhiteLabel() bool {
+	return strings.TrimSpace(w.WLEmail) != "" &&
+		strings.TrimSpace(w.WLPassword) != "" &&
+		strings.TrimSpace(w.WLAccountID) != ""
 }
 
 // DriveConfig — раздел «Хранилище».
@@ -335,8 +343,10 @@ func (cfg *Config) Validate() error {
 					return fmt.Errorf("%s is required when wazzup.driver=partner", name)
 				}
 			}
-		} else if strings.TrimSpace(cfg.Wazzup.APIToken) == "" {
-			return fmt.Errorf("wazzup.api_token is required when wazzup.enable=true")
+		} else if strings.TrimSpace(cfg.Wazzup.APIToken) == "" && !cfg.Wazzup.HasWhiteLabel() {
+			// Аккаунты работают одновременно: достаточно, чтобы был настроен
+			// хотя бы один — основной (api_token) или дочерний (wl_*).
+			return fmt.Errorf("wazzup.api_token (основной аккаунт) или wazzup.wl_* (дочерний) обязательны при wazzup.enable=true")
 		}
 		if strings.TrimSpace(cfg.Wazzup.APIBaseURL) == "" {
 			return fmt.Errorf("wazzup.api_base_url is required when wazzup.enable=true")

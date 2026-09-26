@@ -6,8 +6,10 @@ import (
 )
 
 type WazzupChannel struct {
-	ID                int64  `json:"id"`
-	IntegrationID     int    `json:"integration_id"`
+	ID            int64 `json:"id"`
+	IntegrationID int   `json:"integration_id"`
+	// Account — какому аккаунту Wazzup принадлежит номер (main | child).
+	Account           string `json:"account,omitempty"`
 	ExternalChannelID string `json:"channel_id"`
 	Transport         string `json:"transport"`
 	Name              string `json:"name"`

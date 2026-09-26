@@ -21,9 +21,10 @@ type WazzupRepository interface {
 	GetIntegrationByToken(ctx context.Context, token string) (*models.WazzupIntegration, error)
 	ListCRMUsers(ctx context.Context) ([]CRMUserDTO, error)
 	GetCRMUserByID(ctx context.Context, id int) (*CRMUserDTO, error)
-	GetIntegrationByOwnerUserID(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error)
-	GetAnyEnabledIntegration(ctx context.Context) (*models.WazzupIntegration, error)
-	UpsertIntegrationByOwner(ctx context.Context, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (integrationID int, webhookToken string, err error)
+	// Подключение одно на аккаунт Wazzup (main — основной, child — дочерний).
+	GetIntegrationByAccount(ctx context.Context, account string) (*models.WazzupIntegration, error)
+	UpsertIntegrationByAccount(ctx context.Context, account string, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (integrationID int, webhookToken string, err error)
+	AdoptLegacyIntegration(ctx context.Context, account string) (integrationID int, err error)
 	GetStatus(ctx context.Context) (*models.WazzupStatus, error)
 	UpsertChannels(ctx context.Context, integrationID int, channels []models.WazzupChannel) error
 	ListChannels(ctx context.Context, integrationID int) ([]models.WazzupChannel, error)
@@ -100,7 +101,7 @@ func NewWazzupRepository(db *sql.DB) WazzupRepository {
 
 func (r *wazzupRepository) GetIntegrationByToken(ctx context.Context, token string) (*models.WazzupIntegration, error) {
 	const q = `
-		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at
+		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at, COALESCE(account, '')
 		FROM wazzup_integrations
 		WHERE webhook_token = $1
 	`
@@ -108,27 +109,13 @@ func (r *wazzupRepository) GetIntegrationByToken(ctx context.Context, token stri
 	return scanWazzupIntegration(row)
 }
 
-func (r *wazzupRepository) GetIntegrationByOwnerUserID(ctx context.Context, ownerUserID int) (*models.WazzupIntegration, error) {
+func (r *wazzupRepository) GetIntegrationByAccount(ctx context.Context, account string) (*models.WazzupIntegration, error) {
 	const q = `
-		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at
+		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at, COALESCE(account, '')
 		FROM wazzup_integrations
-		WHERE owner_user_id = $1
-		ORDER BY id
-		LIMIT 1
+		WHERE account = $1
 	`
-	row := r.db.QueryRowContext(ctx, q, ownerUserID)
-	return scanWazzupIntegration(row)
-}
-
-func (r *wazzupRepository) GetAnyEnabledIntegration(ctx context.Context) (*models.WazzupIntegration, error) {
-	const q = `
-		SELECT id, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, COALESCE(webhooks_uri, ''), created_at, updated_at
-		FROM wazzup_integrations
-		WHERE enabled = TRUE
-		ORDER BY updated_at DESC, id DESC
-		LIMIT 1
-	`
-	row := r.db.QueryRowContext(ctx, q)
+	row := r.db.QueryRowContext(ctx, q, strings.TrimSpace(account))
 	return scanWazzupIntegration(row)
 }
 
@@ -214,76 +201,77 @@ func (r *wazzupRepository) crmUserNameExpr(ctx context.Context) (string, error) 
 	return fmt.Sprintf("COALESCE(NULLIF(BTRIM(%s), ''), %s)", col, fioExpr), nil
 }
 
-func (r *wazzupRepository) UpsertIntegrationByOwner(ctx context.Context, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (integrationID int, webhookToken string, err error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+// UpsertIntegrationByAccount создаёт или обновляет подключение аккаунта.
+//
+// Webhook-токен при обновлении сохраняется: он входит в URL, на который
+// Wazzup шлёт вебхуки, и смена токена молча отрезала бы входящие.
+// owner_user_id тоже не перезаписывается — это «кто подключил», от него
+// зависит филиал входящего лида по умолчанию, и он не должен меняться от того,
+// какой админ последним нажал «Подключить».
+func (r *wazzupRepository) UpsertIntegrationByAccount(ctx context.Context, account string, ownerUserID int, apiKeyEnc, crmKeyHash, webhooksURI string, enabled bool) (int, string, error) {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return 0, "", fmt.Errorf("upsert integration: account is required")
+	}
+	newToken, err := newWebhookToken()
 	if err != nil {
-		return 0, "", fmt.Errorf("begin tx: %w", err)
+		return 0, "", err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	const q = `
+		INSERT INTO wazzup_integrations (account, owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, webhooks_uri)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
+		ON CONFLICT (account) WHERE account IS NOT NULL DO UPDATE
+		SET api_key_enc  = EXCLUDED.api_key_enc,
+		    crm_key_hash = EXCLUDED.crm_key_hash,
+		    enabled      = EXCLUDED.enabled,
+		    webhooks_uri = COALESCE(EXCLUDED.webhooks_uri, wazzup_integrations.webhooks_uri),
+		    updated_at   = NOW()
+		RETURNING id, webhook_token
+	`
+	var (
+		id    int
+		token string
+	)
+	if err := r.db.QueryRowContext(ctx, q, account, ownerUserID, apiKeyEnc, crmKeyHash, newToken, enabled, strings.TrimSpace(webhooksURI)).Scan(&id, &token); err != nil {
+		return 0, "", fmt.Errorf("upsert integration: %w", err)
+	}
+	return id, token, nil
+}
 
-	const findQ = `SELECT id, webhook_token FROM wazzup_integrations WHERE owner_user_id = $1 ORDER BY id LIMIT 1`
+// AdoptLegacyIntegration закрепляет за аккаунтом подключение, созданное до
+// появления аккаунтов (account IS NULL).
+//
+// Берётся то, что система реально использовала: включённое и обновлявшееся
+// последним — ровно его раньше выбирал фоллбэк «любое включённое». Так после
+// обновления текущий аккаунт продолжает работать без изменений: те же каналы,
+// привязки к филиалам и тот же webhook-токен, на который уже шлёт Wazzup.
+// Если за аккаунтом уже есть подключение — ничего не делает. Возвращает id
+// закреплённого подключения или 0.
+func (r *wazzupRepository) AdoptLegacyIntegration(ctx context.Context, account string) (int, error) {
+	const q = `
+		UPDATE wazzup_integrations
+		SET account = $1
+		WHERE id = (
+		    SELECT id FROM wazzup_integrations
+		    WHERE account IS NULL AND enabled = TRUE
+		    ORDER BY updated_at DESC, id DESC
+		    LIMIT 1
+		)
+		  AND NOT EXISTS (SELECT 1 FROM wazzup_integrations WHERE account = $1)
+		RETURNING id
+	`
 	var id int
-	var token string
-	findErr := tx.QueryRowContext(ctx, findQ, ownerUserID).Scan(&id, &token)
+	err := r.db.QueryRowContext(ctx, q, strings.TrimSpace(account)).Scan(&id)
 	switch {
-	case findErr == nil:
-		const updQ = `
-			UPDATE wazzup_integrations
-			SET api_key_enc = $1,
-			    crm_key_hash = $2,
-			    webhooks_uri = NULLIF($3, ''),
-			    enabled = $4,
-			    updated_at = NOW()
-			WHERE id = $5
-		`
-		if _, err = tx.ExecContext(ctx, updQ, apiKeyEnc, crmKeyHash, strings.TrimSpace(webhooksURI), enabled, id); err != nil {
-			return 0, "", fmt.Errorf("update integration: %w", err)
-		}
-		if err = tx.Commit(); err != nil {
-			return 0, "", fmt.Errorf("commit tx: %w", err)
-		}
-		return id, token, nil
-	case errors.Is(findErr, sql.ErrNoRows):
-		newToken, tokenErr := newWebhookToken()
-		if tokenErr != nil {
-			return 0, "", tokenErr
-		}
-		const insQ = `
-			INSERT INTO wazzup_integrations (owner_user_id, api_key_enc, crm_key_hash, webhook_token, enabled, webhooks_uri)
-			VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
-			RETURNING id, webhook_token
-		`
-		if err = tx.QueryRowContext(ctx, insQ, ownerUserID, apiKeyEnc, crmKeyHash, newToken, enabled, strings.TrimSpace(webhooksURI)).Scan(&id, &token); err != nil {
-			if !IsSQLState(err, SQLStateUniqueViolation) {
-				return 0, "", fmt.Errorf("insert integration: %w", err)
-			}
-			if scanErr := tx.QueryRowContext(ctx, findQ, ownerUserID).Scan(&id, &token); scanErr != nil {
-				return 0, "", fmt.Errorf("re-select integration after unique violation: %w", scanErr)
-			}
-			const updQ = `
-				UPDATE wazzup_integrations
-				SET api_key_enc = $1,
-				    crm_key_hash = $2,
-				    webhooks_uri = NULLIF($3, ''),
-				    enabled = $4,
-				    updated_at = NOW()
-				WHERE id = $5
-			`
-			if _, execErr := tx.ExecContext(ctx, updQ, apiKeyEnc, crmKeyHash, strings.TrimSpace(webhooksURI), enabled, id); execErr != nil {
-				return 0, "", fmt.Errorf("update integration after unique violation: %w", execErr)
-			}
-		}
-		if err = tx.Commit(); err != nil {
-			return 0, "", fmt.Errorf("commit tx: %w", err)
-		}
-		return id, token, nil
-	default:
-		return 0, "", fmt.Errorf("find integration by owner: %w", findErr)
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, nil
+	case IsSQLState(err, SQLStateUniqueViolation):
+		// Параллельный старт второго экземпляра уже закрепил — это не ошибка.
+		return 0, nil
+	case err != nil:
+		return 0, fmt.Errorf("adopt legacy integration: %w", err)
 	}
+	return id, nil
 }
 
 func (r *wazzupRepository) GetStatus(ctx context.Context) (*models.WazzupStatus, error) {
@@ -1347,6 +1335,7 @@ func scanWazzupIntegration(scanner interface{ Scan(dest ...any) error }) (*model
 		&integration.WebhooksURI,
 		&integration.CreatedAt,
 		&integration.UpdatedAt,
+		&integration.Account,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
