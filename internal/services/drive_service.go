@@ -109,6 +109,9 @@ type DriveConfig struct {
 	// Office — предпросмотр doc/xls/ppt через конвертацию LibreOffice в PDF.
 	OfficeEnabled bool
 	OfficeBinary  string
+	// PublicAPIURL — адрес API из интернета (https://api.kubcrm.kz): по нему
+	// мессенджер скачивает отправленный файл.
+	PublicAPIURL string
 }
 
 type DriveService struct {
@@ -120,6 +123,10 @@ type DriveService struct {
 	// Один документ не конвертируем параллельно дважды: второй запрос ждёт и
 	// берёт готовый PDF из кэша.
 	convertLocks sync.Map // map[int64]*sync.Mutex
+
+	// «Отправить»: мессенджер CRM и почта (drive_ops.go). Могут быть nil.
+	messenger DriveMessenger
+	mailer    DriveMailer
 }
 
 func NewDriveService(repo repositories.DriveRepository, store storage.Storage, cfg DriveConfig) *DriveService {

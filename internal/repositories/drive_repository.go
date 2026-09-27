@@ -27,6 +27,11 @@ type DriveRepository interface {
 	GetNode(ctx context.Context, id int64) (*models.DriveNode, error)
 	ListChildren(ctx context.Context, parentID *int64) ([]models.DriveNode, error)
 	RenameNode(ctx context.Context, id int64, name string) error
+	// Перемещение, копирование и свойства (drive_ops_repository.go).
+	MoveNode(ctx context.Context, id int64, parentID *int64, name string) error
+	IsWithin(ctx context.Context, nodeID, ancestorID int64) (bool, error)
+	Subtree(ctx context.Context, id int64) ([]DriveSubtreeNode, error)
+	FolderStats(ctx context.Context, id int64) (*DriveFolderStats, error)
 	DeleteNode(ctx context.Context, id int64) ([]DeletedDriveObject, error)
 	Ancestors(ctx context.Context, id int64, userID int) ([]DriveAncestor, error)
 	CanAccess(ctx context.Context, nodeID int64, userID int) (bool, error)

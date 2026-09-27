@@ -79,6 +79,14 @@ type SendMessageRequest struct {
 	// автором саму интеграцию и подписывает сообщение «API • Admin», хотя писал
 	// менеджер (обратная связь заказчика 18.09.2026).
 	CRMUserID string `json:"crmUserId,omitempty"`
+	// ContentURI — файл по прямой ссылке: провайдер скачивает его сам и
+	// отправляет вложением. Вместо текста, а не вместе с ним.
+	ContentURI string `json:"contentUri,omitempty"`
+	// Имя, тип и размер файла — для партнёрского API (attachment); v3 берёт
+	// их из ответа по ссылке.
+	FileName string `json:"-"`
+	FileMime string `json:"-"`
+	FileSize int64  `json:"-"`
 }
 
 type SendMessageResponse struct {
@@ -192,8 +200,13 @@ func (c *HTTPClient) ListChannels(ctx context.Context, apiKey string) ([]Channel
 func (c *HTTPClient) SendMessage(ctx context.Context, apiKey string, req SendMessageRequest) (*SendMessageResponse, error) {
 	req.ChatID = strings.TrimSpace(req.ChatID)
 	req.Text = strings.TrimSpace(req.Text)
-	if req.ChatID == "" || req.Text == "" {
-		return nil, fmt.Errorf("chatId and text are required")
+	req.ContentURI = strings.TrimSpace(req.ContentURI)
+	if req.ChatID == "" || (req.Text == "" && req.ContentURI == "") {
+		return nil, fmt.Errorf("chatId and text or contentUri are required")
+	}
+	if req.ContentURI != "" {
+		// Файл отправляется отдельным сообщением без текста.
+		req.Text = ""
 	}
 	body, err := c.doJSON(ctx, http.MethodPost, "/v3/message", apiKey, req)
 	if err != nil {

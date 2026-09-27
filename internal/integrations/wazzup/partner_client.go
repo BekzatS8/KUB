@@ -257,8 +257,9 @@ func (c *PartnerClient) ListChannels(ctx context.Context, _ string) ([]Channel, 
 func (c *PartnerClient) SendMessage(ctx context.Context, _ string, req SendMessageRequest) (*SendMessageResponse, error) {
 	chatID := strings.TrimSpace(req.ChatID)
 	text := strings.TrimSpace(req.Text)
-	if chatID == "" || text == "" {
-		return nil, fmt.Errorf("chatId and text are required")
+	fileURL := strings.TrimSpace(req.ContentURI)
+	if chatID == "" || (text == "" && fileURL == "") {
+		return nil, fmt.Errorf("chatId and text or attachment are required")
 	}
 	channelID := strings.TrimSpace(req.ChannelID)
 	if channelID == "" {
@@ -272,7 +273,21 @@ func (c *PartnerClient) SendMessage(ctx context.Context, _ string, req SendMessa
 	payload := map[string]any{
 		"channel_id": channelID,
 		"recipient":  recipient,
-		"text":       text,
+	}
+	if fileURL != "" {
+		attachment := map[string]any{"url": fileURL}
+		if v := strings.TrimSpace(req.FileName); v != "" {
+			attachment["name"] = v
+		}
+		if v := strings.TrimSpace(req.FileMime); v != "" {
+			attachment["mimetype"] = v
+		}
+		if req.FileSize > 0 {
+			attachment["size"] = req.FileSize
+		}
+		payload["attachment"] = attachment
+	} else {
+		payload["text"] = text
 	}
 	if v := strings.TrimSpace(req.CRMUserID); v != "" {
 		payload["crm_user_id"] = v

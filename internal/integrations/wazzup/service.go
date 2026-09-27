@@ -687,6 +687,37 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 }
 
 func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*SendMessageResponse, error) {
+	return s.send(ctx, ownerUserID, chatID, transport, channelID, SendMessageRequest{Text: strings.TrimSpace(text)})
+}
+
+// SendFile отправляет файл по прямой ссылке (fileURL должен быть доступен
+// провайдеру из интернета) — например, из хранилища CRM.
+func (s *Service) SendFile(ctx context.Context, ownerUserID int, chatID, transport, channelID, fileURL, fileName, mimeType string, size int64) (*SendMessageResponse, error) {
+	if strings.TrimSpace(fileURL) == "" {
+		return nil, fmt.Errorf("%w: file url is required", ErrBadRequest)
+	}
+	return s.send(ctx, ownerUserID, chatID, transport, channelID, SendMessageRequest{
+		ContentURI: strings.TrimSpace(fileURL),
+		FileName:   fileName,
+		FileMime:   mimeType,
+		FileSize:   size,
+	})
+}
+
+// SendMessageText и SendFileURL — то же без ответа провайдера: так Service
+// подходит хранилищу как «отправитель» (services.DriveMessenger).
+func (s *Service) SendMessageText(ctx context.Context, userID int, chatID, transport, channelID, text string) error {
+	_, err := s.SendMessage(ctx, userID, chatID, transport, channelID, text)
+	return err
+}
+
+func (s *Service) SendFileURL(ctx context.Context, userID int, chatID, transport, channelID, fileURL, fileName, mimeType string, size int64) error {
+	_, err := s.SendFile(ctx, userID, chatID, transport, channelID, fileURL, fileName, mimeType, size)
+	return err
+}
+
+// send — общий путь отправки текста и файлов: аккаунт номера, канал, автор.
+func (s *Service) send(ctx context.Context, ownerUserID int, chatID, transport, channelID string, req SendMessageRequest) (*SendMessageResponse, error) {
 	// Писать нужно через аккаунт того номера, с которого отправляем: чужой
 	// аккаунт о таком канале не знает и отправку отклонит.
 	acc, integration, err := s.accountOfChannel(ctx, channelID)
@@ -709,14 +740,11 @@ func (s *Service) SendMessage(ctx context.Context, ownerUserID int, chatID, tran
 		channelID = s.resolveSendChannel(ctx, integration.ID, transport)
 	}
 	apiKey := s.apiKeyFor(acc, integration)
-	req := SendMessageRequest{
-		ChannelID: channelID,
-		ChatType:  transport,
-		ChatID:    strings.TrimSpace(chatID),
-		Text:      strings.TrimSpace(text),
-		// Автор — тот, кто реально пишет из CRM, а не владелец интеграции.
-		CRMUserID: s.ensureWazzupUser(ctx, acc, apiKey, ownerUserID),
-	}
+	req.ChannelID = channelID
+	req.ChatType = transport
+	req.ChatID = strings.TrimSpace(chatID)
+	// Автор — тот, кто реально пишет из CRM, а не владелец интеграции.
+	req.CRMUserID = s.ensureWazzupUser(ctx, acc, apiKey, ownerUserID)
 	resp, err := s.sendWithAuthor(ctx, acc, apiKey, req)
 	if err != nil {
 		log.Printf("integration=wazzup operation=send_message status=failed owner_user_id=%d transport=%s target_chat=%s err=%v", ownerUserID, transport, maskChatID(chatID), err)

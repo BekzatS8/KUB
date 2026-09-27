@@ -201,6 +201,8 @@ func Run() {
 		tgSvc               *services.TelegramService
 		integrationsHandler *handlers.IntegrationsHandler
 		wazzupHandler       *handlers.WazzupHandler
+		// Отправка файлов из хранилища в мессенджер — nil, если Wazzup выключен.
+		driveMessenger services.DriveMessenger
 	)
 
 	// Telephony (always initialized — webhook secret may be empty in dev)
@@ -494,6 +496,7 @@ func Run() {
 		}
 
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
+		driveMessenger = wazzupService
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
 		log.Printf("[BOOT] Wazzup integration enabled accounts: main=%t child=%t timeout_s=%d retries=%d wl_account_id=%s",
@@ -548,12 +551,25 @@ func Run() {
 	// Содержимое уходит в тот же fileStore, что и остальные файлы системы: при
 	// s3.enabled=true — в бакет S3, локальный диск только для разработки.
 	driveMaxUpload := int64(cfg.Drive.MaxUploadMB) << 20
+	// Адрес API из интернета — по нему мессенджер скачивает отправленные файлы.
+	drivePublicAPI := strings.TrimSpace(os.Getenv("API_PUBLIC_URL"))
+	if drivePublicAPI == "" {
+		drivePublicAPI = cfg.Wazzup.WebhookBaseURL
+	}
 	driveService := services.NewDriveService(repositories.NewDriveRepository(db), fileStore, services.DriveConfig{
 		MaxUploadBytes: driveMaxUpload,
 		LinkSecret:     services.DriveLinkSecret(jwtSecret),
 		OfficeEnabled:  cfg.LibreOffice.Enable,
 		OfficeBinary:   cfg.LibreOffice.Binary,
+		PublicAPIURL:   drivePublicAPI,
 	})
+	// «Отправить» из хранилища: мессенджер CRM (если Wazzup подключён) и почта.
+	if driveMessenger != nil {
+		driveService.SetMessenger(driveMessenger)
+	}
+	if mailer, ok := emailService.(services.DriveMailer); ok {
+		driveService.SetMailer(mailer)
+	}
 	driveHandler := handlers.NewDriveHandler(driveService)
 	driveBackend := "local"
 	if cfg.S3.Enabled {

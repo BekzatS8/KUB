@@ -621,6 +621,10 @@ func SetupRoutes(
 		{
 			drive.GET("/nodes", driveHandler.List)
 			drive.GET("/nodes/:id/link", driveHandler.Link)
+			drive.GET("/nodes/:id/properties", driveHandler.Properties)
+			// Отправка файлов клиенту: мессенджер CRM или почта (доступ к
+			// файлам и мессенджеру проверяются в хендлере и сервисе).
+			drive.POST("/send", driveHandler.Send)
 
 			manage := drive.Group("", middleware.RequirePermission("drive.manage", "drive"))
 			manage.POST("/folders", driveHandler.CreateFolder)
@@ -632,6 +636,8 @@ func SetupRoutes(
 			manage.DELETE("/shares/:id", driveHandler.Unshare)
 			manage.GET("/users", driveHandler.Users)
 			manage.GET("/groups", driveHandler.ShareGroups)
+			manage.POST("/move", driveHandler.Move)
+			manage.POST("/copy", driveHandler.Copy)
 		}
 	}
 
