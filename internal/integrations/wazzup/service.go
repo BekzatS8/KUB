@@ -431,7 +431,7 @@ func (s *Service) syncAccountChannels(ctx context.Context, acc *AccountConfig, i
 	// Роли на каналах: без них сотрудник видит в мессенджере «Нет доступа к
 	// чатам». Новый канал приходит без ролей, поэтому раздаём их здесь же —
 	// на каждой синхронизации, а не однократно при настройке.
-	s.syncUserRoles(ctx, acc, apiKey, stored)
+	_ = s.syncUserRoles(ctx, acc, apiKey, stored)
 	return withAccount(stored, acc.Name), nil
 }
 
@@ -1134,36 +1134,71 @@ func wazzupRoleFor(roleID int) string {
 	}
 }
 
-// syncUserRoles выдаёт всем активным сотрудникам роли на всех каналах.
+// syncUserRoles выдаёт сотрудникам роли на номерах аккаунта.
 //
 // Без роли сотрудник открывает мессенджер и видит «Нет доступа к чатам». В
 // обычном аккаунте роли раздаются в кабинете Wazzup, но у дочернего White Label
 // аккаунта кабинета нет — значит это обязанность CRM.
 //
-// Вызывается после синхронизации каналов и работает по принципу «лучшее
-// усилие»: ошибка логируется, но не роняет выдачу списка каналов.
-func (s *Service) syncUserRoles(ctx context.Context, acc *AccountConfig, apiKey string, channels []models.WazzupChannel) {
+// Номер с доступом, настроенным вручную (окно «Доступ к чатам»), получает
+// сохранённые роли; остальные — автоматические по ролям CRM (wazzupRoleFor).
+// Провайдер заменяет набор ролей целиком, поэтому отправляются роли всех
+// номеров аккаунта сразу.
+//
+// После синхронизации каналов вызывается по принципу «лучшее усилие»: ошибку
+// там только логируют. При сохранении доступа вручную она возвращается
+// администратору.
+func (s *Service) syncUserRoles(ctx context.Context, acc *AccountConfig, apiKey string, channels []models.WazzupChannel) error {
 	if len(channels) == 0 {
-		return
+		return nil
 	}
 	users, err := s.repo.ListCRMUsers(ctx)
 	if err != nil {
 		log.Printf("integration=wazzup operation=user_roles status=failed reason=list_users err=%v", err)
-		return
+		return err
+	}
+	active := make(map[int]bool, len(users))
+	for _, u := range users {
+		active[u.ID] = true
 	}
 
 	roles := make([]UserChannelRole, 0, len(users)*len(channels))
-	for _, u := range users {
-		wazzupUserID := wazzupUserIDFor(u.ID, u.ID)
-		if wazzupUserID == "" {
+	for _, ch := range channels {
+		externalID := strings.TrimSpace(ch.ExternalChannelID)
+		if externalID == "" {
 			continue
 		}
-		role := wazzupRoleFor(u.RoleID)
-		for _, ch := range channels {
-			externalID := strings.TrimSpace(ch.ExternalChannelID)
-			if externalID == "" {
+		if ch.RolesConfigured {
+			manual, err := s.repo.ListChannelRoles(ctx, ch.ID)
+			if err != nil {
+				log.Printf("integration=wazzup operation=user_roles status=failed reason=channel_roles channel=%s err=%v", externalID, err)
+				return err
+			}
+			for _, r := range manual {
+				// Уволенный сотрудник теряет доступ, даже если его не убрали
+				// из настройки номера.
+				if !active[r.UserID] {
+					continue
+				}
+				wazzupUserID := wazzupUserIDFor(r.UserID, r.UserID)
+				if wazzupUserID == "" {
+					continue
+				}
+				roles = append(roles, UserChannelRole{
+					ChannelID:          externalID,
+					UserID:             wazzupUserID,
+					Role:               r.Role,
+					AllowGetNewClients: r.AllowGetNewClients,
+				})
+			}
+			continue
+		}
+		for _, u := range users {
+			wazzupUserID := wazzupUserIDFor(u.ID, u.ID)
+			if wazzupUserID == "" {
 				continue
 			}
+			role := wazzupRoleFor(u.RoleID)
 			roles = append(roles, UserChannelRole{
 				ChannelID: externalID,
 				UserID:    wazzupUserID,
@@ -1175,15 +1210,18 @@ func (s *Service) syncUserRoles(ctx context.Context, acc *AccountConfig, apiKey 
 		}
 	}
 	if len(roles) == 0 {
-		return
+		return nil
 	}
 
 	switch err := acc.Client.SyncUserRoles(ctx, apiKey, roles); {
 	case err == nil:
-		log.Printf("integration=wazzup operation=user_roles status=ok users=%d channels=%d", len(users), len(channels))
+		log.Printf("integration=wazzup operation=user_roles status=ok users=%d channels=%d roles=%d", len(users), len(channels), len(roles))
+		return nil
 	case errors.Is(err, ErrUserRolesUnsupported):
 		// Драйвер v3: роли раздаются в кабинете Wazzup, это нормально.
+		return nil
 	default:
 		log.Printf("integration=wazzup operation=user_roles status=failed err=%v", err)
+		return fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 }

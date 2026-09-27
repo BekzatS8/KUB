@@ -210,6 +210,11 @@ func SetupRoutes(
 			wazzup.DELETE("/channels/:id", wazzupHandler.DeleteChannel)
 			// Привязка канала к отделу (выделенная линия — напр. жалобы ОКК).
 			wazzup.PATCH("/channels/:id/department", wazzupHandler.SetChannelDepartment)
+			// Доступ сотрудников к чатам номера (админ/руководство) — окно как
+			// «Выбор ролей» в кабинете Wazzup, для аккаунта без кабинета.
+			wazzup.GET("/channels/:id/roles", wazzupHandler.ChannelRoles)
+			wazzup.PUT("/channels/:id/roles", wazzupHandler.SetChannelRoles)
+			wazzup.DELETE("/channels/:id/roles", wazzupHandler.ResetChannelRoles)
 			wazzup.GET("/departments", wazzupHandler.Departments)
 			// Ссылка на встроенный iframe добавления канала (White Label, админ/рук.).
 			wazzup.GET("/channels/connect-link", wazzupHandler.ChannelConnectLink)

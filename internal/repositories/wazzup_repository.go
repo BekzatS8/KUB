@@ -39,6 +39,11 @@ type WazzupRepository interface {
 	HideChannel(ctx context.Context, integrationID int, externalChannelID string) error
 	UnhideChannel(ctx context.Context, integrationID int, externalChannelID string) error
 	ListHiddenChannelIDs(ctx context.Context, integrationID int) ([]string, error)
+	// Доступ к чатам номера, настроенный вручную (миграция 085).
+	ListChannelRoles(ctx context.Context, channelID int64) ([]ChannelUserRole, error)
+	ReplaceChannelRoles(ctx context.Context, channelID int64, roles []ChannelUserRole) error
+	ResetChannelRoles(ctx context.Context, channelID int64) error
+	ListRoleCandidates(ctx context.Context) ([]RoleCandidateDTO, error)
 	GetChannelBranchID(ctx context.Context, integrationID int, externalChannelID string) (*int, error)
 	RegisterDedup(ctx context.Context, integrationID int, externalID string) (isNew bool, err error)
 	FindClientByPhone(ctx context.Context, phone string) (clientID int, err error)
@@ -355,6 +360,7 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 		       -- not_enough_money…). Провайдер кладёт его в payload канала, своей
 		       -- колонки не заводим — читаем из уже сохранённого raw_payload.
 		       COALESCE(wc.raw_payload->>'reason', ''),
+		       wc.roles_configured,
 		       wc.raw_payload, wc.created_at, wc.updated_at
 		FROM wazzup_channels wc
 		LEFT JOIN branches b ON b.id = wc.branch_id
@@ -390,6 +396,7 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			&departmentID,
 			&departmentName,
 			&ch.StatusReason,
+			&ch.RolesConfigured,
 			&raw,
 			&ch.CreatedAt,
 			&ch.UpdatedAt,

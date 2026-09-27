@@ -31,6 +31,9 @@ type WazzupService interface {
 	SendMessage(ctx context.Context, ownerUserID int, chatID, transport, channelID, text string) (*wz.SendMessageResponse, error)
 	SendDialogMessage(ctx context.Context, userID, dialogID int, text string) (*models.WazzupDialogMessage, error)
 	DeleteChannel(ctx context.Context, ownerUserID int, channelID int64) (providerDeleted bool, err error)
+	ChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
+	SetChannelRoles(ctx context.Context, channelID int64, items []wz.ChannelRoleInput) (*wz.ChannelRolesView, error)
+	ResetChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
 }
 
 type WazzupHandler struct {

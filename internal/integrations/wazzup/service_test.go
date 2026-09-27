@@ -43,6 +43,16 @@ func (s stubRepo) DeleteChannelsNotIn(context.Context, int, []string) (int64, er
 func (s stubRepo) HideChannel(context.Context, int, string) error                   { return nil }
 func (s stubRepo) UnhideChannel(context.Context, int, string) error                 { return nil }
 func (s stubRepo) ListHiddenChannelIDs(context.Context, int) ([]string, error)      { return nil, nil }
+func (s stubRepo) ListChannelRoles(context.Context, int64) ([]repositories.ChannelUserRole, error) {
+	return nil, nil
+}
+func (s stubRepo) ReplaceChannelRoles(context.Context, int64, []repositories.ChannelUserRole) error {
+	return nil
+}
+func (s stubRepo) ResetChannelRoles(context.Context, int64) error { return nil }
+func (s stubRepo) ListRoleCandidates(context.Context) ([]repositories.RoleCandidateDTO, error) {
+	return nil, nil
+}
 func (s stubRepo) SetChannelDepartment(context.Context, int64, *int) error           { return nil }
 func (s stubRepo) GetChannelDepartmentID(context.Context, int, string) (*int, error) { return nil, nil }
 func (s stubRepo) ListDepartments(context.Context) ([]repositories.DepartmentDTO, error) {

@@ -28,6 +28,9 @@ type WazzupChannel struct {
 	// обращения не уходят в общий пул лидов филиалов.
 	DepartmentID   *int            `json:"department_id,omitempty"`
 	DepartmentName string          `json:"department_name,omitempty"`
+	// RolesConfigured — доступ сотрудников к чатам номера настроен вручную;
+	// иначе роли выдаются автоматически по ролям CRM.
+	RolesConfigured bool `json:"roles_configured"`
 	RawPayload     json.RawMessage `json:"raw_payload,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`

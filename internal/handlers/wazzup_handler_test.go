@@ -183,6 +183,15 @@ func TestWazzupIframeContractWithoutDeadFields(t *testing.T) {
 	}
 }
 
+func (s *stubWazzupService) ChannelRoles(context.Context, int64) (*wz.ChannelRolesView, error) {
+	return &wz.ChannelRolesView{}, nil
+}
+func (s *stubWazzupService) SetChannelRoles(context.Context, int64, []wz.ChannelRoleInput) (*wz.ChannelRolesView, error) {
+	return &wz.ChannelRolesView{}, nil
+}
+func (s *stubWazzupService) ResetChannelRoles(context.Context, int64) (*wz.ChannelRolesView, error) {
+	return &wz.ChannelRolesView{}, nil
+}
 func (s *stubWazzupService) DeleteChannel(context.Context, int, int64) (bool, error) {
 	return false, nil
 }
