@@ -31,6 +31,9 @@ type WazzupChannel struct {
 	// RolesConfigured — доступ сотрудников к чатам номера настроен вручную;
 	// иначе роли выдаются автоматически по ролям CRM.
 	RolesConfigured bool `json:"roles_configured"`
+	// URL — из ответа провайдера: ссылка на канал или, пока канал не
+	// авторизован, ссылка авторизации (для Instagram — вход через Facebook).
+	URL string `json:"url,omitempty"`
 	RawPayload     json.RawMessage `json:"raw_payload,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`

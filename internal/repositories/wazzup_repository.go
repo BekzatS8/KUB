@@ -361,6 +361,7 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 		       -- колонки не заводим — читаем из уже сохранённого raw_payload.
 		       COALESCE(wc.raw_payload->>'reason', ''),
 		       wc.roles_configured,
+		       COALESCE(wc.raw_payload->>'url', ''),
 		       wc.raw_payload, wc.created_at, wc.updated_at
 		FROM wazzup_channels wc
 		LEFT JOIN branches b ON b.id = wc.branch_id
@@ -397,6 +398,7 @@ func (r *wazzupRepository) ListChannels(ctx context.Context, integrationID int) 
 			&departmentName,
 			&ch.StatusReason,
 			&ch.RolesConfigured,
+			&ch.URL,
 			&raw,
 			&ch.CreatedAt,
 			&ch.UpdatedAt,

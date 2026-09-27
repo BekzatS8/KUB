@@ -183,6 +183,9 @@ func TestWazzupIframeContractWithoutDeadFields(t *testing.T) {
 	}
 }
 
+func (s *stubWazzupService) ConnectInstagram(context.Context) (*wz.InstagramConnectResult, error) {
+	return &wz.InstagramConnectResult{}, nil
+}
 func (s *stubWazzupService) ChannelRoles(context.Context, int64) (*wz.ChannelRolesView, error) {
 	return &wz.ChannelRolesView{}, nil
 }

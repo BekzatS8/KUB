@@ -82,6 +82,32 @@ func (h *WazzupHandler) SetChannelRoles(c *gin.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
+// POST /integrations/wazzup/channels/instagram — создать канал Instagram в
+// аккаунте без кабинета и вернуть ссылку авторизации через Facebook.
+func (h *WazzupHandler) ConnectInstagram(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	res, err := h.svc.ConnectInstagram(ctx)
+	if err != nil {
+		var createErr *wz.ChannelCreateError
+		if errors.As(err, &createErr) {
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error_code": "wazzup_channel_create_failed",
+				"message":    "Wazzup не создал канал Instagram: " + createErr.Detail,
+			})
+			return
+		}
+		writeWazzupError(c, err, "failed to connect instagram")
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // DELETE /integrations/wazzup/channels/:id/roles — вернуть автоматические роли.
 func (h *WazzupHandler) ResetChannelRoles(c *gin.Context) {
 	channelID, ok := h.channelRolesPrecheck(c)

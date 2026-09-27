@@ -212,6 +212,8 @@ func SetupRoutes(
 			wazzup.PATCH("/channels/:id/department", wazzupHandler.SetChannelDepartment)
 			// Доступ сотрудников к чатам номера (админ/руководство) — окно как
 			// «Выбор ролей» в кабинете Wazzup, для аккаунта без кабинета.
+			// Instagram для аккаунта без кабинета: канал через API + вход через Facebook.
+			wazzup.POST("/channels/instagram", wazzupHandler.ConnectInstagram)
 			wazzup.GET("/channels/:id/roles", wazzupHandler.ChannelRoles)
 			wazzup.PUT("/channels/:id/roles", wazzupHandler.SetChannelRoles)
 			wazzup.DELETE("/channels/:id/roles", wazzupHandler.ResetChannelRoles)

@@ -34,6 +34,7 @@ type WazzupService interface {
 	ChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
 	SetChannelRoles(ctx context.Context, channelID int64, items []wz.ChannelRoleInput) (*wz.ChannelRolesView, error)
 	ResetChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
+	ConnectInstagram(ctx context.Context) (*wz.InstagramConnectResult, error)
 }
 
 type WazzupHandler struct {
