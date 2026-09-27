@@ -46,9 +46,24 @@ type DriveBreadcrumb struct {
 }
 
 // DriveShare — выданный пользователю доступ к файлу или папке.
+// Кому выдан доступ (drive_shares.target, миграция 086).
+const (
+	DriveShareUser       = "user"
+	DriveShareBranch     = "branch"
+	DriveShareDepartment = "department"
+	DriveShareAll        = "all"
+)
+
 type DriveShare struct {
-	ID            int64      `json:"id"`
-	NodeID        int64      `json:"node_id"`
+	ID     int64 `json:"id"`
+	NodeID int64 `json:"node_id"`
+	// Target — user | branch | department | all; Label — ФИО сотрудника или
+	// название группы.
+	Target       string `json:"target"`
+	Label        string `json:"label"`
+	BranchID     *int   `json:"branch_id,omitempty"`
+	DepartmentID *int   `json:"department_id,omitempty"`
+	// UserID — 0 у доступа группе.
 	UserID        int        `json:"user_id"`
 	UserName      string     `json:"user_name"`
 	UserEmail     string     `json:"user_email,omitempty"`
@@ -60,6 +75,13 @@ type DriveShare struct {
 }
 
 // DriveUser — сотрудник в списке выбора при выдаче доступа.
+// DriveShareGroup — филиал или отдел в окне «Доступ».
+type DriveShareGroup struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Members int    `json:"members"`
+}
+
 type DriveUser struct {
 	ID     int    `json:"id"`
 	Name   string `json:"name"`

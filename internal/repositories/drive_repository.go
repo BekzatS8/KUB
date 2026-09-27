@@ -33,6 +33,10 @@ type DriveRepository interface {
 	SharedRoots(ctx context.Context, userID int) ([]models.DriveNode, error)
 	ListShares(ctx context.Context, nodeID int64) ([]models.DriveShare, error)
 	UpsertShares(ctx context.Context, nodeID int64, userIDs []int, expiresAt *time.Time, createdBy int) error
+	// UpsertGroupShares — доступ филиалам (target=branch), отделам
+	// (department) или всем (all, groupIDs не нужны).
+	UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int) error
+	ListShareGroups(ctx context.Context) (branches, departments []models.DriveShareGroup, err error)
 	DeleteShare(ctx context.Context, shareID int64) error
 	ListUsers(ctx context.Context) ([]models.DriveUser, error)
 	UserHasRole(ctx context.Context, userID, roleID int) (bool, error)
@@ -60,6 +64,18 @@ const driveUserNameSQL = `COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', %[1]s.last_name, 
 
 // activeShareSQL — доступ действует, пока не истёк срок (NULL — бессрочно).
 const activeShareSQL = `(%[1]s.expires_at IS NULL OR %[1]s.expires_at > NOW())`
+
+// shareForUserSQL — доступ адресован пользователю: лично, его филиалу, его
+// отделу или всем (миграция 086). Филиал и отдел берутся на момент проверки,
+// поэтому новый сотрудник группы получает доступ сам, а переведённый — теряет.
+// %[1]s — алиас drive_shares, %[2]s — параметр с id пользователя.
+const shareForUserSQL = `(%[1]s.user_id = %[2]s OR %[1]s.target = 'all'
+	OR (%[1]s.target = 'branch' AND %[1]s.branch_id = (SELECT su.branch_id FROM users su WHERE su.id = %[2]s))
+	OR (%[1]s.target = 'department' AND %[1]s.department_id = (SELECT su.department_id FROM users su WHERE su.id = %[2]s)))`
+
+func shareForUser(alias, userParam string) string {
+	return fmt.Sprintf(shareForUserSQL, alias, userParam)
+}
 
 var driveNodeSelect = fmt.Sprintf(`
 	SELECT n.id, n.parent_id, n.kind, n.name, COALESCE(n.storage_key, ''), n.size_bytes, n.mime_type,
@@ -248,10 +264,10 @@ func (r *driveRepository) Ancestors(ctx context.Context, id int64, userID int) (
 		)
 		SELECT c.id, c.name,
 		       EXISTS (SELECT 1 FROM drive_shares s
-		               WHERE s.node_id = c.id AND s.user_id = $2 AND %s)
+		               WHERE s.node_id = c.id AND %s AND %s)
 		FROM chain c
 		ORDER BY c.depth DESC
-	`, fmt.Sprintf(activeShareSQL, "s")), id, userID)
+	`, shareForUser("s", "$2"), fmt.Sprintf(activeShareSQL, "s")), id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("drive ancestors: %w", err)
 	}
@@ -282,9 +298,9 @@ func (r *driveRepository) CanAccess(ctx context.Context, nodeID int64, userID in
 		SELECT EXISTS (
 			SELECT 1 FROM drive_shares s
 			JOIN chain c ON c.id = s.node_id
-			WHERE s.user_id = $2 AND %s
+			WHERE %s AND %s
 		)
-	`, fmt.Sprintf(activeShareSQL, "s")), nodeID, userID).Scan(&ok)
+	`, shareForUser("s", "$2"), fmt.Sprintf(activeShareSQL, "s")), nodeID, userID).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("drive access check: %w", err)
 	}
@@ -297,17 +313,22 @@ func (r *driveRepository) CanAccess(ctx context.Context, nodeID int64, userID in
 // иначе файл из расшаренной папки, выданный ещё и точечно, висел бы в списке
 // дважды — и внутри папки, и в корне.
 func (r *driveRepository) SharedRoots(ctx context.Context, userID int) ([]models.DriveNode, error) {
+	// Узлу может быть выдано несколько доступов сразу (лично и филиалу) —
+	// показываем его один раз с самым долгим сроком (NULL — бессрочно).
 	query := fmt.Sprintf(`
 		SELECT n.id, n.parent_id, n.kind, n.name, COALESCE(n.storage_key, ''), n.size_bytes, n.mime_type,
 		       n.created_by, %[1]s, n.created_at, n.updated_at,
 		       0,
 		       (SELECT count(*) FROM drive_nodes c WHERE c.parent_id = n.id),
-		       sh.expires_at
-		FROM drive_shares sh
-		JOIN drive_nodes n ON n.id = sh.node_id
+		       (SELECT CASE WHEN bool_or(sh.expires_at IS NULL) THEN NULL ELSE max(sh.expires_at) END
+		        FROM drive_shares sh
+		        WHERE sh.node_id = n.id AND %[4]s AND %[2]s)
+		FROM drive_nodes n
 		LEFT JOIN users cu ON cu.id = n.created_by
-		WHERE sh.user_id = $1
-		  AND %[2]s
+		WHERE EXISTS (
+		      SELECT 1 FROM drive_shares sh
+		      WHERE sh.node_id = n.id AND %[4]s AND %[2]s
+		  )
 		  AND NOT EXISTS (
 		      WITH RECURSIVE up(id) AS (
 		          SELECT n.parent_id
@@ -316,9 +337,10 @@ func (r *driveRepository) SharedRoots(ctx context.Context, userID int) ([]models
 		      )
 		      SELECT 1 FROM up
 		      JOIN drive_shares s2 ON s2.node_id = up.id
-		      WHERE s2.user_id = $1 AND %[3]s
+		      WHERE %[5]s AND %[3]s
 		  )
-	`, fmt.Sprintf(driveUserNameSQL, "cu"), fmt.Sprintf(activeShareSQL, "sh"), fmt.Sprintf(activeShareSQL, "s2"))
+	`, fmt.Sprintf(driveUserNameSQL, "cu"), fmt.Sprintf(activeShareSQL, "sh"), fmt.Sprintf(activeShareSQL, "s2"),
+		shareForUser("sh", "$1"), shareForUser("s2", "$1"))
 
 	rows, err := r.db.QueryContext(ctx, query+driveNodeOrder, userID)
 	if err != nil {
@@ -342,16 +364,25 @@ func (r *driveRepository) SharedRoots(ctx context.Context, userID int) ([]models
 }
 
 func (r *driveRepository) ListShares(ctx context.Context, nodeID int64) ([]models.DriveShare, error) {
+	// Сначала «Все», затем филиалы, отделы и сотрудники — по названию.
+	label := fmt.Sprintf(`CASE s.target
+		WHEN 'all' THEN 'Все сотрудники'
+		WHEN 'branch' THEN COALESCE(b.name, 'Филиал')
+		WHEN 'department' THEN COALESCE(d.name, 'Отдел')
+		ELSE %s END`, fmt.Sprintf(driveUserNameSQL, "u"))
 	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT s.id, s.node_id, s.user_id, %s, COALESCE(u.email, ''),
-		       s.expires_at, NOT %s, s.created_by, %s, s.created_at
+		SELECT s.id, s.node_id, COALESCE(s.user_id, 0), s.target, s.branch_id, s.department_id,
+		       %[1]s, COALESCE(u.email, ''),
+		       s.expires_at, NOT %[2]s, s.created_by, %[3]s, s.created_at
 		FROM drive_shares s
-		JOIN users u ON u.id = s.user_id
+		LEFT JOIN users u ON u.id = s.user_id
+		LEFT JOIN branches b ON b.id = s.branch_id
+		LEFT JOIN departments d ON d.id = s.department_id
 		LEFT JOIN users cb ON cb.id = s.created_by
 		WHERE s.node_id = $1
-		ORDER BY lower(%s)
-	`, fmt.Sprintf(driveUserNameSQL, "u"), fmt.Sprintf(activeShareSQL, "s"),
-		fmt.Sprintf(driveUserNameSQL, "cb"), fmt.Sprintf(driveUserNameSQL, "u")), nodeID)
+		ORDER BY CASE s.target WHEN 'all' THEN 0 WHEN 'branch' THEN 1 WHEN 'department' THEN 2 ELSE 3 END,
+		         lower(%[1]s)
+	`, label, fmt.Sprintf(activeShareSQL, "s"), fmt.Sprintf(driveUserNameSQL, "cb")), nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("list drive shares: %w", err)
 	}
@@ -359,13 +390,26 @@ func (r *driveRepository) ListShares(ctx context.Context, nodeID int64) ([]model
 	out := make([]models.DriveShare, 0)
 	for rows.Next() {
 		var (
-			sh        models.DriveShare
-			expires   sql.NullTime
-			createdBy sql.NullInt64
+			sh           models.DriveShare
+			expires      sql.NullTime
+			createdBy    sql.NullInt64
+			branchID     sql.NullInt64
+			departmentID sql.NullInt64
 		)
-		if err := rows.Scan(&sh.ID, &sh.NodeID, &sh.UserID, &sh.UserName, &sh.UserEmail,
+		if err := rows.Scan(&sh.ID, &sh.NodeID, &sh.UserID, &sh.Target, &branchID, &departmentID,
+			&sh.Label, &sh.UserEmail,
 			&expires, &sh.Expired, &createdBy, &sh.CreatedByName, &sh.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan drive share: %w", err)
+		}
+		// user_name оставлен для совместимости: у группы там её название.
+		sh.UserName = sh.Label
+		if branchID.Valid {
+			v := int(branchID.Int64)
+			sh.BranchID = &v
+		}
+		if departmentID.Valid {
+			v := int(departmentID.Int64)
+			sh.DepartmentID = &v
 		}
 		if expires.Valid {
 			t := expires.Time
@@ -411,6 +455,99 @@ func (r *driveRepository) UpsertShares(ctx context.Context, nodeID int64, userID
 		return fmt.Errorf("upsert drive shares: %w", err)
 	}
 	return nil
+}
+
+// UpsertGroupShares выдаёт доступ группам. Повторная выдача той же группе
+// обновляет срок, как у сотрудника.
+func (r *driveRepository) UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int) error {
+	var expires sql.NullTime
+	if expiresAt != nil {
+		expires = sql.NullTime{Time: *expiresAt, Valid: true}
+	}
+	ids := make([]int64, 0, len(groupIDs))
+	for _, id := range groupIDs {
+		ids = append(ids, int64(id))
+	}
+	const onConflict = `
+		DO UPDATE SET expires_at = EXCLUDED.expires_at,
+		              created_by = EXCLUDED.created_by,
+		              created_at = NOW()`
+	var err error
+	switch target {
+	case models.DriveShareBranch:
+		if len(ids) == 0 {
+			return nil
+		}
+		_, err = r.db.ExecContext(ctx, `
+			INSERT INTO drive_shares (node_id, target, branch_id, expires_at, created_by)
+			SELECT $1, 'branch', b.id, $3, $4 FROM branches b WHERE b.id = ANY($2)
+			ON CONFLICT (node_id, branch_id) WHERE target = 'branch'`+onConflict,
+			nodeID, pq.Array(ids), expires, createdBy)
+	case models.DriveShareDepartment:
+		if len(ids) == 0 {
+			return nil
+		}
+		_, err = r.db.ExecContext(ctx, `
+			INSERT INTO drive_shares (node_id, target, department_id, expires_at, created_by)
+			SELECT $1, 'department', d.id, $3, $4 FROM departments d WHERE d.id = ANY($2)
+			ON CONFLICT (node_id, department_id) WHERE target = 'department'`+onConflict,
+			nodeID, pq.Array(ids), expires, createdBy)
+	case models.DriveShareAll:
+		_, err = r.db.ExecContext(ctx, `
+			INSERT INTO drive_shares (node_id, target, expires_at, created_by)
+			VALUES ($1, 'all', $2, $3)
+			ON CONFLICT (node_id) WHERE target = 'all'`+onConflict,
+			nodeID, expires, createdBy)
+	default:
+		return fmt.Errorf("drive: unknown share target %q", target)
+	}
+	if IsSQLState(err, SQLStateForeignKey) {
+		return sql.ErrNoRows
+	}
+	if err != nil {
+		return fmt.Errorf("upsert drive group shares: %w", err)
+	}
+	return nil
+}
+
+// ListShareGroups — филиалы и отделы, которым можно открыть доступ, с числом
+// активных сотрудников.
+func (r *driveRepository) ListShareGroups(ctx context.Context) ([]models.DriveShareGroup, []models.DriveShareGroup, error) {
+	load := func(query string) ([]models.DriveShareGroup, error) {
+		rows, err := r.db.QueryContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := make([]models.DriveShareGroup, 0)
+		for rows.Next() {
+			var g models.DriveShareGroup
+			if err := rows.Scan(&g.ID, &g.Name, &g.Members); err != nil {
+				return nil, err
+			}
+			out = append(out, g)
+		}
+		return out, rows.Err()
+	}
+	branches, err := load(`
+		SELECT b.id, b.name,
+		       (SELECT count(*) FROM users u WHERE u.branch_id = b.id AND COALESCE(u.is_active, TRUE) = TRUE)
+		FROM branches b
+		WHERE COALESCE(b.is_active, TRUE) = TRUE
+		ORDER BY lower(b.name), b.id`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list drive share branches: %w", err)
+	}
+	departments, err := load(`
+		SELECT d.id, d.name,
+		       (SELECT count(*) FROM users u WHERE u.department_id = d.id AND COALESCE(u.is_active, TRUE) = TRUE)
+		FROM departments d
+		WHERE COALESCE(d.is_active, TRUE) = TRUE
+		ORDER BY lower(d.name), d.id`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list drive share departments: %w", err)
+	}
+	return branches, departments, nil
 }
 
 func (r *driveRepository) DeleteShare(ctx context.Context, shareID int64) error {

@@ -350,14 +350,26 @@ func (s *DriveService) ListShares(ctx context.Context, actor DriveActor, id int6
 	return s.repo.ListShares(ctx, id)
 }
 
+// DriveShareTargets — кому открыть доступ: сотрудникам, филиалам, отделам
+// или всем. Группа проверяется в момент доступа — новые сотрудники филиала или
+// отдела получают доступ сами.
+type DriveShareTargets struct {
+	UserIDs       []int
+	BranchIDs     []int
+	DepartmentIDs []int
+	All           bool
+}
+
 // Share открывает доступ к файлу или папке. expiresAt = nil — бессрочно.
-// Повторная выдача тому же пользователю меняет срок.
-func (s *DriveService) Share(ctx context.Context, actor DriveActor, id int64, userIDs []int, expiresAt *time.Time) ([]models.DriveShare, error) {
+// Повторная выдача тому же сотруднику или группе меняет срок.
+func (s *DriveService) Share(ctx context.Context, actor DriveActor, id int64, to DriveShareTargets, expiresAt *time.Time) ([]models.DriveShare, error) {
 	if !actor.canManage() {
 		return nil, ErrDriveForbidden
 	}
-	ids := uniquePositiveIDs(userIDs)
-	if len(ids) == 0 {
+	users := uniquePositiveIDs(to.UserIDs)
+	branches := uniquePositiveIDs(to.BranchIDs)
+	departments := uniquePositiveIDs(to.DepartmentIDs)
+	if len(users) == 0 && len(branches) == 0 && len(departments) == 0 && !to.All {
 		return nil, ErrDriveNoUsers
 	}
 	if expiresAt != nil && !expiresAt.After(s.now()) {
@@ -366,10 +378,38 @@ func (s *DriveService) Share(ctx context.Context, actor DriveActor, id int64, us
 	if _, err := s.getNode(ctx, id); err != nil {
 		return nil, err
 	}
-	if err := s.repo.UpsertShares(ctx, id, ids, expiresAt, actor.UserID); err != nil {
+	if err := s.repo.UpsertShares(ctx, id, users, expiresAt, actor.UserID); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
+	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareBranch, branches, expiresAt, actor.UserID); err != nil {
+		return nil, mapDriveRepoErr(err)
+	}
+	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareDepartment, departments, expiresAt, actor.UserID); err != nil {
+		return nil, mapDriveRepoErr(err)
+	}
+	if to.All {
+		if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareAll, nil, expiresAt, actor.UserID); err != nil {
+			return nil, mapDriveRepoErr(err)
+		}
+	}
 	return s.repo.ListShares(ctx, id)
+}
+
+// DriveShareGroups — филиалы и отделы для окна «Доступ».
+type DriveShareGroups struct {
+	Branches    []models.DriveShareGroup `json:"branches"`
+	Departments []models.DriveShareGroup `json:"departments"`
+}
+
+func (s *DriveService) ShareGroups(ctx context.Context, actor DriveActor) (*DriveShareGroups, error) {
+	if !actor.canManage() {
+		return nil, ErrDriveForbidden
+	}
+	branches, departments, err := s.repo.ListShareGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &DriveShareGroups{Branches: branches, Departments: departments}, nil
 }
 
 func (s *DriveService) Unshare(ctx context.Context, actor DriveActor, shareID int64) error {

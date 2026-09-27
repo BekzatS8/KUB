@@ -226,6 +226,10 @@ func (h *DriveHandler) ListShares(c *gin.Context) {
 
 type driveShareRequest struct {
 	UserIDs []int `json:"user_ids"`
+	// Группы: доступ получают все их сотрудники, в том числе будущие.
+	BranchIDs     []int `json:"branch_ids"`
+	DepartmentIDs []int `json:"department_ids"`
+	All           bool  `json:"all"`
 	// ExpiresAt — RFC 3339; null или отсутствует — бессрочно.
 	ExpiresAt *time.Time `json:"expires_at"`
 }
@@ -241,7 +245,12 @@ func (h *DriveHandler) Share(c *gin.Context) {
 		badRequest(c, "Некорректный запрос: expires_at должен быть в формате RFC 3339")
 		return
 	}
-	shares, err := h.svc.Share(c.Request.Context(), driveActor(c), id, req.UserIDs, req.ExpiresAt)
+	shares, err := h.svc.Share(c.Request.Context(), driveActor(c), id, services.DriveShareTargets{
+		UserIDs:       req.UserIDs,
+		BranchIDs:     req.BranchIDs,
+		DepartmentIDs: req.DepartmentIDs,
+		All:           req.All,
+	}, req.ExpiresAt)
 	if err != nil {
 		writeDriveError(c, err, "Не удалось выдать доступ")
 		return
@@ -260,6 +269,16 @@ func (h *DriveHandler) Unshare(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// GET /api/v1/drive/groups — филиалы и отделы, которым можно выдать доступ.
+func (h *DriveHandler) ShareGroups(c *gin.Context) {
+	groups, err := h.svc.ShareGroups(c.Request.Context(), driveActor(c))
+	if err != nil {
+		writeDriveError(c, err, "Не удалось загрузить филиалы и отделы")
+		return
+	}
+	c.JSON(http.StatusOK, groups)
 }
 
 // GET /api/v1/drive/users — кому можно выдать доступ.

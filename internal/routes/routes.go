@@ -631,6 +631,7 @@ func SetupRoutes(
 			manage.POST("/nodes/:id/shares", driveHandler.Share)
 			manage.DELETE("/shares/:id", driveHandler.Unshare)
 			manage.GET("/users", driveHandler.Users)
+			manage.GET("/groups", driveHandler.ShareGroups)
 		}
 	}
 
