@@ -103,8 +103,8 @@ func TestDriveTrashIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		n, err := svc.Delete(ctx, admin, a.ID)
-		if err != nil || n != 3 {
-			t.Fatalf("trash A must move A, B, f (g already in trash), got %d %v", n, err)
+		if err != nil || n != 1 {
+			t.Fatalf("trash A must create one trash entry, got %d %v", n, err)
 		}
 		if rootNames() != "" {
 			t.Fatalf("trashed folder must disappear from the list, got %q", rootNames())

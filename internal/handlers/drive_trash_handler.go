@@ -14,6 +14,22 @@ type driveIDsRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
+// POST /api/v1/drive/delete {ids} — в корзину несколько элементов сразу (одно
+// событие в Ленте на всё удаление сотрудника).
+func (h *DriveHandler) DeleteMany(c *gin.Context) {
+	var req driveIDsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Некорректный запрос")
+		return
+	}
+	n, err := h.svc.DeleteMany(c.Request.Context(), driveActor(c), req.IDs)
+	if err != nil {
+		writeDriveOpsError(c, err, "Не удалось удалить")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"trashed": n})
+}
+
 // GET /api/v1/drive/trash
 func (h *DriveHandler) Trash(c *gin.Context) {
 	trash, err := h.svc.ListTrash(c.Request.Context(), driveActor(c))

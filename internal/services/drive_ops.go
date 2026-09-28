@@ -108,9 +108,6 @@ func sameParent(a, b *int64) bool {
 // Move переносит элементы в папку target (nil — корень). При совпадении
 // имени элемент получает номер: «Договор (2).pdf», как при загрузке.
 func (s *DriveService) Move(ctx context.Context, actor DriveActor, ids []int64, target *int64) (int, error) {
-	if !actor.canManage() {
-		return 0, ErrDriveForbidden
-	}
 	ids, err := normalizeDriveIDs(ids)
 	if err != nil {
 		return 0, err
@@ -118,10 +115,16 @@ func (s *DriveService) Move(ctx context.Context, actor DriveActor, ids []int64, 
 	if err := s.ensureFolder(ctx, target); err != nil {
 		return 0, err
 	}
+	if err := s.canWriteInto(ctx, actor, target); err != nil {
+		return 0, err
+	}
 	moved := 0
 	for _, id := range ids {
 		node, err := s.getNode(ctx, id)
 		if err != nil {
+			return moved, err
+		}
+		if err := s.canModify(ctx, actor, node); err != nil {
 			return moved, err
 		}
 		if sameParent(node.ParentID, target) {
@@ -147,9 +150,6 @@ func (s *DriveService) Move(ctx context.Context, actor DriveActor, ids []int64, 
 // Copy копирует элементы в папку target со всем содержимым: у файлов
 // появляются собственные объекты в хранилище. Доступы не копируются.
 func (s *DriveService) Copy(ctx context.Context, actor DriveActor, ids []int64, target *int64) (int, error) {
-	if !actor.canManage() {
-		return 0, ErrDriveForbidden
-	}
 	ids, err := normalizeDriveIDs(ids)
 	if err != nil {
 		return 0, err
@@ -157,10 +157,17 @@ func (s *DriveService) Copy(ctx context.Context, actor DriveActor, ids []int64, 
 	if err := s.ensureFolder(ctx, target); err != nil {
 		return 0, err
 	}
+	if err := s.canWriteInto(ctx, actor, target); err != nil {
+		return 0, err
+	}
 	copied := 0
 	for _, id := range ids {
 		node, err := s.getNode(ctx, id)
 		if err != nil {
+			return copied, err
+		}
+		// Копировать можно то, что видишь.
+		if err := s.ensureAccess(ctx, actor, id); err != nil {
 			return copied, err
 		}
 		if err := s.checkTarget(ctx, node, target); err != nil {

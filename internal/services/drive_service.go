@@ -77,6 +77,10 @@ type DriveListing struct {
 	Items       []models.DriveNode       `json:"items"`
 	Breadcrumbs []models.DriveBreadcrumb `json:"breadcrumbs"`
 	CanManage   bool                     `json:"can_manage"`
+	// CanEdit — можно менять содержимое этой папки: создавать, загружать,
+	// вставлять, переименовывать, перемещать и удалять (в корзину). У
+	// администратора — всегда; у сотрудника — внутри папки с доступом edit.
+	CanEdit bool `json:"can_edit"`
 	// SharedView — пользователь смотрит не всё хранилище, а только выданное ему.
 	SharedView bool `json:"shared_view"`
 	// Объём хранилища — только администратору (у остальных nil и поле не
@@ -127,6 +131,8 @@ type DriveService struct {
 	// «Отправить»: мессенджер CRM и почта (drive_ops.go). Могут быть nil.
 	messenger DriveMessenger
 	mailer    DriveMailer
+	// Лента: удаление сотрудником (drive_trash.go). Может быть nil.
+	notifier DriveActivityNotifier
 }
 
 func NewDriveService(repo repositories.DriveRepository, store storage.Storage, cfg DriveConfig) *DriveService {
@@ -144,7 +150,7 @@ func (s *DriveService) MaxUploadBytes() int64 { return s.cfg.MaxUploadBytes }
 // корень всего хранилища, у остальных — «Доступные мне».
 func (s *DriveService) List(ctx context.Context, actor DriveActor, parentID *int64) (*DriveListing, error) {
 	manage := actor.canManage()
-	listing := &DriveListing{CanManage: manage, SharedView: !manage, Breadcrumbs: []models.DriveBreadcrumb{}}
+	listing := &DriveListing{CanManage: manage, CanEdit: manage, SharedView: !manage, Breadcrumbs: []models.DriveBreadcrumb{}}
 
 	if parentID == nil {
 		var (
@@ -179,6 +185,11 @@ func (s *DriveService) List(ctx context.Context, actor DriveActor, parentID *int
 	}
 	if err := s.ensureAccess(ctx, actor, folder.ID); err != nil {
 		return nil, err
+	}
+	if !manage {
+		if listing.CanEdit, err = s.repo.CanEdit(ctx, folder.ID, actor.UserID); err != nil {
+			return nil, err
+		}
 	}
 	items, err := s.repo.ListChildren(ctx, &folder.ID)
 	if err != nil {
@@ -243,8 +254,8 @@ func (s *DriveService) decorateOne(n models.DriveNode, manage bool) *models.Driv
 // ─── Управление ─────────────────────────────────────────────────────────────
 
 func (s *DriveService) CreateFolder(ctx context.Context, actor DriveActor, parentID *int64, name string) (*models.DriveNode, error) {
-	if !actor.canManage() {
-		return nil, ErrDriveForbidden
+	if err := s.canWriteInto(ctx, actor, parentID); err != nil {
+		return nil, err
 	}
 	name, err := NormalizeDriveName(name)
 	if err != nil {
@@ -257,7 +268,7 @@ func (s *DriveService) CreateFolder(ctx context.Context, actor DriveActor, paren
 	if err := s.repo.CreateNode(ctx, node); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
-	return s.reload(ctx, node.ID, true)
+	return s.reload(ctx, node.ID, actor.canManage())
 }
 
 // Upload кладёт файл в объектное хранилище и регистрирует его в папке.
@@ -267,8 +278,8 @@ func (s *DriveService) CreateFolder(ctx context.Context, actor DriveActor, paren
 // совпадении имени файл переименовывается в «имя (2).ext», как в Яндекс Диске,
 // а не отклоняется: загрузка пачкой не должна падать из-за одного дубля.
 func (s *DriveService) Upload(ctx context.Context, actor DriveActor, parentID *int64, filename string, size int64, headerType string, r io.Reader) (*models.DriveNode, error) {
-	if !actor.canManage() {
-		return nil, ErrDriveForbidden
+	if err := s.canWriteInto(ctx, actor, parentID); err != nil {
+		return nil, err
 	}
 	if size > s.cfg.MaxUploadBytes {
 		return nil, ErrDriveTooLarge
@@ -304,21 +315,71 @@ func (s *DriveService) Upload(ctx context.Context, actor DriveActor, parentID *i
 		}
 		return nil, mapDriveRepoErr(err)
 	}
-	return s.reload(ctx, node.ID, true)
+	return s.reload(ctx, node.ID, actor.canManage())
 }
 
 func (s *DriveService) Rename(ctx context.Context, actor DriveActor, id int64, name string) (*models.DriveNode, error) {
-	if !actor.canManage() {
-		return nil, ErrDriveForbidden
+	node, err := s.getNode(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	name, err := NormalizeDriveName(name)
+	if err := s.canModify(ctx, actor, node); err != nil {
+		return nil, err
+	}
+	name, err = NormalizeDriveName(name)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.repo.RenameNode(ctx, id, name); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
-	return s.reload(ctx, id, true)
+	return s.reload(ctx, id, actor.canManage())
+}
+
+// canWriteInto — можно ли класть элементы в папку parentID (nil — корень):
+// администратору всегда, сотруднику — внутри папки с доступом edit. В корень
+// хранилища сотрудник ничего не кладёт.
+func (s *DriveService) canWriteInto(ctx context.Context, actor DriveActor, parentID *int64) error {
+	if actor.canManage() {
+		return nil
+	}
+	if parentID == nil {
+		return ErrDriveForbidden
+	}
+	ok, err := s.repo.CanEdit(ctx, *parentID, actor.UserID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := s.ensureAccess(ctx, actor, *parentID); err != nil {
+			return err
+		}
+		return ErrDriveForbidden
+	}
+	return nil
+}
+
+// canModify — можно ли менять сам элемент (переименовать, переместить,
+// удалить): он должен лежать внутри папки с доступом edit. Выданную папку
+// саму по себе и всё, что выше неё, сотрудник не трогает.
+func (s *DriveService) canModify(ctx context.Context, actor DriveActor, node *models.DriveNode) error {
+	if actor.canManage() {
+		return nil
+	}
+	if node.ParentID != nil {
+		ok, err := s.repo.CanEdit(ctx, *node.ParentID, actor.UserID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+	}
+	// Видимый элемент без права менять — «запрещено»; невидимый — «не найден».
+	if err := s.ensureAccess(ctx, actor, node.ID); err != nil {
+		return err
+	}
+	return ErrDriveForbidden
 }
 
 // ─── Доступы ────────────────────────────────────────────────────────────────
@@ -341,6 +402,9 @@ type DriveShareTargets struct {
 	BranchIDs     []int
 	DepartmentIDs []int
 	All           bool
+	// Access — view (смотреть и скачивать) или edit (ещё и работать внутри
+	// папки). Пусто — edit.
+	Access string
 }
 
 // Share открывает доступ к файлу или папке. expiresAt = nil — бессрочно.
@@ -361,17 +425,17 @@ func (s *DriveService) Share(ctx context.Context, actor DriveActor, id int64, to
 	if _, err := s.getNode(ctx, id); err != nil {
 		return nil, err
 	}
-	if err := s.repo.UpsertShares(ctx, id, users, expiresAt, actor.UserID); err != nil {
+	if err := s.repo.UpsertShares(ctx, id, users, expiresAt, actor.UserID, to.Access); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
-	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareBranch, branches, expiresAt, actor.UserID); err != nil {
+	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareBranch, branches, expiresAt, actor.UserID, to.Access); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
-	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareDepartment, departments, expiresAt, actor.UserID); err != nil {
+	if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareDepartment, departments, expiresAt, actor.UserID, to.Access); err != nil {
 		return nil, mapDriveRepoErr(err)
 	}
 	if to.All {
-		if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareAll, nil, expiresAt, actor.UserID); err != nil {
+		if err := s.repo.UpsertGroupShares(ctx, id, models.DriveShareAll, nil, expiresAt, actor.UserID, to.Access); err != nil {
 			return nil, mapDriveRepoErr(err)
 		}
 	}

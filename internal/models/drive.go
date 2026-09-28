@@ -52,6 +52,10 @@ const (
 	DriveShareBranch     = "branch"
 	DriveShareDepartment = "department"
 	DriveShareAll        = "all"
+
+	// Уровень доступа (drive_shares.access, миграция 088).
+	DriveAccessView = "view"
+	DriveAccessEdit = "edit"
 )
 
 type DriveShare struct {
@@ -60,6 +64,8 @@ type DriveShare struct {
 	// Target — user | branch | department | all; Label — ФИО сотрудника или
 	// название группы.
 	Target       string `json:"target"`
+	// Access — view | edit.
+	Access       string `json:"access"`
 	Label        string `json:"label"`
 	BranchID     *int   `json:"branch_id,omitempty"`
 	DepartmentID *int   `json:"department_id,omitempty"`

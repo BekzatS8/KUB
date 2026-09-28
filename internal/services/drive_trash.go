@@ -3,11 +3,36 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 
+	"turcompany/internal/authz"
+	"turcompany/internal/models"
 	"turcompany/internal/repositories"
 )
+
+// DriveActivityNotifier — Лента (FeedEventService): туда уходит событие, когда
+// сотрудник удаляет файлы в хранилище.
+type DriveActivityNotifier interface {
+	Create(ctx context.Context, requesterID int, eventType string, payload json.RawMessage, resourceID *int) (*models.FeedEvent, error)
+}
+
+func (s *DriveService) SetNotifier(n DriveActivityNotifier) { s.notifier = n }
+
+// driveDeletePayload — событие Ленты «удаление в хранилище».
+type driveDeletePayload struct {
+	Items  []driveDeletedItem `json:"items"`
+	Folder string             `json:"folder"`
+	Count  int                `json:"count"`
+}
+
+type driveDeletedItem struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
 
 // Корзина хранилища: «Удалить» переносит в корзину, откуда элемент можно
 // восстановить или удалить навсегда. Только администратор.
@@ -18,17 +43,93 @@ type DriveTrash struct {
 	TotalBytes int64                         `json:"total_bytes"`
 }
 
-// Delete переносит файл или папку со всем содержимым в корзину. Возвращает,
-// сколько элементов перенесено.
+// Delete переносит файл или папку со всем содержимым в корзину.
 func (s *DriveService) Delete(ctx context.Context, actor DriveActor, id int64) (int, error) {
-	if !actor.canManage() {
-		return 0, ErrDriveForbidden
-	}
-	n, err := s.repo.TrashNode(ctx, id, actor.UserID)
+	return s.DeleteMany(ctx, actor, []int64{id})
+}
+
+// DeleteMany переносит элементы в корзину. Сотрудник удаляет только внутри
+// папки с доступом edit; его удаление попадает в Ленту — администратор
+// оставляет его в корзине или восстанавливает. Возвращает, сколько элементов
+// перенесено в корзину.
+func (s *DriveService) DeleteMany(ctx context.Context, actor DriveActor, ids []int64) (int, error) {
+	ids, err := normalizeDriveIDs(ids)
 	if err != nil {
-		return 0, mapDriveRepoErr(err)
+		return 0, err
 	}
-	return int(n), nil
+	nodes := make([]*models.DriveNode, 0, len(ids))
+	for _, id := range ids {
+		node, err := s.getNode(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		if err := s.canModify(ctx, actor, node); err != nil {
+			return 0, err
+		}
+		nodes = append(nodes, node)
+	}
+	folder := s.folderPath(ctx, actor, nodes[0].ParentID)
+
+	payload := driveDeletePayload{Folder: folder}
+	for _, node := range nodes {
+		if _, err := s.repo.TrashNode(ctx, node.ID, actor.UserID); err != nil {
+			// Уже в корзине (удалили вместе с папкой выше) — не ошибка.
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return len(payload.Items), mapDriveRepoErr(err)
+		}
+		payload.Items = append(payload.Items, driveDeletedItem{ID: node.ID, Name: node.Name, Kind: node.Kind})
+	}
+	payload.Count = len(payload.Items)
+	if payload.Count > 0 && !actor.canManage() && s.notifier != nil {
+		raw, _ := json.Marshal(payload)
+		rid := int(payload.Items[0].ID)
+		if _, err := s.notifier.Create(ctx, actor.UserID, models.FeedEventTypeDriveDelete, raw, &rid); err != nil {
+			// Удаление уже в корзине — событие Ленты вторично, не откатываем.
+			log.Printf("[drive] feed event failed user=%d items=%d err=%v", actor.UserID, payload.Count, err)
+		}
+	}
+	return payload.Count, nil
+}
+
+// folderPath — путь папки словами для Ленты: «Хранилище / КУБ Алматы / …».
+func (s *DriveService) folderPath(ctx context.Context, actor DriveActor, parentID *int64) string {
+	parts := []string{"Хранилище"}
+	if parentID != nil {
+		if chain, err := s.repo.Ancestors(ctx, *parentID, actor.UserID); err == nil {
+			for _, a := range chain {
+				parts = append(parts, a.Name)
+			}
+		}
+	}
+	return strings.Join(parts, " / ")
+}
+
+// RestoreFromFeed — администратор отклонил в Ленте удаление сотрудника:
+// возвращаем удалённое из корзины. То, что уже восстановили или удалили
+// навсегда вручную, пропускаем.
+func (s *DriveService) RestoreFromFeed(ctx context.Context, reviewerID int, payload json.RawMessage) error {
+	var p driveDeletePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	admin := DriveActor{UserID: reviewerID, RoleID: authz.RoleSystemAdmin}
+	restored := 0
+	for _, it := range p.Items {
+		n, err := s.Restore(ctx, admin, []int64{it.ID})
+		if errors.Is(err, ErrDriveNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		restored += n
+	}
+	if restored == 0 && len(p.Items) > 0 {
+		return errors.New("удалённое уже восстановлено или удалено навсегда")
+	}
+	return nil
 }
 
 func (s *DriveService) ListTrash(ctx context.Context, actor DriveActor) (*DriveTrash, error) {

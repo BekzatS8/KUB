@@ -570,6 +570,9 @@ func Run() {
 	if mailer, ok := emailService.(services.DriveMailer); ok {
 		driveService.SetMailer(mailer)
 	}
+	// Удаление сотрудником — в Ленту; отклонение там восстанавливает удалённое.
+	driveService.SetNotifier(feedEventSvc)
+	feedEventSvc.SetDriveRestorer(driveService)
 	driveHandler := handlers.NewDriveHandler(driveService)
 	driveBackend := "local"
 	if cfg.S3.Enabled {

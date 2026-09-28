@@ -102,11 +102,11 @@ func TestDriveRepositoryIntegration(t *testing.T) {
 		}
 	})
 
-	if err := repo.UpsertShares(ctx, folderA.ID, []int{u1}, nil, admin); err != nil {
+	if err := repo.UpsertShares(ctx, folderA.ID, []int{u1}, nil, admin, "edit"); err != nil {
 		t.Fatalf("share A: %v", err)
 	}
 	// Файл внутри уже расшаренной папки выдан ещё и точечно.
-	if err := repo.UpsertShares(ctx, f1.ID, []int{u1}, nil, admin); err != nil {
+	if err := repo.UpsertShares(ctx, f1.ID, []int{u1}, nil, admin, "edit"); err != nil {
 		t.Fatalf("share f1: %v", err)
 	}
 
@@ -158,7 +158,7 @@ func TestDriveRepositoryIntegration(t *testing.T) {
 
 	t.Run("истёкший доступ не действует", func(t *testing.T) {
 		past := time.Now().Add(-time.Hour)
-		if err := repo.UpsertShares(ctx, f2.ID, []int{u2}, &past, admin); err != nil {
+		if err := repo.UpsertShares(ctx, f2.ID, []int{u2}, &past, admin, "edit"); err != nil {
 			t.Fatal(err)
 		}
 		ok, err := repo.CanAccess(ctx, f2.ID, u2)
@@ -182,7 +182,7 @@ func TestDriveRepositoryIntegration(t *testing.T) {
 
 		// Повторная выдача продлевает срок.
 		future := time.Now().Add(24 * time.Hour)
-		if err := repo.UpsertShares(ctx, f2.ID, []int{u2}, &future, admin); err != nil {
+		if err := repo.UpsertShares(ctx, f2.ID, []int{u2}, &future, admin, "edit"); err != nil {
 			t.Fatal(err)
 		}
 		if ok, _ := repo.CanAccess(ctx, f2.ID, u2); !ok {

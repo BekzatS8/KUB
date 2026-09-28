@@ -43,10 +43,14 @@ type DriveRepository interface {
 	CanAccess(ctx context.Context, nodeID int64, userID int) (bool, error)
 	SharedRoots(ctx context.Context, userID int) ([]models.DriveNode, error)
 	ListShares(ctx context.Context, nodeID int64) ([]models.DriveShare, error)
-	UpsertShares(ctx context.Context, nodeID int64, userIDs []int, expiresAt *time.Time, createdBy int) error
+	// access — view | edit (миграция 088).
+	UpsertShares(ctx context.Context, nodeID int64, userIDs []int, expiresAt *time.Time, createdBy int, access string) error
 	// UpsertGroupShares — доступ филиалам (target=branch), отделам
 	// (department) или всем (all, groupIDs не нужны).
-	UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int) error
+	UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int, access string) error
+	// CanEdit — может ли пользователь менять содержимое папки: у него есть
+	// действующий доступ edit к ней самой или к папке выше.
+	CanEdit(ctx context.Context, folderID int64, userID int) (bool, error)
 	ListShareGroups(ctx context.Context) (branches, departments []models.DriveShareGroup, err error)
 	DeleteShare(ctx context.Context, shareID int64) error
 	ListUsers(ctx context.Context) ([]models.DriveUser, error)
@@ -318,6 +322,37 @@ func (r *driveRepository) CanAccess(ctx context.Context, nodeID int64, userID in
 	return ok, nil
 }
 
+// CanEdit — есть ли у пользователя действующий доступ edit к папке или к
+// любой папке выше неё.
+func (r *driveRepository) CanEdit(ctx context.Context, folderID int64, userID int) (bool, error) {
+	var ok bool
+	err := r.db.QueryRowContext(ctx, fmt.Sprintf(`
+		WITH RECURSIVE chain AS (
+			SELECT id, parent_id FROM drive_nodes WHERE id = $1 AND deleted_at IS NULL
+			UNION ALL
+			SELECT p.id, p.parent_id
+			FROM drive_nodes p
+			JOIN chain c ON p.id = c.parent_id
+		)
+		SELECT EXISTS (
+			SELECT 1 FROM drive_shares s
+			JOIN chain c ON c.id = s.node_id
+			WHERE s.access = 'edit' AND %s AND %s
+		)
+	`, shareForUser("s", "$2"), fmt.Sprintf(activeShareSQL, "s")), folderID, userID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("drive edit check: %w", err)
+	}
+	return ok, nil
+}
+
+func normalizeShareAccess(access string) string {
+	if access == models.DriveAccessView {
+		return models.DriveAccessView
+	}
+	return models.DriveAccessEdit
+}
+
 // SharedRoots — «Доступные мне»: узлы, к которым пользователю выдан доступ.
 //
 // Узел не показывается отдельно, если доступ к нему уже даёт общая папка выше:
@@ -383,7 +418,7 @@ func (r *driveRepository) ListShares(ctx context.Context, nodeID int64) ([]model
 		WHEN 'department' THEN COALESCE(d.name, 'Отдел')
 		ELSE %s END`, fmt.Sprintf(driveUserNameSQL, "u"))
 	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT s.id, s.node_id, COALESCE(s.user_id, 0), s.target, s.branch_id, s.department_id,
+		SELECT s.id, s.node_id, COALESCE(s.user_id, 0), s.target, s.access, s.branch_id, s.department_id,
 		       %[1]s, COALESCE(u.email, ''),
 		       s.expires_at, NOT %[2]s, s.created_by, %[3]s, s.created_at
 		FROM drive_shares s
@@ -408,7 +443,7 @@ func (r *driveRepository) ListShares(ctx context.Context, nodeID int64) ([]model
 			branchID     sql.NullInt64
 			departmentID sql.NullInt64
 		)
-		if err := rows.Scan(&sh.ID, &sh.NodeID, &sh.UserID, &sh.Target, &branchID, &departmentID,
+		if err := rows.Scan(&sh.ID, &sh.NodeID, &sh.UserID, &sh.Target, &sh.Access, &branchID, &departmentID,
 			&sh.Label, &sh.UserEmail,
 			&expires, &sh.Expired, &createdBy, &sh.CreatedByName, &sh.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan drive share: %w", err)
@@ -438,7 +473,7 @@ func (r *driveRepository) ListShares(ctx context.Context, nodeID int64) ([]model
 
 // UpsertShares выдаёт доступ нескольким пользователям разом. Повторная выдача
 // тому же пользователю обновляет срок — так продлевают или делают бессрочным.
-func (r *driveRepository) UpsertShares(ctx context.Context, nodeID int64, userIDs []int, expiresAt *time.Time, createdBy int) error {
+func (r *driveRepository) UpsertShares(ctx context.Context, nodeID int64, userIDs []int, expiresAt *time.Time, createdBy int, access string) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
@@ -451,15 +486,16 @@ func (r *driveRepository) UpsertShares(ctx context.Context, nodeID int64, userID
 		ids = append(ids, int64(id))
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO drive_shares (node_id, user_id, expires_at, created_by)
-		SELECT $1, u.id, $3, $4
+		INSERT INTO drive_shares (node_id, user_id, expires_at, created_by, access)
+		SELECT $1, u.id, $3, $4, $5
 		FROM users u
 		WHERE u.id = ANY($2)
 		ON CONFLICT (node_id, user_id) DO UPDATE
 		SET expires_at = EXCLUDED.expires_at,
 		    created_by = EXCLUDED.created_by,
+		    access = EXCLUDED.access,
 		    created_at = NOW()
-	`, nodeID, pq.Array(ids), expires, createdBy)
+	`, nodeID, pq.Array(ids), expires, createdBy, normalizeShareAccess(access))
 	if IsSQLState(err, SQLStateForeignKey) {
 		return sql.ErrNoRows
 	}
@@ -471,7 +507,8 @@ func (r *driveRepository) UpsertShares(ctx context.Context, nodeID int64, userID
 
 // UpsertGroupShares выдаёт доступ группам. Повторная выдача той же группе
 // обновляет срок, как у сотрудника.
-func (r *driveRepository) UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int) error {
+func (r *driveRepository) UpsertGroupShares(ctx context.Context, nodeID int64, target string, groupIDs []int, expiresAt *time.Time, createdBy int, access string) error {
+	access = normalizeShareAccess(access)
 	var expires sql.NullTime
 	if expiresAt != nil {
 		expires = sql.NullTime{Time: *expiresAt, Valid: true}
@@ -483,6 +520,7 @@ func (r *driveRepository) UpsertGroupShares(ctx context.Context, nodeID int64, t
 	const onConflict = `
 		DO UPDATE SET expires_at = EXCLUDED.expires_at,
 		              created_by = EXCLUDED.created_by,
+		              access = EXCLUDED.access,
 		              created_at = NOW()`
 	var err error
 	switch target {
@@ -491,25 +529,25 @@ func (r *driveRepository) UpsertGroupShares(ctx context.Context, nodeID int64, t
 			return nil
 		}
 		_, err = r.db.ExecContext(ctx, `
-			INSERT INTO drive_shares (node_id, target, branch_id, expires_at, created_by)
-			SELECT $1, 'branch', b.id, $3, $4 FROM branches b WHERE b.id = ANY($2)
+			INSERT INTO drive_shares (node_id, target, branch_id, expires_at, created_by, access)
+			SELECT $1, 'branch', b.id, $3, $4, $5 FROM branches b WHERE b.id = ANY($2)
 			ON CONFLICT (node_id, branch_id) WHERE target = 'branch'`+onConflict,
-			nodeID, pq.Array(ids), expires, createdBy)
+			nodeID, pq.Array(ids), expires, createdBy, access)
 	case models.DriveShareDepartment:
 		if len(ids) == 0 {
 			return nil
 		}
 		_, err = r.db.ExecContext(ctx, `
-			INSERT INTO drive_shares (node_id, target, department_id, expires_at, created_by)
-			SELECT $1, 'department', d.id, $3, $4 FROM departments d WHERE d.id = ANY($2)
+			INSERT INTO drive_shares (node_id, target, department_id, expires_at, created_by, access)
+			SELECT $1, 'department', d.id, $3, $4, $5 FROM departments d WHERE d.id = ANY($2)
 			ON CONFLICT (node_id, department_id) WHERE target = 'department'`+onConflict,
-			nodeID, pq.Array(ids), expires, createdBy)
+			nodeID, pq.Array(ids), expires, createdBy, access)
 	case models.DriveShareAll:
 		_, err = r.db.ExecContext(ctx, `
-			INSERT INTO drive_shares (node_id, target, expires_at, created_by)
-			VALUES ($1, 'all', $2, $3)
+			INSERT INTO drive_shares (node_id, target, expires_at, created_by, access)
+			VALUES ($1, 'all', $2, $3, $4)
 			ON CONFLICT (node_id) WHERE target = 'all'`+onConflict,
-			nodeID, expires, createdBy)
+			nodeID, expires, createdBy, access)
 	default:
 		return fmt.Errorf("drive: unknown share target %q", target)
 	}

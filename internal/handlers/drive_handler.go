@@ -222,6 +222,8 @@ func (h *DriveHandler) ListShares(c *gin.Context) {
 
 type driveShareRequest struct {
 	UserIDs []int `json:"user_ids"`
+	// Access — view | edit; пусто — edit.
+	Access string `json:"access"`
 	// Группы: доступ получают все их сотрудники, в том числе будущие.
 	BranchIDs     []int `json:"branch_ids"`
 	DepartmentIDs []int `json:"department_ids"`
@@ -246,6 +248,7 @@ func (h *DriveHandler) Share(c *gin.Context) {
 		BranchIDs:     req.BranchIDs,
 		DepartmentIDs: req.DepartmentIDs,
 		All:           req.All,
+		Access:        req.Access,
 	}, req.ExpiresAt)
 	if err != nil {
 		writeDriveError(c, err, "Не удалось выдать доступ")

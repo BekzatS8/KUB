@@ -625,19 +625,22 @@ func SetupRoutes(
 			// Отправка файлов клиенту: мессенджер CRM или почта (доступ к
 			// файлам и мессенджеру проверяются в хендлере и сервисе).
 			drive.POST("/send", driveHandler.Send)
+			// Работа с содержимым: администратору — везде, сотруднику — внутри
+			// папки с доступом «редактирование» (проверяет сервис).
+			drive.POST("/folders", driveHandler.CreateFolder)
+			drive.POST("/files", driveHandler.Upload)
+			drive.PATCH("/nodes/:id", driveHandler.Rename)
+			drive.DELETE("/nodes/:id", driveHandler.Delete)
+			drive.POST("/delete", driveHandler.DeleteMany)
+			drive.POST("/move", driveHandler.Move)
+			drive.POST("/copy", driveHandler.Copy)
 
 			manage := drive.Group("", middleware.RequirePermission("drive.manage", "drive"))
-			manage.POST("/folders", driveHandler.CreateFolder)
-			manage.POST("/files", driveHandler.Upload)
-			manage.PATCH("/nodes/:id", driveHandler.Rename)
-			manage.DELETE("/nodes/:id", driveHandler.Delete)
 			manage.GET("/nodes/:id/shares", driveHandler.ListShares)
 			manage.POST("/nodes/:id/shares", driveHandler.Share)
 			manage.DELETE("/shares/:id", driveHandler.Unshare)
 			manage.GET("/users", driveHandler.Users)
 			manage.GET("/groups", driveHandler.ShareGroups)
-			manage.POST("/move", driveHandler.Move)
-			manage.POST("/copy", driveHandler.Copy)
 			// Корзина: удалённое можно восстановить или удалить навсегда.
 			manage.GET("/trash", driveHandler.Trash)
 			manage.POST("/trash/restore", driveHandler.Restore)

@@ -81,7 +81,14 @@ type feedSendDocumentPayload struct {
 	SignerPosition string `json:"signer_position"`
 }
 
+// feedDriveRestorer возвращает из корзины удалённое сотрудником в хранилище,
+// когда администратор отклоняет событие drive_delete.
+type feedDriveRestorer interface {
+	RestoreFromFeed(ctx context.Context, reviewerID int, payload json.RawMessage) error
+}
+
 type FeedEventService struct {
+	driveRestorer feedDriveRestorer
 	repo          *repositories.FeedEventRepository
 	userRepo      repositories.UserRepository
 	clientPatcher feedClientPatcher
@@ -110,6 +117,10 @@ func NewFeedEventService(
 		docSender:     docSender,
 	}
 }
+
+// SetDriveRestorer подключает хранилище: отклонение drive_delete восстанавливает
+// удалённое.
+func (s *FeedEventService) SetDriveRestorer(r feedDriveRestorer) { s.driveRestorer = r }
 
 // Create stores a new pending feed event. The requester's display name is
 // resolved from the user repo and stored for display without extra joins.
@@ -209,6 +220,13 @@ func (s *FeedEventService) Reject(ctx context.Context, eventID, reviewerID int, 
 	}
 	if e.Status != models.FeedEventStatusPending {
 		return nil, ErrFeedEventAlreadyResolved
+	}
+
+	// Отклонить удаление в хранилище — значит вернуть удалённое на место.
+	if e.EventType == models.FeedEventTypeDriveDelete && s.driveRestorer != nil {
+		if err := s.driveRestorer.RestoreFromFeed(ctx, reviewerID, e.Payload); err != nil {
+			return nil, fmt.Errorf("восстановление файлов: %w", err)
+		}
 	}
 
 	var reasonPtr *string

@@ -90,13 +90,13 @@ func TestDriveGroupSharesIntegration(t *testing.T) {
 		return ok
 	}
 
-	if err := repo.UpsertGroupShares(ctx, branchFolder.ID, models.DriveShareBranch, []int{almaty}, nil, admin); err != nil {
+	if err := repo.UpsertGroupShares(ctx, branchFolder.ID, models.DriveShareBranch, []int{almaty}, nil, admin, "edit"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.UpsertGroupShares(ctx, deptFile.ID, models.DriveShareDepartment, []int{dept}, nil, admin); err != nil {
+	if err := repo.UpsertGroupShares(ctx, deptFile.ID, models.DriveShareDepartment, []int{dept}, nil, admin, "edit"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.UpsertGroupShares(ctx, allFile.ID, models.DriveShareAll, nil, nil, admin); err != nil {
+	if err := repo.UpsertGroupShares(ctx, allFile.ID, models.DriveShareAll, nil, nil, admin, "edit"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -137,7 +137,7 @@ func TestDriveGroupSharesIntegration(t *testing.T) {
 
 	t.Run("«Доступные мне» без дублей и с самым долгим сроком", func(t *testing.T) {
 		soon := time.Now().Add(2 * time.Hour)
-		if err := repo.UpsertShares(ctx, branchFolder.ID, []int{almatyUser}, &soon, admin); err != nil {
+		if err := repo.UpsertShares(ctx, branchFolder.ID, []int{almatyUser}, &soon, admin, "edit"); err != nil {
 			t.Fatal(err)
 		}
 		roots, err := repo.SharedRoots(ctx, almatyUser)
@@ -158,7 +158,7 @@ func TestDriveGroupSharesIntegration(t *testing.T) {
 
 	t.Run("повторная выдача группе обновляет срок, список доступов с названиями", func(t *testing.T) {
 		later := time.Now().Add(48 * time.Hour)
-		if err := repo.UpsertGroupShares(ctx, branchFolder.ID, models.DriveShareBranch, []int{almaty}, &later, admin); err != nil {
+		if err := repo.UpsertGroupShares(ctx, branchFolder.ID, models.DriveShareBranch, []int{almaty}, &later, admin, "edit"); err != nil {
 			t.Fatal(err)
 		}
 		shares, err := repo.ListShares(ctx, branchFolder.ID)

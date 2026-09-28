@@ -28,6 +28,9 @@ const (
 	// under_review). Событие показывается админу в Ленте; на approve документ
 	// проходит ревью-approve (under_review → approved) правами администратора.
 	FeedEventTypePendingReviewDocument = "pending_review_document"
+	// DriveDelete — сотрудник удалил файлы или папки в хранилище: они уже в
+	// корзине. Одобрить — оставить в корзине, отклонить — восстановить.
+	FeedEventTypeDriveDelete = "drive_delete"
 
 	FeedEventStatusPending  = "pending"
 	FeedEventStatusApproved = "approved"
