@@ -171,7 +171,13 @@ func (h *WazzupHandler) SendMessage(c *gin.Context) {
 		case errors.Is(err, wz.ErrDisabled), errors.Is(err, wz.ErrNotFound):
 			notFound(c, "wazzup_integration_not_found", "Integration not found")
 		case errors.Is(err, wz.ErrUpstream):
-			c.JSON(http.StatusBadGateway, gin.H{"error": "wazzup upstream error"})
+			// Причину отказа показываем словами Wazzup — иначе в CRM видно
+			// только «не удалось», а разбираться приходится по логам сервера.
+			detail := wz.ProviderErrorDetail(err)
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error":   "Wazzup не отправил сообщение: " + detail,
+				"message": "Wazzup не отправил сообщение: " + detail,
+			})
 		default:
 			internalError(c, "failed to send wazzup message")
 		}

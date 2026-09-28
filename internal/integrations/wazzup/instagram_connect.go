@@ -160,6 +160,10 @@ func (s *Service) ConnectInstagram(ctx context.Context) (*InstagramConnectResult
 	return res, nil
 }
 
+// ProviderErrorDetail — объяснение провайдера из ошибки (detail и errors из
+// тела ответа), чтобы показать его в CRM, а не безликое «upstream error».
+func ProviderErrorDetail(err error) string { return providerErrorDetail(err) }
+
 // providerErrorDetail достаёт из ошибки провайдера его объяснение (detail и
 // errors из тела ответа), чтобы показать администратору.
 func providerErrorDetail(err error) string {
