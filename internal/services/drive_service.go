@@ -321,30 +321,6 @@ func (s *DriveService) Rename(ctx context.Context, actor DriveActor, id int64, n
 	return s.reload(ctx, id, true)
 }
 
-// Delete удаляет файл или папку со всем содержимым. Возвращает, сколько
-// файлов ушло из хранилища.
-func (s *DriveService) Delete(ctx context.Context, actor DriveActor, id int64) (int, error) {
-	if !actor.canManage() {
-		return 0, ErrDriveForbidden
-	}
-	objects, err := s.repo.DeleteNode(ctx, id)
-	if err != nil {
-		return 0, mapDriveRepoErr(err)
-	}
-	// Записи уже удалены — объекты чистим «лучшим усилием». Ошибка здесь не
-	// должна возвращать удалённое: оставшийся в бакете объект недоступен
-	// никому и только занимает место, это видно в логе.
-	for _, o := range objects {
-		if o.StorageKey != "" {
-			if err := s.store.Delete(context.Background(), o.StorageKey); err != nil {
-				log.Printf("[drive] delete object failed key=%s err=%v", o.StorageKey, err)
-			}
-		}
-		_ = s.store.Delete(context.Background(), drivePreviewKey(o.NodeID))
-	}
-	return len(objects), nil
-}
-
 // ─── Доступы ────────────────────────────────────────────────────────────────
 
 func (s *DriveService) ListShares(ctx context.Context, actor DriveActor, id int64) ([]models.DriveShare, error) {

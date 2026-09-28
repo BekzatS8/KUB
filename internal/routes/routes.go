@@ -638,6 +638,11 @@ func SetupRoutes(
 			manage.GET("/groups", driveHandler.ShareGroups)
 			manage.POST("/move", driveHandler.Move)
 			manage.POST("/copy", driveHandler.Copy)
+			// Корзина: удалённое можно восстановить или удалить навсегда.
+			manage.GET("/trash", driveHandler.Trash)
+			manage.POST("/trash/restore", driveHandler.Restore)
+			manage.POST("/trash/purge", driveHandler.Purge)
+			manage.DELETE("/trash", driveHandler.EmptyTrash)
 		}
 	}
 

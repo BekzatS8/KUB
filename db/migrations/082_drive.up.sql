@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS drive_nodes (
     CONSTRAINT drive_nodes_file_has_key CHECK (kind = 'folder' OR storage_key IS NOT NULL)
 );
 
--- Имена уникальны внутри папки без учёта регистра (как в файловых системах
--- Windows/macOS). У корня parent_id = NULL, поэтому сворачиваем его в 0.
-CREATE UNIQUE INDEX IF NOT EXISTS drive_nodes_name_uniq
-    ON drive_nodes (COALESCE(parent_id, 0), lower(name));
+-- Уникальность имён внутри папки задаёт миграция 087 — без учёта корзины.
+-- Прежний индекс drive_nodes_name_uniq здесь больше не создаётся: миграции
+-- перезапускаются при каждом деплое, и он вернулся бы и не дал занять имя
+-- файла, лежащего в корзине (а при совпадении имён уронил бы деплой).
 
 CREATE INDEX IF NOT EXISTS drive_nodes_parent_idx ON drive_nodes (parent_id);
 

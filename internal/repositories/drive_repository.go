@@ -32,6 +32,12 @@ type DriveRepository interface {
 	IsWithin(ctx context.Context, nodeID, ancestorID int64) (bool, error)
 	Subtree(ctx context.Context, id int64) ([]DriveSubtreeNode, error)
 	FolderStats(ctx context.Context, id int64) (*DriveFolderStats, error)
+	// Корзина (drive_trash_repository.go).
+	TrashNode(ctx context.Context, id int64, userID int) (int64, error)
+	ListTrash(ctx context.Context) ([]DriveTrashItem, error)
+	GetTrashRoot(ctx context.Context, id int64) (name string, parentID *int64, parentLive bool, err error)
+	RestoreNode(ctx context.Context, id int64, parentID *int64, name string) error
+	ListTrashRootIDs(ctx context.Context) ([]int64, error)
 	DeleteNode(ctx context.Context, id int64) ([]DeletedDriveObject, error)
 	Ancestors(ctx context.Context, id int64, userID int) ([]DriveAncestor, error)
 	CanAccess(ctx context.Context, nodeID int64, userID int) (bool, error)
@@ -86,7 +92,7 @@ var driveNodeSelect = fmt.Sprintf(`
 	SELECT n.id, n.parent_id, n.kind, n.name, COALESCE(n.storage_key, ''), n.size_bytes, n.mime_type,
 	       n.created_by, %s, n.created_at, n.updated_at,
 	       (SELECT count(*) FROM drive_shares s WHERE s.node_id = n.id AND %s),
-	       (SELECT count(*) FROM drive_nodes c WHERE c.parent_id = n.id)
+	       (SELECT count(*) FROM drive_nodes c WHERE c.parent_id = n.id AND c.deleted_at IS NULL)
 	FROM drive_nodes n
 	LEFT JOIN users cu ON cu.id = n.created_by`,
 	fmt.Sprintf(driveUserNameSQL, "cu"), fmt.Sprintf(activeShareSQL, "s"))
@@ -163,7 +169,7 @@ func (r *driveRepository) CreateNode(ctx context.Context, n *models.DriveNode) e
 }
 
 func (r *driveRepository) GetNode(ctx context.Context, id int64) (*models.DriveNode, error) {
-	n, err := scanDriveNode(r.db.QueryRowContext(ctx, driveNodeSelect+` WHERE n.id = $1`, id))
+	n, err := scanDriveNode(r.db.QueryRowContext(ctx, driveNodeSelect+` WHERE n.id = $1 AND n.deleted_at IS NULL`, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
@@ -175,7 +181,7 @@ func (r *driveRepository) GetNode(ctx context.Context, id int64) (*models.DriveN
 
 func (r *driveRepository) ListChildren(ctx context.Context, parentID *int64) ([]models.DriveNode, error) {
 	rows, err := r.db.QueryContext(ctx,
-		driveNodeSelect+` WHERE n.parent_id IS NOT DISTINCT FROM $1::bigint`+driveNodeOrder,
+		driveNodeSelect+` WHERE n.parent_id IS NOT DISTINCT FROM $1::bigint AND n.deleted_at IS NULL`+driveNodeOrder,
 		nullableID(parentID))
 	if err != nil {
 		return nil, fmt.Errorf("list drive children: %w", err)
@@ -194,7 +200,7 @@ func (r *driveRepository) ListChildren(ctx context.Context, parentID *int64) ([]
 
 func (r *driveRepository) RenameNode(ctx context.Context, id int64, name string) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE drive_nodes SET name = $2, updated_at = NOW() WHERE id = $1`, id, name)
+		`UPDATE drive_nodes SET name = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, id, name)
 	if IsSQLState(err, SQLStateUniqueViolation) {
 		return ErrDriveNameTaken
 	}
@@ -294,7 +300,7 @@ func (r *driveRepository) CanAccess(ctx context.Context, nodeID int64, userID in
 	var ok bool
 	err := r.db.QueryRowContext(ctx, fmt.Sprintf(`
 		WITH RECURSIVE chain AS (
-			SELECT id, parent_id FROM drive_nodes WHERE id = $1
+			SELECT id, parent_id FROM drive_nodes WHERE id = $1 AND deleted_at IS NULL
 			UNION ALL
 			SELECT p.id, p.parent_id
 			FROM drive_nodes p
@@ -324,13 +330,14 @@ func (r *driveRepository) SharedRoots(ctx context.Context, userID int) ([]models
 		SELECT n.id, n.parent_id, n.kind, n.name, COALESCE(n.storage_key, ''), n.size_bytes, n.mime_type,
 		       n.created_by, %[1]s, n.created_at, n.updated_at,
 		       0,
-		       (SELECT count(*) FROM drive_nodes c WHERE c.parent_id = n.id),
+		       (SELECT count(*) FROM drive_nodes c WHERE c.parent_id = n.id AND c.deleted_at IS NULL),
 		       (SELECT CASE WHEN bool_or(sh.expires_at IS NULL) THEN NULL ELSE max(sh.expires_at) END
 		        FROM drive_shares sh
 		        WHERE sh.node_id = n.id AND %[4]s AND %[2]s)
 		FROM drive_nodes n
 		LEFT JOIN users cu ON cu.id = n.created_by
-		WHERE EXISTS (
+		WHERE n.deleted_at IS NULL
+		  AND EXISTS (
 		      SELECT 1 FROM drive_shares sh
 		      WHERE sh.node_id = n.id AND %[4]s AND %[2]s
 		  )
@@ -607,6 +614,7 @@ func (r *driveRepository) Totals(ctx context.Context) (int64, int64, error) {
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(size_bytes), 0), count(*) FILTER (WHERE kind = 'file')
 		FROM drive_nodes
+		WHERE deleted_at IS NULL
 	`).Scan(&totalBytes, &files)
 	if err != nil {
 		return 0, 0, fmt.Errorf("drive totals: %w", err)

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"log"
 	"mime"
@@ -180,16 +179,13 @@ func (h *DriveHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	// Удаление объектов из S3 не должно обрываться, если пользователь закрыл
-	// вкладку: записи в базе к этому моменту уже удалены.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Minute)
-	defer cancel()
-	removed, err := h.svc.Delete(ctx, driveActor(c), id)
+	// Удаление переносит в корзину — восстановить можно оттуда.
+	trashed, err := h.svc.Delete(c.Request.Context(), driveActor(c), id)
 	if err != nil {
 		writeDriveError(c, err, "Не удалось удалить")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "files_removed": removed})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "trashed": trashed})
 }
 
 // GET /api/v1/drive/nodes/:id/link?variant=original|pdf&disposition=inline|attachment

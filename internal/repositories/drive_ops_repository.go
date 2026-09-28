@@ -29,7 +29,7 @@ type DriveFolderStats struct {
 // MoveNode переносит узел в другую папку (nil — корень) под именем name.
 func (r *driveRepository) MoveNode(ctx context.Context, id int64, parentID *int64, name string) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE drive_nodes SET parent_id = $2, name = $3, updated_at = NOW() WHERE id = $1`,
+		`UPDATE drive_nodes SET parent_id = $2, name = $3, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
 		id, nullableID(parentID), name)
 	if IsSQLState(err, SQLStateUniqueViolation) {
 		return ErrDriveNameTaken
@@ -69,10 +69,11 @@ func (r *driveRepository) Subtree(ctx context.Context, id int64) ([]DriveSubtree
 	rows, err := r.db.QueryContext(ctx, `
 		WITH RECURSIVE subtree AS (
 			SELECT id, parent_id, kind, name, storage_key, size_bytes, mime_type, 0 AS depth
-			FROM drive_nodes WHERE id = $1
+			FROM drive_nodes WHERE id = $1 AND deleted_at IS NULL
 			UNION ALL
 			SELECT c.id, c.parent_id, c.kind, c.name, c.storage_key, c.size_bytes, c.mime_type, s.depth + 1
 			FROM drive_nodes c JOIN subtree s ON c.parent_id = s.id
+			WHERE c.deleted_at IS NULL
 		)
 		SELECT id, parent_id, kind, name, COALESCE(storage_key, ''), size_bytes, mime_type, depth
 		FROM subtree
@@ -105,9 +106,10 @@ func (r *driveRepository) FolderStats(ctx context.Context, id int64) (*DriveFold
 	var st DriveFolderStats
 	err := r.db.QueryRowContext(ctx, `
 		WITH RECURSIVE subtree AS (
-			SELECT id, kind, size_bytes FROM drive_nodes WHERE parent_id = $1
+			SELECT id, kind, size_bytes FROM drive_nodes WHERE parent_id = $1 AND deleted_at IS NULL
 			UNION ALL
 			SELECT c.id, c.kind, c.size_bytes FROM drive_nodes c JOIN subtree s ON c.parent_id = s.id
+			WHERE c.deleted_at IS NULL
 		)
 		SELECT COALESCE(SUM(size_bytes) FILTER (WHERE kind = 'file'), 0),
 		       COUNT(*) FILTER (WHERE kind = 'file'),

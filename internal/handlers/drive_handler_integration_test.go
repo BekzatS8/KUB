@@ -88,6 +88,10 @@ func TestDriveHTTPFlowIntegration(t *testing.T) {
 	manage.POST("/folders", h.CreateFolder)
 	manage.POST("/files", h.Upload)
 	manage.DELETE("/nodes/:id", h.Delete)
+	manage.GET("/trash", h.Trash)
+	manage.POST("/trash/restore", h.Restore)
+	manage.POST("/trash/purge", h.Purge)
+	manage.DELETE("/trash", h.EmptyTrash)
 	manage.POST("/nodes/:id/shares", h.Share)
 	manage.DELETE("/shares/:id", h.Unshare)
 
@@ -239,7 +243,8 @@ func TestDriveHTTPFlowIntegration(t *testing.T) {
 		t.Fatalf("link must stop working after revoke, got %d", revoked.Code)
 	}
 
-	// 9. Удаление папки удаляет и объекты из хранилища.
+	// 9. Удаление переносит папку в корзину — объекты остаются, пока её не
+	// удалят навсегда.
 	countFiles := func() int {
 		n := 0
 		_ = filepath.Walk(storeDir, func(_ string, info os.FileInfo, err error) error {
@@ -257,7 +262,31 @@ func TestDriveHTTPFlowIntegration(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
 	}
+	if after := countFiles(); after != 2 {
+		t.Fatalf("trash must keep stored objects, %d left", after)
+	}
+	var trash struct {
+		Items []struct{ ID int64 }
+	}
+	decode(t, as(adminA, http.MethodGet, "/api/v1/drive/trash", nil, ""), &trash)
+	found := false
+	for _, it := range trash.Items {
+		found = found || it.ID == folder.ID
+	}
+	if !found {
+		t.Fatalf("deleted folder must be in trash, got %+v", trash)
+	}
+	if w = as(viewerA, http.MethodGet, "/api/v1/drive/trash", nil, ""); w.Code != http.StatusForbidden {
+		t.Fatalf("only admin sees trash, got %d", w.Code)
+	}
+
+	// 10. «Удалить навсегда» убирает и объекты из хранилища.
+	body = fmt.Sprintf(`{"ids":[%d]}`, folder.ID)
+	w = as(adminA, http.MethodPost, "/api/v1/drive/trash/purge", strings.NewReader(body), "application/json")
+	if w.Code != http.StatusOK {
+		t.Fatalf("purge: %d %s", w.Code, w.Body.String())
+	}
 	if after := countFiles(); after != 0 {
-		t.Fatalf("stored objects must be removed with folder, %d left", after)
+		t.Fatalf("stored objects must be removed on purge, %d left", after)
 	}
 }
