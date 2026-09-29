@@ -170,6 +170,8 @@ func (h *WazzupHandler) SendMessage(c *gin.Context) {
 		switch {
 		case errors.Is(err, wz.ErrDisabled), errors.Is(err, wz.ErrNotFound):
 			notFound(c, "wazzup_integration_not_found", "Integration not found")
+		case errors.Is(err, wz.ErrNoChannelAccess):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error(), "message": err.Error(), "error_code": "wazzup_no_channel_access"})
 		case errors.Is(err, wz.ErrUpstream):
 			// Причину отказа показываем словами Wazzup — иначе в CRM видно
 			// только «не удалось», а разбираться приходится по логам сервера.

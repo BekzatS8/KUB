@@ -207,3 +207,26 @@ func TestChannelRolesShowsAutomaticAccess(t *testing.T) {
 		}
 	}
 }
+
+// С номера с ручным доступом пишет только тот, у кого есть роль «Менеджер»
+// или «Руководитель»: иначе Wazzup примет сообщение, а потом откажет с
+// chat_no_access, и сотрудник решит, что отправил.
+func TestSendRequiresRoleOnManualChannel(t *testing.T) {
+	svc, repo, _ := newRolesService(t)
+	repo.manual[21] = append(repo.manual[21], repositories.ChannelUserRole{UserID: 7, Role: "auditor"})
+	repo.users = append(repo.users, repositories.CRMUserDTO{ID: 7, RoleID: authz.RoleControl})
+
+	if _, err := svc.SendMessage(context.Background(), userSales2, "77001112233", "whatsapp", "child-almaty", "привет"); !errors.Is(err, ErrNoChannelAccess) {
+		t.Fatalf("employee without a role must be refused before sending, got %v", err)
+	}
+	if _, err := svc.SendMessage(context.Background(), 7, "77001112233", "whatsapp", "child-almaty", "привет"); !errors.Is(err, ErrNoChannelAccess) {
+		t.Fatalf("quality control must not write, got %v", err)
+	}
+	if _, err := svc.SendMessage(context.Background(), userSales, "77001112233", "whatsapp", "child-almaty", "привет"); err != nil {
+		t.Fatalf("manager with a role must send, got %v", err)
+	}
+	// Номер без ручной настройки — роли автоматические, проверки нет.
+	if _, err := svc.SendMessage(context.Background(), userSales2, "77001112233", "whatsapp", "child-shymkent", "привет"); err != nil {
+		t.Fatalf("automatic channel must not be restricted, got %v", err)
+	}
+}

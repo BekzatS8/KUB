@@ -716,6 +716,47 @@ func (s *Service) SendFileURL(ctx context.Context, userID int, chatID, transport
 	return err
 }
 
+// ErrNoChannelAccess — у сотрудника нет права писать с этого номера.
+var ErrNoChannelAccess = fmt.Errorf("%w: нет доступа к номеру", ErrBadRequest)
+
+// checkSendAccess — у номера с доступом, настроенным вручную, писать может
+// только сотрудник с ролью «Менеджер» или «Руководитель». Иначе партнёрский
+// API примет сообщение, а через секунду откажет с chat_no_access, и сотрудник
+// увидит «отправлено», хотя клиенту ничего не придёт.
+func (s *Service) checkSendAccess(ctx context.Context, acc *AccountConfig, integration *models.WazzupIntegration, channelID string, userID int) error {
+	if acc == nil || !acc.Partner || channelID == "" || userID <= 0 {
+		return nil
+	}
+	channels, err := s.repo.ListChannels(ctx, integration.ID)
+	if err != nil {
+		return nil // проверка вспомогательная — не мешаем отправке
+	}
+	for _, ch := range channels {
+		if strings.TrimSpace(ch.ExternalChannelID) != channelID || !ch.RolesConfigured {
+			continue
+		}
+		roles, err := s.repo.ListChannelRoles(ctx, ch.ID)
+		if err != nil {
+			return nil
+		}
+		name := ch.Name
+		if name == "" {
+			name = ch.Phone
+		}
+		for _, r := range roles {
+			if r.UserID != userID {
+				continue
+			}
+			if r.Role == "auditor" {
+				return fmt.Errorf("%w %s: у вас роль «Контроль качества» — писать с этого номера нельзя", ErrNoChannelAccess, name)
+			}
+			return nil
+		}
+		return fmt.Errorf("%w %s: попросите администратора выдать вам роль в «Каналы мессенджера» → «Доступ»", ErrNoChannelAccess, name)
+	}
+	return nil
+}
+
 // send — общий путь отправки текста и файлов: аккаунт номера, канал, автор.
 func (s *Service) send(ctx context.Context, ownerUserID int, chatID, transport, channelID string, req SendMessageRequest) (*SendMessageResponse, error) {
 	// Писать нужно через аккаунт того номера, с которого отправляем: чужой
@@ -738,6 +779,9 @@ func (s *Service) send(ctx context.Context, ownerUserID int, chatID, transport, 
 	channelID = strings.TrimSpace(channelID)
 	if channelID == "" {
 		channelID = s.resolveSendChannel(ctx, integration.ID, transport)
+	}
+	if err := s.checkSendAccess(ctx, acc, integration, channelID, ownerUserID); err != nil {
+		return nil, err
 	}
 	apiKey := s.apiKeyFor(acc, integration)
 	req.ChannelID = channelID
