@@ -2,6 +2,7 @@ package wazzup
 
 import (
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -92,8 +93,17 @@ func parsePartnerWebhook(payload []byte) ([]webhookMessage, bool) {
 		return nil, false
 	}
 
-	// Не message.add — событие валидное (статусы, каналы, QR), но сообщений в
-	// нём нет. Возвращаем пустой список: вебхук будет подтверждён с 200.
+	// Статусы отправленных сообщений: отправка в партнёрском API асинхронная,
+	// и если Wazzup не смог доставить сообщение, причина приходит только
+	// здесь. Раньше событие молча пропускалось — «сообщение не ушло» нельзя
+	// было разобрать даже по логам.
+	if event == "message.status_update" {
+		logPartnerStatusUpdates(env.Data)
+		return nil, true
+	}
+
+	// Другие события (каналы, QR) валидны, но сообщений в них нет. Возвращаем
+	// пустой список: вебхук будет подтверждён с 200.
 	if event != "message.add" {
 		return nil, true
 	}
@@ -107,6 +117,42 @@ func parsePartnerWebhook(payload []byte) ([]webhookMessage, bool) {
 		messages = append(messages, ev.toWebhookMessage())
 	}
 	return messages, true
+}
+
+// Успешные и промежуточные статусы — остальное считаем отказом доставки.
+var partnerOKStatuses = map[string]bool{
+	"": true, "sent": true, "delivered": true, "read": true, "viewed": true,
+	"inprogress": true, "in_progress": true, "pending": true, "queued": true, "accepted": true, "created": true,
+}
+
+// logPartnerStatusUpdates пишет в лог статусы отправленных сообщений, а для
+// отказа — причину и само событие.
+func logPartnerStatusUpdates(items []json.RawMessage) {
+	for _, raw := range items {
+		var item map[string]any
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		status := strings.ToLower(firstString(item, "status", "state"))
+		id := firstString(item, "message_id", "messageId", "request_id", "requestId", "id")
+		if partnerOKStatuses[status] {
+			log.Printf("integration=wazzup operation=message_status status=%s message_id=%s", status, id)
+			continue
+		}
+		reason := firstString(item, "reason", "error_description", "description", "error_code", "code")
+		if reason == "" {
+			if e, ok := item["error"].(map[string]any); ok {
+				reason = firstString(e, "description", "message", "code", "title")
+			} else {
+				reason = firstString(item, "error")
+			}
+		}
+		body := string(raw)
+		if len(body) > 800 {
+			body = body[:800] + "…"
+		}
+		log.Printf("integration=wazzup operation=message_status status=%s message_id=%s reason=%q event=%s", status, id, reason, body)
+	}
 }
 
 // toWebhookMessage приводит событие v2 к внутреннему представлению.

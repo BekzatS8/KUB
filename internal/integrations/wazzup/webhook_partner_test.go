@@ -1,6 +1,12 @@
 package wazzup
 
-import "testing"
+import (
+	"bytes"
+	"log"
+	"os"
+	"strings"
+	"testing"
+)
 
 // TestParsePartnerWebhookDialogMessage — входящее в личном диалоге.
 // В v2 контакт лежит в recipient, а не в плоских полях верхнего уровня.
@@ -123,5 +129,23 @@ func TestParsePartnerWebhookRejectsV3Payload(t *testing.T) {
 
 	if _, ok := parsePartnerWebhook([]byte(payload)); ok {
 		t.Fatal("v3 payload must not be treated as partner webhook")
+	}
+}
+
+// Отказ доставки приходит в message.status_update — событие разбирается как
+// валидный v2 без сообщений, а причина пишется в лог.
+func TestPartnerWebhookStatusUpdateIsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	payload := `{"event":"message.status_update","data":[{"message_id":"95d0e5cd","status":"error","error":{"code":"CHAT_NOT_ALLOWED","description":"User has no access to the chat"}}],"meta":{"idempotency_key":"k"}}`
+	msgs, ok := parsePartnerWebhook([]byte(payload))
+	if !ok || len(msgs) != 0 {
+		t.Fatalf("status update must be accepted without messages: ok=%v msgs=%d", ok, len(msgs))
+	}
+	out := buf.String()
+	if !strings.Contains(out, "status=error") || !strings.Contains(out, "95d0e5cd") || !strings.Contains(out, "User has no access to the chat") {
+		t.Fatalf("failure reason must be logged, got %q", out)
 	}
 }
