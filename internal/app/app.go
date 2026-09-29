@@ -499,6 +499,8 @@ func Run() {
 		driveMessenger = wazzupService
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
+		// Ссылка на CRM из карточки контакта в Wazzup («Написать первым»).
+		wazzupService.SetCRMBaseURL(cfg.PublicBaseURL)
 		log.Printf("[BOOT] Wazzup integration enabled accounts: main=%t child=%t timeout_s=%d retries=%d wl_account_id=%s",
 			mainClient != nil, wlClient.Configured(), cfg.Wazzup.RequestTimeoutSec, cfg.Wazzup.RetryCount, cfg.Wazzup.WLAccountID)
 	} else {
