@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
+	"turcompany/internal/integrations/meta"
 	wz "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -34,13 +35,16 @@ type WazzupService interface {
 	ChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
 	SetChannelRoles(ctx context.Context, channelID int64, items []wz.ChannelRoleInput) (*wz.ChannelRolesView, error)
 	ResetChannelRoles(ctx context.Context, channelID int64) (*wz.ChannelRolesView, error)
-	ConnectInstagram(ctx context.Context) (*wz.InstagramConnectResult, error)
+	ConnectInstagram(ctx context.Context, creds wz.InstagramCredentials) (*wz.InstagramConnectResult, error)
 }
 
 type WazzupHandler struct {
 	svc  WazzupService
 	repo repositories.WazzupRepository
 	wl   *wz.WhiteLabelClient // White Label: встроенный iframe добавления каналов (может быть nil)
+	// Вход через Facebook для подключения Instagram (может быть nil).
+	meta      *meta.Client
+	igLogins  *instagramLoginStore
 }
 
 func NewWazzupHandler(svc WazzupService) *WazzupHandler {

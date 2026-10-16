@@ -100,6 +100,18 @@ func (w WazzupConfig) HasWhiteLabel() bool {
 		strings.TrimSpace(w.WLAccountID) != ""
 }
 
+// MetaConfig — приложение Meta компании для входа через Facebook
+// (подключение Instagram к дочернему аккаунту Wazzup).
+type MetaConfig struct {
+	AppID        string `yaml:"app_id"`
+	AppSecret    string `yaml:"app_secret"`
+	GraphVersion string `yaml:"graph_version"` // по умолчанию v23.0
+	Scopes       string `yaml:"scopes"`        // через запятую; пусто — набор по умолчанию
+	// RedirectURL — страница CRM, куда Facebook вернёт администратора. Пусто —
+	// <frontend.host>/settings/messenger-channels/instagram-callback.
+	RedirectURL string `yaml:"redirect_url"`
+}
+
 // DriveConfig — раздел «Хранилище».
 type DriveConfig struct {
 	// MaxUploadMB — предельный размер одного файла. 0 — по умолчанию (2048 МБ).
@@ -155,6 +167,7 @@ type Config struct {
 
 	Telegram  TelegramConfig  `yaml:"telegram"`
 	Wazzup    WazzupConfig    `yaml:"wazzup"`
+	Meta      MetaConfig      `yaml:"meta"`
 	Drive     DriveConfig     `yaml:"drive"`
 	Binotel   BinotelConfig   `yaml:"binotel"`
 	Frontend  FrontendConfig  `yaml:"frontend"`
@@ -463,6 +476,9 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.PublicBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.PublicBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
 	}
+	if strings.TrimSpace(cfg.Meta.RedirectURL) == "" && cfg.Frontend.Host != "" {
+		cfg.Meta.RedirectURL = strings.TrimRight(cfg.Frontend.Host, "/") + "/settings/messenger-channels/instagram-callback"
+	}
 	if strings.TrimSpace(cfg.SignEmailVerifyBaseURL) == "" && cfg.Frontend.Host != "" {
 		cfg.SignEmailVerifyBaseURL = strings.TrimRight(cfg.Frontend.Host, "/")
 	}
@@ -580,6 +596,11 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("WAZZUP_WL_CLIENT_ID"), &cfg.Wazzup.WLClientID)
 	setString(os.Getenv("WAZZUP_WL_ACCOUNT_ID"), &cfg.Wazzup.WLAccountID)
 	setString(os.Getenv("WAZZUP_WL_SCOPE"), &cfg.Wazzup.WLScope)
+	setString(os.Getenv("META_APP_ID"), &cfg.Meta.AppID)
+	setString(os.Getenv("META_APP_SECRET"), &cfg.Meta.AppSecret)
+	setString(os.Getenv("META_GRAPH_VERSION"), &cfg.Meta.GraphVersion)
+	setString(os.Getenv("META_SCOPES"), &cfg.Meta.Scopes)
+	setString(os.Getenv("META_REDIRECT_URL"), &cfg.Meta.RedirectURL)
 	if val := strings.TrimSpace(os.Getenv("WAZZUP_ENABLE")); val != "" {
 		cfg.Wazzup.Enable = parseBoolEnvValue(val)
 	}

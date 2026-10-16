@@ -44,6 +44,18 @@ wazzup:
   retry_count: 1
   retry_delay_ms: 300
 
+# Приложение Meta компании: вход через Facebook для подключения Instagram к
+# дочернему аккаунту Wazzup. Env: META_APP_ID, META_APP_SECRET,
+# META_REDIRECT_URL, META_GRAPH_VERSION, META_SCOPES.
+meta:
+  app_id: ""
+  app_secret: ""
+  # пусто — <frontend.host>/settings/messenger-channels/instagram-callback;
+  # должен совпадать с «Valid OAuth Redirect URIs» приложения
+  redirect_url: ""
+  graph_version: "v23.0"
+  scopes: ""
+
 frontend:
   host: "https://kubcrm.kz"
 

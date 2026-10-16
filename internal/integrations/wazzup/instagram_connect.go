@@ -13,34 +13,36 @@ import (
 // Подключение Instagram к аккаунту без своего кабинета (дочерний White Label).
 //
 // Встроенная форма добавления канала (/v2/iframe-links/channels) Instagram не
-// поддерживает. По документации Tech Partner API канал создаётся методом
-// POST /v2/channels с transport=instagram, а в ответе поле url — «url канала
-// или url авторизации канала»: по нему администратор входит через Facebook и
-// выбирает бизнес-аккаунт Instagram. Способ instAPI требует своего
-// приложения Meta с токенами — его не используем.
+// поддерживает. По документации Tech Partner API канал Instagram создаётся
+// методом POST /v2/channels с transport=instagram и обязательными
+// credentials: username, page_id, inst_id, user_token. Ссылки входа Wazzup
+// партнёру не выдаёт — вход через Facebook проводит CRM своим приложением
+// Meta (пакет integrations/meta) и передаёт сюда готовые данные.
 
 // CreatedChannel — канал, созданный у провайдера.
 type CreatedChannel struct {
 	Channel Channel
-	// AuthURL — ссылка авторизации канала (для Instagram — вход через Facebook).
-	AuthURL string
 	Raw     json.RawMessage
 }
 
 // channelCreator — клиенты, умеющие создавать канал через API.
 type channelCreator interface {
-	CreateChannel(ctx context.Context, transport string) (*CreatedChannel, error)
+	CreateChannel(ctx context.Context, transport string, credentials map[string]any) (*CreatedChannel, error)
 }
 
-// CreateChannel создаёт канал без учётных данных (POST /v2/channels).
-func (c *PartnerClient) CreateChannel(ctx context.Context, transport string) (*CreatedChannel, error) {
+// CreateChannel создаёт канал (POST /v2/channels). credentials = nil — пустой
+// объект (WhatsApp, Telegram, WABA, MAX).
+func (c *PartnerClient) CreateChannel(ctx context.Context, transport string, credentials map[string]any) (*CreatedChannel, error) {
 	transport = strings.TrimSpace(transport)
 	if transport == "" {
 		return nil, fmt.Errorf("transport is required")
 	}
+	if credentials == nil {
+		credentials = map[string]any{}
+	}
 	body, err := c.doJSON(ctx, http.MethodPost, "/v2/channels", map[string]any{
 		"transport":   transport,
-		"credentials": map[string]any{},
+		"credentials": credentials,
 	})
 	if err != nil {
 		return nil, err
@@ -65,35 +67,26 @@ func parseCreatedChannel(body []byte) (*CreatedChannel, error) {
 		}
 	}
 	out := &CreatedChannel{Raw: append(json.RawMessage(nil), body...)}
-	if len(items) == 0 {
-		return out, nil
+	if len(items) > 0 {
+		out.Channel = mapChannel(items[0])
 	}
-	item := items[0]
-	out.Channel = mapChannel(item)
-	out.AuthURL = channelAuthURL(item)
 	return out, nil
 }
 
-// channelAuthURL ищет ссылку авторизации: url (v2), initUrl (v1, в details).
-func channelAuthURL(item map[string]any) string {
-	if u := firstString(item, "url", "auth_url", "init_url", "initUrl"); u != "" {
-		return u
-	}
-	if details, ok := item["details"].(map[string]any); ok {
-		return firstString(details, "initUrl", "init_url", "url")
-	}
-	return ""
+// InstagramCredentials — данные из входа через Facebook для POST /v2/channels.
+type InstagramCredentials struct {
+	Username  string
+	PageID    string
+	InstID    string
+	UserToken string
 }
 
-// InstagramConnectResult — ответ CRM на «Подключить Instagram».
+// InstagramConnectResult — ответ CRM на подключение Instagram.
 type InstagramConnectResult struct {
 	Account   string `json:"account"`
 	ChannelID string `json:"channel_id,omitempty"`
 	State     string `json:"state,omitempty"`
-	AuthURL   string `json:"auth_url,omitempty"`
-	// ProviderResponse — ответ Wazzup, если ссылки в нём не нашлось: по нему
-	// видно, что провайдер вернул вместо неё.
-	ProviderResponse string `json:"provider_response,omitempty"`
+	Username  string `json:"username,omitempty"`
 }
 
 // ChannelCreateError — провайдер отказал в создании канала; Detail — его
@@ -106,9 +99,16 @@ type ChannelCreateError struct {
 func (e *ChannelCreateError) Error() string { return "wazzup channel create failed: " + e.Detail }
 func (e *ChannelCreateError) Unwrap() error { return ErrUpstream }
 
-// ConnectInstagram создаёт канал Instagram в аккаунте без кабинета и отдаёт
-// ссылку авторизации.
-func (s *Service) ConnectInstagram(ctx context.Context) (*InstagramConnectResult, error) {
+// ConnectInstagram создаёт канал Instagram в аккаунте без кабинета по данным
+// из входа через Facebook.
+func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentials) (*InstagramConnectResult, error) {
+	creds.Username = strings.TrimPrefix(strings.TrimSpace(creds.Username), "@")
+	creds.PageID = strings.TrimSpace(creds.PageID)
+	creds.InstID = strings.TrimSpace(creds.InstID)
+	creds.UserToken = strings.TrimSpace(creds.UserToken)
+	if creds.Username == "" || creds.PageID == "" || creds.InstID == "" || creds.UserToken == "" {
+		return nil, fmt.Errorf("%w: нужны username, page_id, inst_id и user_token", ErrBadRequest)
+	}
 	var acc *AccountConfig
 	for _, a := range s.accounts {
 		if a.Partner {
@@ -128,36 +128,34 @@ func (s *Service) ConnectInstagram(ctx context.Context) (*InstagramConnectResult
 		return nil, fmt.Errorf("%w: аккаунт не умеет создавать каналы через API", ErrBadRequest)
 	}
 
-	created, err := creator.CreateChannel(ctx, "instagram")
+	created, err := creator.CreateChannel(ctx, "instagram", map[string]any{
+		"username":   creds.Username,
+		"page_id":    creds.PageID,
+		"inst_id":    creds.InstID,
+		"user_token": creds.UserToken,
+	})
 	if err != nil {
-		log.Printf("integration=wazzup operation=instagram_connect status=failed account=%s err=%v", acc.Name, err)
+		log.Printf("integration=wazzup operation=instagram_connect status=failed account=%s username=%s page=%s err=%v",
+			acc.Name, creds.Username, creds.PageID, err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return nil, err
 		}
 		return nil, &ChannelCreateError{Detail: providerErrorDetail(err), Err: err}
 	}
-	log.Printf("integration=wazzup operation=instagram_connect status=ok account=%s channel=%s state=%s has_auth_url=%t",
-		acc.Name, created.Channel.ID, created.Channel.Status, created.AuthURL != "")
+	log.Printf("integration=wazzup operation=instagram_connect status=ok account=%s channel=%s state=%s username=%s",
+		acc.Name, created.Channel.ID, created.Channel.Status, creds.Username)
 
 	// Новый канал сразу попадает в справочник CRM (и получает роли).
 	if _, syncErr := s.syncAccountChannels(ctx, acc, integration); syncErr != nil {
 		log.Printf("integration=wazzup operation=instagram_connect_sync status=failed err=%v", syncErr)
 	}
 
-	res := &InstagramConnectResult{
+	return &InstagramConnectResult{
 		Account:   acc.Name,
 		ChannelID: created.Channel.ID,
 		State:     created.Channel.Status,
-		AuthURL:   created.AuthURL,
-	}
-	if res.AuthURL == "" {
-		raw := string(created.Raw)
-		if len(raw) > 2000 {
-			raw = raw[:2000] + "…"
-		}
-		res.ProviderResponse = raw
-	}
-	return res, nil
+		Username:  creds.Username,
+	}, nil
 }
 
 // ProviderErrorDetail — объяснение провайдера из ошибки (detail и errors из

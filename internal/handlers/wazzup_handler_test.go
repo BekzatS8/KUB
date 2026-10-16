@@ -16,6 +16,7 @@ type stubWazzupService struct {
 	called      bool
 	iframeURL   string
 	iframeCalls int
+	igCreds     *wz.InstagramCredentials
 }
 
 func (s *stubWazzupService) Setup(ctx context.Context, ownerUserID int, account, webhooksBaseURL string, enabled bool) (*wz.SetupResponse, error) {
@@ -183,8 +184,9 @@ func TestWazzupIframeContractWithoutDeadFields(t *testing.T) {
 	}
 }
 
-func (s *stubWazzupService) ConnectInstagram(context.Context) (*wz.InstagramConnectResult, error) {
-	return &wz.InstagramConnectResult{}, nil
+func (s *stubWazzupService) ConnectInstagram(_ context.Context, creds wz.InstagramCredentials) (*wz.InstagramConnectResult, error) {
+	s.igCreds = &creds
+	return &wz.InstagramConnectResult{ChannelID: "ig-1"}, nil
 }
 func (s *stubWazzupService) ChannelRoles(context.Context, int64) (*wz.ChannelRolesView, error) {
 	return &wz.ChannelRolesView{}, nil

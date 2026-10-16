@@ -11,6 +11,7 @@ import (
 	"time"
 	"turcompany/internal/docx"
 	binotelclient "turcompany/internal/integrations/binotel"
+	"turcompany/internal/integrations/meta"
 	wazzupintegration "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/xlsx"
 
@@ -499,6 +500,16 @@ func Run() {
 		driveMessenger = wazzupService
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
+		// Вход через Facebook для подключения Instagram к дочернему аккаунту.
+		metaClient := meta.NewClient(meta.Config{
+			AppID:        cfg.Meta.AppID,
+			AppSecret:    cfg.Meta.AppSecret,
+			GraphVersion: cfg.Meta.GraphVersion,
+			Scopes:       cfg.Meta.Scopes,
+			RedirectURL:  cfg.Meta.RedirectURL,
+		}, wazzupTimeout)
+		wazzupHandler.SetMeta(metaClient)
+		log.Printf("[BOOT] Meta (Instagram login) configured=%t redirect=%s", metaClient.Configured(), cfg.Meta.RedirectURL)
 		// Ссылка на CRM из карточки контакта в Wazzup («Написать первым»).
 		wazzupService.SetCRMBaseURL(cfg.PublicBaseURL)
 		log.Printf("[BOOT] Wazzup integration enabled accounts: main=%t child=%t timeout_s=%d retries=%d wl_account_id=%s",
