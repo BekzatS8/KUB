@@ -179,11 +179,11 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 		}
 	}
 
-	// если Name пустой, но есть ФИО — собираем отображаемое имя
-	if c.Name == "" && (c.LastName != "" || c.FirstName != "") {
-		full := strings.TrimSpace(
-			strings.Join([]string{c.LastName, c.FirstName, c.MiddleName}, " "),
-		)
+	// У физлица отображаемое имя — всегда ФИО из анкеты. Иначе при правке ФИО
+	// фронт присылает старый name (латиница из паспорта, капс из лида), и в
+	// таблице остаётся не то, что в карточке.
+	if full := individualFullName(c.LastName, c.FirstName, c.MiddleName); full != "" &&
+		(c.Name == "" || c.ClientType == models.ClientTypeIndividual) {
 		c.Name = full
 	}
 
@@ -207,6 +207,22 @@ func (s *ClientService) normalizeAndValidate(c *models.Client) error {
 	c.PrimaryEmail = c.Email
 
 	return nil
+}
+
+// individualFullName — «Фамилия Имя Отчество» без пустых частей; "" если нет
+// ни фамилии, ни имени.
+func individualFullName(last, first, middle string) string {
+	last, first = strings.TrimSpace(last), strings.TrimSpace(first)
+	if last == "" && first == "" {
+		return ""
+	}
+	parts := []string{}
+	for _, p := range []string{last, first, strings.TrimSpace(middle)} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func normalizeIndividualAliases(c *models.Client) {
@@ -1367,6 +1383,24 @@ func (s *ClientService) Patch(id int, updates map[string]any, userID, roleID int
 	delete(updates, "branch_id")
 	if len(updates) == 0 {
 		return current, nil
+	}
+	if current.ClientType == models.ClientTypeIndividual {
+		// Как в normalizeAndValidate: имя физлица идёт за ФИО.
+		_, l := updates["last_name"]
+		_, f := updates["first_name"]
+		_, m := updates["middle_name"]
+		if l || f || m {
+			pick := func(key, cur string) string {
+				if v, ok := updates[key]; ok {
+					s, _ := v.(string)
+					return s
+				}
+				return cur
+			}
+			if full := individualFullName(pick("last_name", current.LastName), pick("first_name", current.FirstName), pick("middle_name", current.MiddleName)); full != "" {
+				updates["name"] = full
+			}
+		}
 	}
 	if err := s.Repo.UpdatePartial(id, updates); err != nil {
 		return nil, err

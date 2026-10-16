@@ -22,6 +22,23 @@ func TestValidateCreateRedFieldsLegalProfileAware(t *testing.T) {
 	}
 }
 
+// Старый name (латиница из паспорта) не должен перебивать ФИО из анкеты —
+// иначе в таблице клиентов одно имя, а в карточке другое.
+func TestNormalizeAndValidateIndividualNameFollowsFIO(t *testing.T) {
+	svc := &ClientService{}
+	c := &models.Client{
+		ClientType:        models.ClientTypeIndividual,
+		Name:              "Dildabekova Saule",
+		IndividualProfile: &models.ClientIndividualProfile{LastName: " Дилдабекова ", FirstName: "Сауле"},
+	}
+	if err := svc.normalizeAndValidate(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Name != "Дилдабекова Сауле" || c.DisplayName != c.Name {
+		t.Fatalf("name must follow FIO, got name=%q display=%q", c.Name, c.DisplayName)
+	}
+}
+
 func TestNormalizeAndValidateLegalUsesNestedProfileAsSource(t *testing.T) {
 	svc := &ClientService{}
 	c := &models.Client{
