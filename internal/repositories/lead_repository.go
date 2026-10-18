@@ -762,6 +762,41 @@ func (r *LeadRepository) AssignableUsers(roleIDs []int) ([]AssignableUser, error
 	return out, rows.Err()
 }
 
+// LeadOwnerInfo — ответственный за лид для списков: имя и может ли он
+// работать (как в проверке доступа).
+type LeadOwnerInfo struct {
+	Name    string
+	Working bool
+	RoleID  int
+}
+
+// OwnerInfo — ответственные по id одним запросом (для списков лидов).
+func (r *LeadRepository) OwnerInfo(ids []int) (map[int]LeadOwnerInfo, error) {
+	out := map[int]LeadOwnerInfo{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Query(`
+		SELECT u.id,
+		       COALESCE(NULLIF(TRIM(CONCAT(u.last_name, ' ', u.first_name)), ''), NULLIF(TRIM(u.company_name), ''), u.email),
+		       COALESCE(u.is_active, TRUE) AND COALESCE(u.is_verified, FALSE),
+		       COALESCE(u.role_id, 0)
+		FROM users u WHERE u.id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var info LeadOwnerInfo
+		if err := rows.Scan(&id, &info.Name, &info.Working, &info.RoleID); err != nil {
+			return nil, err
+		}
+		out[id] = info
+	}
+	return out, rows.Err()
+}
+
 // FunnelDepartmentCode — код отдела воронки ("" — воронки нет): сотрудник
 // другого отдела эту воронку на доске не видит.
 func (r *LeadRepository) FunnelDepartmentCode(funnelID int) (string, error) {

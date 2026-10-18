@@ -103,6 +103,39 @@ func (s *LeadService) decorateOwner(lead *models.Leads) {
 	}
 }
 
+// decorateOwners — то же, что decorateOwner, для списка лидов одним запросом.
+// Ошибку не пробрасываем: список важнее подписей.
+func (s *LeadService) decorateOwners(leads []*models.Leads) {
+	if s.Repo == nil || len(leads) == 0 {
+		return
+	}
+	ids := []int{}
+	seen := map[int]bool{}
+	for _, l := range leads {
+		if l != nil && l.OwnerID != 0 && !seen[l.OwnerID] {
+			seen[l.OwnerID] = true
+			ids = append(ids, l.OwnerID)
+		}
+	}
+	owners, err := s.Repo.OwnerInfo(ids)
+	if err != nil {
+		log.Printf("[lead][owners] failed to load owner names: %v", err)
+		return
+	}
+	for _, l := range leads {
+		if l == nil {
+			continue
+		}
+		// Как ownerIsFree: неизвестного владельца не считаем ничьим.
+		free := l.OwnerID == 0
+		if info, ok := owners[l.OwnerID]; ok && l.OwnerID != 0 {
+			l.OwnerName = info.Name
+			free = !info.Working || authz.IsElevated(info.RoleID)
+		}
+		l.Unassigned = &free
+	}
+}
+
 // checkAssignee — можно ли передать лид этому сотруднику: он работает в
 // системе, работает с лидами и видит лид (тот же филиал; руководство и админ
 // видят все филиалы).

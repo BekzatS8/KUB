@@ -215,6 +215,7 @@ func (s *LeadService) ListForRoleWithTotal(userID, roleID, limit, offset int, ar
 	if err != nil {
 		return nil, 0, err
 	}
+	s.decorateOwners(items)
 	return items, total, nil
 }
 
@@ -228,6 +229,7 @@ func (s *LeadService) ListMyWithFilterAndArchiveScopeAndTotal(ownerID int, limit
 	if err != nil {
 		return nil, 0, err
 	}
+	s.decorateOwners(items)
 	return items, total, nil
 }
 
