@@ -400,7 +400,11 @@ func SetupRoutes(
 		leads.PUT("/:id/convert-with-client", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDealWithClient)
 		leads.GET("", middleware.RequirePermission("leads.view", "lead"), leadHandler.List)
 		leads.GET("/my", middleware.RequirePermission("leads.view", "lead"), leadHandler.ListMy)
-		leads.POST("/:id/assign", middleware.RequirePermission("leads.update", "lead"), leadHandler.Assign)
+		// Передать лид другому сотруднику — админ и руководство (leads.transfer_manager).
+		leads.POST("/:id/assign", middleware.RequirePermission("leads.transfer_manager", "lead"), leadHandler.Assign)
+		leads.GET("/:id/assignees", middleware.RequirePermission("leads.transfer_manager", "lead"), leadHandler.Assignees)
+		// «Взять себе» — любой, кто работает с лидами, пока у лида нет ответственного.
+		leads.POST("/:id/take", middleware.RequirePermission("leads.update", "lead"), leadHandler.Take)
 		leads.POST("/:id/status", middleware.RequirePermission("leads.update", "lead"), leadHandler.UpdateStatus)
 		// kanban stage move (ТЗ 04.07.2026, п.1.1)
 		leads.POST("/:id/move", middleware.RequirePermission("leads.update", "lead"), leadHandler.Move)

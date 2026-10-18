@@ -48,6 +48,30 @@ type userService struct {
 	repo         repositories.UserRepository
 	emailService EmailService
 	authService  AuthService
+	leads        LeadReleaser
+}
+
+// LeadReleaser снимает ответственного с лидов сотрудника, который перестал
+// работать в системе.
+type LeadReleaser interface {
+	ReleaseLeadsOf(userID int) (int, error)
+}
+
+// SetLeadReleaser подключает освобождение лидов при блокировке, снятии
+// подтверждения и удалении сотрудника.
+func (s *userService) SetLeadReleaser(r LeadReleaser) {
+	s.leads = r
+}
+
+// releaseLeads — сотрудник больше не работает: его рабочие лиды остаются на
+// своих этапах, но без ответственного, и их забирают коллеги филиала.
+func (s *userService) releaseLeads(userID int) {
+	if s.leads == nil {
+		return
+	}
+	if _, err := s.leads.ReleaseLeadsOf(userID); err != nil {
+		log.Printf("[users] failed to release leads of user_id=%d: %v", userID, err)
+	}
 }
 
 func NewUserService(repo repositories.UserRepository, emailService EmailService, authService AuthService) UserService {
@@ -177,6 +201,7 @@ func (s *userService) UpdateUser(user *models.User) error {
 		if err := s.repo.ClearRefresh(user.ID); err != nil {
 			log.Printf("[users][update] failed to revoke refresh for user_id=%d: %v", user.ID, err)
 		}
+		s.releaseLeads(user.ID)
 	}
 	return nil
 }
@@ -186,7 +211,11 @@ func (s *userService) ApplyUpdatePatch(userID int, patch *models.UserApprovalUpd
 }
 
 func (s *userService) DeleteUser(id int) error {
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	s.releaseLeads(id)
+	return nil
 }
 
 func (s *userService) ListUsers(limit, offset int) ([]*models.User, error) {

@@ -274,6 +274,11 @@ func Run() {
 	go boardHub.Run()
 	defer boardHub.Stop()
 	leadService.SetBoardNotifier(boardHub)
+	// Заблокировали/сняли подтверждение/удалили сотрудника — его лиды остаются
+	// на этапах без ответственного, их забирают коллеги филиала.
+	if us, ok := userService.(interface{ SetLeadReleaser(services.LeadReleaser) }); ok {
+		us.SetLeadReleaser(leadService)
+	}
 	// Enforce client/lead ownership on the telephony call-history endpoints
 	// (GET /clients/:id/calls, GET /leads/:id/calls) using the canonical scope checks.
 	telephonySvc.SetAccessCheckers(clientService, leadService)

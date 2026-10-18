@@ -12,6 +12,12 @@ type Leads struct {
 	Source        string     `json:"source"`
 	CreatedAt     time.Time  `json:"created_at"`
 	OwnerID       int        `json:"owner_id"`
+	// OwnerName и Unassigned заполняются только в карточке лида (GetByID).
+	// Unassigned — у лида нет рабочего ответственного (никого, заблокированный
+	// или неподтверждённый сотрудник, либо лид «припаркован» на админе): его
+	// может взять себе любой сотрудник филиала.
+	OwnerName     string     `json:"owner_name,omitempty"`
+	Unassigned    *bool      `json:"unassigned,omitempty"`
 	BranchID      *int       `json:"branch_id,omitempty"`
 	BranchName    string     `json:"branch_name,omitempty"`
 	DepartmentID  *int       `json:"department_id,omitempty"`

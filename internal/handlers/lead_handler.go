@@ -268,11 +268,7 @@ func (h *LeadHandler) Assign(c *gin.Context) {
 	}
 
 	if err := h.Service.AssignOwner(id, req.AssigneeID, actorID, roleID); err != nil {
-		if errors.Is(err, services.ErrForbidden) {
-			forbidden(c, "Forbidden")
-			return
-		}
-		internalError(c, "Failed to assign lead")
+		writeLeadOwnerError(c, err, "Failed to assign lead")
 		return
 	}
 	updated, _ := h.Service.GetByID(id, actorID, roleID)

@@ -243,6 +243,7 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 	if !leadMatchesScope(scope, lead) {
 		return nil, ErrForbidden
 	}
+	s.decorateOwner(lead)
 	return lead, nil
 }
 
@@ -258,6 +259,7 @@ func (s *LeadService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 	if !leadMatchesScope(dataScope, lead) {
 		return nil, ErrForbidden
 	}
+	s.decorateOwner(lead)
 	return lead, nil
 }
 
@@ -518,33 +520,6 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	return nil
 }
 
-// claimsOwnershipOnMove reports whether moving the card also hands the lead to
-// the actor. A manager taking a card off the board becomes responsible for it
-// when nobody is really working it yet — either it has no owner, or it is still
-// parked on an admin/management account, which is how Instagram/WhatsApp leads
-// land in the system. A lead already owned by another working manager keeps its
-// owner: dragging a colleague's card must not silently take it from them.
-// Admin/management move cards without taking them over.
-func (s *LeadService) claimsOwnershipOnMove(lead *models.Leads, userID, roleID int) bool {
-	if authz.IsElevated(roleID) {
-		return false
-	}
-	if lead.OwnerID == 0 {
-		return true
-	}
-	if lead.OwnerID == userID {
-		return false
-	}
-	if s.UserRepo == nil {
-		return false
-	}
-	owner, err := s.UserRepo.GetByID(lead.OwnerID)
-	if err != nil || owner == nil {
-		return false
-	}
-	return authz.IsElevated(owner.RoleID)
-}
-
 func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {
 	if !authz.CanArchiveBusinessEntity(roleID) {
 		return ErrForbidden
@@ -599,9 +574,3 @@ func (s *LeadService) UnarchiveLead(id, userID, roleID int) error {
 	return s.Repo.Unarchive(id)
 }
 
-func (s *LeadService) AssignOwner(id, assigneeID, userID, roleID int) error {
-	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
-		return ErrForbidden
-	}
-	return s.Repo.UpdateOwner(id, assigneeID)
-}

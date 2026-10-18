@@ -710,6 +710,47 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 	return err
 }
 
+// ClaimOwner назначает ответственного, только если у лида всё ещё прежний
+// владелец (expectedOwner = 0 — без ответственного). Двое, нажавшие «Взять
+// себе» одновременно, не перепишут друг друга: второй получит false.
+func (r *LeadRepository) ClaimOwner(id, newOwner, expectedOwner int) (bool, error) {
+	res, err := r.db.Exec(`UPDATE leads SET owner_id = $1 WHERE id = $2 AND COALESCE(owner_id, 0) = $3`, newOwner, id, expectedOwner)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// ReleaseOwner снимает ответственного со всех рабочих лидов сотрудника (не
+// архивных и не в корзине) — лиды остаются на своих этапах и в своём
+// филиале. Возвращает число лидов и воронки, доски которых надо обновить.
+func (r *LeadRepository) ReleaseOwner(userID int) (int, []int, error) {
+	rows, err := r.db.Query(`
+		UPDATE leads SET owner_id = NULL
+		WHERE owner_id = $1 AND is_archived = FALSE AND deleted_at IS NULL
+		RETURNING COALESCE(funnel_id, 0)`, userID)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+	count := 0
+	seen := map[int]bool{}
+	funnels := []int{}
+	for rows.Next() {
+		var funnelID int
+		if err := rows.Scan(&funnelID); err != nil {
+			return count, funnels, err
+		}
+		count++
+		if funnelID > 0 && !seen[funnelID] {
+			seen[funnelID] = true
+			funnels = append(funnels, funnelID)
+		}
+	}
+	return count, funnels, rows.Err()
+}
+
 // GetLeadsSummaryStats возвращает количество лидов по статусам и источникам (если они есть) за период.
 func (r *LeadRepository) GetLeadsSummaryStats(ctx context.Context, from, to time.Time, ownerID *int, branchID *int) ([]models.LeadSummaryRow, error) {
 	// Удалённые лиды в отчётах не считаем, архивные считаем (см. комментарий в
