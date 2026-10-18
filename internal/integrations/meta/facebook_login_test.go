@@ -15,8 +15,7 @@ import (
 func newTestClient(t *testing.T, h http.HandlerFunc) (*Client, func()) {
 	t.Helper()
 	srv := httptest.NewServer(h)
-	c := NewClient(Config{AppID: "app", AppSecret: "secret", RedirectURL: "https://crm/cb"}, 5*time.Second)
-	c.graphBase = srv.URL
+	c := NewClient(Config{AppID: "app", AppSecret: "secret", RedirectURL: "https://crm/cb", GraphBaseURL: srv.URL}, 5*time.Second)
 	return c, srv.Close
 }
 
@@ -97,5 +96,26 @@ func TestInstagramAccountsFiltersAndPaginates(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != (InstagramAccount{PageID: "p1", PageName: "VISARIO", InstID: "i1", Username: "visario.kz"}) || got[1].InstID != "i3" {
 		t.Fatalf("unexpected accounts: %+v", got)
+	}
+}
+
+func TestVerifyApp(t *testing.T) {
+	c, closeFn := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("grant_type") == "client_credentials" && q.Get("client_id") == "app" && q.Get("client_secret") == "secret" {
+			_, _ = io.WriteString(w, `{"access_token":"app|token","token_type":"bearer"}`)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"Error validating client secret.","code":1}}`)
+	})
+	defer closeFn()
+	if err := c.VerifyApp(context.Background()); err != nil {
+		t.Fatalf("valid keys must pass, got %v", err)
+	}
+	bad := NewClient(Config{AppID: "app", AppSecret: "wrong", GraphBaseURL: c.graphBase}, time.Second)
+	var ge *GraphError
+	if err := bad.VerifyApp(context.Background()); !errors.As(err, &ge) || ge.Message != "Error validating client secret." {
+		t.Fatalf("wrong secret must be reported with facebook message, got %v", err)
 	}
 }

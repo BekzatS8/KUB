@@ -15,10 +15,13 @@ import (
 	"turcompany/internal/authz"
 	"turcompany/internal/integrations/meta"
 	wz "turcompany/internal/integrations/wazzup"
+	"turcompany/internal/repositories"
 )
 
 // Подключение Instagram к VISARIO (дочерний аккаунт Wazzup):
 //
+//  0. GET/PUT /integrations/wazzup/instagram/settings — ключи приложения Meta
+//     вводит администратор в CRM (один раз на CRM, проверяются в Facebook);
 //  1. POST /integrations/wazzup/instagram/login — ссылка входа Facebook;
 //  2. Facebook возвращает администратора на страницу CRM с code и state;
 //  3. POST /integrations/wazzup/instagram/accounts {code, state} — CRM меняет
@@ -127,30 +130,184 @@ func randomKey() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// SetMeta подключает вход через Facebook (приложение Meta компании).
-func (h *WazzupHandler) SetMeta(client *meta.Client) {
-	h.meta = client
+// metaSource собирает клиент Meta на каждый запрос: ключи, введённые
+// администратором в CRM, важнее ключей из переменных сервера (запасной путь).
+type metaSource struct {
+	repo    repositories.MetaSettingsRepository // nil — только ключи сервера
+	base    meta.Config
+	timeout time.Duration
+}
+
+// client — клиент Meta и откуда взяты ключи: "crm", "server" или "".
+func (m *metaSource) client(ctx context.Context) (*meta.Client, string, error) {
+	cfg := m.base
+	source := ""
+	if cfg.AppID != "" && cfg.AppSecret != "" {
+		source = "server"
+	}
+	if m.repo != nil {
+		saved, err := m.repo.Get(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if saved != nil && strings.TrimSpace(saved.AppID) != "" && strings.TrimSpace(saved.AppSecret) != "" {
+			cfg.AppID, cfg.AppSecret = saved.AppID, saved.AppSecret
+			source = "crm"
+		}
+	}
+	return meta.NewClient(cfg, m.timeout), source, nil
+}
+
+// SetMeta подключает вход через Facebook. base — адрес возврата, версия Graph
+// API, права и (необязательно) ключи из переменных сервера.
+func (h *WazzupHandler) SetMeta(repo repositories.MetaSettingsRepository, base meta.Config, timeout time.Duration) {
+	h.metaSrc = &metaSource{repo: repo, base: base, timeout: timeout}
 	h.igLogins = newInstagramLoginStore()
 }
 
-// instagramPrecheck — права (админ/руководство) и настроенное приложение Meta.
-func (h *WazzupHandler) instagramPrecheck(c *gin.Context) (int, bool) {
+func instagramAdmin(c *gin.Context) (int, bool) {
 	userID, roleID := getUserAndRole(c)
 	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
 		forbidden(c, "Forbidden")
 		return 0, false
 	}
-	if h.meta == nil || !h.meta.Configured() || h.igLogins == nil {
-		badRequestWithCode(c, "meta_app_not_configured",
-			"Вход через Facebook не настроен на сервере: нужны META_APP_ID, META_APP_SECRET и META_REDIRECT_URL")
-		return 0, false
-	}
 	return userID, true
+}
+
+// instagramPrecheck — права (админ/руководство) и настроенное приложение Meta.
+func (h *WazzupHandler) instagramPrecheck(c *gin.Context) (int, *meta.Client, bool) {
+	userID, ok := instagramAdmin(c)
+	if !ok {
+		return 0, nil, false
+	}
+	if h.metaSrc == nil || h.igLogins == nil {
+		badRequestWithCode(c, "meta_app_not_configured", "Вход через Facebook недоступен на этом сервере")
+		return 0, nil, false
+	}
+	client, _, err := h.metaSrc.client(c.Request.Context())
+	if err != nil {
+		internalError(c, "failed to load meta app settings")
+		return 0, nil, false
+	}
+	if !client.Configured() {
+		badRequestWithCode(c, "meta_app_not_configured",
+			"Приложение Meta не настроено — введите App ID и App Secret в окне «Подключить Instagram»")
+		return 0, nil, false
+	}
+	return userID, client, true
+}
+
+type metaSettingsView struct {
+	Configured  bool   `json:"configured"`
+	AppID       string `json:"app_id"`
+	// HasSecret — секрет сохранён в CRM (пустое поле при правке его оставит).
+	HasSecret   bool   `json:"has_secret"`
+	RedirectURL string `json:"redirect_url"`
+	// Source — откуда ключи: crm (введены в CRM) или server (переменные).
+	Source string `json:"source,omitempty"`
+}
+
+func (h *WazzupHandler) metaSettingsView(c *gin.Context) (*metaSettingsView, bool) {
+	client, source, err := h.metaSrc.client(c.Request.Context())
+	if err != nil {
+		internalError(c, "failed to load meta app settings")
+		return nil, false
+	}
+	return &metaSettingsView{
+		Configured:  client.Configured(),
+		AppID:       client.AppID(),
+		HasSecret:   source == "crm",
+		RedirectURL: client.RedirectURL(),
+		Source:      source,
+	}, true
+}
+
+// GET /integrations/wazzup/instagram/settings — ключи приложения Meta (без
+// секрета) и адрес возврата, который нужно указать в приложении.
+func (h *WazzupHandler) InstagramSettings(c *gin.Context) {
+	if _, ok := instagramAdmin(c); !ok {
+		return
+	}
+	if h.metaSrc == nil {
+		badRequestWithCode(c, "meta_app_not_configured", "Вход через Facebook недоступен на этом сервере")
+		return
+	}
+	view, ok := h.metaSettingsView(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, view)
+}
+
+type metaSettingsRequest struct {
+	AppID     string `json:"app_id"`
+	AppSecret string `json:"app_secret"`
+}
+
+// PUT /integrations/wazzup/instagram/settings — сохранить ключи приложения
+// Meta. Ключи сначала проверяются в Facebook; пустой секрет — оставить прежний.
+func (h *WazzupHandler) SaveInstagramSettings(c *gin.Context) {
+	userID, ok := instagramAdmin(c)
+	if !ok {
+		return
+	}
+	if h.metaSrc == nil || h.metaSrc.repo == nil {
+		badRequestWithCode(c, "meta_app_not_configured", "Вход через Facebook недоступен на этом сервере")
+		return
+	}
+	var req metaSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "Invalid payload")
+		return
+	}
+	appID := strings.TrimSpace(req.AppID)
+	secret := strings.TrimSpace(req.AppSecret)
+	if appID == "" || strings.Trim(appID, "0123456789") != "" {
+		badRequest(c, "App ID — это число из настроек приложения Meta")
+		return
+	}
+	if secret == "" {
+		saved, err := h.metaSrc.repo.Get(c.Request.Context())
+		if err != nil {
+			internalError(c, "failed to load meta app settings")
+			return
+		}
+		if saved == nil || saved.AppSecret == "" {
+			badRequest(c, "Укажите App Secret")
+			return
+		}
+		secret = saved.AppSecret
+	}
+
+	cfg := h.metaSrc.base
+	cfg.AppID, cfg.AppSecret = appID, secret
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	if err := meta.NewClient(cfg, h.metaSrc.timeout).VerifyApp(ctx); err != nil {
+		log.Printf("integration=meta operation=verify_app status=failed user=%d app=%s err=%v", userID, appID, err)
+		var ge *meta.GraphError
+		if errors.As(err, &ge) {
+			badRequestWithCode(c, "meta_app_invalid", "Facebook не принял ключи: "+ge.Message)
+			return
+		}
+		writeFacebookError(c, err, "Не удалось проверить ключи в Facebook")
+		return
+	}
+	if err := h.metaSrc.repo.Save(c.Request.Context(), appID, strings.TrimSpace(req.AppSecret), userID); err != nil {
+		internalError(c, "failed to save meta app settings")
+		return
+	}
+	log.Printf("integration=meta operation=save_app status=ok user=%d app=%s", userID, appID)
+	view, ok := h.metaSettingsView(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 // POST /integrations/wazzup/instagram/login — ссылка входа через Facebook.
 func (h *WazzupHandler) InstagramLogin(c *gin.Context) {
-	userID, ok := h.instagramPrecheck(c)
+	userID, client, ok := h.instagramPrecheck(c)
 	if !ok {
 		return
 	}
@@ -159,7 +316,7 @@ func (h *WazzupHandler) InstagramLogin(c *gin.Context) {
 		internalError(c, "failed to start facebook login")
 		return
 	}
-	authURL, err := h.meta.DialogURL(state)
+	authURL, err := client.DialogURL(state)
 	if err != nil {
 		internalError(c, "failed to start facebook login")
 		return
@@ -175,7 +332,7 @@ type instagramAccountsRequest struct {
 // POST /integrations/wazzup/instagram/accounts — обмен code на токен и список
 // аккаунтов Instagram, доступных вошедшему.
 func (h *WazzupHandler) InstagramAccounts(c *gin.Context) {
-	userID, ok := h.instagramPrecheck(c)
+	userID, client, ok := h.instagramPrecheck(c)
 	if !ok {
 		return
 	}
@@ -191,13 +348,13 @@ func (h *WazzupHandler) InstagramAccounts(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	token, err := h.meta.ExchangeCode(ctx, req.Code)
+	token, err := client.ExchangeCode(ctx, req.Code)
 	if err != nil {
 		log.Printf("integration=meta operation=exchange_code status=failed user=%d err=%v", userID, err)
 		writeFacebookError(c, err, "Facebook не подтвердил вход")
 		return
 	}
-	accounts, err := h.meta.InstagramAccounts(ctx, token)
+	accounts, err := client.InstagramAccounts(ctx, token)
 	if err != nil {
 		log.Printf("integration=meta operation=instagram_accounts status=failed user=%d err=%v", userID, err)
 		writeFacebookError(c, err, "Не удалось получить страницы Facebook")
@@ -220,7 +377,7 @@ type instagramConnectRequest struct {
 // POST /integrations/wazzup/channels/instagram — создать канал Instagram в
 // дочернем аккаунте Wazzup по выбранному после входа аккаунту.
 func (h *WazzupHandler) ConnectInstagram(c *gin.Context) {
-	userID, ok := h.instagramPrecheck(c)
+	userID, _, ok := h.instagramPrecheck(c)
 	if !ok {
 		return
 	}

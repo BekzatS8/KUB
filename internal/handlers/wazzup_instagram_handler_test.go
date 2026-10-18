@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,11 +10,33 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/integrations/meta"
+	"turcompany/internal/repositories"
 )
+
+// fakeMetaSettings — ключи приложения Meta «в базе».
+type fakeMetaSettings struct {
+	saved repositories.MetaAppSettings
+	saves int
+}
+
+func (f *fakeMetaSettings) Get(context.Context) (*repositories.MetaAppSettings, error) {
+	s := f.saved
+	return &s, nil
+}
+
+func (f *fakeMetaSettings) Save(_ context.Context, appID, appSecret string, _ int) error {
+	f.saves++
+	f.saved.AppID = appID
+	if appSecret != "" {
+		f.saved.AppSecret = appSecret
+	}
+	return nil
+}
 
 func newInstagramTestHandler(svc *stubWazzupService) *WazzupHandler {
 	h := NewWazzupHandler(svc)
-	h.SetMeta(meta.NewClient(meta.Config{AppID: "app", AppSecret: "secret", RedirectURL: "https://crm/cb"}, 0))
+	h.SetMeta(&fakeMetaSettings{saved: repositories.MetaAppSettings{AppID: "123", AppSecret: "secret"}},
+		meta.Config{RedirectURL: "https://crm/cb"}, 0)
 	return h
 }
 
@@ -51,7 +75,7 @@ func TestInstagramLoginStateOwnership(t *testing.T) {
 
 func TestInstagramLoginNeedsMetaApp(t *testing.T) {
 	h := NewWazzupHandler(&stubWazzupService{})
-	h.SetMeta(meta.NewClient(meta.Config{AppID: "app"}, 0))
+	h.SetMeta(&fakeMetaSettings{}, meta.Config{RedirectURL: "https://crm/cb"}, 0)
 	w := serveAs(h.InstagramLogin, 1, 50, http.MethodPost, `{}`)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "meta_app_not_configured") {
 		t.Fatalf("expected meta_app_not_configured, got %d %s", w.Code, w.Body.String())
@@ -102,5 +126,65 @@ func TestConnectInstagramUsesSessionToken(t *testing.T) {
 	}
 	if _, ok := h.igLogins.session(session, 1); ok {
 		t.Fatal("session must be dropped after the channel is created")
+	}
+}
+
+// Ключи приложения вводятся в CRM: сначала проверяются в Facebook, секрет на
+// фронт не возвращается, пустой секрет при правке оставляет прежний.
+func TestSaveInstagramSettingsVerifiesAndHidesSecret(t *testing.T) {
+	graph := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("grant_type") == "client_credentials" && q.Get("client_id") == "555" && q.Get("client_secret") == "good" {
+			_, _ = io.WriteString(w, `{"access_token":"app|t"}`)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"Error validating client secret.","code":1}}`)
+	}))
+	defer graph.Close()
+
+	repo := &fakeMetaSettings{}
+	h := NewWazzupHandler(&stubWazzupService{})
+	h.SetMeta(repo, meta.Config{RedirectURL: "https://crm/cb", GraphBaseURL: graph.URL}, 0)
+
+	w := serveAs(h.InstagramSettings, 1, 50, http.MethodGet, ``)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"configured":false`) || !strings.Contains(w.Body.String(), "https://crm/cb") {
+		t.Fatalf("empty settings must show redirect url and configured=false, got %d %s", w.Code, w.Body.String())
+	}
+	if w := serveAs(h.SaveInstagramSettings, 1, 50, http.MethodPut, `{"app_id":"abc","app_secret":"good"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("non-numeric app id must be rejected, got %d", w.Code)
+	}
+	w = serveAs(h.SaveInstagramSettings, 1, 50, http.MethodPut, `{"app_id":"555","app_secret":"bad"}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Error validating client secret.") || repo.saves != 0 {
+		t.Fatalf("wrong keys must not be saved, got %d %s saves=%d", w.Code, w.Body.String(), repo.saves)
+	}
+	w = serveAs(h.SaveInstagramSettings, 1, 50, http.MethodPut, `{"app_id":"555","app_secret":"good"}`)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"configured":true`) || strings.Contains(w.Body.String(), "good") {
+		t.Fatalf("valid keys must be saved without echoing secret, got %d %s", w.Code, w.Body.String())
+	}
+	if repo.saved.AppSecret != "good" {
+		t.Fatalf("secret must be stored, got %+v", repo.saved)
+	}
+	// Правка без секрета — секрет прежний, проверка идёт с ним.
+	w = serveAs(h.SaveInstagramSettings, 1, 50, http.MethodPut, `{"app_id":"555","app_secret":""}`)
+	if w.Code != http.StatusOK || repo.saved.AppSecret != "good" {
+		t.Fatalf("empty secret must keep the stored one, got %d %s %+v", w.Code, w.Body.String(), repo.saved)
+	}
+	if w := serveAs(h.SaveInstagramSettings, 1, 10, http.MethodPut, `{"app_id":"555","app_secret":"good"}`); w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin must be forbidden, got %d", w.Code)
+	}
+}
+
+// Ключи, введённые в CRM, важнее ключей из переменных сервера.
+func TestMetaSourcePrefersCRMKeys(t *testing.T) {
+	src := &metaSource{repo: &fakeMetaSettings{}, base: meta.Config{AppID: "1", AppSecret: "srv", RedirectURL: "https://crm/cb"}}
+	c, source, err := src.client(context.Background())
+	if err != nil || source != "server" || c.AppID() != "1" {
+		t.Fatalf("server keys must be the fallback, got %q %q %v", source, c.AppID(), err)
+	}
+	src.repo = &fakeMetaSettings{saved: repositories.MetaAppSettings{AppID: "2", AppSecret: "crm"}}
+	c, source, _ = src.client(context.Background())
+	if source != "crm" || c.AppID() != "2" {
+		t.Fatalf("crm keys must win, got %q %q", source, c.AppID())
 	}
 }

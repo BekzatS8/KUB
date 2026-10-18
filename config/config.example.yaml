@@ -45,8 +45,10 @@ wazzup:
   retry_delay_ms: 300
 
 # Приложение Meta компании: вход через Facebook для подключения Instagram к
-# дочернему аккаунту Wazzup. Env: META_APP_ID, META_APP_SECRET,
-# META_REDIRECT_URL, META_GRAPH_VERSION, META_SCOPES.
+# дочернему аккаунту Wazzup. App ID и App Secret администратор вводит в CRM
+# («Каналы мессенджера» → «Подключить Instagram»); здесь — только запасной
+# путь. Env: META_APP_ID, META_APP_SECRET, META_REDIRECT_URL,
+# META_GRAPH_VERSION, META_SCOPES.
 meta:
   app_id: ""
   app_secret: ""

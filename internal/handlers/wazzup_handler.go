@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"turcompany/internal/authz"
-	"turcompany/internal/integrations/meta"
 	wz "turcompany/internal/integrations/wazzup"
 	"turcompany/internal/models"
 	"turcompany/internal/repositories"
@@ -43,8 +42,8 @@ type WazzupHandler struct {
 	repo repositories.WazzupRepository
 	wl   *wz.WhiteLabelClient // White Label: встроенный iframe добавления каналов (может быть nil)
 	// Вход через Facebook для подключения Instagram (может быть nil).
-	meta      *meta.Client
-	igLogins  *instagramLoginStore
+	metaSrc  *metaSource
+	igLogins *instagramLoginStore
 }
 
 func NewWazzupHandler(svc WazzupService) *WazzupHandler {

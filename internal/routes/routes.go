@@ -214,6 +214,8 @@ func SetupRoutes(
 			// «Выбор ролей» в кабинете Wazzup, для аккаунта без кабинета.
 			// Instagram для аккаунта без кабинета: канал через API + вход через Facebook.
 			wazzup.POST("/channels/instagram", wazzupHandler.ConnectInstagram)
+			wazzup.GET("/instagram/settings", wazzupHandler.InstagramSettings)
+			wazzup.PUT("/instagram/settings", wazzupHandler.SaveInstagramSettings)
 			wazzup.POST("/instagram/login", wazzupHandler.InstagramLogin)
 			wazzup.POST("/instagram/accounts", wazzupHandler.InstagramAccounts)
 			wazzup.GET("/channels/:id/roles", wazzupHandler.ChannelRoles)

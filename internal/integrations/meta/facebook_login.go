@@ -38,6 +38,8 @@ type Config struct {
 	// RedirectURL — страница CRM, куда Facebook вернёт code. Должна совпадать
 	// с «Valid OAuth Redirect URIs» в настройках приложения.
 	RedirectURL string
+	// GraphBaseURL — адрес Graph API; пусто — https://graph.facebook.com.
+	GraphBaseURL string
 }
 
 type Client struct {
@@ -64,13 +66,23 @@ func NewClient(cfg Config, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	graphBase := strings.TrimRight(strings.TrimSpace(cfg.GraphBaseURL), "/")
+	if graphBase == "" {
+		graphBase = "https://graph.facebook.com"
+	}
 	return &Client{
 		cfg:       cfg,
 		http:      &http.Client{Timeout: timeout},
-		graphBase: "https://graph.facebook.com",
+		graphBase: graphBase,
 		webBase:   "https://www.facebook.com",
 	}
 }
+
+// RedirectURL — адрес возврата, который нужно указать в настройках приложения.
+func (c *Client) RedirectURL() string { return c.cfg.RedirectURL }
+
+// AppID — идентификатор приложения.
+func (c *Client) AppID() string { return c.cfg.AppID }
 
 // Configured — заданы App ID, секрет и адрес возврата.
 func (c *Client) Configured() bool {
@@ -89,6 +101,28 @@ func (c *Client) DialogURL(state string) (string, error) {
 	q.Set("scope", c.cfg.Scopes)
 	q.Set("response_type", "code")
 	return c.webBase + "/" + c.cfg.GraphVersion + "/dialog/oauth?" + q.Encode(), nil
+}
+
+// VerifyApp проверяет пару App ID / App Secret: Facebook выдаёт токен
+// приложения только на верные ключи.
+func (c *Client) VerifyApp(ctx context.Context) error {
+	if c == nil || c.cfg.AppID == "" || c.cfg.AppSecret == "" {
+		return ErrNotConfigured
+	}
+	var resp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := c.get(ctx, "/oauth/access_token", url.Values{
+		"client_id":     {c.cfg.AppID},
+		"client_secret": {c.cfg.AppSecret},
+		"grant_type":    {"client_credentials"},
+	}, &resp); err != nil {
+		return err
+	}
+	if resp.AccessToken == "" {
+		return fmt.Errorf("facebook returned no app token")
+	}
+	return nil
 }
 
 // ExchangeCode меняет code на долгоживущий (≈60 дней) токен пользователя.

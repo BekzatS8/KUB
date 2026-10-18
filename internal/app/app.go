@@ -501,15 +501,16 @@ func Run() {
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)
 		// Вход через Facebook для подключения Instagram к дочернему аккаунту.
-		metaClient := meta.NewClient(meta.Config{
+		// Ключи приложения Meta администратор вводит в CRM (meta_app_settings);
+		// ключи из конфига — запасной путь.
+		wazzupHandler.SetMeta(repositories.NewMetaSettingsRepository(db), meta.Config{
 			AppID:        cfg.Meta.AppID,
 			AppSecret:    cfg.Meta.AppSecret,
 			GraphVersion: cfg.Meta.GraphVersion,
 			Scopes:       cfg.Meta.Scopes,
 			RedirectURL:  cfg.Meta.RedirectURL,
 		}, wazzupTimeout)
-		wazzupHandler.SetMeta(metaClient)
-		log.Printf("[BOOT] Meta (Instagram login) configured=%t redirect=%s", metaClient.Configured(), cfg.Meta.RedirectURL)
+		log.Printf("[BOOT] Meta (Instagram login) redirect=%s", cfg.Meta.RedirectURL)
 		// Ссылка на CRM из карточки контакта в Wazzup («Написать первым»).
 		wazzupService.SetCRMBaseURL(cfg.PublicBaseURL)
 		log.Printf("[BOOT] Wazzup integration enabled accounts: main=%t child=%t timeout_s=%d retries=%d wl_account_id=%s",
