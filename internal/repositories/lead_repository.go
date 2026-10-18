@@ -824,7 +824,7 @@ func (r *LeadRepository) ConvertToDeal(ctx context.Context, leadID int, deal *mo
 		existing := &models.Deals{}
 		var status sql.NullString
 		err := tx.QueryRow(`
-			SELECT d.id, d.lead_id, d.client_id, d.owner_id, d.amount, d.currency, d.status, d.created_at
+			SELECT d.id, d.lead_id, d.client_id, COALESCE(d.owner_id, 0), d.amount, d.currency, d.status, d.created_at
 			FROM deals d
 			WHERE d.lead_id = $1
 			ORDER BY d.created_at DESC

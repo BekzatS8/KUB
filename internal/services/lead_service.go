@@ -367,6 +367,11 @@ func (s *LeadService) ConvertLeadToDeal(leadID int, amount float64, currency str
 	if strings.ToLower(strings.TrimSpace(client.ClientType)) != normalizedClientType {
 		return nil, ErrClientTypeMismatch
 	}
+	// Ничей лид (без ответственного) конвертирует админ/руководство — сделка
+	// достаётся тому, кто её оформил: owner_id = 0 нарушил бы внешний ключ.
+	if ownerID == 0 {
+		ownerID = userID
+	}
 	deal := buildConvertedDeal(leadID, clientID, normalizedClientType, ownerID, amount, currency, lead, time.Now())
 	converted, err := s.Repo.ConvertToDeal(context.Background(), leadID, deal, client)
 	if err != nil {
@@ -399,6 +404,9 @@ func (s *LeadService) ConvertLeadToDealWithClientData(leadID int, amount float64
 		return nil, err
 	}
 	clientData.ClientType = clientType
+	if ownerID == 0 {
+		ownerID = userID
+	}
 	if clientData.OwnerID == 0 {
 		clientData.OwnerID = ownerID
 	}

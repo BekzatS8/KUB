@@ -358,7 +358,7 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 			d.id, COALESCE(d.lead_id, 0), d.funnel_id, d.stage_id,
 			d.client_id, COALESCE(c.client_type, ''),
 			COALESCE(NULLIF(c.display_name, ''), c.name, '') AS client_name,
-			d.owner_id, COALESCE(TRIM(CONCAT(u.first_name, ' ', u.last_name)), '') AS owner_name,
+			COALESCE(d.owner_id, 0), COALESCE(TRIM(CONCAT(u.first_name, ' ', u.last_name)), '') AS owner_name,
 			d.branch_id, d.amount, d.currency, COALESCE(d.status, 'new'), d.created_at
 		FROM deals d
 		LEFT JOIN clients c ON c.id = d.client_id

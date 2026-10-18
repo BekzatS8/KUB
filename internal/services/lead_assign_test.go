@@ -115,28 +115,36 @@ func TestDecorateOwner(t *testing.T) {
 	}
 }
 
-type fakeLeadReleaser struct{ released []int }
+type fakeLeadReleaser struct{ released, releasedDeals []int }
 
 func (f *fakeLeadReleaser) ReleaseLeadsOf(userID int) (int, error) {
 	f.released = append(f.released, userID)
 	return 1, nil
 }
 
+func (f *fakeLeadReleaser) ReleaseDealsOf(userID int) (int, error) {
+	f.releasedDeals = append(f.releasedDeals, userID)
+	return 1, nil
+}
+
 // Блокировка, снятие подтверждения и удаление освобождают лиды сотрудника.
 func TestUserServiceReleasesLeadsOnDeactivation(t *testing.T) {
 	rel := &fakeLeadReleaser{}
-	svc := &userService{repo: &captureUserRepo{}, leads: rel}
+	svc := &userService{repo: &captureUserRepo{}, leads: rel, deals: rel}
 
 	if err := svc.UpdateUser(&models.User{ID: 7, IsActive: true, IsVerified: true}); err != nil {
 		t.Fatal(err)
 	}
-	if len(rel.released) != 0 {
-		t.Fatalf("working employee keeps leads, released %v", rel.released)
+	if len(rel.released) != 0 || len(rel.releasedDeals) != 0 {
+		t.Fatalf("working employee keeps leads and deals, released %v / %v", rel.released, rel.releasedDeals)
 	}
 	_ = svc.UpdateUser(&models.User{ID: 7, IsActive: false, IsVerified: true})
 	_ = svc.UpdateUser(&models.User{ID: 8, IsActive: true, IsVerified: false})
 	_ = svc.DeleteUser(9)
 	if len(rel.released) != 3 || rel.released[0] != 7 || rel.released[1] != 8 || rel.released[2] != 9 {
 		t.Fatalf("blocked/unverified/deleted must release leads, got %v", rel.released)
+	}
+	if len(rel.releasedDeals) != 3 || rel.releasedDeals[2] != 9 {
+		t.Fatalf("blocked/unverified/deleted must release deals, got %v", rel.releasedDeals)
 	}
 }

@@ -49,6 +49,7 @@ type userService struct {
 	emailService EmailService
 	authService  AuthService
 	leads        LeadReleaser
+	deals        DealReleaser
 }
 
 // LeadReleaser снимает ответственного с лидов сотрудника, который перестал
@@ -57,20 +58,36 @@ type LeadReleaser interface {
 	ReleaseLeadsOf(userID int) (int, error)
 }
 
+// DealReleaser снимает ответственного со сделок сотрудника, который перестал
+// работать в системе.
+type DealReleaser interface {
+	ReleaseDealsOf(userID int) (int, error)
+}
+
 // SetLeadReleaser подключает освобождение лидов при блокировке, снятии
 // подтверждения и удалении сотрудника.
 func (s *userService) SetLeadReleaser(r LeadReleaser) {
 	s.leads = r
 }
 
-// releaseLeads — сотрудник больше не работает: его рабочие лиды остаются на
-// своих этапах, но без ответственного, и их забирают коллеги филиала.
+// SetDealReleaser — то же для сделок.
+func (s *userService) SetDealReleaser(r DealReleaser) {
+	s.deals = r
+}
+
+// releaseLeads — сотрудник больше не работает: его рабочие лиды и сделки
+// остаются на своих этапах, но без ответственного, и их забирают коллеги
+// филиала.
 func (s *userService) releaseLeads(userID int) {
-	if s.leads == nil {
-		return
+	if s.leads != nil {
+		if _, err := s.leads.ReleaseLeadsOf(userID); err != nil {
+			log.Printf("[users] failed to release leads of user_id=%d: %v", userID, err)
+		}
 	}
-	if _, err := s.leads.ReleaseLeadsOf(userID); err != nil {
-		log.Printf("[users] failed to release leads of user_id=%d: %v", userID, err)
+	if s.deals != nil {
+		if _, err := s.deals.ReleaseDealsOf(userID); err != nil {
+			log.Printf("[users] failed to release deals of user_id=%d: %v", userID, err)
+		}
 	}
 }
 

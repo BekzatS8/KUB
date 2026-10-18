@@ -519,8 +519,14 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 	if deal == nil {
 		return ErrDealNotFound
 	}
+	// Чужую рабочую сделку менеджер не двигает; ничью (без ответственного,
+	// уволенного или «припаркованную» на руководстве) — забирает себе.
+	claim := false
 	if roleID == authz.RoleSales && deal.OwnerID != userID {
-		return ErrForbidden
+		if !ownerIsFreeFor(s.UserRepo, deal.OwnerID) {
+			return ErrForbidden
+		}
+		claim = true
 	}
 	dataScope, scopeErr := resolveDealScope(userID, roleID, s.UserRepo)
 	if scopeErr != nil {
@@ -566,6 +572,17 @@ func (s *DealService) MoveStage(dealID, stageID int, comment string, userID, rol
 			// This covers reopening won/lost/cancelled deals AND advancing
 			// a "new" deal when dragged into any active stage column.
 			newStatus = "in_progress"
+		}
+	}
+
+	if claim {
+		ok, err := s.Repo.ClaimOwner(dealID, userID, deal.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			// Пока двигали, сделку забрал коллега.
+			return ErrForbidden
 		}
 	}
 

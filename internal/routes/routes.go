@@ -436,6 +436,8 @@ func SetupRoutes(
 		deals.GET("/my", middleware.RequirePermission("deals.view", "deal"), dealHandler.ListMy)
 		deals.POST("/:id/status", middleware.RequirePermission("deals.update", "deal"), dealHandler.UpdateStatus)
 		deals.POST("/:id/move", middleware.RequirePermission("deals.update", "deal"), dealHandler.Move)
+		// «Взять себе» — сделка без ответственного (например, уволенного сотрудника).
+		deals.POST("/:id/take", middleware.RequirePermission("deals.update", "deal"), dealHandler.Take)
 		deals.GET("/:id/history", middleware.RequirePermission("deals.view", "deal"), dealHandler.GetHistory)
 	}
 

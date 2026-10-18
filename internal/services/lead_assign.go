@@ -8,6 +8,7 @@ import (
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 )
 
 // Ответственный за лид: передача (админ/руководство), «Взять себе» (любой
@@ -48,16 +49,21 @@ func userDisplayName(u *models.User) string {
 // (так приходят лиды из Instagram/WhatsApp/звонков). Такой лид берёт себе
 // любой сотрудник филиала. Без UserRepo — не рискуем: лид занят.
 func (s *LeadService) ownerIsFree(ownerID int) bool {
+	return ownerIsFreeFor(s.UserRepo, ownerID)
+}
+
+// ownerIsFreeFor — общее правило «ничей» для лидов и сделок.
+func ownerIsFreeFor(users repositories.UserRepository, ownerID int) bool {
 	if ownerID == 0 {
 		return true
 	}
-	if s.UserRepo == nil {
+	if users == nil {
 		return false
 	}
-	if active, verified, err := s.UserRepo.GetAccountStatus(ownerID); err == nil && (!active || !verified) {
+	if active, verified, err := users.GetAccountStatus(ownerID); err == nil && (!active || !verified) {
 		return true
 	}
-	owner, err := s.UserRepo.GetByID(ownerID)
+	owner, err := users.GetByID(ownerID)
 	if err != nil || owner == nil {
 		return false
 	}

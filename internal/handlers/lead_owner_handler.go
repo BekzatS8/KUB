@@ -77,3 +77,36 @@ func (h *LeadHandler) Assignees(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
+
+// dealOwnerService — «Взять себе» для сделки без ответственного.
+type dealOwnerService interface {
+	TakeDeal(id, userID, roleID int) error
+}
+
+// POST /deals/:id/take — сотрудник берёт себе ничью сделку своего филиала.
+func (h *DealHandler) Take(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		badRequest(c, "Invalid id")
+		return
+	}
+	svc, ok := h.Service.(dealOwnerService)
+	if !ok {
+		internalError(c, "deal take is not supported")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	if err := svc.TakeDeal(id, userID, roleID); err != nil {
+		if errors.Is(err, services.ErrDealNotFound) {
+			notFound(c, DealNotFoundCode, "Deal not found")
+			return
+		}
+		if errors.Is(err, services.ErrLeadTaken) {
+			conflict(c, "deal_taken", "Сделка уже в работе у другого сотрудника — обновите страницу")
+			return
+		}
+		writeLeadOwnerError(c, err, "Failed to take deal")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id, "owner_id": userID})
+}

@@ -288,6 +288,10 @@ func Run() {
 	dealService.SetStageRepo(funnelStageRepo)
 	dealService.SetTransitionRuleRepo(funnelTransitionRuleRepo)
 	dealService.SetBoardNotifier(boardHub)
+	// Сделки уволенного сотрудника — так же, как его лиды: без ответственного.
+	if us, ok := userService.(interface{ SetDealReleaser(services.DealReleaser) }); ok {
+		us.SetDealReleaser(dealService)
+	}
 	chatService := services.NewChatService(chatRepo, cfg.Files.RootDir, userRepo, fileStore)
 	passwordResetService := services.NewPasswordResetService(userRepo, passwordResetRepo, emailService, smsSender, authService, cfg.Frontend.Host)
 
