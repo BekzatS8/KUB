@@ -26,11 +26,14 @@ func (e *LeadAssignError) Error() string { return "lead assign: " + e.Msg }
 
 // LeadAssignee — сотрудник, которому можно передать лид.
 type LeadAssignee struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	RoleID     int    `json:"role_id"`
-	BranchID   *int   `json:"branch_id,omitempty"`
-	IsElevated bool   `json:"is_elevated"`
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	RoleID          int    `json:"role_id"`
+	BranchID        *int   `json:"branch_id,omitempty"`
+	BranchName      string `json:"branch_name,omitempty"`
+	IsElevated      bool   `json:"is_elevated"`
+	OtherBranch     bool   `json:"other_branch"`
+	OtherDepartment bool   `json:"other_department"`
 }
 
 func userDisplayName(u *models.User) string {
@@ -121,10 +124,6 @@ func (s *LeadService) checkAssignee(lead *models.Leads, assigneeID int) (*models
 	if !authz.CanWorkWithLeads(assignee.RoleID) {
 		return nil, &LeadAssignError{Msg: "Этот сотрудник не работает с лидами"}
 	}
-	if !authz.IsElevated(assignee.RoleID) && lead.BranchID != nil &&
-		(assignee.BranchID == nil || *assignee.BranchID != *lead.BranchID) {
-		return nil, &LeadAssignError{Msg: "Сотрудник из другого филиала — лид ему не будет виден"}
-	}
 	return assignee, nil
 }
 
@@ -140,10 +139,18 @@ func (s *LeadService) AssignOwner(id, assigneeID, userID, roleID int) error {
 	if lead == nil {
 		return ErrLeadNotFound
 	}
-	if _, err := s.checkAssignee(lead, assigneeID); err != nil {
+	assignee, err := s.checkAssignee(lead, assigneeID)
+	if err != nil {
 		return err
 	}
-	if err := s.Repo.UpdateOwner(id, assigneeID); err != nil {
+	// Сотрудник другого филиала видит только лиды своего филиала — лид
+	// переезжает к нему вместе с ответственностью.
+	if !authz.IsElevated(assignee.RoleID) && assignee.BranchID != nil &&
+		(lead.BranchID == nil || *lead.BranchID != *assignee.BranchID) {
+		if err := s.Repo.UpdateOwnerAndBranch(id, assigneeID, *assignee.BranchID); err != nil {
+			return err
+		}
+	} else if err := s.Repo.UpdateOwner(id, assigneeID); err != nil {
 		return err
 	}
 	log.Printf("[lead][assign] lead=%d owner %d -> %d by user=%d", id, lead.OwnerID, assigneeID, userID)
@@ -191,8 +198,10 @@ func (s *LeadService) TakeLead(id, userID, roleID int) error {
 	return nil
 }
 
-// Assignees — кому можно передать лид: работающие сотрудники, которые
-// работают с лидами и видят этот лид. Руководство и админ — в конце списка.
+// Assignees — все, кому можно передать лид: работающие сотрудники, которые
+// работают с лидами, из любого филиала. OtherBranch — лид переедет в филиал
+// сотрудника; OtherDepartment — воронка лида чужого отдела, на доске он её
+// не увидит (лид можно перенести в его воронку в карточке).
 func (s *LeadService) Assignees(id, roleID int) ([]LeadAssignee, error) {
 	if roleID != authz.RoleManagement && roleID != authz.RoleSystemAdmin {
 		return nil, ErrForbidden
@@ -204,31 +213,59 @@ func (s *LeadService) Assignees(id, roleID int) ([]LeadAssignee, error) {
 	if lead == nil {
 		return nil, ErrLeadNotFound
 	}
-	if s.UserRepo == nil {
-		return []LeadAssignee{}, nil
-	}
-	users, err := s.UserRepo.List(2000, 0) // только активные
+	users, err := s.Repo.AssignableUsers([]int{authz.RoleSales, authz.RoleVisa, authz.RolePartner, authz.RoleManagement, authz.RoleSystemAdmin})
 	if err != nil {
 		return nil, err
 	}
-	out := []LeadAssignee{}
+	funnelDept := ""
+	if lead.FunnelID != nil {
+		funnelDept, _ = s.Repo.FunnelDepartmentCode(*lead.FunnelID)
+	}
+	out := make([]LeadAssignee, 0, len(users))
 	for _, u := range users {
-		if u == nil || !u.IsVerified || !authz.CanWorkWithLeads(u.RoleID) {
-			continue
-		}
 		elevated := authz.IsElevated(u.RoleID)
-		if !elevated && lead.BranchID != nil && (u.BranchID == nil || *u.BranchID != *lead.BranchID) {
-			continue
+		a := LeadAssignee{ID: u.ID, Name: u.Name, RoleID: u.RoleID, BranchID: u.BranchID, BranchName: u.BranchName, IsElevated: elevated}
+		if !elevated {
+			a.OtherBranch = lead.BranchID != nil && u.BranchID != nil && *u.BranchID != *lead.BranchID
+			dept := u.DepartmentCode
+			if dept == "" {
+				dept = roleDepartmentCode(u.RoleID)
+			}
+			a.OtherDepartment = funnelDept != "" && dept != "" && dept != funnelDept
 		}
-		out = append(out, LeadAssignee{ID: u.ID, Name: userDisplayName(u), RoleID: u.RoleID, BranchID: u.BranchID, IsElevated: elevated})
+		out = append(out, a)
+	}
+	// Сначала свой филиал, потом другие филиалы, руководство — в конце.
+	rank := func(a LeadAssignee) int {
+		switch {
+		case a.IsElevated:
+			return 2
+		case a.OtherBranch:
+			return 1
+		default:
+			return 0
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].IsElevated != out[j].IsElevated {
-			return !out[i].IsElevated
+		if rank(out[i]) != rank(out[j]) {
+			return rank(out[i]) < rank(out[j])
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out, nil
+}
+
+// roleDepartmentCode — отдел по роли, если у сотрудника он не задан.
+func roleDepartmentCode(roleID int) string {
+	switch roleID {
+	case authz.RoleSales:
+		return "sales"
+	case authz.RoleVisa:
+		return "visa"
+	case authz.RolePartner:
+		return "partner"
+	}
+	return ""
 }
 
 // ReleaseLeadsOf снимает ответственного с рабочих лидов сотрудника, которого

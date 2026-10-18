@@ -710,6 +710,69 @@ func (r *LeadRepository) UpdateOwner(id, ownerID int) error {
 	return err
 }
 
+// UpdateOwnerAndBranch передаёт лид сотруднику другого филиала: лид переезжает
+// в его филиал, иначе новый ответственный его не увидит (видимость лидов — по
+// филиалу лида).
+func (r *LeadRepository) UpdateOwnerAndBranch(id, ownerID, branchID int) error {
+	_, err := r.db.Exec(`UPDATE leads SET owner_id = $1, branch_id = $2 WHERE id = $3`, ownerID, branchID, id)
+	return err
+}
+
+// AssignableUser — работающий сотрудник для списка «кому передать лид».
+type AssignableUser struct {
+	ID             int
+	Name           string
+	RoleID         int
+	BranchID       *int
+	BranchName     string
+	DepartmentCode string
+}
+
+// AssignableUsers — все работающие сотрудники указанных ролей: не
+// заблокированы, подтверждены и не удалены (как в проверке доступа).
+func (r *LeadRepository) AssignableUsers(roleIDs []int) ([]AssignableUser, error) {
+	rows, err := r.db.Query(`
+		SELECT u.id,
+		       COALESCE(NULLIF(TRIM(CONCAT(u.last_name, ' ', u.first_name)), ''), NULLIF(TRIM(u.company_name), ''), u.email),
+		       COALESCE(u.role_id, 0), u.branch_id, COALESCE(b.name, ''), COALESCE(dep.code, '')
+		FROM users u
+		LEFT JOIN branches b ON b.id = u.branch_id
+		LEFT JOIN departments dep ON dep.id = u.department_id
+		WHERE COALESCE(u.is_active, TRUE) = TRUE
+		  AND COALESCE(u.is_verified, FALSE) = TRUE
+		  AND u.email NOT LIKE 'deleted-user-%@deleted.local'
+		  AND u.role_id = ANY($1)`, pq.Array(roleIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AssignableUser{}
+	for rows.Next() {
+		var u AssignableUser
+		var branchID sql.NullInt64
+		if err := rows.Scan(&u.ID, &u.Name, &u.RoleID, &branchID, &u.BranchName, &u.DepartmentCode); err != nil {
+			return nil, err
+		}
+		if branchID.Valid {
+			v := int(branchID.Int64)
+			u.BranchID = &v
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// FunnelDepartmentCode — код отдела воронки ("" — воронки нет): сотрудник
+// другого отдела эту воронку на доске не видит.
+func (r *LeadRepository) FunnelDepartmentCode(funnelID int) (string, error) {
+	var code sql.NullString
+	err := r.db.QueryRow(`SELECT dep.code FROM funnels f LEFT JOIN departments dep ON dep.id = f.department_id WHERE f.id = $1`, funnelID).Scan(&code)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return code.String, err
+}
+
 // ClaimOwner назначает ответственного, только если у лида всё ещё прежний
 // владелец (expectedOwner = 0 — без ответственного). Двое, нажавшие «Взять
 // себе» одновременно, не перепишут друг друга: второй получит false.

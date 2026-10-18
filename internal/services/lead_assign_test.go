@@ -80,7 +80,6 @@ func TestCheckAssignee(t *testing.T) {
 		tBlocked: "заблокирован",
 		tPending: "не подтверждён",
 		tControl: "не работает с лидами",
-		tOtherBr: "другого филиала",
 		999:      "не найден",
 	}
 	for id, want := range bad {
@@ -90,7 +89,8 @@ func TestCheckAssignee(t *testing.T) {
 			t.Errorf("assignee %d: want error with %q, got %v", id, want, err)
 		}
 	}
-	for _, id := range []int{tPeer, tMgmtElse, tAdmin} {
+	// Другой филиал теперь можно: лид переедет в филиал сотрудника.
+	for _, id := range []int{tPeer, tMgmtElse, tAdmin, tOtherBr} {
 		if _, err := svc.checkAssignee(lead, id); err != nil {
 			t.Errorf("assignee %d must be allowed, got %v", id, err)
 		}
