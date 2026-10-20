@@ -206,7 +206,9 @@ func (s *Service) findInstagramChannel(ctx context.Context, integrationID int, u
 // объяснение для администратора.
 type ChannelCreateError struct {
 	Detail string
-	Err    error
+	// RequestedAtMSK — время запроса по Москве (для поддержки Wazzup).
+	RequestedAtMSK string
+	Err            error
 }
 
 func (e *ChannelCreateError) Error() string { return "wazzup channel create failed: " + e.Detail }
@@ -261,7 +263,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 					return nil, err
 				}
-				return nil, &ChannelCreateError{Detail: providerErrorDetail(err) + " (запрос " + at + ")", Err: err}
+				return nil, &ChannelCreateError{Detail: providerErrorDetail(err), RequestedAtMSK: at, Err: err}
 			}
 			if _, syncErr := s.syncAccountChannels(ctx, acc, integration); syncErr != nil {
 				log.Printf("integration=wazzup operation=instagram_reinit_sync status=failed err=%v", syncErr)
@@ -298,7 +300,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		return nil, &ChannelCreateError{Detail: providerErrorDetail(err) + " (запрос " + at + ")", Err: err}
+		return nil, &ChannelCreateError{Detail: providerErrorDetail(err), RequestedAtMSK: at, Err: err}
 	}
 	log.Printf("integration=wazzup operation=instagram_connect status=ok account=%s channel=%s state=%s username=%s",
 		acc.Name, created.Channel.ID, created.Channel.Status, creds.Username)

@@ -198,8 +198,8 @@ func (h *WazzupHandler) instagramPrecheck(c *gin.Context) (int, *meta.Client, bo
 }
 
 type metaSettingsView struct {
-	Configured  bool   `json:"configured"`
-	AppID       string `json:"app_id"`
+	Configured bool   `json:"configured"`
+	AppID      string `json:"app_id"`
 	// HasSecret — секрет сохранён в CRM (пустое поле при правке его оставит).
 	HasSecret   bool   `json:"has_secret"`
 	RedirectURL string `json:"redirect_url"`
@@ -416,7 +416,7 @@ func (h *WazzupHandler) ConnectInstagram(c *gin.Context) {
 		if errors.As(err, &createErr) {
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error_code": "wazzup_channel_create_failed",
-				"message":    "Wazzup не создал канал Instagram: " + createErr.Detail,
+				"message":    "Wazzup не создал канал Instagram: " + createErr.Detail + requestedAtSuffix(createErr.RequestedAtMSK),
 			})
 			return
 		}
@@ -438,4 +438,11 @@ func writeFacebookError(c *gin.Context, err error, prefix string) {
 		return
 	}
 	c.JSON(http.StatusBadGateway, gin.H{"error_code": "facebook_error", "message": prefix})
+}
+
+func requestedAtSuffix(at string) string {
+	if at == "" {
+		return ""
+	}
+	return " (запрос " + at + ")"
 }
