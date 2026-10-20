@@ -22,10 +22,14 @@ import (
 
 const (
 	DefaultGraphVersion = "v23.0"
-	// DefaultScopes — права на страницы, бизнес-портфолио и Instagram, как у
-	// входа в кабинете Wazzup: переписка, комментарии, маршрутизация сообщений.
+	// DefaultScopes — переписка в Instagram Direct от имени страницы. Ровно
+	// разрешения сценария «Взаимодействие с клиентами в Messenger from Meta»
+	// (обязательные + instagram_basic, instagram_manage_messages,
+	// pages_read_engagement): разрешение, которого нет в приложении, Facebook
+	// отвергает целиком («Invalid Scopes»). Комментарии (instagram_manage_comments)
+	// — только из другого сценария, поэтому по умолчанию не просим.
 	DefaultScopes = "pages_show_list,pages_read_engagement,pages_manage_metadata,pages_messaging," +
-		"instagram_basic,instagram_manage_messages,instagram_manage_comments,business_management"
+		"instagram_basic,instagram_manage_messages,business_management"
 )
 
 var ErrNotConfigured = errors.New("meta app is not configured")
