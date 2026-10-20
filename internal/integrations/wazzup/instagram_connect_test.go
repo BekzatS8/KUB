@@ -164,3 +164,11 @@ func TestConnectInstagramFallsBackToEmptyCredentials(t *testing.T) {
 		t.Fatalf("auth url from wazzup must reach the admin, got %+v", res)
 	}
 }
+
+// errors объектами {code, description} — понятный текст, а не сырой JSON.
+func TestProviderErrorDetailObjects(t *testing.T) {
+	err := errors.New(`wazzup partner POST /v2/channels failed: status=500 body={"code":"CHANNEL_CAN_NOT_ADD","title":"Channel Can Not Add","status":500,"detail":"Can't add channel","errors":[{"code":"CHANNEL_CAN_NOT_ADD","description":"Can't add channel"}]}`)
+	if got := providerErrorDetail(err); got != "Can't add channel (CHANNEL_CAN_NOT_ADD)" {
+		t.Fatalf("unexpected detail %q", got)
+	}
+}

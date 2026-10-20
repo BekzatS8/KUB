@@ -215,9 +215,10 @@ func providerErrorDetail(err error) string {
 	}
 	body := msg[i+len("body="):]
 	var parsed struct {
-		Title  string   `json:"title"`
-		Detail string   `json:"detail"`
-		Errors []string `json:"errors"`
+		Code   string            `json:"code"`
+		Title  string            `json:"title"`
+		Detail string            `json:"detail"`
+		Errors []json.RawMessage `json:"errors"`
 	}
 	if json.Unmarshal([]byte(body), &parsed) != nil {
 		return strings.TrimSpace(body)
@@ -228,8 +229,29 @@ func providerErrorDetail(err error) string {
 	} else if parsed.Title != "" {
 		parts = append(parts, parsed.Title)
 	}
-	if len(parsed.Errors) > 0 {
-		parts = append(parts, strings.Join(parsed.Errors, "; "))
+	// errors бывают строками и объектами {code, description}.
+	items := []string{}
+	for _, raw := range parsed.Errors {
+		var str string
+		if json.Unmarshal(raw, &str) == nil {
+			if str != "" && str != parsed.Detail {
+				items = append(items, str)
+			}
+			continue
+		}
+		var obj struct {
+			Code        string `json:"code"`
+			Description string `json:"description"`
+		}
+		if json.Unmarshal(raw, &obj) == nil && obj.Description != "" && obj.Description != parsed.Detail {
+			items = append(items, obj.Description)
+		}
+	}
+	if len(items) > 0 {
+		parts = append(parts, strings.Join(items, "; "))
+	}
+	if parsed.Code != "" && len(parts) > 0 {
+		parts[len(parts)-1] += " (" + parsed.Code + ")"
 	}
 	if len(parts) == 0 {
 		return strings.TrimSpace(body)
