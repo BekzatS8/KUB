@@ -156,15 +156,20 @@ type InstagramConnectResult struct {
 var mskZone = time.FixedZone("MSK", 3*60*60)
 
 // maskedInstagramRequest — запрос для поддержки Wazzup без полного токена.
-func maskedInstagramRequest(path string, creds InstagramCredentials) string {
+// transport — только для создания канала (в reinit его нет).
+func maskedInstagramRequest(path, transport string, creds InstagramCredentials) string {
 	tok := creds.UserToken
 	masked := tok
 	if len(tok) > 12 {
 		masked = tok[:6] + "…" + tok[len(tok)-4:] + fmt.Sprintf(" (%d символов)", len(tok))
 	}
-	body, _ := json.Marshal(map[string]any{"credentials": map[string]any{
+	payload := map[string]any{"credentials": map[string]any{
 		"username": creds.Username, "page_id": creds.PageID, "inst_id": creds.InstID, "user_token": masked,
-	}})
+	}}
+	if transport != "" {
+		payload["transport"] = transport
+	}
+	body, _ := json.Marshal(payload)
 	return "POST https://tech.wazzup24.com" + path + "\n" + string(body)
 }
 
@@ -176,16 +181,23 @@ func (s *Service) findInstagramChannel(ctx context.Context, integrationID int, u
 	if err != nil {
 		return nil
 	}
+	var only []models.WazzupChannel
 	for i := range channels {
 		ch := channels[i]
 		if normalizeTransport(ch.Transport) != "instagram" {
 			continue
 		}
+		only = append(only, ch)
 		for _, v := range []string{ch.Username, ch.Name, ch.Phone} {
 			if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(v), "@"), username) {
 				return &ch
 			}
 		}
+	}
+	// Имя у Wazzup может не совпасть с username: единственный канал
+	// Instagram аккаунта — тот самый.
+	if len(only) == 1 {
+		return &only[0]
 	}
 	return nil
 }
@@ -241,7 +253,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		if reiniter, ok := acc.Client.(channelReiniter); ok {
 			path := "/v2/channels/" + existing.ExternalChannelID + "/reinit"
 			at := time.Now().In(mskZone).Format("02.01.2006 15:04:05") + " МСК"
-			request := maskedInstagramRequest(path, creds)
+			request := maskedInstagramRequest(path, "", creds)
 			log.Printf("integration=wazzup operation=instagram_reinit account=%s channel=%s at=%q request=%q", acc.Name, existing.ExternalChannelID, at, request)
 			done, err := reiniter.ReinitChannel(ctx, existing.ExternalChannelID, credsMap)
 			if err != nil {
@@ -269,6 +281,8 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 	// велела поддержка Wazzup; с transport=instagram канал не создаётся
 	// (поля credentials «should not exist», без них — CHANNEL_CAN_NOT_ADD).
 	at := time.Now().In(mskZone).Format("02.01.2006 15:04:05") + " МСК"
+	createRequest := maskedInstagramRequest("/v2/channels", instagramAPITransport, creds)
+	log.Printf("integration=wazzup operation=instagram_create account=%s at=%q request=%q", acc.Name, at, createRequest)
 	created, err := creator.CreateChannel(ctx, instagramAPITransport, credsMap)
 	usedFallback := false
 	if rejectsInstagramCredentials(err) {
@@ -284,7 +298,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		return nil, &ChannelCreateError{Detail: providerErrorDetail(err), Err: err}
+		return nil, &ChannelCreateError{Detail: providerErrorDetail(err) + " (запрос " + at + ")", Err: err}
 	}
 	log.Printf("integration=wazzup operation=instagram_connect status=ok account=%s channel=%s state=%s username=%s",
 		acc.Name, created.Channel.ID, created.Channel.Status, creds.Username)
@@ -302,6 +316,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		AuthURL:        created.AuthURL,
 		Action:         "create",
 		RequestedAtMSK: at,
+		Request:        createRequest,
 	}
 	if strings.EqualFold(res.State, "unknown") {
 		// Ответ на создание — только channel_id и transport, статуса в нём нет.
