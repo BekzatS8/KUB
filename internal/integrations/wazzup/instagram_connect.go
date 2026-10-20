@@ -22,6 +22,9 @@ import (
 // CreatedChannel — канал, созданный у провайдера.
 type CreatedChannel struct {
 	Channel Channel
+	// AuthURL — «url канала или url авторизации канала» из ответа: для
+	// Instagram — вход через приложение Wazzup в Facebook.
+	AuthURL string
 	Raw     json.RawMessage
 }
 
@@ -69,8 +72,27 @@ func parseCreatedChannel(body []byte) (*CreatedChannel, error) {
 	out := &CreatedChannel{Raw: append(json.RawMessage(nil), body...)}
 	if len(items) > 0 {
 		out.Channel = mapChannel(items[0])
+		out.AuthURL = channelAuthURL(items[0])
 	}
 	return out, nil
+}
+
+// channelAuthURL ищет ссылку авторизации канала: url (v2) или initUrl (v1).
+func channelAuthURL(item map[string]any) string {
+	if u := firstString(item, "url", "auth_url", "init_url", "initUrl"); u != "" {
+		return u
+	}
+	if details, ok := item["details"].(map[string]any); ok {
+		return firstString(details, "initUrl", "init_url", "url")
+	}
+	return ""
+}
+
+// rejectsInstagramCredentials — Wazzup не принимает данные входа в
+// credentials («property … should not exist»): вопреки документации для
+// transport=instagram он ждёт пустой объект и сам отдаёт ссылку авторизации.
+func rejectsInstagramCredentials(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "should not exist")
 }
 
 // InstagramCredentials — данные из входа через Facebook для POST /v2/channels.
@@ -87,6 +109,12 @@ type InstagramConnectResult struct {
 	ChannelID string `json:"channel_id,omitempty"`
 	State     string `json:"state,omitempty"`
 	Username  string `json:"username,omitempty"`
+	// AuthURL — Wazzup просит завершить подключение у себя (вход в Facebook
+	// через его приложение).
+	AuthURL string `json:"auth_url,omitempty"`
+	// ProviderResponse — ответ Wazzup, если канал создан без ссылки и не
+	// активен: по нему видно, чего он ждёт.
+	ProviderResponse string `json:"provider_response,omitempty"`
 }
 
 // ChannelCreateError — провайдер отказал в создании канала; Detail — его
@@ -134,6 +162,12 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		"inst_id":    creds.InstID,
 		"user_token": creds.UserToken,
 	})
+	if rejectsInstagramCredentials(err) {
+		// Боевой API отвергает поля из документации — создаём канал с пустыми
+		// credentials, Wazzup отдаёт свою ссылку авторизации.
+		log.Printf("integration=wazzup operation=instagram_connect status=retry_empty_credentials account=%s err=%v", acc.Name, err)
+		created, err = creator.CreateChannel(ctx, "instagram", nil)
+	}
 	if err != nil {
 		log.Printf("integration=wazzup operation=instagram_connect status=failed account=%s username=%s page=%s err=%v",
 			acc.Name, creds.Username, creds.PageID, err)
@@ -150,12 +184,21 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		log.Printf("integration=wazzup operation=instagram_connect_sync status=failed err=%v", syncErr)
 	}
 
-	return &InstagramConnectResult{
+	res := &InstagramConnectResult{
 		Account:   acc.Name,
 		ChannelID: created.Channel.ID,
 		State:     created.Channel.Status,
 		Username:  creds.Username,
-	}, nil
+		AuthURL:   created.AuthURL,
+	}
+	if res.AuthURL == "" && !strings.EqualFold(res.State, "active") {
+		raw := string(created.Raw)
+		if len(raw) > 2000 {
+			raw = raw[:2000] + "…"
+		}
+		res.ProviderResponse = raw
+	}
+	return res, nil
 }
 
 // ProviderErrorDetail — объяснение провайдера из ошибки (detail и errors из

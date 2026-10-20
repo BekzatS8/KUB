@@ -121,3 +121,46 @@ func TestConnectInstagramUsesPartnerAccount(t *testing.T) {
 		t.Fatalf("provider refusal must become ChannelCreateError with its detail, got %v", err)
 	}
 }
+
+// seqInstagramClient — отвечает по очереди и запоминает присланные credentials.
+type seqInstagramClient struct {
+	noopClient
+	calls *[]map[string]any
+	errs  []error
+	out   *CreatedChannel
+}
+
+func (c seqInstagramClient) CreateChannel(_ context.Context, _ string, creds map[string]any) (*CreatedChannel, error) {
+	n := len(*c.calls)
+	*c.calls = append(*c.calls, creds)
+	if n < len(c.errs) && c.errs[n] != nil {
+		return nil, c.errs[n]
+	}
+	return c.out, nil
+}
+
+// Боевой Wazzup отвергает поля из документации («should not exist») — CRM
+// создаёт канал с пустыми credentials и отдаёт ссылку авторизации Wazzup.
+func TestConnectInstagramFallsBackToEmptyCredentials(t *testing.T) {
+	repo := &multiRepo{
+		integrations: map[string]*models.WazzupIntegration{AccountChild: {ID: 2, Enabled: true, Account: AccountChild}},
+		channels:     map[int][]models.WazzupChannel{},
+	}
+	svc := NewService(repo, nil, "", "", "", "")
+	calls := &[]map[string]any{}
+	svc.RegisterAccount(AccountConfig{Name: AccountChild, Partner: true, Client: seqInstagramClient{
+		calls: calls,
+		errs:  []error{errors.New(`wazzup partner POST /v2/channels failed: status=400 body={"detail":"One or more fields did not pass validation.","errors":["credentials.inst_id: property inst_id should not exist"]}`)},
+		out:   &CreatedChannel{Channel: Channel{ID: "ig-1", Status: "init"}, AuthURL: "https://app.wazzup24.com/fb-auth"},
+	}})
+	res, err := svc.ConnectInstagram(context.Background(), InstagramCredentials{Username: "visario.kz", PageID: "p", InstID: "i", UserToken: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 2 || (*calls)[0]["inst_id"] != "i" || len((*calls)[1]) != 0 {
+		t.Fatalf("expected documented credentials, then empty ones, got %v", *calls)
+	}
+	if res.AuthURL != "https://app.wazzup24.com/fb-auth" || res.ChannelID != "ig-1" {
+		t.Fatalf("auth url from wazzup must reach the admin, got %+v", res)
+	}
+}
