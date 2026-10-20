@@ -184,3 +184,26 @@ func TestProviderErrorDetailObjects(t *testing.T) {
 		t.Fatalf("unexpected detail %q", got)
 	}
 }
+
+// Ответ {channel_id, transport} на создание с данными входа — успех, без
+// «ответа для разработчика» и без статуса «unknown».
+func TestConnectInstagramPlainCreateIsSuccess(t *testing.T) {
+	repo := &multiRepo{
+		integrations: map[string]*models.WazzupIntegration{AccountChild: {ID: 2, Enabled: true, Account: AccountChild}},
+		channels:     map[int][]models.WazzupChannel{},
+	}
+	svc := NewService(repo, nil, "", "", "", "")
+	created, err := parseCreatedChannel([]byte(`{"data":[{"channel_id":"2a3a","transport":"instAPI"}],"meta":{"timestamp":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := &[]map[string]any{}
+	svc.RegisterAccount(AccountConfig{Name: AccountChild, Partner: true, Client: seqInstagramClient{calls: calls, out: created}})
+	res, err := svc.ConnectInstagram(context.Background(), InstagramCredentials{Username: "visario.kz", PageID: "p", InstID: "i", UserToken: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ChannelID != "2a3a" || res.ProviderResponse != "" || res.State == "unknown" {
+		t.Fatalf("plain create must be a success, got %+v", res)
+	}
+}

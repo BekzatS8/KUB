@@ -168,7 +168,9 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		"inst_id":    creds.InstID,
 		"user_token": creds.UserToken,
 	})
+	usedFallback := false
 	if rejectsInstagramCredentials(err) {
+		usedFallback = true
 		// Боевой API отвергает поля из документации — создаём канал с пустыми
 		// credentials, Wazzup отдаёт свою ссылку авторизации.
 		log.Printf("integration=wazzup operation=instagram_connect status=retry_empty_credentials account=%s err=%v", acc.Name, err)
@@ -197,7 +199,13 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		Username:  creds.Username,
 		AuthURL:   created.AuthURL,
 	}
-	if res.AuthURL == "" && !strings.EqualFold(res.State, "active") {
+	if strings.EqualFold(res.State, "unknown") {
+		// Ответ на создание — только channel_id и transport, статуса в нём нет.
+		res.State = ""
+	}
+	// Ссылку ждём только от запасного пути (пустые credentials). С данными
+	// входа ответ {channel_id, transport} — это и есть успех.
+	if usedFallback && res.AuthURL == "" && !strings.EqualFold(res.State, "active") {
 		raw := string(created.Raw)
 		if len(raw) > 2000 {
 			raw = raw[:2000] + "…"
