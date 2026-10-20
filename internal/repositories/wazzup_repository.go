@@ -747,6 +747,31 @@ func (r *wazzupRepository) FindLeadByExternalChatID(ctx context.Context, transpo
 // Нужен, чтобы deep-link «Переписка» открывал iframe на КАНАЛЕ самого чата, а не
 // на «первом активном» (иначе переписка открывается от имени чужого/пустого
 // канала нового филиала).
+// ChatLeadOwner — ответственный в CRM за лид этой переписки (0 — лида нет или
+// он ничей). Последний по времени лид чата.
+func (r *wazzupRepository) ChatLeadOwner(ctx context.Context, transport, externalChatID string) (int, error) {
+	const q = `
+		SELECT COALESCE(l.owner_id, 0)
+		FROM chats c
+		JOIN leads l ON l.id = c.lead_ref_id
+		WHERE c.external_provider = 'wazzup'
+		  AND c.external_transport = $1
+		  AND c.external_chat_id = $2
+		  AND l.deleted_at IS NULL
+		ORDER BY l.id DESC
+		LIMIT 1
+	`
+	var owner int
+	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get chat lead owner: %w", err)
+	}
+	return owner, nil
+}
+
 func (r *wazzupRepository) GetChatChannelID(ctx context.Context, transport, externalChatID string) (string, error) {
 	const q = `
 		SELECT COALESCE(external_channel_id, '')

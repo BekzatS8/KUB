@@ -237,6 +237,9 @@ func (s *Service) GetIframe(ctx context.Context, ownerUserID int, companyID int,
 			}
 		}
 	}
+	if activeChat != nil {
+		s.assignOwnChatOnOpen(ctx, acc, activeChat.ChatType, activeChat.ChatID, ownerUserID)
+	}
 	url, err := acc.Client.CreateIframe(ctx, apiKey, CreateIframeRequest{
 		User:       UserUpsert{ID: wazzupUserID, Name: name},
 		Scope:      "global",

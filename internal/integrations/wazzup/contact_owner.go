@@ -141,3 +141,56 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, transpo
 	}
 	log.Printf("integration=wazzup operation=assign_contact status=ok chat=%s user=%s", maskChatID(chatID), wazzupUserID)
 }
+
+// AssignChatOwner — ответственный за лид в CRM становится ответственным за
+// его переписку в Wazzup. В аккаунте без кабинета роль «Менеджер» видит только
+// своих клиентов: без этого после «Взять себе» или передачи лида кнопка
+// «Открыть в мессенджере» показывала чужой чат вместо переписки с клиентом.
+// Только для переписок, которые уже есть в CRM, и только в аккаунте без
+// кабинета; ошибки лишь пишутся в лог.
+func (s *Service) AssignChatOwner(ctx context.Context, transport, chatID string, crmUserID int) {
+	transport = normalizeTransport(transport)
+	chatID = strings.TrimSpace(chatID)
+	if transport == "whatsapp" {
+		chatID = digitsOnly(chatID)
+	}
+	if transport == "" || chatID == "" || crmUserID <= 0 {
+		return
+	}
+	chID, err := s.repo.GetChatChannelID(ctx, transport, chatID)
+	if err != nil || chID == "" {
+		return
+	}
+	acc, integration, err := s.accountOfChannel(ctx, chID)
+	if err != nil || acc == nil || !acc.Partner || integration == nil {
+		return
+	}
+	wazzupUserID := s.ensureWazzupUser(ctx, acc, s.apiKeyFor(acc, integration), crmUserID)
+	if wazzupUserID == "" {
+		return
+	}
+	s.assignContact(ctx, acc, transport, chatID, wazzupUserID)
+}
+
+// chatLeadOwnerRepo — репозитории, знающие ответственного за лид переписки.
+type chatLeadOwnerRepo interface {
+	ChatLeadOwner(ctx context.Context, transport, externalChatID string) (int, error)
+}
+
+// assignOwnChatOnOpen — переписку открывает ответственный за её лид в CRM:
+// закрепляем чат за ним и в Wazzup, иначе окно откроется на чужом чате.
+// Чинит и лиды, взятые до того, как передача начала синхронизироваться.
+func (s *Service) assignOwnChatOnOpen(ctx context.Context, acc *AccountConfig, transport, chatID string, crmUserID int) {
+	if acc == nil || !acc.Partner || crmUserID <= 0 {
+		return
+	}
+	repo, ok := s.repo.(chatLeadOwnerRepo)
+	if !ok {
+		return
+	}
+	owner, err := repo.ChatLeadOwner(ctx, transport, chatID)
+	if err != nil || owner != crmUserID {
+		return
+	}
+	s.AssignChatOwner(ctx, transport, chatID, crmUserID)
+}

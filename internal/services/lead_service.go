@@ -20,6 +20,8 @@ type LeadService struct {
 	StageRepo *repositories.FunnelStageRepository
 	BoardNotifier BoardNotifier
 	TransitionRuleRepo *repositories.FunnelTransitionRuleRepository
+	// chatOwnerSync передаёт переписку лида новому ответственному (Wazzup).
+	chatOwnerSync LeadChatOwnerSync
 }
 
 // SetStageRepo подключает репозиторий этапов воронки — нужен для авто-архива
@@ -479,8 +481,13 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
 	}
-	if err := s.Repo.MoveStage(id, stageID, userID, s.claimsOwnershipOnMove(lead, userID, roleID)); err != nil {
+	claim := s.claimsOwnershipOnMove(lead, userID, roleID)
+	if err := s.Repo.MoveStage(id, stageID, userID, claim); err != nil {
 		return err
+	}
+	if claim {
+		// Менеджер забрал карточку перетаскиванием — переписка тоже его.
+		s.syncChatOwner(id, userID)
 	}
 	targetFunnelID := 0
 	autoArchive := false

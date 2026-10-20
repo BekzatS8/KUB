@@ -81,3 +81,43 @@ func TestPartnerClientUpsertContactsPayload(t *testing.T) {
 		t.Fatalf("contact payload mismatch: %v", c)
 	}
 }
+
+// chatOwnerRepo — переписка принадлежит лиду с ответственным owner.
+type chatOwnerRepo struct {
+	*rolesRepo
+	owner int
+}
+
+func (r chatOwnerRepo) ChatLeadOwner(context.Context, string, string) (int, error) { return r.owner, nil }
+
+// Взяли или передали лид — переписка в аккаунте без кабинета переходит новому
+// ответственному: иначе «Открыть в мессенджере» показывало чужой чат.
+func TestAssignChatOwnerFollowsLead(t *testing.T) {
+	svc, repo, sent := newRolesService(t)
+	assigned := &[]ContactUpsert{}
+	svc.accounts[1].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned}
+	repo.chatChannel = map[string]string{"77001112233": "child-almaty", "77005556677": "main-almaty"}
+
+	svc.AssignChatOwner(context.Background(), "whatsapp", "+7 700 111 22 33", userSales2)
+	if len(*assigned) != 1 || (*assigned)[0].ResponsibleUserID != wz(userSales2) || (*assigned)[0].ChatID != "77001112233" {
+		t.Fatalf("chat must follow the lead to the new owner, got %+v", *assigned)
+	}
+	// Основной аккаунт со своим кабинетом и незнакомые переписки не трогаем.
+	svc.AssignChatOwner(context.Background(), "whatsapp", "77005556677", userSales2)
+	svc.AssignChatOwner(context.Background(), "whatsapp", "77000000000", userSales2)
+	if len(*assigned) != 1 {
+		t.Fatalf("main account and unknown chats must stay untouched, got %+v", *assigned)
+	}
+
+	// Открывает переписку ответственный за её лид — чат закрепляется за ним;
+	// чужой сотрудник ничего не забирает.
+	svc.repo = chatOwnerRepo{rolesRepo: repo, owner: userSales}
+	svc.assignOwnChatOnOpen(context.Background(), svc.accounts[1], "whatsapp", "77001112233", userSales2)
+	if len(*assigned) != 1 {
+		t.Fatalf("someone else opening the chat must not take it, got %+v", *assigned)
+	}
+	svc.assignOwnChatOnOpen(context.Background(), svc.accounts[1], "whatsapp", "77001112233", userSales)
+	if len(*assigned) != 2 || (*assigned)[1].ResponsibleUserID != wz(userSales) {
+		t.Fatalf("lead owner opening the chat must get it, got %+v", *assigned)
+	}
+}

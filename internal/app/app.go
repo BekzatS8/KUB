@@ -506,6 +506,8 @@ func Run() {
 		}
 
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
+		// Взяли/передали лид — его переписка в Wazzup переходит новому ответственному.
+		leadService.SetChatOwnerSync(wazzupService)
 		driveMessenger = wazzupService
 		// Встроенный iframe добавления каналов (если заданы доступы).
 		wazzupHandler.SetWhiteLabel(wlClient)

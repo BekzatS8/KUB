@@ -1,10 +1,12 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"turcompany/internal/authz"
 	"turcompany/internal/models"
@@ -187,6 +189,7 @@ func (s *LeadService) AssignOwner(id, assigneeID, userID, roleID int) error {
 		return err
 	}
 	log.Printf("[lead][assign] lead=%d owner %d -> %d by user=%d", id, lead.OwnerID, assigneeID, userID)
+	s.syncChatOwner(id, assigneeID)
 	s.notifyLeadBoard(lead)
 	return nil
 }
@@ -227,6 +230,7 @@ func (s *LeadService) TakeLead(id, userID, roleID int) error {
 		return ErrLeadTaken
 	}
 	log.Printf("[lead][take] lead=%d owner %d -> %d", id, lead.OwnerID, userID)
+	s.syncChatOwner(id, userID)
 	s.notifyLeadBoard(lead)
 	return nil
 }
@@ -327,4 +331,38 @@ func (s *LeadService) notifyLeadBoard(lead *models.Leads) {
 	if s.BoardNotifier != nil && lead != nil && lead.FunnelID != nil {
 		s.BoardNotifier.NotifyBoardChanged(*lead.FunnelID)
 	}
+}
+
+// LeadChatOwnerSync — переписка лида в мессенджере переходит новому
+// ответственному (Wazzup: роль «Менеджер» видит только своих клиентов).
+type LeadChatOwnerSync interface {
+	AssignChatOwner(ctx context.Context, transport, chatID string, crmUserID int)
+}
+
+// SetChatOwnerSync подключает передачу переписки вместе с лидом.
+func (s *LeadService) SetChatOwnerSync(sync LeadChatOwnerSync) {
+	s.chatOwnerSync = sync
+}
+
+// syncChatOwner — после смены ответственного за лид передаём ему и переписку
+// (WhatsApp по телефону или чат Telegram/Instagram лида). Ошибки не мешают
+// передаче лида — они в логе интеграции.
+func (s *LeadService) syncChatOwner(leadID, ownerID int) {
+	if s.chatOwnerSync == nil || s.Repo == nil || ownerID <= 0 {
+		return
+	}
+	lead, err := s.Repo.GetByID(leadID)
+	if err != nil || lead == nil {
+		return
+	}
+	transport, chatID := lead.MessengerTransport, lead.MessengerChatID
+	if chatID == "" && lead.Phone != "" {
+		transport, chatID = "whatsapp", lead.Phone
+	}
+	if chatID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s.chatOwnerSync.AssignChatOwner(ctx, transport, chatID, ownerID)
 }
