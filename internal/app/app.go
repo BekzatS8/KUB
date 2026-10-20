@@ -587,6 +587,8 @@ func Run() {
 		OfficeEnabled:  cfg.LibreOffice.Enable,
 		OfficeBinary:   cfg.LibreOffice.Binary,
 		PublicAPIURL:   drivePublicAPI,
+		// Куски загрузки частями — на смонтированный диск, а не в /tmp контейнера.
+		TempDir: filepath.Join(cfg.Files.RootDir, "drive-uploads"),
 	})
 	// «Отправить» из хранилища: мессенджер CRM (если Wazzup подключён) и почта.
 	if driveMessenger != nil {

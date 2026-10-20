@@ -639,6 +639,11 @@ func SetupRoutes(
 			// папки с доступом «редактирование» (проверяет сервис).
 			drive.POST("/folders", driveHandler.CreateFolder)
 			drive.POST("/files", driveHandler.Upload)
+			// Большие файлы — частями (каждый кусок меньше лимитов nginx и прокси).
+			drive.POST("/uploads", driveHandler.StartUpload)
+			drive.PUT("/uploads/:id", driveHandler.UploadChunk)
+			drive.POST("/uploads/:id/complete", driveHandler.CompleteUpload)
+			drive.DELETE("/uploads/:id", driveHandler.CancelUpload)
 			drive.PATCH("/nodes/:id", driveHandler.Rename)
 			drive.DELETE("/nodes/:id", driveHandler.Delete)
 			drive.POST("/delete", driveHandler.DeleteMany)

@@ -116,6 +116,8 @@ type DriveConfig struct {
 	// PublicAPIURL — адрес API из интернета (https://api.kubcrm.kz): по нему
 	// мессенджер скачивает отправленный файл.
 	PublicAPIURL string
+	// TempDir — куда складываются куски загрузки частями до сборки файла.
+	TempDir string
 }
 
 type DriveService struct {
@@ -133,6 +135,10 @@ type DriveService struct {
 	mailer    DriveMailer
 	// Лента: удаление сотрудником (drive_trash.go). Может быть nil.
 	notifier DriveActivityNotifier
+
+	// Незавершённые загрузки частями (drive_upload_session.go).
+	uploadsOnce sync.Once
+	uploads     *driveUploads
 }
 
 func NewDriveService(repo repositories.DriveRepository, store storage.Storage, cfg DriveConfig) *DriveService {
@@ -281,8 +287,8 @@ func (s *DriveService) Upload(ctx context.Context, actor DriveActor, parentID *i
 	if err := s.canWriteInto(ctx, actor, parentID); err != nil {
 		return nil, err
 	}
-	if size > s.cfg.MaxUploadBytes {
-		return nil, ErrDriveTooLarge
+	if err := s.checkUploadSize(actor, size); err != nil {
+		return nil, err
 	}
 	name := SanitizeDriveFileName(filename)
 	if err := s.ensureFolder(ctx, parentID); err != nil {
