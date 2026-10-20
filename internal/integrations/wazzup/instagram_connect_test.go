@@ -207,3 +207,50 @@ func TestConnectInstagramPlainCreateIsSuccess(t *testing.T) {
 		t.Fatalf("plain create must be a success, got %+v", res)
 	}
 }
+
+// reinitClient — запоминает переавторизацию и не даёт создать новый канал.
+type reinitClient struct {
+	noopClient
+	reinitID *string
+	creds    *map[string]any
+	created  *int
+}
+
+func (c reinitClient) CreateChannel(context.Context, string, map[string]any) (*CreatedChannel, error) {
+	*c.created++
+	return &CreatedChannel{Channel: Channel{ID: "new"}}, nil
+}
+
+func (c reinitClient) ReinitChannel(_ context.Context, id string, creds map[string]any) (*CreatedChannel, error) {
+	*c.reinitID = id
+	*c.creds = creds
+	return &CreatedChannel{Channel: Channel{ID: id, Status: "active"}}, nil
+}
+
+// Канал этого Instagram уже есть («требуется повторная авторизация») —
+// переавторизуем его теми же данными, а не создаём второй (поддержка Wazzup).
+func TestConnectInstagramReinitsExistingChannel(t *testing.T) {
+	repo := &multiRepo{
+		integrations: map[string]*models.WazzupIntegration{AccountChild: {ID: 2, Enabled: true, Account: AccountChild}},
+		channels: map[int][]models.WazzupChannel{2: {
+			{ID: 9, IntegrationID: 2, ExternalChannelID: "2a3a", Transport: "instAPI", Name: "visario.kz", Status: "disabled"},
+		}},
+	}
+	svc := NewService(repo, nil, "", "", "", "")
+	var reinitID string
+	var creds map[string]any
+	created := 0
+	svc.RegisterAccount(AccountConfig{Name: AccountChild, Partner: true, Client: reinitClient{reinitID: &reinitID, creds: &creds, created: &created}})
+
+	res, err := svc.ConnectInstagram(context.Background(), InstagramCredentials{Username: "@visario.kz", PageID: "p", InstID: "i", UserToken: "EAAGtoken-0123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reinitID != "2a3a" || created != 0 || creds["user_token"] != "EAAGtoken-0123456789" || creds["inst_id"] != "i" {
+		t.Fatalf("existing channel must be reinitialized with the same credentials: id=%q created=%d creds=%v", reinitID, created, creds)
+	}
+	if res.Action != "reinit" || !strings.HasSuffix(res.RequestedAtMSK, "МСК") ||
+		!strings.Contains(res.Request, "/v2/channels/2a3a/reinit") || strings.Contains(res.Request, "EAAGtoken-0123456789") {
+		t.Fatalf("result must carry MSK time and masked request for Wazzup support, got %+v", res)
+	}
+}

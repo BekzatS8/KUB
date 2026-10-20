@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
+
+	"turcompany/internal/models"
 )
 
 // Подключение Instagram к аккаунту без своего кабинета (дочерний White Label).
@@ -48,6 +52,29 @@ func (c *PartnerClient) CreateChannel(ctx context.Context, transport string, cre
 	}
 	body, err := c.doJSON(ctx, http.MethodPost, "/v2/channels", map[string]any{
 		"transport":   transport,
+		"credentials": credentials,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parseCreatedChannel(body)
+}
+
+// channelReiniter — клиенты, умеющие переавторизовать канал.
+type channelReiniter interface {
+	ReinitChannel(ctx context.Context, channelID string, credentials map[string]any) (*CreatedChannel, error)
+}
+
+// ReinitChannel переавторизует канал (POST /v2/channels/{id}/reinit).
+func (c *PartnerClient) ReinitChannel(ctx context.Context, channelID string, credentials map[string]any) (*CreatedChannel, error) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return nil, fmt.Errorf("channel id is required")
+	}
+	if credentials == nil {
+		credentials = map[string]any{}
+	}
+	body, err := c.doJSON(ctx, http.MethodPost, "/v2/channels/"+url.PathEscape(channelID)+"/reinit", map[string]any{
 		"credentials": credentials,
 	})
 	if err != nil {
@@ -118,6 +145,49 @@ type InstagramConnectResult struct {
 	// ProviderResponse — ответ Wazzup, если канал создан без ссылки и не
 	// активен: по нему видно, чего он ждёт.
 	ProviderResponse string `json:"provider_response,omitempty"`
+	// Action — create (новый канал) или reinit (переавторизация существующего).
+	Action string `json:"action,omitempty"`
+	// RequestedAtMSK и Request — для поддержки Wazzup: время запроса по Москве
+	// и сам запрос (токен скрыт).
+	RequestedAtMSK string `json:"requested_at_msk,omitempty"`
+	Request        string `json:"request,omitempty"`
+}
+
+var mskZone = time.FixedZone("MSK", 3*60*60)
+
+// maskedInstagramRequest — запрос для поддержки Wazzup без полного токена.
+func maskedInstagramRequest(path string, creds InstagramCredentials) string {
+	tok := creds.UserToken
+	masked := tok
+	if len(tok) > 12 {
+		masked = tok[:6] + "…" + tok[len(tok)-4:] + fmt.Sprintf(" (%d символов)", len(tok))
+	}
+	body, _ := json.Marshal(map[string]any{"credentials": map[string]any{
+		"username": creds.Username, "page_id": creds.PageID, "inst_id": creds.InstID, "user_token": masked,
+	}})
+	return "POST https://tech.wazzup24.com" + path + "\n" + string(body)
+}
+
+// findInstagramChannel — уже созданный канал Instagram этого аккаунта в
+// справочнике CRM (по имени пользователя): его переавторизуем, а не плодим
+// новый (так велела поддержка Wazzup).
+func (s *Service) findInstagramChannel(ctx context.Context, integrationID int, username string) *models.WazzupChannel {
+	channels, err := s.repo.ListChannels(ctx, integrationID)
+	if err != nil {
+		return nil
+	}
+	for i := range channels {
+		ch := channels[i]
+		if normalizeTransport(ch.Transport) != "instagram" {
+			continue
+		}
+		for _, v := range []string{ch.Username, ch.Name, ch.Phone} {
+			if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(v), "@"), username) {
+				return &ch
+			}
+		}
+	}
+	return nil
 }
 
 // ChannelCreateError — провайдер отказал в создании канала; Detail — его
@@ -158,16 +228,48 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 	if !ok {
 		return nil, fmt.Errorf("%w: аккаунт не умеет создавать каналы через API", ErrBadRequest)
 	}
-
-	// Тип канала — instAPI (Instagram через API с входом в Facebook): так
-	// велела поддержка Wazzup; с transport=instagram канал не создаётся
-	// (поля credentials «should not exist», без них — CHANNEL_CAN_NOT_ADD).
-	created, err := creator.CreateChannel(ctx, instagramAPITransport, map[string]any{
+	credsMap := map[string]any{
 		"username":   creds.Username,
 		"page_id":    creds.PageID,
 		"inst_id":    creds.InstID,
 		"user_token": creds.UserToken,
-	})
+	}
+
+	// Канал этого Instagram уже есть (например, «требуется повторная
+	// авторизация») — переавторизуем его с теми же данными.
+	if existing := s.findInstagramChannel(ctx, integration.ID, creds.Username); existing != nil {
+		if reiniter, ok := acc.Client.(channelReiniter); ok {
+			path := "/v2/channels/" + existing.ExternalChannelID + "/reinit"
+			at := time.Now().In(mskZone).Format("02.01.2006 15:04:05") + " МСК"
+			request := maskedInstagramRequest(path, creds)
+			log.Printf("integration=wazzup operation=instagram_reinit account=%s channel=%s at=%q request=%q", acc.Name, existing.ExternalChannelID, at, request)
+			done, err := reiniter.ReinitChannel(ctx, existing.ExternalChannelID, credsMap)
+			if err != nil {
+				log.Printf("integration=wazzup operation=instagram_reinit status=failed channel=%s err=%v", existing.ExternalChannelID, err)
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+					return nil, err
+				}
+				return nil, &ChannelCreateError{Detail: providerErrorDetail(err) + " (запрос " + at + ")", Err: err}
+			}
+			if _, syncErr := s.syncAccountChannels(ctx, acc, integration); syncErr != nil {
+				log.Printf("integration=wazzup operation=instagram_reinit_sync status=failed err=%v", syncErr)
+			}
+			state := done.Channel.Status
+			if strings.EqualFold(state, "unknown") {
+				state = ""
+			}
+			return &InstagramConnectResult{
+				Account: acc.Name, ChannelID: existing.ExternalChannelID, State: state, Username: creds.Username,
+				AuthURL: done.AuthURL, Action: "reinit", RequestedAtMSK: at, Request: request,
+			}, nil
+		}
+	}
+
+	// Тип канала — instAPI (Instagram через API с входом в Facebook): так
+	// велела поддержка Wazzup; с transport=instagram канал не создаётся
+	// (поля credentials «should not exist», без них — CHANNEL_CAN_NOT_ADD).
+	at := time.Now().In(mskZone).Format("02.01.2006 15:04:05") + " МСК"
+	created, err := creator.CreateChannel(ctx, instagramAPITransport, credsMap)
 	usedFallback := false
 	if rejectsInstagramCredentials(err) {
 		usedFallback = true
@@ -193,11 +295,13 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 	}
 
 	res := &InstagramConnectResult{
-		Account:   acc.Name,
-		ChannelID: created.Channel.ID,
-		State:     created.Channel.Status,
-		Username:  creds.Username,
-		AuthURL:   created.AuthURL,
+		Account:        acc.Name,
+		ChannelID:      created.Channel.ID,
+		State:          created.Channel.Status,
+		Username:       creds.Username,
+		AuthURL:        created.AuthURL,
+		Action:         "create",
+		RequestedAtMSK: at,
 	}
 	if strings.EqualFold(res.State, "unknown") {
 		// Ответ на создание — только channel_id и transport, статуса в нём нет.
