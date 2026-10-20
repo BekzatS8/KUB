@@ -125,12 +125,16 @@ func TestConnectInstagramUsesPartnerAccount(t *testing.T) {
 // seqInstagramClient — отвечает по очереди и запоминает присланные credentials.
 type seqInstagramClient struct {
 	noopClient
-	calls *[]map[string]any
-	errs  []error
-	out   *CreatedChannel
+	transports *[]string
+	calls      *[]map[string]any
+	errs       []error
+	out        *CreatedChannel
 }
 
-func (c seqInstagramClient) CreateChannel(_ context.Context, _ string, creds map[string]any) (*CreatedChannel, error) {
+func (c seqInstagramClient) CreateChannel(_ context.Context, transport string, creds map[string]any) (*CreatedChannel, error) {
+	if c.transports != nil {
+		*c.transports = append(*c.transports, transport)
+	}
 	n := len(*c.calls)
 	*c.calls = append(*c.calls, creds)
 	if n < len(c.errs) && c.errs[n] != nil {
@@ -148,10 +152,12 @@ func TestConnectInstagramFallsBackToEmptyCredentials(t *testing.T) {
 	}
 	svc := NewService(repo, nil, "", "", "", "")
 	calls := &[]map[string]any{}
+	transports := &[]string{}
 	svc.RegisterAccount(AccountConfig{Name: AccountChild, Partner: true, Client: seqInstagramClient{
-		calls: calls,
-		errs:  []error{errors.New(`wazzup partner POST /v2/channels failed: status=400 body={"detail":"One or more fields did not pass validation.","errors":["credentials.inst_id: property inst_id should not exist"]}`)},
-		out:   &CreatedChannel{Channel: Channel{ID: "ig-1", Status: "init"}, AuthURL: "https://app.wazzup24.com/fb-auth"},
+		calls:      calls,
+		transports: transports,
+		errs:       []error{errors.New(`wazzup partner POST /v2/channels failed: status=400 body={"detail":"One or more fields did not pass validation.","errors":["credentials.inst_id: property inst_id should not exist"]}`)},
+		out:        &CreatedChannel{Channel: Channel{ID: "ig-1", Status: "init"}, AuthURL: "https://app.wazzup24.com/fb-auth"},
 	}})
 	res, err := svc.ConnectInstagram(context.Background(), InstagramCredentials{Username: "visario.kz", PageID: "p", InstID: "i", UserToken: "t"})
 	if err != nil {
@@ -159,6 +165,12 @@ func TestConnectInstagramFallsBackToEmptyCredentials(t *testing.T) {
 	}
 	if len(*calls) != 2 || (*calls)[0]["inst_id"] != "i" || len((*calls)[1]) != 0 {
 		t.Fatalf("expected documented credentials, then empty ones, got %v", *calls)
+	}
+	if len(*transports) != 2 || (*transports)[0] != "instAPI" || (*transports)[1] != "instAPI" {
+		t.Fatalf("instagram channel must be created as instAPI (Wazzup support), got %v", *transports)
+	}
+	if normalizeTransport("instAPI") != "instagram" {
+		t.Fatal("instAPI channels must be treated as Instagram in CRM")
 	}
 	if res.AuthURL != "https://app.wazzup24.com/fb-auth" || res.ChannelID != "ig-1" {
 		t.Fatalf("auth url from wazzup must reach the admin, got %+v", res)

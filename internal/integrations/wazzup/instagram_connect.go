@@ -19,6 +19,9 @@ import (
 // партнёру не выдаёт — вход через Facebook проводит CRM своим приложением
 // Meta (пакет integrations/meta) и передаёт сюда готовые данные.
 
+// instagramAPITransport — тип канала Instagram в Tech Partner API.
+const instagramAPITransport = "instAPI"
+
 // CreatedChannel — канал, созданный у провайдера.
 type CreatedChannel struct {
 	Channel Channel
@@ -156,7 +159,10 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		return nil, fmt.Errorf("%w: аккаунт не умеет создавать каналы через API", ErrBadRequest)
 	}
 
-	created, err := creator.CreateChannel(ctx, "instagram", map[string]any{
+	// Тип канала — instAPI (Instagram через API с входом в Facebook): так
+	// велела поддержка Wazzup; с transport=instagram канал не создаётся
+	// (поля credentials «should not exist», без них — CHANNEL_CAN_NOT_ADD).
+	created, err := creator.CreateChannel(ctx, instagramAPITransport, map[string]any{
 		"username":   creds.Username,
 		"page_id":    creds.PageID,
 		"inst_id":    creds.InstID,
@@ -166,7 +172,7 @@ func (s *Service) ConnectInstagram(ctx context.Context, creds InstagramCredentia
 		// Боевой API отвергает поля из документации — создаём канал с пустыми
 		// credentials, Wazzup отдаёт свою ссылку авторизации.
 		log.Printf("integration=wazzup operation=instagram_connect status=retry_empty_credentials account=%s err=%v", acc.Name, err)
-		created, err = creator.CreateChannel(ctx, "instagram", nil)
+		created, err = creator.CreateChannel(ctx, instagramAPITransport, nil)
 	}
 	if err != nil {
 		log.Printf("integration=wazzup operation=instagram_connect status=failed account=%s username=%s page=%s err=%v",

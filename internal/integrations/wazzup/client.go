@@ -363,7 +363,7 @@ func normalizeTransport(value string) string {
 		return "whatsapp"
 	case "tg", "telegram":
 		return "telegram"
-	case "ig", "instagram", "instagram_direct", "direct":
+	case "ig", "instagram", "instagram_direct", "direct", "instapi":
 		return "instagram"
 	default:
 		return v
