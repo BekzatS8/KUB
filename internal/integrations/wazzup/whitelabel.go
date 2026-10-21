@@ -23,6 +23,9 @@ type WhiteLabelConfig struct {
 	ClientID  string // partner_client_id (для refresh)
 	AccountID string // account_id дочернего аккаунта клиента (requested_subject)
 	Scope     string // напр. "transport,crm"
+	// APIKey — API-ключ дочернего аккаунта (старое API «для партнёров с
+	// постоплатой»). Необязателен: сначала пробуем client_access_token.
+	APIKey string
 }
 
 const defaultWLBaseURL = "https://tech.wazzup24.com"
@@ -120,6 +123,60 @@ func (c *WhiteLabelClient) ChannelsIframeLink(ctx context.Context, transport str
 		return "", fmt.Errorf("empty iframe link in response")
 	}
 	return resp.Data.Link, nil
+}
+
+// LegacyChannelsLink — ссылка на iframe подключения канала по старому API
+// партнёров (POST /iframe/generate-channels-link). Instagram (instAPI) через
+// API v2 не подключается — поддержка Wazzup велела этот метод. channelID
+// пустой — новый канал, заполнен — переавторизация существующего.
+//
+// Авторизация — API-ключ дочернего аккаунта. Если он не задан, пробуем
+// client_access_token дочки.
+func (c *WhiteLabelClient) LegacyChannelsLink(ctx context.Context, transport, channelID string) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("white label is not configured")
+	}
+	payload := map[string]any{"transport": strings.TrimSpace(transport)}
+	if id := strings.TrimSpace(channelID); id != "" {
+		payload["channelId"] = id
+	}
+	auth := ""
+	if key := strings.TrimSpace(c.cfg.APIKey); key != "" {
+		auth = "Bearer " + key
+	} else {
+		if !c.Configured() {
+			return "", fmt.Errorf("white label is not configured")
+		}
+		token, err := c.clientAccessToken(ctx)
+		if err != nil {
+			return "", err
+		}
+		auth = "Bearer " + token
+	}
+	body, err := c.doAuthed(ctx, http.MethodPost, "/iframe/generate-channels-link", auth, payload)
+	if err != nil {
+		if strings.TrimSpace(c.cfg.APIKey) == "" && (strings.Contains(err.Error(), "status=401") || strings.Contains(err.Error(), "status=403")) {
+			return "", fmt.Errorf("%w (нужен API-ключ дочернего аккаунта: задайте WAZZUP_WL_API_KEY)", err)
+		}
+		return "", err
+	}
+	var resp struct {
+		Link string `json:"link"`
+		Data struct {
+			Link string `json:"link"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("decode generate-channels-link response: %w", err)
+	}
+	link := strings.TrimSpace(resp.Link)
+	if link == "" {
+		link = strings.TrimSpace(resp.Data.Link)
+	}
+	if link == "" {
+		return "", fmt.Errorf("empty link in response: %s", string(body))
+	}
+	return link, nil
 }
 
 // clientAccessToken возвращает кэшированный токен дочки или получает новый.

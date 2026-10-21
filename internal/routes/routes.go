@@ -216,6 +216,7 @@ func SetupRoutes(
 			wazzup.POST("/channels/instagram", wazzupHandler.ConnectInstagram)
 			wazzup.GET("/instagram/settings", wazzupHandler.InstagramSettings)
 			wazzup.PUT("/instagram/settings", wazzupHandler.SaveInstagramSettings)
+			wazzup.GET("/instagram/link", wazzupHandler.InstagramConnectLink)
 			wazzup.POST("/instagram/login", wazzupHandler.InstagramLogin)
 			wazzup.POST("/instagram/accounts", wazzupHandler.InstagramAccounts)
 			wazzup.GET("/channels/:id/roles", wazzupHandler.ChannelRoles)

@@ -442,6 +442,35 @@ func (h *WazzupHandler) ChannelConnectLink(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"link": link})
 }
 
+// GET /integrations/wazzup/instagram/link?channel_id= — окно Wazzup для
+// подключения Instagram к дочернему аккаунту (вход через Facebook у Wazzup).
+// channel_id — переавторизовать существующий канал.
+func (h *WazzupHandler) InstagramConnectLink(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if roleID != authz.RoleSystemAdmin && roleID != authz.RoleManagement {
+		forbidden(c, "Forbidden")
+		return
+	}
+	if h.wl == nil {
+		notFound(c, "wazzup_white_label_not_configured", "White Label не настроен")
+		return
+	}
+	channelID := strings.TrimSpace(c.Query("channel_id"))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+	link, err := h.wl.LegacyChannelsLink(ctx, "instAPI", channelID)
+	if err != nil {
+		log.Printf("integration=wazzup operation=instagram_link status=failed channel=%s err=%v", channelID, err)
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error_code": "wazzup_instagram_link_failed",
+			"message":    "Wazzup не выдал окно подключения Instagram: " + wz.ProviderErrorDetail(err),
+		})
+		return
+	}
+	log.Printf("integration=wazzup operation=instagram_link status=ok channel=%s", channelID)
+	c.JSON(http.StatusOK, gin.H{"link": link})
+}
+
 func (h *WazzupHandler) Dialogs(c *gin.Context) {
 	userID, _ := getUserAndRole(c)
 	transport := strings.TrimSpace(c.Query("transport"))

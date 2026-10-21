@@ -85,6 +85,9 @@ type WazzupConfig struct {
 	WLClientID  string `yaml:"wl_client_id"`  // partner_client_id (для refresh)
 	WLAccountID string `yaml:"wl_account_id"` // account_id дочернего аккаунта клиента
 	WLScope     string `yaml:"wl_scope"`      // напр. "transport,crm"
+	// WLAPIKey — API-ключ дочернего аккаунта для старого API партнёров
+	// (iframe подключения Instagram). Необязателен.
+	WLAPIKey string `yaml:"wl_api_key"`
 }
 
 // IsPartnerDriver сообщает, работает ли интеграция через Tech Partner API
@@ -596,6 +599,7 @@ func applyEnvOverrides(cfg *Config) {
 	setString(os.Getenv("WAZZUP_WL_CLIENT_ID"), &cfg.Wazzup.WLClientID)
 	setString(os.Getenv("WAZZUP_WL_ACCOUNT_ID"), &cfg.Wazzup.WLAccountID)
 	setString(os.Getenv("WAZZUP_WL_SCOPE"), &cfg.Wazzup.WLScope)
+	setString(os.Getenv("WAZZUP_WL_API_KEY"), &cfg.Wazzup.WLAPIKey)
 	setString(os.Getenv("META_APP_ID"), &cfg.Meta.AppID)
 	setString(os.Getenv("META_APP_SECRET"), &cfg.Meta.AppSecret)
 	setString(os.Getenv("META_GRAPH_VERSION"), &cfg.Meta.GraphVersion)

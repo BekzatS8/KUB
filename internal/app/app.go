@@ -453,6 +453,7 @@ func Run() {
 			ClientID:  cfg.Wazzup.WLClientID,
 			AccountID: cfg.Wazzup.WLAccountID,
 			Scope:     cfg.Wazzup.WLScope,
+			APIKey:    cfg.Wazzup.WLAPIKey,
 		}, wazzupTimeout)
 
 		// Аккаунты Wazzup работают одновременно:
