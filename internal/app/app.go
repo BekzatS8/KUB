@@ -675,6 +675,9 @@ func Run() {
 	// получить authMiddleware и ReadOnlyGuard.
 	routes.RegisterExtraRoutes(router, routes.ExtraHandlers{
 		Calendar: handlers.NewCalendarHandler(services.NewCalendarService(repositories.NewCalendarRepository(db), leadService)),
+		Employees: handlers.NewEmployeeHandler(services.NewEmployeeService(
+			repositories.NewEmployeeRepository(db), fileStore, cfg.Files.RootDir, signConfirmService,
+			cfg.LibreOffice.Enable, cfg.LibreOffice.Binary)),
 	})
 	log.Printf("[BOOT] routes mounted. Starting server...")
 

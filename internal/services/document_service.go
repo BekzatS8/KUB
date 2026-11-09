@@ -1330,7 +1330,11 @@ func (s *DocumentService) FinalizeSigning(docID int64) error {
 		return nil
 	}
 
-	if doc.Status != "approved" {
+	// Кадровый документ сотрудника (ТЗ «доработки CRM КУБ», п.2) подписывается
+	// из статуса «Отправлен» — у него нет проверки/одобрения, как у клиентских.
+	// Отозванный (revoked) подписать нельзя.
+	hrSent := doc.Scope == "hr" && doc.Status == "sent_for_signature"
+	if doc.Status != "approved" && !hrSent {
 		return errors.New("invalid status")
 	}
 
@@ -1385,6 +1389,13 @@ func (s *DocumentService) FinalizeSignedArtifact(session *models.SignSession) er
 	signedName := base + "_signed.pdf"
 	signedLocalAbs := filepath.Join(s.FilesRoot, "pdf", signedName)
 	signedKey := "pdf/" + signedName
+	// С хранилищем склеенный файл собираем во временном каталоге: при
+	// локальном хранилище ключ pdf/<имя> указывает на тот же files/pdf/<имя>,
+	// и выгрузка «в хранилище» открывала файл на запись поверх читаемого, а
+	// потом удаляла его — подписанный PDF пропадал. Для S3 разницы нет.
+	if s.Store != nil {
+		signedLocalAbs = filepath.Join(os.TempDir(), fmt.Sprintf("signed_%d_%s", time.Now().UnixNano(), signedName))
+	}
 
 	signPageAbs := filepath.Join(s.FilesRoot, "pdf", fmt.Sprintf("%s_sign_page_%d.pdf", base, time.Now().UnixNano()))
 	if err := s.buildSigningPagePDF(doc, session, signPageAbs); err != nil {
@@ -2683,7 +2694,10 @@ func (s *DocumentService) buildSigningPagePDF(doc *models.Document, session *mod
 		return err
 	}
 
-	pdfFile := gofpdf.New("P", "mm", "A4", "/tmp")
+	// Каталог шрифтов — тот, куда ensureSigningFontInTemp скопировал шрифт
+	// (os.TempDir()). Раньше был жёсткий "/tmp": на Linux это то же самое, но
+	// при другом TMPDIR (и на Windows) лист подписания не собирался.
+	pdfFile := gofpdf.New("P", "mm", "A4", filepath.Dir(fontPath))
 	pdfFile.SetCompression(false)
 	pdfFile.SetTitle("Лист подписания", false)
 	pdfFile.SetAuthor("KUB CRM", false)
