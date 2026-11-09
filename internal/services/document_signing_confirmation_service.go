@@ -928,6 +928,11 @@ func (s *DocumentSigningConfirmationService) ValidateEmailToken(
 	}
 	response.Document.ID = doc.ID
 	response.Document.Title = doc.DocType
+	// У кадровых и загруженных документов есть человеческое название —
+	// показываем его вместо кода типа («hr_template»).
+	if strings.TrimSpace(doc.Title) != "" {
+		response.Document.Title = strings.TrimSpace(doc.Title)
+	}
 	response.Document.Status = doc.Status
 	response.Document.FileName = documentFileName(doc)
 	response.Document.ContentType = documentContentType(response.Document.FileName)
@@ -1514,6 +1519,11 @@ func (s *DocumentSigningConfirmationService) validateTokenByChannel(
 	response := &EmailTokenVerification{TokenValid: true, RequirePostConfirm: true}
 	response.Document.ID = doc.ID
 	response.Document.Title = doc.DocType
+	// У кадровых и загруженных документов есть человеческое название —
+	// показываем его вместо кода типа («hr_template»).
+	if strings.TrimSpace(doc.Title) != "" {
+		response.Document.Title = strings.TrimSpace(doc.Title)
+	}
 	response.Document.Status = doc.Status
 	response.Document.FileName = documentFileName(doc)
 	response.Document.ContentType = documentContentType(response.Document.FileName)
