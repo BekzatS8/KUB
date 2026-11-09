@@ -425,9 +425,12 @@ func (h *WazzupHandler) ChannelConnectLink(c *gin.Context) {
 		return
 	}
 	transport := strings.ToLower(strings.TrimSpace(c.Query("transport")))
+	// channel_id — переподключить существующий канал (QR для номера WhatsApp
+	// в статусе «Отсканируйте QR-код», «Не авторизован»).
+	channelID := strings.TrimSpace(c.Query("channel_id"))
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
-	link, err := h.wl.ChannelsIframeLink(ctx, transport)
+	link, err := h.wl.ChannelsIframeLinkFor(ctx, transport, channelID)
 	if err != nil {
 		log.Printf("integration=wazzup operation=channel_connect_link status=failed transport=%s err=%v", transport, err)
 		// detail отдаём в ответ (эндпоинт только для админа/руководства) — чтобы

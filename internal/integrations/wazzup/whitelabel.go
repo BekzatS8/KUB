@@ -93,6 +93,12 @@ func (c *WhiteLabelClient) basicAuth() string {
 // ChannelsIframeLink возвращает ссылку на iframe подключения канала указанного
 // транспорта (whatsapp/wapi/tgapi/maxbot/max/vk/cian). Её фронт вставляет в <iframe>.
 func (c *WhiteLabelClient) ChannelsIframeLink(ctx context.Context, transport string) (string, error) {
+	return c.ChannelsIframeLinkFor(ctx, transport, "")
+}
+
+// ChannelsIframeLinkFor — то же, но channelID переподключает существующий
+// канал (например, номер WhatsApp в статусе «Отсканируйте QR-код»).
+func (c *WhiteLabelClient) ChannelsIframeLinkFor(ctx context.Context, transport, channelID string) (string, error) {
 	if !c.Configured() {
 		return "", fmt.Errorf("white label is not configured")
 	}
@@ -105,6 +111,9 @@ func (c *WhiteLabelClient) ChannelsIframeLink(ctx context.Context, transport str
 		// Конкретный транспорт — iframe откроется сразу на его подключении.
 		// Без транспорта — общий экран выбора канала (как в кабинете Wazzup).
 		options["transport"] = t
+	}
+	if id := strings.TrimSpace(channelID); id != "" {
+		options["channel_id"] = id
 	}
 	payload := map[string]any{"options": options}
 	body, err := c.doAuthed(ctx, http.MethodPost, "/v2/iframe-links/channels", "Bearer "+token, payload)

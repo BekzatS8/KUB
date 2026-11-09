@@ -55,3 +55,28 @@ func TestLegacyChannelsLinkNeedsAuth(t *testing.T) {
 		t.Fatalf("expected not configured error, got %v", err)
 	}
 }
+
+// Переподключение номера: options.channel_id рядом с transport.
+func TestChannelsIframeLinkForReconnect(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/iframe-links/channels" {
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &got)
+			_, _ = io.WriteString(w, `{"data":{"link":"https://app.wazzup24.com/x/tech-partner/channels?token=t"}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := NewWhiteLabelClient(WhiteLabelConfig{BaseURL: srv.URL, Email: "e", Password: "p", AccountID: "1"}, 5*time.Second)
+	c.storeTokens("tok", "", 3600)
+	link, err := c.ChannelsIframeLinkFor(context.Background(), "whatsapp", "ch-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, _ := got["options"].(map[string]any)
+	if link == "" || opts["transport"] != "whatsapp" || opts["channel_id"] != "ch-1" {
+		t.Fatalf("reconnect must send channel_id with transport, got %v", got)
+	}
+}
