@@ -22,6 +22,7 @@ type leadCardService interface {
 	ReturnLead(ctx context.Context, id int, reason string, userID, roleID int) error
 	MergeLeads(ctx context.Context, targetID, sourceID, userID, roleID int) error
 	History(ctx context.Context, id, userID, roleID int) ([]models.LeadHistoryEntry, error)
+	FindLeadByChat(ctx context.Context, transport, chatID string, userID, roleID int) (int, error)
 }
 
 func (h *LeadHandler) cardService(c *gin.Context) (leadCardService, int, bool) {
@@ -164,4 +165,33 @@ func (h *LeadHandler) History(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// GET /leads/by-chat?transport=&chat_id= — лид переписки для кнопки «Профиль»
+// в шапке чата (ТЗ «доработки CRM КУБ», п.4).
+func (h *LeadHandler) FindByChat(c *gin.Context) {
+	svc, ok := h.Service.(leadCardService)
+	if !ok {
+		internalError(c, "lead card is not supported")
+		return
+	}
+	chatID := strings.TrimSpace(c.Query("chat_id"))
+	if chatID == "" {
+		chatID = strings.TrimSpace(c.Query("phone"))
+	}
+	if chatID == "" {
+		badRequest(c, "chat_id is required")
+		return
+	}
+	userID, roleID := getUserAndRole(c)
+	id, err := svc.FindLeadByChat(c.Request.Context(), c.Query("transport"), chatID, userID, roleID)
+	if err != nil {
+		if errors.Is(err, services.ErrLeadNotFound) {
+			notFound(c, LeadNotFoundCode, "Лид не найден")
+			return
+		}
+		writeLeadCardError(c, err, "Failed to find lead by chat")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id})
 }

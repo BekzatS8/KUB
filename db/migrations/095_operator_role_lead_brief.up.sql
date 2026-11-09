@@ -5,7 +5,7 @@
 --    в отдел продаж. Права роли задаются в коде (authz.baseRolePermissions);
 --    строк в role_permissions намеренно не создаём — /permissions/me тогда
 --    берёт права из кода, и источник правды один.
--- 2) Отдел «Колл-центр» — для учётных записей операторов.
+-- 2) Отдел «Колл-центр» (code = код роли, его подставляет syncDepartmentByRole).
 -- 3) «Краткая информация» в карточке лида (ФИО, страна, тип визы, город,
 --    возраст, комментарий) и отметка о передаче в отдел продаж.
 -- 4) История лида: изменения полей, передача, возврат с причиной, объединение.
@@ -23,7 +23,7 @@ ON CONFLICT (id) DO UPDATE
 SELECT setval('roles_id_seq', GREATEST(95, COALESCE((SELECT MAX(id) FROM roles), 95)));
 
 INSERT INTO departments (name, code, is_active) VALUES
-    ('Колл-центр', 'call_center', TRUE)
+    ('Колл-центр', 'operator', TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 ALTER TABLE leads

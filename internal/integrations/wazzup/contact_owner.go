@@ -133,7 +133,10 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, transpo
 		Name:              chatID,
 		ChatType:          chatType,
 		ChatID:            chatID,
-		URI:               base + "/whatsapp?transport=" + url.QueryEscape(chatType) + "&chat_id=" + url.QueryEscape(chatID),
+		// Ссылка из шапки чата Wazzup — кнопка «Профиль» (ТЗ «доработки CRM
+		// КУБ», п.4): страница находит последний открытый лид контакта и
+		// открывает его карточку. Раньше ссылка вела обратно в тот же чат.
+		URI: base + "/leads/by-chat?transport=" + url.QueryEscape(transport) + "&chat_id=" + url.QueryEscape(chatID),
 	}
 	if err := upserter.UpsertContacts(ctx, []ContactUpsert{contact}); err != nil {
 		log.Printf("integration=wazzup operation=assign_contact status=failed chat=%s user=%s err=%v", maskChatID(chatID), wazzupUserID, err)

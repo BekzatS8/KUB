@@ -260,3 +260,23 @@ func (s *LeadService) History(ctx context.Context, id, userID, roleID int) ([]mo
 	}
 	return s.Repo.ListHistory(ctx, id)
 }
+
+// FindLeadByChat — лид переписки для кнопки «Профиль» (п.4): последний
+// открытый лид контакта, если он виден пользователю.
+func (s *LeadService) FindLeadByChat(ctx context.Context, transport, chatID string, userID, roleID int) (int, error) {
+	id, err := s.Repo.FindActiveLeadByChat(ctx, transport, chatID)
+	if err != nil {
+		return 0, err
+	}
+	if id == 0 {
+		return 0, ErrLeadNotFound
+	}
+	lead, err := s.GetByID(id, userID, roleID)
+	if err != nil {
+		return 0, err
+	}
+	if lead == nil {
+		return 0, ErrLeadNotFound
+	}
+	return id, nil
+}

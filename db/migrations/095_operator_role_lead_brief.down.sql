@@ -20,5 +20,5 @@ UPDATE users SET role_id = 10 WHERE role_id = 95;
 DELETE FROM role_permissions WHERE role_id = 95;
 DELETE FROM roles WHERE id = 95;
 UPDATE users SET department_id = NULL
-WHERE department_id IN (SELECT id FROM departments WHERE code = 'call_center');
-DELETE FROM departments WHERE code = 'call_center';
+WHERE department_id IN (SELECT id FROM departments WHERE code = 'operator');
+DELETE FROM departments WHERE code = 'operator';

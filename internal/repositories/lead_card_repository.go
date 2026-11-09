@@ -329,3 +329,49 @@ func digitsOnly(s string) string {
 	return b.String()
 }
 
+
+// FindActiveLeadByChat — последний открытый (не в архиве и не удалённый) лид
+// переписки мессенджера: по привязке чата к лиду, а для WhatsApp ещё и по
+// номеру телефона. Для кнопки «Профиль» в шапке чата (ТЗ «доработки CRM
+// КУБ», п.4). 0 — лида нет.
+func (r *LeadRepository) FindActiveLeadByChat(ctx context.Context, transport, chatID string) (int, error) {
+	transport = strings.ToLower(strings.TrimSpace(transport))
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return 0, nil
+	}
+	phone := ""
+	if transport == "" || transport == "whatsapp" {
+		phone = digitsOnly(chatID)
+		if len(phone) < 10 {
+			phone = ""
+		}
+	}
+	var id int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT l.id
+		FROM leads l
+		WHERE l.deleted_at IS NULL
+		  AND l.is_archived = FALSE
+		  AND (
+		        l.id IN (
+		            SELECT c.lead_ref_id FROM chats c
+		            WHERE c.external_provider = 'wazzup'
+		              AND c.lead_ref_id IS NOT NULL
+		              AND ($1 = '' OR c.external_transport = $1)
+		              AND c.external_chat_id = $2
+		        )
+		     OR ($3 <> '' AND length(regexp_replace(COALESCE(l.phone, ''), '\D', '', 'g')) >= 10
+		         AND RIGHT(regexp_replace(COALESCE(l.phone, ''), '\D', '', 'g'), 10) = RIGHT($3, 10))
+		  )
+		ORDER BY l.created_at DESC, l.id DESC
+		LIMIT 1
+	`, transport, chatID, phone).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find lead by chat: %w", err)
+	}
+	return id, nil
+}

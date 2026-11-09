@@ -671,6 +671,11 @@ func Run() {
 		// истечения access-токена (обратная связь заказчика 17.09.2026).
 		middleware.NewAuthMiddleware(jwtSecret, middleware.AccountStatusChecker(userRepo.GetAccountStatus)),
 	)
+	// Разделы ТЗ «доработки CRM КУБ» (ноябрь 2026) — после SetupRoutes, чтобы
+	// получить authMiddleware и ReadOnlyGuard.
+	routes.RegisterExtraRoutes(router, routes.ExtraHandlers{
+		Calendar: handlers.NewCalendarHandler(services.NewCalendarService(repositories.NewCalendarRepository(db), leadService)),
+	})
 	log.Printf("[BOOT] routes mounted. Starting server...")
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

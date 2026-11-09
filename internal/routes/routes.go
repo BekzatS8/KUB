@@ -401,6 +401,8 @@ func SetupRoutes(
 		leads.PUT("/:id/convert-with-client", middleware.RequirePermission("deals.create", "deal"), leadHandler.ConvertToDealWithClient)
 		leads.GET("", middleware.RequirePermission("leads.view", "lead"), leadHandler.List)
 		leads.GET("/my", middleware.RequirePermission("leads.view", "lead"), leadHandler.ListMy)
+		// Лид переписки — кнопка «Профиль» в шапке чата мессенджера (ТЗ п.4).
+		leads.GET("/by-chat", middleware.RequirePermission("leads.view", "lead"), leadHandler.FindByChat)
 		// Передать лид другому сотруднику — админ и руководство (leads.transfer_manager).
 		leads.POST("/:id/assign", middleware.RequirePermission("leads.transfer_manager", "lead"), leadHandler.Assign)
 		leads.GET("/:id/assignees", middleware.RequirePermission("leads.transfer_manager", "lead"), leadHandler.Assignees)

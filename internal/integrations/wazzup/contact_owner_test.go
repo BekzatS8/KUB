@@ -35,7 +35,7 @@ func TestSellerWritingFirstBecomesResponsible(t *testing.T) {
 	}
 	got := (*assigned)[0]
 	if got.ResponsibleUserID != wz(userSales) || got.ChatID != "77001112233" || got.ChatType != "whatsapp" ||
-		got.ID != "kub-whatsapp-77001112233" || got.URI != "https://kubcrm.kz/whatsapp?transport=whatsapp&chat_id=77001112233" {
+		got.ID != "kub-whatsapp-77001112233" || got.URI != "https://kubcrm.kz/leads/by-chat?transport=whatsapp&chat_id=77001112233" {
 		t.Fatalf("unexpected contact: %+v", got)
 	}
 
