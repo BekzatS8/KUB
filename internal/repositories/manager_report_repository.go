@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"strings"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -19,6 +20,9 @@ type ManagerReport struct {
 	UserID    int             `json:"user_id"`
 	UserName  string          `json:"user_name,omitempty"`
 	Title     string          `json:"title"`
+	// Kind — «table» (таблица) или «note» (блокнот, ТЗ «доработки CRM КУБ»,
+	// п.12): хранится в content.kind, отдельной колонки нет.
+	Kind      string          `json:"kind,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
@@ -47,7 +51,7 @@ func (r *ManagerReportRepository) ListByUser(ctx context.Context, userID int) ([
 	const q = `
 		SELECT mr.id, mr.user_id,
 		       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email) AS user_name,
-		       mr.title, mr.created_at, mr.updated_at
+		       mr.title, mr.created_at, mr.updated_at, COALESCE(mr.content->>'kind', 'table')
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
 		WHERE mr.user_id = $1 AND mr.deleted_at IS NULL
@@ -62,7 +66,7 @@ func (r *ManagerReportRepository) ListByUser(ctx context.Context, userID int) ([
 	out := []*ManagerReport{}
 	for rows.Next() {
 		rep := &ManagerReport{}
-		if err := rows.Scan(&rep.ID, &rep.UserID, &rep.UserName, &rep.Title, &rep.CreatedAt, &rep.UpdatedAt); err != nil {
+		if err := rows.Scan(&rep.ID, &rep.UserID, &rep.UserName, &rep.Title, &rep.CreatedAt, &rep.UpdatedAt, &rep.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, rep)
@@ -348,4 +352,86 @@ func (r *ManagerReportRepository) ListOwners(ctx context.Context) ([]*ManagerRep
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+
+// ManagerReportHit — найденный отчёт: где совпало и фрагмент текста.
+type ManagerReportHit struct {
+	ID         int       `json:"id"`
+	UserID     int       `json:"user_id"`
+	UserName   string    `json:"user_name"`
+	Title      string    `json:"title"`
+	Kind       string    `json:"kind"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	TitleMatch bool      `json:"title_match"`
+	Snippet    string    `json:"snippet,omitempty"`
+}
+
+// Search ищет отчёты сотрудников по названию и по тексту внутри (ТЗ
+// «доработки CRM КУБ», п.12). Сначала совпадения по названию.
+func (r *ManagerReportRepository) Search(ctx context.Context, query string, limit int) ([]*ManagerReportHit, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return []*ManagerReportHit{}, nil
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	like := "%" + strings.NewReplacer(`%`, `\%`, `_`, `\_`).Replace(q) + "%"
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT mr.id, mr.user_id,
+		       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email),
+		       mr.title, COALESCE(mr.content->>'kind', 'table'), mr.updated_at,
+		       LOWER(mr.title) LIKE $1 AS title_match,
+		       mr.content::text
+		FROM manager_reports mr
+		JOIN users u ON u.id = mr.user_id
+		WHERE mr.deleted_at IS NULL
+		  AND (LOWER(mr.title) LIKE $1 OR LOWER(mr.content::text) LIKE $1)
+		ORDER BY title_match DESC, mr.updated_at DESC
+		LIMIT $2
+	`, like, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search manager reports: %w", err)
+	}
+	defer rows.Close()
+	out := []*ManagerReportHit{}
+	for rows.Next() {
+		h := &ManagerReportHit{}
+		var content string
+		if err := rows.Scan(&h.ID, &h.UserID, &h.UserName, &h.Title, &h.Kind, &h.UpdatedAt, &h.TitleMatch, &content); err != nil {
+			return nil, err
+		}
+		h.Snippet = reportSnippet(content, q)
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// reportSnippet — фрагмент текста отчёта вокруг найденного (по ячейкам/тексту).
+func reportSnippet(contentJSON, q string) string {
+	var c struct {
+		Rows [][]string `json:"rows"`
+		Text string     `json:"text"`
+	}
+	if json.Unmarshal([]byte(contentJSON), &c) != nil {
+		return ""
+	}
+	candidates := []string{}
+	if c.Text != "" {
+		candidates = append(candidates, strings.Split(c.Text, "\n")...)
+	}
+	for _, row := range c.Rows {
+		candidates = append(candidates, strings.Join(row, " · "))
+	}
+	for _, line := range candidates {
+		if strings.Contains(strings.ToLower(line), q) {
+			r := []rune(strings.TrimSpace(line))
+			if len(r) > 160 {
+				r = append(r[:157], '…')
+			}
+			return string(r)
+		}
+	}
+	return ""
 }

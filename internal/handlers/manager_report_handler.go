@@ -556,3 +556,20 @@ func (h *ManagerReportHandler) loadOwned(c *gin.Context, userID int) (*repositor
 	}
 	return rep, true
 }
+
+// Search — GET /reports/table/search?q= : поиск по названию отчётов сотрудников
+// и тексту внутри (ТЗ «доработки CRM КУБ», п.12). Тем же, кто видит отчёты
+// всех сотрудников: руководство, админ, ОКК.
+func (h *ManagerReportHandler) Search(c *gin.Context) {
+	_, roleID := getUserAndRole(c)
+	if !authz.CanViewAllBusinessData(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	items, err := h.repo.Search(c.Request.Context(), c.Query("q"), 100)
+	if err != nil {
+		internalError(c, "Failed to search reports")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "count": len(items)})
+}

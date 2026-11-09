@@ -615,6 +615,8 @@ func SetupRoutes(
 			reportTables.POST("/my/:id/restore", managerReportHandler.RestoreMy)
 			reportTables.DELETE("/my/:id/purge", managerReportHandler.PurgeMy)
 			reportTables.GET("", managerReportHandler.List)
+			// поиск по названию и тексту отчётов сотрудников (п.12)
+			reportTables.GET("/search", managerReportHandler.Search)
 			// корзина админа — все удалённые отчёты
 			reportTables.GET("/trash", managerReportHandler.ListTrash)
 			reportTables.GET("/user/:id", managerReportHandler.ListByUser)
