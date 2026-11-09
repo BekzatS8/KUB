@@ -25,6 +25,9 @@ type TaskService interface {
 	PurgeTask(ctx context.Context, id int64, userID int64, roleID int) error
 	ArchiveTask(ctx context.Context, id int64, userID int64, roleID int, reason string) (*models.Task, error)
 	UnarchiveTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error)
+	// AutoArchive — фоновая уборка: закрытые и просроченные задачи в архив.
+	AutoArchive(ctx context.Context) (int64, error)
+	ListAssignableUsers(ctx context.Context) ([]models.TaskAssignee, error)
 
 	// NEW:
 	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) (*models.Task, error)
@@ -133,9 +136,6 @@ func (s *taskService) Update(ctx context.Context, id int64, updateData *models.T
 }
 
 func (s *taskService) Delete(ctx context.Context, id int64, userID int64, roleID int) error {
-	if !authz.CanHardDeleteBusinessEntity(roleID) {
-		return ErrForbidden
-	}
 	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
 	if err != nil {
 		return err
@@ -143,15 +143,28 @@ func (s *taskService) Delete(ctx context.Context, id int64, userID int64, roleID
 	if task == nil {
 		return errors.New("task not found")
 	}
+	if !CanTrashTask(roleID, userID, task) {
+		return ErrForbidden
+	}
 	return s.repo.Delete(ctx, id, userID)
 }
 
-// RestoreTask возвращает задачу из корзины (только тот, кто может окончательно
-// удалять сущности — как у сделок/документов).
-func (s *taskService) RestoreTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error) {
-	if !authz.CanHardDeleteBusinessEntity(roleID) {
-		return nil, ErrForbidden
+// CanTrashTask — кто может убрать задачу в корзину и вернуть её оттуда (ТЗ
+// «доработки CRM КУБ», п.11 — «добавить корзину для удалённых»): админ и
+// руководство — любую, остальные — задачу, которую поставили сами. Окончательное
+// удаление из корзины — только админ.
+func CanTrashTask(roleID int, userID int64, task *models.Task) bool {
+	if task == nil || authz.IsReadOnly(roleID) {
+		return false
 	}
+	if authz.IsFullAccess(roleID) {
+		return true
+	}
+	return userID > 0 && task.CreatorID == userID
+}
+
+// RestoreTask возвращает задачу из корзины — тот же круг, что может удалить.
+func (s *taskService) RestoreTask(ctx context.Context, id int64, userID int64, roleID int) (*models.Task, error) {
 	task, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeDeleted)
 	if err != nil {
 		return nil, err
@@ -159,10 +172,13 @@ func (s *taskService) RestoreTask(ctx context.Context, id int64, userID int64, r
 	if task == nil {
 		return nil, errors.New("task not found")
 	}
+	if !CanTrashTask(roleID, userID, task) {
+		return nil, ErrForbidden
+	}
 	if err := s.repo.Restore(ctx, id); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(ctx, id)
+	return s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll)
 }
 
 // PurgeTask окончательно удаляет задачу из корзины.
@@ -232,7 +248,25 @@ func (s *taskService) UpdateStatus(ctx context.Context, id int64, to models.Task
 	if to == models.StatusDone {
 		s.notifyTaskCompleted(ctx, updated)
 	}
+	// Закрытая задача сразу уходит в архив (ТЗ «доработки CRM КУБ», п.11).
+	if (to == models.StatusDone || to == models.StatusCancelled) && !updated.IsArchived {
+		if err := s.repo.Archive(ctx, id, 0, repositories.TaskAutoArchiveReasonClosed); err != nil {
+			log.Printf("[task][auto-archive] id=%d: %v", id, err)
+			return updated, nil
+		}
+		if archived, err := s.repo.FindByIDWithArchiveScope(ctx, id, repositories.ArchiveScopeAll); err == nil && archived != nil {
+			return archived, nil
+		}
+	}
 	return updated, nil
+}
+
+func (s *taskService) ListAssignableUsers(ctx context.Context) ([]models.TaskAssignee, error) {
+	return s.repo.ListAssignableUsers(ctx)
+}
+
+func (s *taskService) AutoArchive(ctx context.Context) (int64, error) {
+	return s.repo.AutoArchive(ctx)
 }
 
 func (s *taskService) UpdateAssignee(ctx context.Context, id int64, assigneeID int64) (*models.Task, error) {

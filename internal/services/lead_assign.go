@@ -50,11 +50,31 @@ func userDisplayName(u *models.User) string {
 }
 
 // ownerIsFree — лид без рабочего ответственного: владельца нет, он
-// заблокирован или не подтверждён, или лид «припаркован» на админе/руководстве
-// (так приходят лиды из Instagram/WhatsApp/звонков). Такой лид берёт себе
-// любой сотрудник филиала. Без UserRepo — не рискуем: лид занят.
+// заблокирован или не подтверждён. Такой лид берёт себе любой сотрудник
+// филиала. Без UserRepo — не рискуем: лид занят.
+//
+// Лид на админе/руководстве больше НЕ считается ничьим (ТЗ «доработки CRM
+// КУБ», п.9): входящие лиды теперь создаются без ответственного, а если админ
+// сам назначил себя ответственным — это его лид. Для сделок «парковка» на
+// руководстве остаётся (ownerIsFreeFor).
 func (s *LeadService) ownerIsFree(ownerID int) bool {
-	return ownerIsFreeFor(s.UserRepo, ownerID)
+	return leadOwnerIsFreeFor(s.UserRepo, ownerID)
+}
+
+// leadOwnerIsFreeFor — правило «ничей» для лидов: нет владельца, либо он
+// заблокирован/не подтверждён/удалён.
+func leadOwnerIsFreeFor(users repositories.UserRepository, ownerID int) bool {
+	if ownerID == 0 {
+		return true
+	}
+	if users == nil {
+		return false
+	}
+	active, verified, err := users.GetAccountStatus(ownerID)
+	if err != nil {
+		return false
+	}
+	return !active || !verified
 }
 
 // ownerIsFreeFor — общее правило «ничей» для лидов и сделок.
@@ -132,7 +152,7 @@ func (s *LeadService) decorateOwners(leads []*models.Leads) {
 		free := l.OwnerID == 0
 		if info, ok := owners[l.OwnerID]; ok && l.OwnerID != 0 {
 			l.OwnerName = info.Name
-			free = !info.Working || authz.IsElevated(info.RoleID)
+			free = !info.Working
 		}
 		l.Unassigned = &free
 	}
@@ -215,6 +235,9 @@ func (s *LeadService) TakeLead(id, userID, roleID int) error {
 	}
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
+	}
+	if leadReadOnlyFor(lead, roleID) {
+		return ErrReadOnly
 	}
 	if lead.OwnerID == userID {
 		return nil

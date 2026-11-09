@@ -111,6 +111,15 @@ var baseRolePermissions = map[string][]Permission{
 		"documents.view", "documents.create",
 		"tasks.view", "tasks.create", "tasks.update", "chat.view", "messenger.view", "telephony.view", "funnels.view", "approvals.create",
 	),
+	// operator (колл-центр, ТЗ «доработки CRM КУБ», п.5): лиды своего филиала —
+	// новые нераспределённые и свои (заполнение «Краткой информации»,
+	// передача в отдел продаж), мессенджер по своим лидам, звонки по своим
+	// лидам, календарь встреч. Без сделок/воронок отделов, клиентов,
+	// документов, финансов, сотрудников, пользователей, настроек, отчётов и
+	// без удаления лидов.
+	"operator": permissionsForScope(ScopeOwn,
+		"leads.view", "leads.update", "messenger.view", "telephony.view",
+	),
 	// hr: employee/document management; no leads/deals/messenger.
 	// Пользователи — только просмотр и блокировка, без создания/редактирования/
 	// удаления (обратная связь 20.07.2026).

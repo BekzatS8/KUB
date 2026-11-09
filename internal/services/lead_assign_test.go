@@ -54,11 +54,12 @@ func newLeadOwnerRepo() *leadOwnerUserRepo {
 	}
 }
 
-// Лид ничей, если ответственного нет, он уволен/не подтверждён или лид
-// припаркован на админе — тогда его берёт себе любой сотрудник филиала.
+// Лид ничей, если ответственного нет или он уволен/не подтверждён — тогда его
+// берёт себе любой сотрудник филиала. Лид на админе — его собственный (ТЗ
+// «доработки CRM КУБ», п.9: входящие лиды больше не паркуются на админе).
 func TestOwnerIsFree(t *testing.T) {
 	svc := &LeadService{UserRepo: newLeadOwnerRepo()}
-	cases := map[int]bool{0: true, tBlocked: true, tPending: true, tAdmin: true, tPeer: false}
+	cases := map[int]bool{0: true, tBlocked: true, tPending: true, tAdmin: false, tMgmtElse: false, tPeer: false}
 	for owner, want := range cases {
 		if got := svc.ownerIsFree(owner); got != want {
 			t.Errorf("ownerIsFree(%d) = %v, want %v", owner, got, want)

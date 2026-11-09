@@ -147,6 +147,9 @@ func (s *LeadService) Update(lead *models.Leads, userID, roleID int) error {
 	if !leadMatchesScope(scope, current) {
 		return ErrForbidden
 	}
+	if leadReadOnlyFor(current, roleID) {
+		return ErrReadOnly
+	}
 	if roleID == authz.RoleSales && current.OwnerID != userID {
 		return ErrForbidden
 	}
@@ -248,6 +251,7 @@ func (s *LeadService) GetByID(id int, userID, roleID int) (*models.Leads, error)
 		return nil, ErrForbidden
 	}
 	s.decorateOwner(lead)
+	lead.ReadOnly = leadReadOnlyFor(lead, roleID)
 	return lead, nil
 }
 
@@ -264,6 +268,7 @@ func (s *LeadService) GetByIDWithArchiveScope(id int, userID, roleID int, scope 
 		return nil, ErrForbidden
 	}
 	s.decorateOwner(lead)
+	lead.ReadOnly = leadReadOnlyFor(lead, roleID)
 	return lead, nil
 }
 
@@ -448,6 +453,9 @@ func (s *LeadService) UpdateStatus(id int, to string, userID, roleID int) error 
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
 	}
+	if leadReadOnlyFor(lead, roleID) {
+		return ErrReadOnly
+	}
 	if !canTransition(lead.Status, to, LeadTransitions) {
 		return errors.New("invalid status transition")
 	}
@@ -464,7 +472,9 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 	if authz.IsReadOnly(roleID) {
 		return ErrReadOnly
 	}
-	if !authz.CanWorkWithLeads(roleID) {
+	// Оператор с воронками отделов не работает (ТЗ «доработки CRM КУБ», п.5):
+	// он передаёт лид в продажи кнопкой «Передать в отдел продаж».
+	if !authz.CanWorkWithLeads(roleID) || authz.IsOperator(roleID) {
 		return ErrForbidden
 	}
 	lead, err := s.Repo.GetByID(id)
@@ -497,6 +507,20 @@ func (s *LeadService) MoveToStage(id, stageID, userID, roleID int) error {
 			targetFunnelID = stage.FunnelID
 			autoArchive = stage.AutoArchive
 			isRejection = stage.IsRejection
+			// История лида: смена этапа (кто и когда перевёл).
+			if lead.StageID == nil || *lead.StageID != stageID {
+				oldName := ""
+				if lead.StageID != nil {
+					if old, err := s.StageRepo.GetByID(*lead.StageID); err == nil && old != nil {
+						oldName = old.Name
+					}
+				}
+				if err := s.Repo.AddHistory(context.Background(), id, userID, models.LeadHistoryEntry{
+					Action: "stage_moved", Field: "stage", OldValue: oldName, NewValue: stage.Name,
+				}); err != nil {
+					log.Printf("[lead][history] lead=%d stage move: %v", id, err)
+				}
+			}
 		}
 	}
 
@@ -557,6 +581,9 @@ func (s *LeadService) ArchiveLead(id, userID, roleID int, reason string) error {
 	}
 	if !leadMatchesScope(scope, lead) {
 		return ErrForbidden
+	}
+	if leadReadOnlyFor(lead, roleID) {
+		return ErrReadOnly
 	}
 	if lead.IsArchived {
 		return nil

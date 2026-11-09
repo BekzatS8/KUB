@@ -145,7 +145,9 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetByID(c.Request.Context(), id)
+	// Архивную задачу тоже открываем: закрытые и просроченные задачи теперь
+	// уходят в архив автоматически, а ссылки на них остаются (уведомления).
+	task, err := h.service.GetByIDWithArchiveScope(c.Request.Context(), id, repositories.ArchiveScopeAll)
 	if err != nil {
 		log.Printf("[task][getByID][err] id=%d: %v", id, err)
 		internalError(c, "Failed to get task")
@@ -350,9 +352,13 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		}
 		assignees := dedupeTaskAssignees(incoming, primary)
 		if len(assignees) == 0 {
-			log.Printf("[task][update][deny] empty assignee list")
-			badRequest(c, "At least one assignee is required")
-			return
+			// Исполнитель не выбран — задача остаётся за постановщиком, как и
+			// при создании (ТЗ «доработки CRM КУБ», п.11).
+			fallback := current.CreatorID
+			if fallback == 0 {
+				fallback = uid
+			}
+			assignees = []int64{fallback}
 		}
 		for _, aid := range assignees {
 			if roleID == authz.RoleSales && aid != uid {
@@ -448,7 +454,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	current, err := h.service.GetByID(c.Request.Context(), id)
+	current, err := h.service.GetByIDWithArchiveScope(c.Request.Context(), id, repositories.ArchiveScopeAll)
 	if err != nil {
 		log.Printf("[task][delete][err] get current id=%d: %v", id, err)
 		internalError(c, "Failed to get task")
@@ -460,14 +466,10 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if !canModifyTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
+	// В корзину: админ/руководство — любую задачу, остальные — поставленную
+	// ими самими (ТЗ «доработки CRM КУБ», п.11). Окончательно — только админ.
+	if !services.CanTrashTask(roleID, uid, current) || !h.hasTaskBranchAccess(roleID, uid, current) {
 		log.Printf("[task][delete][deny] uid=%d role=%d", uid, roleID)
-		forbidden(c, "Forbidden")
-		return
-	}
-
-	if !authz.CanHardDeleteBusinessEntity(roleID) {
-		log.Printf("[task][delete][deny] hard-delete forbidden uid=%d role=%d", uid, roleID)
 		forbidden(c, "Forbidden")
 		return
 	}
@@ -490,17 +492,13 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// Restore возвращает задачу из корзины (только тот, кто может окончательно
-// удалять — как у сделок/документов).
+// Restore возвращает задачу из корзины — тот же круг, что может удалить
+// (services.CanTrashTask проверяется в сервисе).
 func (h *TaskHandler) Restore(c *gin.Context) {
 	userID, roleID := getUserAndRole(c)
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		badRequest(c, "Invalid id")
-		return
-	}
-	if !authz.CanHardDeleteBusinessEntity(roleID) {
-		forbidden(c, "Forbidden")
 		return
 	}
 	updated, err := h.service.RestoreTask(c.Request.Context(), id, int64(userID), roleID)
@@ -956,10 +954,8 @@ func canViewTask(roleID int, uid int64, t *models.Task) bool {
 	switch roleID {
 	case authz.RoleManagement, authz.RoleVisa, authz.RoleControl, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales:
-		return isOwnTask(uid, t)
 	default:
-		return false
+		return authz.CanAccessTasks(roleID) && isOwnTask(uid, t)
 	}
 }
 
@@ -970,10 +966,11 @@ func canModifyTask(roleID int, uid int64, t *models.Task) bool {
 	switch roleID {
 	case authz.RoleManagement, authz.RoleVisa, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales:
-		return isOwnTask(uid, t)
 	default:
-		return false
+		// Свою задачу (поставил сам или исполнитель) правит любой, кому открыт
+		// раздел задач: раньше партнёры, кадры и юристы не могли даже закрыть
+		// задачу, которую поставили себе.
+		return authz.CanAccessTasks(roleID) && isOwnTask(uid, t)
 	}
 }
 
@@ -1014,6 +1011,10 @@ func (h *TaskHandler) hasTaskBranchAccess(roleID int, uid int64, t *models.Task)
 	if t == nil {
 		return false
 	}
+	// Своя задача доступна независимо от филиала (поставил сам или исполнитель).
+	if isOwnTask(uid, t) {
+		return true
+	}
 	switch roleID {
 	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return true
@@ -1043,10 +1044,14 @@ func (h *TaskHandler) taskUserBranchID(userID int) (int64, bool) {
 }
 
 func (h *TaskHandler) canAssignTaskWithinBranch(roleID int, actorID, assigneeID int64) bool {
+	// Поставить задачу себе может любой, у кого есть раздел задач.
+	if actorID > 0 && actorID == assigneeID {
+		return true
+	}
 	switch roleID {
 	case authz.RoleManagement, authz.RoleSystemAdmin:
 		return true
-	case authz.RoleSales, authz.RoleVisa:
+	case authz.RoleVisa, authz.RolePartner, authz.RoleHR, authz.RoleLegal:
 		if h.users == nil {
 			return false
 		}
@@ -1062,6 +1067,40 @@ func (h *TaskHandler) canAssignTaskWithinBranch(roleID int, actorID, assigneeID 
 	default:
 		return false
 	}
+}
+
+// GET /tasks/assignees — кого текущий сотрудник может назначить исполнителем:
+// админ и руководство — сотрудников всех филиалов, МОП — только себя, прочие —
+// свой филиал (те же правила, что проверяются при создании задачи). Фронт
+// группирует список по филиалам (ТЗ «доработки CRM КУБ», п.11).
+func (h *TaskHandler) Assignees(c *gin.Context) {
+	userID, roleID := getUserAndRole(c)
+	if !authz.CanAccessTasks(roleID) {
+		forbidden(c, "Forbidden")
+		return
+	}
+	all, err := h.service.ListAssignableUsers(c.Request.Context())
+	if err != nil {
+		log.Printf("[task][assignees][err] %v", err)
+		internalError(c, "Failed to list assignees")
+		return
+	}
+	uid := int64(userID)
+	canOthers := roleID != authz.RoleSales && !authz.IsReadOnly(roleID)
+	for i := range all {
+		a := &all[i]
+		switch {
+		case a.ID == uid:
+			a.Assignable = true
+		case !canOthers:
+			a.Assignable = false
+		default:
+			a.Assignable = h.canAssignTaskWithinBranch(roleID, uid, a.ID)
+		}
+	}
+	// Весь справочник нужен фронту для подписей (постановщик, исполнители
+	// чужих задач); выбирать можно только Assignable.
+	c.JSON(http.StatusOK, gin.H{"items": all, "can_assign_others": canOthers})
 }
 
 // === TG helpers ===

@@ -31,6 +31,10 @@ type DataScope struct {
 	// HidePrivateDepartments включает это правило (только для ролей,
 	// ограниченных филиалом; руководство/админ/контроль видят всё).
 	HidePrivateDepartments bool
+	// OperatorUserID — оператор колл-центра (ТЗ «доработки CRM КУБ», п.5):
+	// в своём филиале видит только новые нераспределённые лиды, свои и
+	// переданные им в продажи.
+	OperatorUserID int
 }
 
 // roleDeptCode maps role IDs that carry an implicit department to that
@@ -92,6 +96,21 @@ func resolveLeadScope(userID, roleID int, userRepo repositories.UserRepository) 
 	case authz.RoleManagement, authz.RoleSystemAdmin, authz.RoleControl:
 		// quality_control is a read-only observer (enforced separately).
 		return DataScope{Kind: ScopeKindAll}, nil
+	case authz.RoleOperator:
+		// Оператор видит лиды только своего филиала (ответ заказчика в ТЗ) —
+		// новые нераспределённые, свои и переданные им в продажи.
+		branchID, deptID, err := resolveUserContext(userID, userRepo)
+		if err != nil {
+			return DataScope{Kind: ScopeKindForbidden}, err
+		}
+		return DataScope{
+			Kind:                   ScopeKindBranch,
+			BranchID:               branchID,
+			UserID:                 userID,
+			OperatorUserID:         userID,
+			ViewerDepartmentID:     deptID,
+			HidePrivateDepartments: true,
+		}, nil
 	case authz.RoleSales, authz.RoleVisa, authz.RolePartner:
 		// Только свой филиал. Разделение чисто по branch_id (без department),
 		// как просил заказчик — «филиал видит только свои лиды».
@@ -191,6 +210,10 @@ func listLeadsForScope(repo leadListRepo, scope DataScope, limit, offset int, fi
 		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
 		filter.HidePrivateDepartments = scope.HidePrivateDepartments
 		filter.ViewerDepartmentID = scope.ViewerDepartmentID
+		if scope.OperatorUserID != 0 {
+			op := scope.OperatorUserID
+			filter.OperatorUserID = &op
+		}
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.ListAllWithFilterAndArchiveScope(limit, offset, filter, archiveScope)
@@ -222,6 +245,10 @@ func countLeadsForScope(repo leadListRepo, scope DataScope, filter repositories.
 		filter.IncludeNullBranch = true // + общий пул (лиды без филиала, напр. Instagram)
 		filter.HidePrivateDepartments = scope.HidePrivateDepartments
 		filter.ViewerDepartmentID = scope.ViewerDepartmentID
+		if scope.OperatorUserID != 0 {
+			op := scope.OperatorUserID
+			filter.OperatorUserID = &op
+		}
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
 	default: // ScopeKindAll
 		return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
@@ -288,6 +315,9 @@ func leadMatchesScope(scope DataScope, lead *models.Leads) bool {
 			if !sameDept && !ownsNullDept {
 				return false
 			}
+		}
+		if scope.OperatorUserID != 0 && !operatorSeesLead(scope.OperatorUserID, lead) {
+			return false
 		}
 		return true
 	default:
@@ -401,4 +431,29 @@ func countDealsForScope(repo dealListRepo, scope DataScope, filter repositories.
 		filter.DepartmentID = scope.DepartmentID
 	}
 	return repo.CountAllWithFilterAndArchiveScope(filter, archiveScope)
+}
+
+// operatorSeesLead — лид, доступный оператору: ничей и ещё не переданный в
+// продажи, свой, либо переданный в продажи им самим (только просмотр).
+func operatorSeesLead(operatorID int, lead *models.Leads) bool {
+	if lead == nil {
+		return false
+	}
+	if lead.OwnerID == operatorID {
+		return true
+	}
+	if lead.HandedToSalesBy != nil && *lead.HandedToSalesBy == operatorID {
+		return true
+	}
+	return lead.OwnerID == 0 && lead.HandedToSalesAt == nil
+}
+
+// leadReadOnlyFor — лид доступен пользователю только на просмотр: оператору —
+// после передачи в отдел продаж (ТЗ «доработки CRM КУБ», п.5), наблюдателю
+// ОКК — всегда.
+func leadReadOnlyFor(lead *models.Leads, roleID int) bool {
+	if authz.IsReadOnly(roleID) {
+		return true
+	}
+	return authz.IsOperator(roleID) && lead != nil && lead.HandedToSalesAt != nil
 }

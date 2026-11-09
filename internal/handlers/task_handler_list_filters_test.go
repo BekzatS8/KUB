@@ -193,3 +193,8 @@ func (s *stubTaskListService) Notifications(context.Context, int64) (*services.T
 	return &services.TaskNotifications{}, nil
 }
 func (s *stubTaskListService) AckNotifications(context.Context, int64, []int64) error { return nil }
+
+func (s *stubTaskListService) AutoArchive(context.Context) (int64, error) { return 0, nil }
+func (s *stubTaskListService) ListAssignableUsers(context.Context) ([]models.TaskAssignee, error) {
+	return nil, nil
+}

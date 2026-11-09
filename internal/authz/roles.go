@@ -2,6 +2,10 @@ package authz
 
 const (
 	RoleSales       = 10
+	// RoleOperator — оператор колл-центра (ТЗ «доработки CRM КУБ», п.5):
+	// первичная обработка лидов и передача в отдел продаж, без сделок,
+	// документов, клиентов и настроек.
+	RoleOperator    = 95
 	RoleControl     = 30 // quality_control
 	RoleManagement  = 40
 	RoleSystemAdmin = 50
@@ -30,6 +34,13 @@ var Roles = map[int]RoleMeta{
 		Code:           "sales",
 		LegacyName:     "sales",
 		DisplayName:    "Менеджер по продажам (МОП)",
+		IsBusinessRole: true,
+	},
+	RoleOperator: {
+		ID:             RoleOperator,
+		Code:           "operator",
+		LegacyName:     "operator",
+		DisplayName:    "Оператор (колл-центр)",
 		IsBusinessRole: true,
 	},
 	RoleControl: {
@@ -198,7 +209,7 @@ func CanSubmitDocument(roleID int) bool {
 
 func CanWorkWithLeads(roleID int) bool {
 	switch roleID {
-	case RoleSales, RoleManagement, RoleSystemAdmin, RoleVisa, RolePartner:
+	case RoleSales, RoleManagement, RoleSystemAdmin, RoleVisa, RolePartner, RoleOperator:
 		return true
 	default:
 		return false
@@ -254,4 +265,14 @@ func CanViewChatParticipantProfile(roleID int) bool {
 // "Руководство" (management) may NOT edit/add/delete/reorder funnels (view only).
 func CanManageFunnels(roleID int) bool {
 	return roleID == RoleSystemAdmin
+}
+
+// IsOperator — роль оператора колл-центра.
+func IsOperator(roleID int) bool { return roleID == RoleOperator }
+
+// CanMoveLeadBetweenDepartments — перенос лида в воронку другого отдела из
+// карточки: только руководство и админ (ТЗ «доработки CRM КУБ», вопросы к
+// заказчику). Оператор передаёт лид в продажи отдельной кнопкой.
+func CanMoveLeadBetweenDepartments(roleID int) bool {
+	return roleID == RoleManagement || roleID == RoleSystemAdmin
 }

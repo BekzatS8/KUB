@@ -170,6 +170,7 @@ func TestQualityControlIsReadOnlyObserver(t *testing.T) {
 func TestAllRolesHaveCanonicalDisplayNames(t *testing.T) {
 	want := map[int]string{
 		RoleSales:       "Менеджер по продажам (МОП)",
+		RoleOperator:    "Оператор (колл-центр)",
 		RoleControl:     "Отдел контроля качества",
 		RoleManagement:  "Руководство",
 		RoleSystemAdmin: "Администратор",
@@ -225,10 +226,14 @@ func TestCanonicalRoleIDsLocked(t *testing.T) {
 	if RoleLegal != 90 {
 		t.Errorf("RoleLegal: want 90, got %d", RoleLegal)
 	}
+	if RoleOperator != 95 {
+		t.Errorf("RoleOperator: want 95, got %d", RoleOperator)
+	}
 
 	// --- Часть 2: маппинг id → code по литеральным id ---
 	canonCodes := map[int]string{
 		10: "sales",
+		95: "operator",
 		30: "quality_control",
 		40: "management",
 		50: "admin",
@@ -252,8 +257,9 @@ func TestCanonicalRoleIDsLocked(t *testing.T) {
 		t.Errorf("RoleCodeByID(20): want empty string, got %q", code)
 	}
 
-	// --- Часть 4: var Roles содержит ровно 8 активных ролей ---
-	wantIDs := []int{10, 30, 40, 50, 60, 70, 80, 90}
+	// --- Часть 4: var Roles содержит ровно 9 активных ролей ---
+	// 95 — оператор колл-центра (ТЗ «доработки CRM КУБ», п.5, ноябрь 2026).
+	wantIDs := []int{10, 30, 40, 50, 60, 70, 80, 90, 95}
 	if len(Roles) != len(wantIDs) {
 		t.Errorf("Roles map: want %d entries, got %d", len(wantIDs), len(Roles))
 	}

@@ -160,3 +160,8 @@ func (s *taskBranchServiceStub) Notifications(context.Context, int64) (*services
 	return &services.TaskNotifications{}, nil
 }
 func (s *taskBranchServiceStub) AckNotifications(context.Context, int64, []int64) error { return nil }
+
+func (s *taskBranchServiceStub) AutoArchive(context.Context) (int64, error) { return 0, nil }
+func (s *taskBranchServiceStub) ListAssignableUsers(context.Context) ([]models.TaskAssignee, error) {
+	return nil, nil
+}

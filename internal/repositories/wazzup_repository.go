@@ -697,7 +697,8 @@ func (r *wazzupRepository) FindLeadByPhone(ctx context.Context, phone string) (i
 	if len(normalizedPhone) >= 10 {
 		q = `
 			SELECT id FROM leads
-			WHERE length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
+			WHERE deleted_at IS NULL
+			  AND length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
 			  AND RIGHT(regexp_replace(COALESCE(phone, ''), '\D', '', 'g'), 10) = RIGHT($1, 10)
 			ORDER BY id
 			LIMIT 1
@@ -705,7 +706,8 @@ func (r *wazzupRepository) FindLeadByPhone(ctx context.Context, phone string) (i
 	} else {
 		q = `
 			SELECT id FROM leads
-			WHERE regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
+			WHERE deleted_at IS NULL
+			  AND regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
 			ORDER BY id
 			LIMIT 1
 		`
@@ -841,13 +843,19 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 
 	// Inbound leads land on the first stage of the default sales funnel so they
 	// show up as "Новая заявка" cards on the kanban board (ТЗ 04.07.2026, п.1.1).
+	//
+	// Ответственного у входящего лида НЕТ (ТЗ «доработки CRM КУБ», п.9: «убрать
+	// привязку к Админичу, все лиды — в общий список»). Раньше лид записывался
+	// на владельца интеграции Wazzup (аккаунт админа) и «парковался» на нём.
+	// От владельца интеграции берём только филиал — для каналов, не привязанных
+	// к филиалу, как было раньше. Отдел — канала, иначе отдел воронки продаж
+	// (отдел админа «Администрация» входящему лиду не подходит).
 	const q = `
 		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
-		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, 0),
+		VALUES ($1, $2, NULLIF($3, ''), $4, NULL,
 			COALESCE($7::int, (SELECT branch_id FROM users WHERE $5 > 0 AND id = $5)),
 			COALESCE(
 				$8::int,
-				(SELECT department_id FROM users WHERE $5 > 0 AND id = $5),
 				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
 			),
 			$6,

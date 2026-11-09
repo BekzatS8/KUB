@@ -318,7 +318,8 @@ func (r *telephonyRepository) FindLeadByPhone(ctx context.Context, normalizedPho
 	if len(normalizedPhone) >= 10 {
 		q = `
 			SELECT id FROM leads
-			WHERE length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
+			WHERE deleted_at IS NULL
+			  AND length(regexp_replace(COALESCE(phone, ''), '\D', '', 'g')) >= 10
 			  AND RIGHT(regexp_replace(COALESCE(phone, ''), '\D', '', 'g'), 10) = RIGHT($1, 10)
 			ORDER BY id
 			LIMIT 1
@@ -326,7 +327,8 @@ func (r *telephonyRepository) FindLeadByPhone(ctx context.Context, normalizedPho
 	} else {
 		q = `
 			SELECT id FROM leads
-			WHERE regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
+			WHERE deleted_at IS NULL
+			  AND regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
 			ORDER BY id
 			LIMIT 1
 		`
@@ -362,12 +364,27 @@ func (r *telephonyRepository) CreateLeadFromCall(ctx context.Context, phone, nor
 		return 0, fmt.Errorf("telephony: create lead from call: %w", err)
 	}
 
+	// owner_id = NULLIF(..., 0): у звонка без опознанного менеджера лид ничей.
+	// Раньше сюда уходил 0 и вставка падала на leads_owner_id_fkey — лиды из
+	// звонков с незнакомых номеров не создавались вовсе (186 звонков за месяц
+	// без лида, логи прода 09.11.2026). Лид встаёт на первый этап воронки
+	// продаж, как входящие из мессенджеров, иначе его не видно на канбане.
 	const q = `
-		INSERT INTO leads (title, phone, source, owner_id, branch_id, department_id, status)
-		VALUES ($1, $2, 'binotel', $3,
-			COALESCE($4, (SELECT branch_id FROM users WHERE id = $3)),
-			(SELECT department_id FROM users WHERE id = $3),
-			'new')
+		INSERT INTO leads (title, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
+		VALUES ($1, $2, 'binotel', NULLIF($3, 0),
+			COALESCE($4, (SELECT branch_id FROM users WHERE $3 > 0 AND id = $3)),
+			COALESCE(
+				(SELECT department_id FROM users WHERE $3 > 0 AND id = $3),
+				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
+			),
+			'new',
+			(SELECT id FROM funnels WHERE code = 'sales_default'),
+			(SELECT fs.id
+			 FROM funnel_stages fs
+			 JOIN funnels f ON f.id = fs.funnel_id
+			 WHERE f.code = 'sales_default' AND fs.is_active = TRUE
+			 ORDER BY fs.position ASC, fs.id ASC
+			 LIMIT 1))
 		RETURNING id
 	`
 	var leadID int64

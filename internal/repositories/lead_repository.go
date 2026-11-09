@@ -48,6 +48,10 @@ type LeadListFilter struct {
 	// видит (обратная связь заказчика 18.09.2026).
 	HidePrivateDepartments bool
 	ViewerDepartmentID     *int
+	// OperatorUserID — список для оператора колл-центра (ТЗ «доработки CRM
+	// КУБ», п.5): новые нераспределённые лиды (ещё не переданные в продажи),
+	// свои и переданные им самим (только просмотр).
+	OperatorUserID *int
 }
 
 // privateDepartmentWhere собирает условие «лид не принадлежит чужому закрытому
@@ -292,6 +296,8 @@ func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 		`, id).Scan(&transport, &chatID)
 		lead.MessengerTransport = strings.TrimSpace(transport.String)
 		lead.MessengerChatID = strings.TrimSpace(chatID.String)
+		// Краткая информация, передача в продажи, воронка/этап (ТЗ п.3).
+		r.loadLeadCardExtras(lead)
 	}
 	return lead, nil
 }
@@ -628,6 +634,11 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 			where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
 		}
 		args = append(args, *filter.BranchID)
+		idx++
+	}
+	if filter.OperatorUserID != nil {
+		where += fmt.Sprintf(" AND ((l.owner_id IS NULL AND l.handed_to_sales_at IS NULL) OR l.owner_id = $%d OR l.handed_to_sales_by = $%d)", idx, idx)
+		args = append(args, *filter.OperatorUserID)
 		idx++
 	}
 	if filter.Source != "" {

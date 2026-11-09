@@ -66,3 +66,14 @@ type TaskFilter struct {
 	Archive     string
 	BranchID    *int64
 }
+
+// TaskAssignee — сотрудник в списке выбора исполнителя задачи.
+type TaskAssignee struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	RoleID     int    `json:"role_id"`
+	BranchID   *int64 `json:"branch_id,omitempty"`
+	BranchName string `json:"branch_name,omitempty"`
+	// Assignable — текущий сотрудник может назначить этого исполнителем.
+	Assignable bool `json:"assignable"`
+}

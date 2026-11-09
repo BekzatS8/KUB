@@ -427,6 +427,21 @@ func Run() {
 	)
 	telegramSignHandler := handlers.NewTelegramSignWebhookHandler(tgSvc, signConfirmService)
 
+	// Автоархив задач (ТЗ «доработки CRM КУБ», п.11): выполненные, отменённые и
+	// просроченные задачи уходят в архив. Сразу после старта и каждые 10 минут.
+	go func(svc services.TaskService) {
+		time.Sleep(30 * time.Second)
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			if n, err := svc.AutoArchive(ctx); err != nil {
+				log.Printf("[task][auto-archive] error: %v", err)
+			} else if n > 0 {
+				log.Printf("[task][auto-archive] archived %d tasks", n)
+			}
+			cancel()
+			time.Sleep(10 * time.Minute)
+		}
+	}(taskService)
 	taskHandler := handlers.NewTaskHandler(taskService, tgSvc, userRepo)
 
 	verifyHandler := handlers.NewVerifyHandler(userVerificationService)

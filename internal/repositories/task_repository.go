@@ -25,6 +25,11 @@ type TaskRepository interface {
 	Purge(ctx context.Context, id int64) error
 	Archive(ctx context.Context, id int64, archivedBy int64, reason string) error
 	Unarchive(ctx context.Context, id int64) error
+	// AutoArchive уводит в архив закрытые задачи и задачи с прошедшим сроком
+	// (ТЗ «доработки CRM КУБ», п.11). Возвращает число заархивированных.
+	AutoArchive(ctx context.Context) (int64, error)
+	// ListAssignableUsers — работающие сотрудники для выбора исполнителя.
+	ListAssignableUsers(ctx context.Context) ([]models.TaskAssignee, error)
 
 	// NEW:
 	UpdateStatus(ctx context.Context, id int64, to models.TaskStatus) error
@@ -444,12 +449,43 @@ func (r *taskRepository) Archive(ctx context.Context, id int64, archivedBy int64
 		UPDATE tasks
 		SET is_archived = TRUE,
 		    archived_at = NOW(),
-		    archived_by = $2,
+		    archived_by = NULLIF($2, 0),
 		    archive_reason = $3,
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id, archivedBy, reason)
 	return err
+}
+
+// Причины автоархива — их видно в карточке задачи.
+const (
+	TaskAutoArchiveReasonClosed  = "Автоархив: задача закрыта"
+	TaskAutoArchiveReasonOverdue = "Автоархив: срок прошёл"
+)
+
+// AutoArchive уводит в архив задачи, которые больше не требуют работы:
+// выполненные/отменённые и те, у которых прошёл срок (ТЗ «доработки CRM КУБ»,
+// п.11: «после того как выполнена задача, прошёл дедлайн, срок — уходит в
+// Архив»). Корзину не трогаем. Задачу можно вернуть кнопкой «Разархивировать».
+func (r *taskRepository) AutoArchive(ctx context.Context) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET is_archived = TRUE,
+		    archived_at = NOW(),
+		    archived_by = NULL,
+		    archive_reason = CASE
+		        WHEN status IN ('done', 'cancelled') THEN $1
+		        ELSE $2
+		    END,
+		    updated_at = NOW()
+		WHERE is_archived = FALSE
+		  AND deleted_at IS NULL
+		  AND (status IN ('done', 'cancelled') OR (due_date IS NOT NULL AND due_date < NOW()))
+	`, TaskAutoArchiveReasonClosed, TaskAutoArchiveReasonOverdue)
+	if err != nil {
+		return 0, fmt.Errorf("auto archive tasks: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 func (r *taskRepository) Unarchive(ctx context.Context, id int64) error {
@@ -609,4 +645,41 @@ UPDATE task_assignees
 SET last_notified_at = NOW()
 WHERE user_id = $1 AND task_id = ANY($2)`, userID, pq.Array(taskIDs))
 	return err
+}
+
+// ListAssignableUsers — работающие (активные и подтверждённые, не удалённые)
+// сотрудники всех филиалов для выбора исполнителя задачи. Каждый сотрудник —
+// один раз: раньше страница задач брала первые 10 пользователей из /users и
+// дописывала текущего, отсюда дубли и «только один филиал» (ТЗ п.11).
+func (r *taskRepository) ListAssignableUsers(ctx context.Context) ([]models.TaskAssignee, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT u.id,
+		       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', NULLIF(TRIM(u.last_name), ''), NULLIF(TRIM(u.first_name), ''))), ''),
+		                NULLIF(TRIM(u.company_name), ''), u.email) AS name,
+		       COALESCE(u.role_id, 0), u.branch_id, COALESCE(b.name, '')
+		FROM users u
+		LEFT JOIN branches b ON b.id = u.branch_id
+		WHERE COALESCE(u.is_active, TRUE) = TRUE
+		  AND COALESCE(u.is_verified, FALSE) = TRUE
+		  AND u.email NOT LIKE 'deleted-%@deleted.local'
+		ORDER BY COALESCE(b.name, 'яяя'), name, u.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list task assignees: %w", err)
+	}
+	defer rows.Close()
+	out := []models.TaskAssignee{}
+	for rows.Next() {
+		var a models.TaskAssignee
+		var branchID sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.Name, &a.RoleID, &branchID, &a.BranchName); err != nil {
+			return nil, err
+		}
+		if branchID.Valid {
+			v := branchID.Int64
+			a.BranchID = &v
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

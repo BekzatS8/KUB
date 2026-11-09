@@ -426,7 +426,12 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 		args = append(args, *filter.BranchID)
 		where = append(where, fmt.Sprintf("l.branch_id = $%d", len(args)))
 	}
-	if cond := filter.ownerCondition("l", &args); cond != "" {
+	// Для лидов «ничья» — только карточка без владельца: лид на админе или
+	// руководстве — их собственный (ТЗ «доработки CRM КУБ», п.9). «Парковка»
+	// на ролях остаётся только у сделок.
+	leadFilter := filter
+	leadFilter.UnownedRoleIDs = nil
+	if cond := leadFilter.ownerCondition("l", &args); cond != "" {
 		where = append(where, cond)
 	}
 	if filter.HidePrivateDepartments {

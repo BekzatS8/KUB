@@ -406,6 +406,13 @@ func SetupRoutes(
 		leads.GET("/:id/assignees", middleware.RequirePermission("leads.transfer_manager", "lead"), leadHandler.Assignees)
 		// «Взять себе» — любой, кто работает с лидами, пока у лида нет ответственного.
 		leads.POST("/:id/take", middleware.RequirePermission("leads.update", "lead"), leadHandler.Take)
+		// Карточка лида (ТЗ «доработки CRM КУБ», п.3): краткая информация,
+		// передача оператором в продажи, «Вернуть лид», объединение, история.
+		leads.PUT("/:id/brief", middleware.RequirePermission("leads.update", "lead"), leadHandler.UpdateBrief)
+		leads.POST("/:id/hand-to-sales", middleware.RequirePermission("leads.update", "lead"), leadHandler.HandToSales)
+		leads.POST("/:id/return", middleware.RequirePermission("leads.update", "lead"), leadHandler.ReturnLead)
+		leads.POST("/:id/merge", middleware.RequirePermission("leads.update", "lead"), leadHandler.MergeLeads)
+		leads.GET("/:id/history", middleware.RequirePermission("leads.view", "lead"), leadHandler.History)
 		leads.POST("/:id/status", middleware.RequirePermission("leads.update", "lead"), leadHandler.UpdateStatus)
 		// kanban stage move (ТЗ 04.07.2026, п.1.1)
 		leads.POST("/:id/move", middleware.RequirePermission("leads.update", "lead"), leadHandler.Move)
@@ -552,11 +559,15 @@ func SetupRoutes(
 		// nagging notifications (ТЗ 04.07.2026, п.4.1) — before /:id so the
 		// static segment wins
 		tasks.GET("/notifications", taskHandler.Notifications)
+		// Список исполнителей по филиалам (ТЗ «доработки CRM КУБ», п.11).
+		tasks.GET("/assignees", taskHandler.Assignees)
 		tasks.POST("/notifications/ack", taskHandler.AckNotifications)
 		tasks.GET("/:id", taskHandler.GetByID)
 		tasks.PUT("/:id", taskHandler.Update)
-		tasks.DELETE("/:id", middleware.RequirePermission("tasks.delete", "task"), taskHandler.Delete)
-		tasks.POST("/:id/restore", middleware.RequirePermission("tasks.delete", "task"), taskHandler.Restore)
+		// В корзину и обратно — админ/руководство и постановщик задачи (права
+		// проверяет services.CanTrashTask); окончательно — только админ.
+		tasks.DELETE("/:id", taskHandler.Delete)
+		tasks.POST("/:id/restore", taskHandler.Restore)
 		tasks.DELETE("/:id/purge", middleware.RequirePermission("tasks.delete", "task"), taskHandler.Purge)
 		tasks.POST("/:id/status", taskHandler.ChangeStatus)
 		tasks.POST("/:id/assign", taskHandler.Assign)

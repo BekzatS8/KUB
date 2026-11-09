@@ -8,8 +8,9 @@ import (
 )
 
 // Кто забирает лид себе, перетащив карточку (обратная связь 14.07.2026).
-// Входящие лиды из Instagram/WhatsApp приезжают на аккаунт админа интеграции,
-// поэтому менеджер должен их подхватывать; чужой рабочий лид — не трогать.
+// Входящие лиды из Instagram/WhatsApp приезжают без ответственного — менеджер
+// их подхватывает; чужой рабочий лид (в том числе лид, который админ или
+// руководство взяли себе) — не трогать (ТЗ «доработки CRM КУБ», п.9).
 func TestClaimsOwnershipOnMove(t *testing.T) {
 	const (
 		managerID = 10
@@ -30,20 +31,20 @@ func TestClaimsOwnershipOnMove(t *testing.T) {
 		want      bool
 	}{
 		{
-			name:      "менеджер тащит лид с админа — забирает себе",
+			name:      "менеджер тащит лид админа — лид остаётся у админа",
 			lead:      &models.Leads{OwnerID: adminID},
 			actorID:   managerID,
 			actorRole: authz.RoleSales,
 			ownerRepo: ownerRole(authz.RoleSystemAdmin),
-			want:      true,
+			want:      false,
 		},
 		{
-			name:      "менеджер тащит лид с руководства — забирает себе",
+			name:      "менеджер тащит лид руководства — лид остаётся у руководства",
 			lead:      &models.Leads{OwnerID: adminID},
 			actorID:   managerID,
 			actorRole: authz.RoleSales,
 			ownerRepo: ownerRole(authz.RoleManagement),
-			want:      true,
+			want:      false,
 		},
 		{
 			name:      "менеджер тащит ничейный лид — забирает себе",
@@ -78,12 +79,12 @@ func TestClaimsOwnershipOnMove(t *testing.T) {
 			want:      false,
 		},
 		{
-			name:      "визовый отдел тащит лид с админа — забирает себе",
+			name:      "визовый отдел тащит лид админа — лид остаётся у админа",
 			lead:      &models.Leads{OwnerID: adminID},
 			actorID:   managerID,
 			actorRole: authz.RoleVisa,
 			ownerRepo: ownerRole(authz.RoleSystemAdmin),
-			want:      true,
+			want:      false,
 		},
 	}
 
