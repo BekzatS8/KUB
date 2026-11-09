@@ -65,6 +65,9 @@ const (
 type DriveActor struct {
 	UserID int
 	RoleID int
+	// UnlockTokens — токены разблокировки узлов под паролем (заголовок
+	// X-Drive-Unlock, ТЗ «доработки CRM КУБ», п.8).
+	UnlockTokens []string
 }
 
 func (a DriveActor) canManage() bool {
@@ -139,6 +142,9 @@ type DriveService struct {
 	// Незавершённые загрузки частями (drive_upload_session.go).
 	uploadsOnce sync.Once
 	uploads     *driveUploads
+
+	// Пароли на узлы (drive_extras.go). nil — пароли выключены.
+	extras *repositories.DriveExtrasRepository
 }
 
 func NewDriveService(repo repositories.DriveRepository, store storage.Storage, cfg DriveConfig) *DriveService {
@@ -171,7 +177,7 @@ func (s *DriveService) List(ctx context.Context, actor DriveActor, parentID *int
 		if err != nil {
 			return nil, err
 		}
-		listing.Items = s.decorate(items, manage)
+		listing.Items = s.markProtected(ctx, s.decorate(items, manage))
 		if manage {
 			totalBytes, totalFiles, err := s.repo.Totals(ctx)
 			if err != nil {
@@ -192,6 +198,9 @@ func (s *DriveService) List(ctx context.Context, actor DriveActor, parentID *int
 	if err := s.ensureAccess(ctx, actor, folder.ID); err != nil {
 		return nil, err
 	}
+	if err := s.ensureUnlocked(ctx, actor, folder.ID); err != nil {
+		return nil, err
+	}
 	if !manage {
 		if listing.CanEdit, err = s.repo.CanEdit(ctx, folder.ID, actor.UserID); err != nil {
 			return nil, err
@@ -206,7 +215,7 @@ func (s *DriveService) List(ctx context.Context, actor DriveActor, parentID *int
 		return nil, err
 	}
 	listing.Folder = s.decorateOne(*folder, manage)
-	listing.Items = s.decorate(items, manage)
+	listing.Items = s.markProtected(ctx, s.decorate(items, manage))
 	listing.Breadcrumbs = crumbs
 	return listing, nil
 }
@@ -496,6 +505,9 @@ func (s *DriveService) Link(ctx context.Context, actor DriveActor, id int64, var
 		return nil, ErrDriveNotFile
 	}
 	if err := s.ensureAccess(ctx, actor, node.ID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureUnlocked(ctx, actor, node.ID); err != nil {
 		return nil, err
 	}
 	if variant != DriveVariantPDF {

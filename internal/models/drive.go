@@ -35,6 +35,8 @@ type DriveNode struct {
 	// Считается на бэкенде: офисные форматы доступны, только если на сервере
 	// включён LibreOffice.
 	Preview string `json:"preview,omitempty"`
+	// Protected — узел защищён паролем (ТЗ «доработки CRM КУБ», п.8).
+	Protected bool `json:"protected,omitempty"`
 }
 
 func (n DriveNode) IsFolder() bool { return n.Kind == DriveKindFolder }

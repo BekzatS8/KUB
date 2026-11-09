@@ -166,8 +166,11 @@ func (s *DriveService) Copy(ctx context.Context, actor DriveActor, ids []int64, 
 		if err != nil {
 			return copied, err
 		}
-		// Копировать можно то, что видишь.
+		// Копировать можно то, что видишь (и что разблокировано паролем).
 		if err := s.ensureAccess(ctx, actor, id); err != nil {
+			return copied, err
+		}
+		if err := s.ensureUnlocked(ctx, actor, id); err != nil {
 			return copied, err
 		}
 		if err := s.checkTarget(ctx, node, target); err != nil {
@@ -304,6 +307,9 @@ func (s *DriveService) Send(ctx context.Context, actor DriveActor, req DriveSend
 			return nil, err
 		}
 		if err := s.ensureAccess(ctx, actor, id); err != nil {
+			return nil, err
+		}
+		if err := s.ensureUnlocked(ctx, actor, id); err != nil {
 			return nil, err
 		}
 		if node.IsFolder() {

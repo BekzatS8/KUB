@@ -139,6 +139,8 @@ func SetupRoutes(
 	if driveHandler != nil {
 		r.GET("/api/v1/drive/raw/:token", driveHandler.Raw)
 		r.HEAD("/api/v1/drive/raw/:token", driveHandler.Raw)
+		// ZIP выбранных файлов и папок — по подписанной ссылке (п.8).
+		r.GET("/api/v1/drive/zip/:token", driveHandler.Zip)
 	}
 
 	// =====================
@@ -663,6 +665,14 @@ func SetupRoutes(
 			drive.POST("/delete", driveHandler.DeleteMany)
 			drive.POST("/move", driveHandler.Move)
 			drive.POST("/copy", driveHandler.Copy)
+			// ТЗ «доработки CRM КУБ», п.8: пароли, загрузка папками, ZIP,
+			// архивировать/разархивировать.
+			drive.POST("/nodes/:id/unlock", driveHandler.Unlock)
+			drive.PUT("/nodes/:id/password", driveHandler.SetPassword)
+			drive.POST("/folders/path", driveHandler.EnsureFolderPath)
+			drive.POST("/zip-link", driveHandler.ZipLink)
+			drive.POST("/archive", driveHandler.Archive)
+			drive.POST("/nodes/:id/unarchive", driveHandler.Unarchive)
 
 			manage := drive.Group("", middleware.RequirePermission("drive.manage", "drive"))
 			manage.GET("/nodes/:id/shares", driveHandler.ListShares)

@@ -606,6 +606,7 @@ func Run() {
 		// Куски загрузки частями — на смонтированный диск, а не в /tmp контейнера.
 		TempDir: filepath.Join(cfg.Files.RootDir, "drive-uploads"),
 	})
+	driveService.SetExtrasRepo(repositories.NewDriveExtrasRepository(db))
 	// «Отправить» из хранилища: мессенджер CRM (если Wazzup подключён) и почта.
 	if driveMessenger != nil {
 		driveService.SetMessenger(driveMessenger)

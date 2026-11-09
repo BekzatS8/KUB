@@ -25,10 +25,17 @@ func NewDriveHandler(svc *services.DriveService) *DriveHandler {
 
 func driveActor(c *gin.Context) services.DriveActor {
 	userID, roleID := getUserAndRole(c)
-	return services.DriveActor{UserID: userID, RoleID: roleID}
+	// Токены разблокировки узлов под паролем (ТЗ «доработки CRM КУБ», п.8):
+	// фронт присылает их через запятую в X-Drive-Unlock.
+	var tokens []string
+	for _, t := range strings.Split(c.GetHeader("X-Drive-Unlock"), ",") {
+		if t = strings.TrimSpace(t); t != "" && len(tokens) < 50 {
+			tokens = append(tokens, t)
+		}
+	}
+	return services.DriveActor{UserID: userID, RoleID: roleID, UnlockTokens: tokens}
 }
 
-// parseOptionalID читает необязательный id: пусто или «root» — корень.
 func parseOptionalID(raw string) (*int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "root" || raw == "null" {
@@ -51,7 +58,31 @@ func parsePathID(c *gin.Context, name string) (int64, bool) {
 }
 
 func writeDriveError(c *gin.Context, err error, fallback string) {
+	var locked *services.DriveLockedError
+	if errors.As(err, &locked) {
+		c.JSON(http.StatusLocked, gin.H{
+			"error_code": "DRIVE_LOCKED",
+			"message":    "«" + locked.Name + "» защищено паролем",
+			"node_id":    locked.NodeID,
+			"node_name":  locked.Name,
+		})
+		return
+	}
 	switch {
+	case errors.Is(err, services.ErrDriveWrongPassword):
+		writeError(c, http.StatusForbidden, "DRIVE_WRONG_PASSWORD", "Неверный пароль")
+	case errors.Is(err, services.ErrDriveWeakPassword):
+		badRequestWithCode(c, "DRIVE_WEAK_PASSWORD", "Пароль — не короче 4 символов")
+	case errors.Is(err, services.ErrDriveTooManyTries):
+		writeError(c, http.StatusTooManyRequests, "DRIVE_TOO_MANY_TRIES", "Слишком много попыток. Попробуйте через 10 минут")
+	case errors.Is(err, services.ErrDriveBadArchive):
+		badRequestWithCode(c, "DRIVE_BAD_ARCHIVE", "Файл не является ZIP-архивом или повреждён")
+	case errors.Is(err, services.ErrDriveArchiveTooBig):
+		writeError(c, http.StatusRequestEntityTooLarge, "DRIVE_ARCHIVE_TOO_BIG", "Слишком большой архив")
+	case errors.Is(err, services.ErrDriveMixedParents):
+		badRequestWithCode(c, "DRIVE_MIXED_PARENTS", "Выберите элементы из одной папки")
+	case errors.Is(err, services.ErrDriveLinkInvalid), errors.Is(err, services.ErrDriveLinkExpired):
+		writeError(c, http.StatusGone, "DRIVE_LINK_EXPIRED", "Ссылка недействительна или устарела — скачайте заново")
 	case errors.Is(err, services.ErrDriveForbidden):
 		forbidden(c, "Недостаточно прав для работы с хранилищем")
 	case errors.Is(err, services.ErrDriveNotFound):
