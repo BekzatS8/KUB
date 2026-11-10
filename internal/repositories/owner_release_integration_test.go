@@ -109,3 +109,52 @@ func TestOwnerReleaseIntegration(t *testing.T) {
 	}
 	_ = dealArch
 }
+
+// «Взять себе» лида чужого филиала (общий канал): лид переезжает в филиал
+// взявшего; второй «взять» того же лида не проходит.
+func TestClaimOwnerToBranchIntegration(t *testing.T) {
+	dsn := os.Getenv("OWNER_TEST_DSN")
+	if dsn == "" {
+		t.Skip("OWNER_TEST_DSN не задан — интеграционный тест пропущен")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cleanup := func() {
+		_, _ = db.Exec(`DELETE FROM leads WHERE title = 'owner-it-shared'`)
+		_, _ = db.Exec(`DELETE FROM users WHERE email LIKE 'owner-it-shared-%@test.local'`)
+	}
+	cleanup()
+	defer cleanup()
+
+	var b1, b2 int
+	if err := db.QueryRow(`SELECT MIN(id), MAX(id) FROM branches`).Scan(&b1, &b2); err != nil || b1 == b2 {
+		t.Skip("нужно минимум два филиала")
+	}
+	var taker, other int
+	for i, dst := range []*int{&taker, &other} {
+		email := []string{"owner-it-shared-a@test.local", "owner-it-shared-b@test.local"}[i]
+		if err := db.QueryRow(`INSERT INTO users (email, role_id, password_hash, is_active, is_verified, branch_id)
+			VALUES ($1, 10, 'x', TRUE, TRUE, $2) RETURNING id`, email, b2).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var leadID int
+	if err := db.QueryRow(`INSERT INTO leads (title, branch_id, status) VALUES ('owner-it-shared', $1, 'new') RETURNING id`, b1).Scan(&leadID); err != nil {
+		t.Fatal(err)
+	}
+	leads := NewLeadRepository(db)
+	if ok, err := leads.ClaimOwnerToBranch(leadID, taker, 0, b2); err != nil || !ok {
+		t.Fatalf("взять лид: ok=%v err=%v", ok, err)
+	}
+	var owner, branch int
+	_ = db.QueryRow(`SELECT owner_id, branch_id FROM leads WHERE id = $1`, leadID).Scan(&owner, &branch)
+	if owner != taker || branch != b2 {
+		t.Fatalf("ждали owner=%d branch=%d, получили owner=%d branch=%d", taker, b2, owner, branch)
+	}
+	if ok, _ := leads.ClaimOwnerToBranch(leadID, other, 0, b2); ok {
+		t.Fatal("уже взятый лид не должен забираться повторно")
+	}
+}

@@ -249,7 +249,16 @@ func (s *LeadService) TakeLead(id, userID, roleID int) error {
 	if !s.ownerIsFree(lead.OwnerID) {
 		return ErrLeadTaken
 	}
-	ok, err := s.Repo.ClaimOwner(id, userID, lead.OwnerID)
+	// Лид чужого филиала виден сотруднику только через общий канал — взяв его,
+	// сотрудник забирает лид в свой филиал (как при передаче лида).
+	var ok bool
+	if scope.Kind == ScopeKindBranch && scope.BranchID != nil &&
+		(lead.BranchID == nil || *lead.BranchID != *scope.BranchID) &&
+		containsInt(lead.SharedBranchIDs, *scope.BranchID) {
+		ok, err = s.Repo.ClaimOwnerToBranch(id, userID, lead.OwnerID, *scope.BranchID)
+	} else {
+		ok, err = s.Repo.ClaimOwner(id, userID, lead.OwnerID)
+	}
 	if err != nil {
 		return err
 	}

@@ -834,6 +834,20 @@ func (r *LeadRepository) ClaimOwner(id, newOwner, expectedOwner int) (bool, erro
 	return n > 0, err
 }
 
+// ClaimOwnerToBranch — «Взять себе» лида другого филиала, открытого через
+// общий канал (Instagram на несколько филиалов): лид атомарно переходит к
+// сотруднику вместе с переездом в его филиал — так же, как при передаче лида
+// сотруднику другого филиала. Иначе лид оставался бы в чужом филиале и
+// считался бы там в отчётах.
+func (r *LeadRepository) ClaimOwnerToBranch(id, newOwner, expectedOwner, branchID int) (bool, error) {
+	res, err := r.db.Exec(`UPDATE leads SET owner_id = $1, branch_id = $4 WHERE id = $2 AND COALESCE(owner_id, 0) = $3`, newOwner, id, expectedOwner, branchID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // ReleaseOwner снимает ответственного со всех рабочих лидов сотрудника (не
 // архивных и не в корзине) — лиды остаются на своих этапах и в своём
 // филиале. Возвращает число лидов и воронки, доски которых надо обновить.
