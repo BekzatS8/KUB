@@ -416,7 +416,8 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 
 	if branchID != nil {
 		args = append(args, *branchID)
-		where = append(where, fmt.Sprintf("(l.branch_id = $%d OR l.branch_id IS NULL)", len(args)))
+		// + лиды каналов мессенджера этого филиала (миграция 099)
+		where = append(where, fmt.Sprintf("(l.branch_id = $%d OR l.branch_id IS NULL OR %s)", len(args), leadSharedBranchCond("l", len(args))))
 	}
 	if departmentID != nil {
 		args = append(args, *departmentID)
@@ -424,7 +425,7 @@ func (r *FunnelStageRepository) ListBoardLeads(funnelID int, branchID, departmen
 	}
 	if filter.BranchID != nil {
 		args = append(args, *filter.BranchID)
-		where = append(where, fmt.Sprintf("l.branch_id = $%d", len(args)))
+		where = append(where, fmt.Sprintf("(l.branch_id = $%d OR %s)", len(args), leadSharedBranchCond("l", len(args))))
 	}
 	// Для лидов «ничья» — только карточка без владельца: лид на админе или
 	// руководстве — их собственный (ТЗ «доработки CRM КУБ», п.9). «Парковка»

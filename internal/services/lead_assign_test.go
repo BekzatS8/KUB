@@ -54,12 +54,13 @@ func newLeadOwnerRepo() *leadOwnerUserRepo {
 	}
 }
 
-// Лид ничей, если ответственного нет или он уволен/не подтверждён — тогда его
+// Лид ничей, если ответственного нет или он заблокирован (не подтверждённый
+// сотрудник лиды сохраняет) — тогда его
 // берёт себе любой сотрудник филиала. Лид на админе — его собственный (ТЗ
 // «доработки CRM КУБ», п.9: входящие лиды больше не паркуются на админе).
 func TestOwnerIsFree(t *testing.T) {
 	svc := &LeadService{UserRepo: newLeadOwnerRepo()}
-	cases := map[int]bool{0: true, tBlocked: true, tPending: true, tAdmin: false, tMgmtElse: false, tPeer: false}
+	cases := map[int]bool{0: true, tBlocked: true, tPending: false, tAdmin: false, tMgmtElse: false, tPeer: false}
 	for owner, want := range cases {
 		if got := svc.ownerIsFree(owner); got != want {
 			t.Errorf("ownerIsFree(%d) = %v, want %v", owner, got, want)
@@ -128,7 +129,8 @@ func (f *fakeLeadReleaser) ReleaseDealsOf(userID int) (int, error) {
 	return 1, nil
 }
 
-// Блокировка, снятие подтверждения и удаление освобождают лиды сотрудника.
+// Блокировка и удаление освобождают лиды сотрудника; снятие подтверждения —
+// нет, лиды остаются за ним (замечания заказчика 10.11.2026).
 func TestUserServiceReleasesLeadsOnDeactivation(t *testing.T) {
 	rel := &fakeLeadReleaser{}
 	svc := &userService{repo: &captureUserRepo{}, leads: rel, deals: rel}
@@ -142,10 +144,10 @@ func TestUserServiceReleasesLeadsOnDeactivation(t *testing.T) {
 	_ = svc.UpdateUser(&models.User{ID: 7, IsActive: false, IsVerified: true})
 	_ = svc.UpdateUser(&models.User{ID: 8, IsActive: true, IsVerified: false})
 	_ = svc.DeleteUser(9)
-	if len(rel.released) != 3 || rel.released[0] != 7 || rel.released[1] != 8 || rel.released[2] != 9 {
-		t.Fatalf("blocked/unverified/deleted must release leads, got %v", rel.released)
+	if len(rel.released) != 2 || rel.released[0] != 7 || rel.released[1] != 9 {
+		t.Fatalf("blocked/deleted must release leads (unverified keeps them), got %v", rel.released)
 	}
-	if len(rel.releasedDeals) != 3 || rel.releasedDeals[2] != 9 {
-		t.Fatalf("blocked/unverified/deleted must release deals, got %v", rel.releasedDeals)
+	if len(rel.releasedDeals) != 2 || rel.releasedDeals[1] != 9 {
+		t.Fatalf("blocked/deleted must release deals (unverified keeps them), got %v", rel.releasedDeals)
 	}
 }

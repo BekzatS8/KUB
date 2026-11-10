@@ -10,6 +10,9 @@ type Deals struct {
 	ClientID      int        `json:"client_id"`
 	ClientType    string     `json:"client_type"`
 	OwnerID       int        `json:"owner_id"`
+	// OwnerName — ответственный менеджер (кто оформил клиента), для колонки
+	// «Ответственный» в таблице сделок; заполняется только в списках.
+	OwnerName     string     `json:"owner_name,omitempty"`
 	BranchID      *int       `json:"branch_id,omitempty"`
 	BranchName    string     `json:"branch_name,omitempty"`
 	DepartmentID  *int       `json:"department_id,omitempty"`

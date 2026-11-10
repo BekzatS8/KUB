@@ -627,11 +627,14 @@ func buildLeadListWhere(filter LeadListFilter, startAt int) (string, []interface
 		where += " AND (" + strings.Join(conds, " OR ") + ")"
 	}
 	if filter.BranchID != nil {
+		// Плюс лиды каналов мессенджера, которые обслуживает этот филиал
+		// (основной или дополнительный филиал канала, миграция 099).
+		shared := leadSharedBranchCond("l", idx)
 		if filter.IncludeNullBranch {
 			// свой филиал ИЛИ общий (без филиала — напр. Instagram)
-			where += fmt.Sprintf(" AND (l.branch_id = $%d OR l.branch_id IS NULL)", idx)
+			where += fmt.Sprintf(" AND (l.branch_id = $%d OR l.branch_id IS NULL OR %s)", idx, shared)
 		} else {
-			where += fmt.Sprintf(" AND l.branch_id = $%d", idx)
+			where += fmt.Sprintf(" AND (l.branch_id = $%d OR %s)", idx, shared)
 		}
 		args = append(args, *filter.BranchID)
 		idx++
@@ -790,7 +793,7 @@ func (r *LeadRepository) OwnerInfo(ids []int) (map[int]LeadOwnerInfo, error) {
 	rows, err := r.db.Query(`
 		SELECT u.id,
 		       COALESCE(NULLIF(TRIM(CONCAT(u.last_name, ' ', u.first_name)), ''), NULLIF(TRIM(u.company_name), ''), u.email),
-		       COALESCE(u.is_active, TRUE) AND COALESCE(u.is_verified, FALSE),
+		       COALESCE(u.is_active, TRUE),
 		       COALESCE(u.role_id, 0)
 		FROM users u WHERE u.id = ANY($1)`, pq.Array(ids))
 	if err != nil {

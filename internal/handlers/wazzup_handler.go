@@ -40,6 +40,8 @@ type WazzupService interface {
 type WazzupHandler struct {
 	svc  WazzupService
 	repo repositories.WazzupRepository
+	// дополнительные филиалы каналов (миграция 099); может быть nil
+	chBranches *repositories.ChannelBranchesRepository
 	wl   *wz.WhiteLabelClient // White Label: встроенный iframe добавления каналов (может быть nil)
 	// Вход через Facebook для подключения Instagram (может быть nil).
 	metaSrc  *metaSource

@@ -15,6 +15,22 @@ type AuthHandler struct {
 	userService          services.UserService
 	authService          services.AuthService
 	passwordResetService services.PasswordResetService
+	// captcha — капча на вход; nil — выключена (тесты, внутренние клиенты).
+	captcha *services.CaptchaService
+}
+
+// SetCaptcha включает капчу на вход.
+func (h *AuthHandler) SetCaptcha(c *services.CaptchaService) { h.captcha = c }
+
+// Captcha — GET /auth/captcha: новая капча для формы входа.
+func (h *AuthHandler) Captcha(c *gin.Context) {
+	if h.captcha == nil {
+		c.JSON(http.StatusOK, gin.H{"enabled": false})
+		return
+	}
+	id, image := h.captcha.New()
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"enabled": true, "captcha_id": id, "image": image})
 }
 
 func NewAuthHandler(userService services.UserService, authService services.AuthService, passwordResetService services.PasswordResetService) *AuthHandler {
@@ -32,6 +48,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	email := strings.TrimSpace(req.Email)
 	log.Printf("[auth][login] attempt email=%q", email)
+	// Капча проверяется до пароля: бот, не прошедший её, не узнаёт, верен ли
+	// пароль, и не нагружает bcrypt.
+	if h.captcha != nil && !h.captcha.Verify(req.CaptchaID, req.CaptchaAnswer) {
+		log.Printf("[auth][login] captcha failed email=%q ip=%s", email, c.ClientIP())
+		badRequestWithCode(c, "captcha_invalid", "Неверный код с картинки — введите новый")
+		return
+	}
 
 	user, err := h.userService.GetAuthUserByEmail(email)
 	if err != nil || user == nil {

@@ -45,6 +45,9 @@ type Leads struct {
 	// Текущая воронка и этап (блок «Воронка», п.3.4) — только в карточке.
 	FunnelName string `json:"funnel_name,omitempty"`
 	StageName  string `json:"stage_name,omitempty"`
+	// SharedBranchIDs — филиалы каналов мессенджера лида (основные и
+	// дополнительные): лид виден и им. Только для проверки доступа.
+	SharedBranchIDs []int `json:"-"`
 	// ReadOnly — текущему пользователю лид доступен только на просмотр.
 	ReadOnly bool `json:"read_only,omitempty"`
 	IsArchived    bool       `json:"is_archived"`

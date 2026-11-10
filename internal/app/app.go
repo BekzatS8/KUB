@@ -404,6 +404,7 @@ func Run() {
 
 	// === Handlers ===
 	authHandler := handlers.NewAuthHandler(userService, authService, passwordResetService)
+	authHandler.SetCaptcha(services.NewCaptchaService())
 	roleHandler := handlers.NewRoleHandler(roleService)
 	permissionHandler := handlers.NewPermissionHandler(permissionService)
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
@@ -522,6 +523,7 @@ func Run() {
 		}
 
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
+		wazzupHandler.SetChannelBranchesRepo(repositories.NewChannelBranchesRepository(db))
 		// Взяли/передали лид — его переписка в Wazzup переходит новому ответственному.
 		leadService.SetChatOwnerSync(wazzupService)
 		driveMessenger = wazzupService

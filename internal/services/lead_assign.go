@@ -70,11 +70,13 @@ func leadOwnerIsFreeFor(users repositories.UserRepository, ownerID int) bool {
 	if users == nil {
 		return false
 	}
-	active, verified, err := users.GetAccountStatus(ownerID)
+	active, _, err := users.GetAccountStatus(ownerID)
 	if err != nil {
 		return false
 	}
-	return !active || !verified
+	// Ничей — только у заблокированного/удалённого: лиды сотрудника без
+	// подтверждения остаются за ним (замечания заказчика 10.11.2026).
+	return !active
 }
 
 // ownerIsFreeFor — общее правило «ничей» для лидов и сделок.
@@ -85,7 +87,9 @@ func ownerIsFreeFor(users repositories.UserRepository, ownerID int) bool {
 	if users == nil {
 		return false
 	}
-	if active, verified, err := users.GetAccountStatus(ownerID); err == nil && (!active || !verified) {
+	// Сделки — по тому же правилу, что лиды: ничьими их делает блокировка,
+	// а не снятие подтверждения.
+	if active, _, err := users.GetAccountStatus(ownerID); err == nil && !active {
 		return true
 	}
 	owner, err := users.GetByID(ownerID)

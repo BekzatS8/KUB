@@ -66,6 +66,8 @@ func SetupRoutes(
 	auth := r.Group("/auth")
 	{
 		auth.POST("/login", authHandler.Login)
+		// капча для формы входа (замечания заказчика 10.11.2026)
+		auth.GET("/captcha", authHandler.Captcha)
 		auth.POST("/refresh", authHandler.RefreshToken)
 		auth.POST("/forgot-password", authHandler.ForgotPassword)
 		auth.POST("/reset-password", authHandler.ResetPassword)
@@ -208,6 +210,9 @@ func SetupRoutes(
 			wazzup.GET("/channels", wazzupHandler.Channels)
 			// Привязка канала к филиалу (админ/руководство) — enforced в хендлере.
 			wazzup.PATCH("/channels/:id/branch", wazzupHandler.SetChannelBranch)
+			// Несколько филиалов у канала (Instagram для нескольких филиалов).
+			wazzup.GET("/channel-branches", wazzupHandler.ChannelBranches)
+			wazzup.PUT("/channels/:id/branches", wazzupHandler.SetChannelBranches)
 			// Удаление «мусорного» канала из справочника (админ/руководство).
 			wazzup.DELETE("/channels/:id", wazzupHandler.DeleteChannel)
 			// Привязка канала к отделу (выделенная линия — напр. жалобы ОКК).

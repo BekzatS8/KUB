@@ -62,6 +62,7 @@ func (r *LeadRepository) loadLeadCardExtras(lead *models.Leads) {
 	lead.HandedToSalesByName = handedByName.String
 	lead.FunnelName = funnelName.String
 	lead.StageName = stageName.String
+	lead.SharedBranchIDs = r.LeadSharedBranches(lead.ID)
 }
 
 // UpdateBrief сохраняет «Краткую информацию» и пишет в историю изменённые

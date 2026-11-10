@@ -612,6 +612,7 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 		d.ArchiveReason = stringFromNull(archiveReason)
 		deals = append(deals, &d)
 	}
+	r.fillDealOwnerNames(deals)
 	return deals, nil
 }
 
@@ -724,6 +725,7 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 		d.ArchiveReason = stringFromNull(archiveReason)
 		deals = append(deals, &d)
 	}
+	r.fillDealOwnerNames(deals)
 	return deals, nil
 }
 
@@ -1213,4 +1215,39 @@ func (r *DealRepository) GetTopClientsByRevenue(ctx context.Context, from, to ti
 	}
 
 	return result, nil
+}
+
+// fillDealOwnerNames подставляет ФИО ответственного одним запросом на страницу
+// списка (колонка «Ответственный» в таблице сделок, замечания 10.11.2026).
+// У МОПа нет доступа к списку пользователей, поэтому имя отдаёт сервер.
+func (r *DealRepository) fillDealOwnerNames(deals []*models.Deals) {
+	ids := make([]int64, 0, len(deals))
+	seen := map[int]bool{}
+	for _, d := range deals {
+		if d.OwnerID > 0 && !seen[d.OwnerID] {
+			seen[d.OwnerID] = true
+			ids = append(ids, int64(d.OwnerID))
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	rows, err := r.db.Query(`
+		SELECT id, COALESCE(NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), ''), NULLIF(company_name, ''), email, '')
+		FROM users WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	names := map[int]string{}
+	for rows.Next() {
+		var id int
+		var name string
+		if rows.Scan(&id, &name) == nil {
+			names[id] = name
+		}
+	}
+	for _, d := range deals {
+		d.OwnerName = names[d.OwnerID]
+	}
 }

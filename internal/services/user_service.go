@@ -218,6 +218,11 @@ func (s *userService) UpdateUser(user *models.User) error {
 		if err := s.repo.ClearRefresh(user.ID); err != nil {
 			log.Printf("[users][update] failed to revoke refresh for user_id=%d: %v", user.ID, err)
 		}
+	}
+	// Лиды и сделки возвращаются в общий список филиала только при блокировке
+	// (и удалении — DeleteUser). Снятие подтверждения их у сотрудника не
+	// забирает (замечания заказчика 10.11.2026).
+	if !user.IsActive {
 		s.releaseLeads(user.ID)
 	}
 	return nil

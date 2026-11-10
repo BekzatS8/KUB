@@ -300,8 +300,9 @@ func leadMatchesScope(scope DataScope, lead *models.Leads) bool {
 		return lead.OwnerID == scope.UserID
 	case ScopeKindBranch:
 		if scope.BranchID != nil {
-			// свой филиал ИЛИ общий (лид без филиала — напр. Instagram, виден всем).
-			if lead.BranchID != nil && *lead.BranchID != *scope.BranchID {
+			// свой филиал ИЛИ общий (лид без филиала — напр. Instagram, виден всем)
+			// ИЛИ канал мессенджера лида обслуживает этот филиал (миграция 099).
+			if lead.BranchID != nil && *lead.BranchID != *scope.BranchID && !containsInt(lead.SharedBranchIDs, *scope.BranchID) {
 				return false
 			}
 		}
@@ -456,4 +457,13 @@ func leadReadOnlyFor(lead *models.Leads, roleID int) bool {
 		return true
 	}
 	return authz.IsOperator(roleID) && lead != nil && lead.HandedToSalesAt != nil
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
