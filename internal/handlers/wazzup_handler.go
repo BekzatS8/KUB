@@ -464,6 +464,16 @@ func (h *WazzupHandler) InstagramConnectLink(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 	link, err := h.wl.LegacyChannelsLink(ctx, "instAPI", channelID)
+	newChannel := false
+	// Переавторизация сломанного канала у Wazzup падает с 500 (13.11.2026,
+	// канал visario.kz). По документации Wazzup пустой channelId открывает окно
+	// добавления нового канала — пробуем его; старый канал потом удаляется
+	// кнопкой «Удалить» в списке каналов.
+	if err != nil && channelID != "" && isWazzupServerError(err) {
+		log.Printf("integration=wazzup operation=instagram_link status=reinit_failed channel=%s err=%v — пробуем новый канал", channelID, err)
+		link, err = h.wl.LegacyChannelsLink(ctx, "instAPI", "")
+		newChannel = err == nil
+	}
 	if err != nil {
 		log.Printf("integration=wazzup operation=instagram_link status=failed channel=%s err=%v", channelID, err)
 		c.JSON(http.StatusBadGateway, gin.H{
@@ -472,8 +482,8 @@ func (h *WazzupHandler) InstagramConnectLink(c *gin.Context) {
 		})
 		return
 	}
-	log.Printf("integration=wazzup operation=instagram_link status=ok channel=%s", channelID)
-	c.JSON(http.StatusOK, gin.H{"link": link})
+	log.Printf("integration=wazzup operation=instagram_link status=ok channel=%s new_channel=%v", channelID, newChannel)
+	c.JSON(http.StatusOK, gin.H{"link": link, "new_channel": newChannel})
 }
 
 func (h *WazzupHandler) Dialogs(c *gin.Context) {
@@ -671,4 +681,14 @@ func (h *WazzupHandler) Accounts(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// isWazzupServerError — Wazzup ответил 5xx (сбой на его стороне).
+func isWazzupServerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "status=500") || strings.Contains(msg, "status=502") ||
+		strings.Contains(msg, "status=503") || strings.Contains(msg, "status=504")
 }
