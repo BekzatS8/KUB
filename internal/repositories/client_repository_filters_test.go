@@ -12,8 +12,52 @@ func TestBuildClientListWhere_QueryFields(t *testing.T) {
 			t.Fatalf("expected %q in where: %s", part, where)
 		}
 	}
-	if len(args) != 1 || args[0] != "%7701%" {
+	// текст + цифры для сверки с телефоном без пробелов
+	if len(args) != 2 || args[0] != "%7701%" || args[1] != "%7701%" {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+// Каждое слово ищется отдельно: «Иван Петров» находит «Петров Иван».
+func TestBuildClientListWhere_QueryWordsAnyOrder(t *testing.T) {
+	where, args := buildClientListWhere(nil, "", ClientListFilter{Query: "  Иван   Петров "}, ArchiveScopeActiveOnly, 1)
+	if len(args) != 2 || args[0] != "%иван%" || args[1] != "%петров%" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+	if strings.Count(where, "ip.last_name") != 2 || strings.Contains(where, "regexp_replace") {
+		t.Fatalf("expected two word conditions without phone digits: %s", where)
+	}
+}
+
+func TestClientSearchPhoneDigits(t *testing.T) {
+	cases := map[string]string{
+		"+7(701)123-45-67": "77011234567",
+		"87011234567":      "87011234567|77011234567",
+		"8701123":          "8701123|7701123",
+		"8045":             "8045",
+		"701":              "701",
+		"12":               "",
+		"Иван":             "",
+	}
+	for in, want := range cases {
+		if got := strings.Join(clientSearchPhoneDigits(in), "|"); got != want {
+			t.Fatalf("%q: want %q, got %q", in, want, got)
+		}
+	}
+}
+
+// Телефон с пробелами — одно слово, а не «8», «701», «45»…
+func TestClientSearchWords_PhoneStaysWhole(t *testing.T) {
+	cases := map[string]string{
+		"8 701 123 45 67":    "87011234567",
+		"+7 (701) 123-45-67": "+7(701)123-45-67",
+		"Петров 8 701":       "Петров|8|701",
+		"  Иван   Петров  ":  "Иван|Петров",
+	}
+	for in, want := range cases {
+		if got := strings.Join(clientSearchWords(in), "|"); got != want {
+			t.Fatalf("%q: want %q, got %q", in, want, got)
+		}
 	}
 }
 

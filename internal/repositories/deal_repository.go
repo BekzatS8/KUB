@@ -613,6 +613,7 @@ func (r *DealRepository) ListAllWithFilterAndArchiveScope(limit, offset int, fil
 		deals = append(deals, &d)
 	}
 	r.fillDealOwnerNames(deals)
+	r.fillDealClientNames(deals)
 	return deals, nil
 }
 
@@ -726,6 +727,7 @@ func (r *DealRepository) ListByOwnerWithFilterAndArchiveScope(ownerID, limit, of
 		deals = append(deals, &d)
 	}
 	r.fillDealOwnerNames(deals)
+	r.fillDealClientNames(deals)
 	return deals, nil
 }
 
@@ -1249,5 +1251,45 @@ func (r *DealRepository) fillDealOwnerNames(deals []*models.Deals) {
 	}
 	for _, d := range deals {
 		d.OwnerName = names[d.OwnerID]
+	}
+}
+
+// fillDealClientNames — имя клиента для таблицы сделок одним запросом:
+// фронт держит в памяти не всех клиентов (сервер отдаёт страницу до 100), и
+// сделки остальных показывались как «Клиент #id».
+func (r *DealRepository) fillDealClientNames(deals []*models.Deals) {
+	ids := make([]int64, 0, len(deals))
+	seen := map[int]bool{}
+	for _, d := range deals {
+		if d.ClientID > 0 && !seen[d.ClientID] {
+			seen[d.ClientID] = true
+			ids = append(ids, int64(d.ClientID))
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	rows, err := r.db.Query(`
+		SELECT c.id, COALESCE(
+			NULLIF(TRIM(CONCAT_WS(' ', NULLIF(ip.last_name, ''), NULLIF(ip.first_name, ''), NULLIF(ip.middle_name, ''))), ''),
+			NULLIF(lp.company_name, ''), NULLIF(c.display_name, ''), c.name, '')
+		FROM clients c
+		LEFT JOIN client_individual_profiles ip ON ip.client_id = c.id
+		LEFT JOIN client_legal_profiles lp ON lp.client_id = c.id
+		WHERE c.id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	names := map[int]string{}
+	for rows.Next() {
+		var id int
+		var name string
+		if rows.Scan(&id, &name) == nil {
+			names[id] = name
+		}
+	}
+	for _, d := range deals {
+		d.ClientName = names[d.ClientID]
 	}
 }

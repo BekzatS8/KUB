@@ -791,8 +791,13 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 
 	if filter.Query != "" {
 		// поиск по ФИО, компании, БИН/ИИН, телефону, e-mail и стране
-		// оформления (ТЗ 04.07.2026, п.8.1: «написали Италия — и все вылезли»)
-		conditions = append(conditions, fmt.Sprintf(`(
+		// оформления (ТЗ 04.07.2026, п.8.1: «написали Италия — и все вылезли»).
+		// Каждое слово ищется отдельно и все должны найтись: «Иван Петров» и
+		// «Петров Иван» находят одного и того же клиента (раньше — только
+		// порядок «Фамилия Имя»). Цифры слова сверяются и с телефоном без
+		// пробелов/скобок: «+7 701 123», «8701123…» находят 7701123….
+		for _, word := range clientSearchWords(filter.Query) {
+			cond := fmt.Sprintf(`
 			LOWER(COALESCE(c.name, '')) LIKE $%d OR
 			LOWER(COALESCE(c.display_name, '')) LIKE $%d OR
 			LOWER(CONCAT_WS(' ', COALESCE(ip.last_name, ''), COALESCE(ip.first_name, ''), COALESCE(ip.middle_name, ''))) LIKE $%d OR
@@ -801,10 +806,18 @@ func buildClientListWhere(ownerID *int, forcedType string, filter ClientListFilt
 			LOWER(COALESCE(ip.iin, '')) LIKE $%d OR
 			LOWER(COALESCE(c.primary_phone, c.phone, lp.contact_person_phone, '')) LIKE $%d OR
 			LOWER(COALESCE(c.primary_email, c.email, lp.contact_person_email, '')) LIKE $%d OR
-			LOWER(CASE WHEN ip.client_id IS NULL THEN COALESCE(c.country, '') ELSE COALESCE(ip.country, '') END) LIKE $%d
-		)`, idx, idx, idx, idx, idx, idx, idx, idx, idx))
-		args = append(args, "%"+strings.ToLower(filter.Query)+"%")
-		idx++
+			LOWER(CASE WHEN ip.client_id IS NULL THEN COALESCE(c.country, '') ELSE COALESCE(ip.country, '') END) LIKE $%d`,
+				idx, idx, idx, idx, idx, idx, idx, idx, idx)
+			args = append(args, "%"+strings.ToLower(word)+"%")
+			idx++
+			for _, digits := range clientSearchPhoneDigits(word) {
+				cond += fmt.Sprintf(` OR
+			regexp_replace(COALESCE(c.primary_phone, c.phone, lp.contact_person_phone, ''), '\D', '', 'g') LIKE $%d`, idx)
+				args = append(args, "%"+digits+"%")
+				idx++
+			}
+			conditions = append(conditions, "("+cond+")")
+		}
 	}
 
 	if filter.HasDeals != nil {
@@ -882,4 +895,53 @@ func nullInt16(v *int16) any {
 		return nil
 	}
 	return int64(*v)
+}
+
+// clientSearchWords — слова поискового запроса (не больше 6, чтобы длинная
+// вставка не превращалась в огромный запрос).
+// Запрос, похожий на телефон («8 701 123 45 67», «+7 (701) 123-45-67»),
+// остаётся одним словом — иначе «8», «45», «67» искались бы по отдельности.
+func clientSearchWords(q string) []string {
+	if isPhoneLikeQuery(q) {
+		return []string{strings.Join(strings.Fields(q), "")}
+	}
+	words := strings.Fields(q)
+	if len(words) > 6 {
+		words = words[:6]
+	}
+	return words
+}
+
+func isPhoneLikeQuery(q string) bool {
+	digits := 0
+	for _, r := range q {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == ' ' || r == '+' || r == '-' || r == '(' || r == ')':
+		default:
+			return false
+		}
+	}
+	return digits >= 3
+}
+
+// clientSearchPhoneDigits — варианты цифр слова для сверки с телефоном. Слово
+// без цифр или с меньше чем 3 цифрами телефон не ищет. Номер с 8 в начале
+// (8 701 …) ищется и как 7 701 … — так телефоны хранятся в базе.
+func clientSearchPhoneDigits(word string) []string {
+	var b strings.Builder
+	for _, r := range word {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	d := b.String()
+	if len(d) < 3 {
+		return nil
+	}
+	if len(d) >= 7 && d[0] == '8' {
+		return []string{d, "7" + d[1:]}
+	}
+	return []string{d}
 }

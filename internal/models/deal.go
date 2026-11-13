@@ -9,6 +9,9 @@ type Deals struct {
 	LeadID        int        `json:"lead_id"`
 	ClientID      int        `json:"client_id"`
 	ClientType    string     `json:"client_type"`
+	// ClientName — имя клиента для таблицы сделок (в выпадашке фронта есть не
+	// все клиенты); заполняется только в списках.
+	ClientName    string     `json:"client_name,omitempty"`
 	OwnerID       int        `json:"owner_id"`
 	// OwnerName — ответственный менеджер (кто оформил клиента), для колонки
 	// «Ответственный» в таблице сделок; заполняется только в списках.
