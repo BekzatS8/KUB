@@ -328,7 +328,9 @@ func (r *FunnelStageRepository) ListBoardDeals(funnelID int, branchID, departmen
 	// appear in the "unassigned" column and can be dragged into a stage).
 	// Закрытые сделки (проигранные/отказные) на доске не показываем — они уходят
 	// в «Отказники». Won-этап уводит сделку в архив отдельно (см. deal_service).
-	where := []string{"(d.funnel_id = $1 OR d.funnel_id IS NULL)", "d.is_archived = FALSE", "d.deleted_at IS NULL", "COALESCE(d.status, 'new') NOT IN ('lost', 'cancelled')"}
+	// Воронка колл-центра — только для лидов: сделки без воронки на её доску
+	// не попадают (замечания 13.11.2026).
+	where := []string{"(d.funnel_id = $1 OR (d.funnel_id IS NULL AND NOT EXISTS (SELECT 1 FROM funnels cc WHERE cc.id = $1 AND cc.code = '" + CallcenterFunnelCode + "')))", "d.is_archived = FALSE", "d.deleted_at IS NULL", "COALESCE(d.status, 'new') NOT IN ('lost', 'cancelled')"}
 	args := []any{funnelID}
 
 	if branchID != nil {

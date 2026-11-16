@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"turcompany/internal/authz"
@@ -219,7 +220,33 @@ func (s *DealService) Create(deal *models.Deals, userID, roleID int) (int64, err
 		}
 		return 0, err
 	}
+	s.closeLeadOfDeal(deal.LeadID)
 	return id, nil
+}
+
+// closeLeadOfDeal — лид, по которому оформлена сделка, закрывается
+// («Конвертирован») и уходит с доски лидов. Раньше при создании сделки с
+// выбранным лидом лид оставался «Новой заявкой» — на одного человека копились
+// дубли (замечания заказчика 13.11.2026: 15 таких лидов на проде).
+func (s *DealService) closeLeadOfDeal(leadID int) {
+	if leadID <= 0 || s.LeadRepo == nil {
+		return
+	}
+	lead, err := s.LeadRepo.GetByID(leadID)
+	if err != nil || lead == nil {
+		return
+	}
+	if lead.Status == "converted" {
+		return
+	}
+	if err := s.LeadRepo.UpdateStatus(leadID, "converted"); err != nil {
+		log.Printf("[deal] close lead %d of deal: %v", leadID, err)
+		return
+	}
+	log.Printf("[deal] lead %d closed as converted (deal created/linked)", leadID)
+	if s.BoardNotifier != nil && lead.FunnelID != nil {
+		s.BoardNotifier.NotifyBoardChanged(*lead.FunnelID)
+	}
 }
 
 // stageMatchesStatus сообщает, соответствует ли этап воронки статусу сделки.
@@ -339,6 +366,10 @@ func (s *DealService) Update(deal *models.Deals, userID, roleID int) error {
 			return ErrInvalidState
 		}
 		return err
+	}
+	// К сделке привязали лид — он закрывается так же, как при создании сделки.
+	if deal.LeadID > 0 && deal.LeadID != current.LeadID {
+		s.closeLeadOfDeal(deal.LeadID)
 	}
 	return nil
 }

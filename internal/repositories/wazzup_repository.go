@@ -850,22 +850,21 @@ func (r *wazzupRepository) CreateLeadFromInbound(ctx context.Context, ownerID in
 	// От владельца интеграции берём только филиал — для каналов, не привязанных
 	// к филиалу, как было раньше. Отдел — канала, иначе отдел воронки продаж
 	// (отдел админа «Администрация» входящему лиду не подходит).
-	const q = `
+	// Воронка — колл-центр, если включён маршрут «входящие сначала в
+	// колл-центр» (замечания 13.11.2026), иначе воронка продаж. Отдел лида в
+	// колл-центре — отдел колл-центра; оператор передаёт лид в продажи.
+	funnelExpr := inboundFunnelIDSQL("$8")
+	q := `
 		INSERT INTO leads (title, description, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
 		VALUES ($1, $2, NULLIF($3, ''), $4, NULL,
 			COALESCE($7::int, (SELECT branch_id FROM users WHERE $5 > 0 AND id = $5)),
-			COALESCE(
-				$8::int,
-				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
-			),
+			CASE WHEN ` + funnelExpr + ` = (SELECT id FROM funnels WHERE code = '` + CallcenterFunnelCode + `')
+			     THEN (SELECT department_id FROM funnels WHERE code = '` + CallcenterFunnelCode + `')
+			     ELSE COALESCE($8::int, (SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default'))
+			END,
 			$6,
-			(SELECT id FROM funnels WHERE code = 'sales_default'),
-			(SELECT fs.id
-			 FROM funnel_stages fs
-			 JOIN funnels f ON f.id = fs.funnel_id
-			 WHERE f.code = 'sales_default' AND fs.is_active = TRUE
-			 ORDER BY fs.position ASC, fs.id ASC
-			 LIMIT 1))
+			` + funnelExpr + `,
+			` + inboundFirstStageSQL(funnelExpr) + `)
 		RETURNING id
 	`
 	var leadID int

@@ -615,6 +615,7 @@ func SetupRoutes(
 			// корзина сотрудника — до /my/:id, отдельным путём (иначе конфликт wildcard)
 			reportTables.GET("/my-trash", managerReportHandler.ListMyTrash)
 			reportTables.GET("/my/:id", managerReportHandler.GetMy)
+			reportTables.GET("/my/:id/export", managerReportHandler.ExportMy)
 			reportTables.PUT("/my/:id", managerReportHandler.SaveMy)
 			reportTables.DELETE("/my/:id", managerReportHandler.DeleteMy)
 			reportTables.POST("/my/:id/restore", managerReportHandler.RestoreMy)
@@ -700,6 +701,10 @@ func SetupRoutes(
 
 func registerFunnelsRoutes(group *gin.RouterGroup, funnelHandler *handlers.FunnelHandler) {
 	group.GET("", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.List)
+	// Отделы для формы воронки и маршрут входящих в колл-центр (замечания 13.11.2026).
+	group.GET("/departments", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.Departments)
+	group.GET("/inbound-routing", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.InboundRouting)
+	group.PUT("/inbound-routing", middleware.RequirePermission(authz.ActionFunnelsUpdate, "funnel"), funnelHandler.SetInboundRouting)
 	group.GET("/:id", middleware.RequirePermission(authz.ActionFunnelsView, "funnel"), funnelHandler.GetByID)
 	group.POST("", middleware.RequirePermission(authz.ActionFunnelsCreate, "funnel"), funnelHandler.Create)
 	group.PATCH("/reorder", middleware.RequirePermission(authz.ActionFunnelsReorder, "funnel"), funnelHandler.Reorder)

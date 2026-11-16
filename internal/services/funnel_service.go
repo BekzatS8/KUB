@@ -70,7 +70,9 @@ func (s *FunnelService) List(userID int) ([]*models.Funnel, error) {
 
 // businessFunnelDepartments — отделы, у которых вообще есть воронки. Надведом-
 // ственные роли (руководство, контроль качества) видят все их воронки.
-var businessFunnelDepartments = map[string]struct{}{"sales": {}, "visa": {}, "partner": {}}
+// operator — колл-центр (замечания 13.11.2026): его воронку тоже видят
+// руководство и контроль качества.
+var businessFunnelDepartments = map[string]struct{}{"sales": {}, "visa": {}, "partner": {}, "operator": {}}
 
 // ownDepartmentSet возвращает набор из одного отдела — того, к которому относится
 // пользователь. Берём department_code принципала; если он пуст, откатываемся на

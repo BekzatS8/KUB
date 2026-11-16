@@ -323,7 +323,7 @@ func (h *ManagerReportHandler) GetReport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rep, err := h.repo.GetByID(c.Request.Context(), reportID)
+	rep, err := h.loadReport(c, reportID)
 	if err != nil {
 		internalError(c, "Failed to load report")
 		return
@@ -477,7 +477,7 @@ func (h *ManagerReportHandler) ExportReport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rep, err := h.repo.GetByID(c.Request.Context(), reportID)
+	rep, err := h.loadReport(c, reportID)
 	if err != nil {
 		internalError(c, "Failed to load report")
 		return
@@ -486,7 +486,21 @@ func (h *ManagerReportHandler) ExportReport(c *gin.Context) {
 		notFound(c, NotFoundCode, "Отчёт не найден")
 		return
 	}
+	writeReportXLSX(c, rep)
+}
 
+// ExportMy — GET /reports/table/my/:id/export: свой отчёт в Excel (и из своей
+// корзины с ?trash=1).
+func (h *ManagerReportHandler) ExportMy(c *gin.Context) {
+	userID, _ := getUserAndRole(c)
+	rep, ok := h.loadOwned(c, userID)
+	if !ok {
+		return
+	}
+	writeReportXLSX(c, rep)
+}
+
+func writeReportXLSX(c *gin.Context, rep *repositories.ManagerReport) {
 	var content struct {
 		Columns []string   `json:"columns"`
 		Rows    [][]string `json:"rows"`
@@ -529,6 +543,15 @@ func sanitizeReportFileName(title string) string {
 	return string(runes)
 }
 
+// loadReport — отчёт по id; ?trash=1 — отчёт из корзины (открыть/скачать, не
+// восстанавливая; замечания 13.11.2026).
+func (h *ManagerReportHandler) loadReport(c *gin.Context, id int) (*repositories.ManagerReport, error) {
+	if c.Query("trash") == "1" {
+		return h.repo.GetByIDInTrash(c.Request.Context(), id)
+	}
+	return h.repo.GetByID(c.Request.Context(), id)
+}
+
 func parseReportID(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -545,7 +568,7 @@ func (h *ManagerReportHandler) loadOwned(c *gin.Context, userID int) (*repositor
 	if !ok {
 		return nil, false
 	}
-	rep, err := h.repo.GetByID(c.Request.Context(), reportID)
+	rep, err := h.loadReport(c, reportID)
 	if err != nil {
 		internalError(c, "Failed to load report")
 		return nil, false

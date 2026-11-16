@@ -408,6 +408,7 @@ func Run() {
 	roleHandler := handlers.NewRoleHandler(roleService)
 	permissionHandler := handlers.NewPermissionHandler(permissionService)
 	funnelHandler := handlers.NewFunnelHandler(funnelService)
+	funnelHandler.SetCRMSettings(repositories.NewCRMSettingsRepository(db))
 	funnelStageHandler := handlers.NewFunnelStageHandler(funnelStageService)
 	funnelStageHandler.SetBoardHub(boardHub)
 	funnelTransitionRuleHandler := handlers.NewFunnelTransitionRuleHandler(funnelTransitionRuleSvc)

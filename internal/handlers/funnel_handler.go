@@ -9,11 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 	"turcompany/internal/services"
 )
 
 type FunnelHandler struct {
-	service *services.FunnelService
+	service  *services.FunnelService
+	settings *repositories.CRMSettingsRepository
 }
 
 func NewFunnelHandler(service *services.FunnelService) *FunnelHandler {

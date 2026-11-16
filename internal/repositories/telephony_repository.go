@@ -369,22 +369,23 @@ func (r *telephonyRepository) CreateLeadFromCall(ctx context.Context, phone, nor
 	// звонков с незнакомых номеров не создавались вовсе (186 звонков за месяц
 	// без лида, логи прода 09.11.2026). Лид встаёт на первый этап воронки
 	// продаж, как входящие из мессенджеров, иначе его не видно на канбане.
-	const q = `
+	// Воронка — колл-центр, если включён маршрут «входящие сначала в
+	// колл-центр» (замечания 13.11.2026), иначе воронка продаж. Звонок,
+	// который сразу опознан за менеджером (owner задан), в колл-центр не идёт.
+	funnelExpr := `(CASE WHEN $3 > 0 THEN (SELECT id FROM funnels WHERE code = 'sales_default') ELSE ` + inboundFunnelIDSQL("") + ` END)`
+	q := `
 		INSERT INTO leads (title, phone, source, owner_id, branch_id, department_id, status, funnel_id, stage_id)
 		VALUES ($1, $2, 'binotel', NULLIF($3, 0),
 			COALESCE($4, (SELECT branch_id FROM users WHERE $3 > 0 AND id = $3)),
-			COALESCE(
+			CASE WHEN ` + funnelExpr + ` = (SELECT id FROM funnels WHERE code = '` + CallcenterFunnelCode + `')
+			     THEN (SELECT department_id FROM funnels WHERE code = '` + CallcenterFunnelCode + `')
+			     ELSE COALESCE(
 				(SELECT department_id FROM users WHERE $3 > 0 AND id = $3),
-				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default')
-			),
+				(SELECT f.department_id FROM funnels f WHERE f.code = 'sales_default'))
+			END,
 			'new',
-			(SELECT id FROM funnels WHERE code = 'sales_default'),
-			(SELECT fs.id
-			 FROM funnel_stages fs
-			 JOIN funnels f ON f.id = fs.funnel_id
-			 WHERE f.code = 'sales_default' AND fs.is_active = TRUE
-			 ORDER BY fs.position ASC, fs.id ASC
-			 LIMIT 1))
+			` + funnelExpr + `,
+			` + inboundFirstStageSQL(funnelExpr) + `)
 		RETURNING id
 	`
 	var leadID int64

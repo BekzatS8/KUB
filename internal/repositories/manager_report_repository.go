@@ -74,16 +74,29 @@ func (r *ManagerReportRepository) ListByUser(ctx context.Context, userID int) ([
 	return out, rows.Err()
 }
 
-// GetByID возвращает отчёт с содержимым; nil, если отчёта нет.
+// GetByID возвращает отчёт с содержимым; nil, если отчёта нет (или он в корзине).
 func (r *ManagerReportRepository) GetByID(ctx context.Context, id int) (*ManagerReport, error) {
-	const q = `
+	return r.getByID(ctx, id, false)
+}
+
+// GetByIDInTrash — отчёт из корзины (только удалённый): открыть и скачать его,
+// не восстанавливая (замечания заказчика 13.11.2026).
+func (r *ManagerReportRepository) GetByIDInTrash(ctx context.Context, id int) (*ManagerReport, error) {
+	return r.getByID(ctx, id, true)
+}
+
+func (r *ManagerReportRepository) getByID(ctx context.Context, id int, trashed bool) (*ManagerReport, error) {
+	cond := "mr.deleted_at IS NULL"
+	if trashed {
+		cond = "mr.deleted_at IS NOT NULL"
+	}
+	q := `
 		SELECT mr.id, mr.user_id,
 		       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email) AS user_name,
 		       mr.title, mr.content, mr.created_at, mr.updated_at
 		FROM manager_reports mr
 		JOIN users u ON u.id = mr.user_id
-		WHERE mr.id = $1 AND mr.deleted_at IS NULL
-	`
+		WHERE mr.id = $1 AND ` + cond
 	rep := &ManagerReport{}
 	err := r.db.QueryRowContext(ctx, q, id).Scan(
 		&rep.ID, &rep.UserID, &rep.UserName, &rep.Title, &rep.Content, &rep.CreatedAt, &rep.UpdatedAt,
