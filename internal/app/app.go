@@ -523,6 +523,14 @@ func Run() {
 			log.Printf("[BOOT] Wazzup: прежнее подключение id=%d закреплено за аккаунтом %s", adoptedID, legacyAccount)
 		}
 
+		// Контакты переписок со ссылкой на лид (кнопка в шапке чата Wazzup) и
+		// ответственным = ответственный за лид. Выгружаются в фоне при старте.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			wazzupService.SyncLeadContacts(ctx)
+		}()
+
 		wazzupHandler = handlers.NewWazzupHandlerWithRepo(wazzupService, wazzupRepo)
 		wazzupHandler.SetChannelBranchesRepo(repositories.NewChannelBranchesRepository(db))
 		// Взяли/передали лид — его переписка в Wazzup переходит новому ответственному.

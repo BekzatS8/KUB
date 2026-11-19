@@ -1435,3 +1435,82 @@ func scanWazzupIntegration(scanner interface{ Scan(dest ...any) error }) (*model
 	}
 	return integration, nil
 }
+
+// ChatLeadContact — переписка Wazzup и ответственный за её последний лид.
+type ChatLeadContact struct {
+	Transport string
+	ChatID    string
+	Name      string
+	OwnerID   int
+	OwnerName string
+}
+
+// chatLeadContactSQL — последний лид каждой переписки (как ChatLeadOwner и
+// кнопка «Профиль»), только с работающим ответственным. Переписки номеров
+// другого аккаунта Wazzup не берутся.
+const chatLeadContactSQL = `
+	SELECT x.transport, x.chat_id, x.name, x.owner_id,
+	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email)
+	FROM (
+		SELECT DISTINCT ON (c.external_transport, c.external_chat_id)
+		       c.external_transport AS transport, c.external_chat_id AS chat_id,
+		       COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), '') AS name,
+		       COALESCE(l.owner_id, 0) AS owner_id
+		FROM chats c
+		JOIN leads l ON l.id = c.lead_ref_id
+		WHERE c.external_provider = 'wazzup'
+		  AND c.external_transport IN ('whatsapp', 'instagram', 'telegram')
+		  AND COALESCE(c.external_chat_id, '') <> ''
+		  AND l.deleted_at IS NULL
+		  AND l.is_archived = FALSE
+		  AND NOT EXISTS (
+		      SELECT 1 FROM wazzup_channels wc
+		      JOIN wazzup_integrations wi ON wi.id = wc.integration_id
+		      WHERE wc.external_channel_id = c.external_channel_id
+		        AND COALESCE(wi.account, '') <> $1)
+		ORDER BY c.external_transport, c.external_chat_id, l.id DESC
+	) x
+	JOIN users u ON u.id = x.owner_id AND COALESCE(u.is_active, TRUE) = TRUE
+	ORDER BY x.transport, x.chat_id`
+
+// ListChatLeadContacts — переписки аккаунта, у последнего лида которых есть
+// ответственный (выгрузка контактов со ссылкой на лид в Wazzup).
+func (r *wazzupRepository) ListChatLeadContacts(ctx context.Context, account string) ([]ChatLeadContact, error) {
+	rows, err := r.db.QueryContext(ctx, chatLeadContactSQL, strings.TrimSpace(account))
+	if err != nil {
+		return nil, fmt.Errorf("list chat lead contacts: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ChatLeadContact, 0)
+	for rows.Next() {
+		var c ChatLeadContact
+		if err := rows.Scan(&c.Transport, &c.ChatID, &c.Name, &c.OwnerID, &c.OwnerName); err != nil {
+			return nil, fmt.Errorf("scan chat lead contact: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ChatContactName — имя клиента переписки для контакта Wazzup: имя из
+// мессенджера, иначе ФИО из брифа лида. Пусто — не известно.
+func (r *wazzupRepository) ChatContactName(ctx context.Context, transport, externalChatID string) (string, error) {
+	const q = `
+		SELECT COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), '')
+		FROM chats c
+		LEFT JOIN leads l ON l.id = c.lead_ref_id AND l.deleted_at IS NULL
+		WHERE c.external_provider = 'wazzup'
+		  AND c.external_transport = $1
+		  AND c.external_chat_id = $2
+		ORDER BY l.id DESC NULLS LAST, c.id DESC
+		LIMIT 1`
+	var name string
+	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get chat contact name: %w", err)
+	}
+	return name, nil
+}

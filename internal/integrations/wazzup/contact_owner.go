@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"turcompany/internal/models"
+	"turcompany/internal/repositories"
 )
 
 // «Написать первым» от менеджера. В Wazzup роль «Менеджер» (seller) видит и
@@ -29,12 +30,13 @@ type ContactUpsert struct {
 }
 
 // contactUpserter — клиенты, умеющие создавать и обновлять контакты.
+// apiKey нужен основному аккаунту (User API v3), партнёрский его игнорирует.
 type contactUpserter interface {
-	UpsertContacts(ctx context.Context, contacts []ContactUpsert) error
+	UpsertContacts(ctx context.Context, apiKey string, contacts []ContactUpsert) error
 }
 
 // UpsertContacts создаёт или обновляет контакты (POST /v2/contacts).
-func (c *PartnerClient) UpsertContacts(ctx context.Context, contacts []ContactUpsert) error {
+func (c *PartnerClient) UpsertContacts(ctx context.Context, _ string, contacts []ContactUpsert) error {
 	items := make([]map[string]any, 0, len(contacts))
 	for _, ct := range contacts {
 		items = append(items, map[string]any{
@@ -114,31 +116,50 @@ func (s *Service) senderRole(ctx context.Context, acc *AccountConfig, integratio
 	return "", nil
 }
 
-// assignContact делает менеджера ответственным за чат перед «Написать первым».
-// Ошибка не прерывает отправку: сообщение всё равно уйдёт, а если Wazzup
-// откажет — причина будет в логе статусов (operation=message_status).
-func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, transport, chatID, wazzupUserID string) {
-	upserter, ok := acc.Client.(contactUpserter)
-	if !ok || chatID == "" || wazzupUserID == "" {
-		return
-	}
+// chatContactNamer — репозитории, знающие имя клиента переписки.
+type chatContactNamer interface {
+	ChatContactName(ctx context.Context, transport, externalChatID string) (string, error)
+}
+
+// leadContact — контакт Wazzup переписки: ответственный за чат и ссылка на лид.
+//
+// Ссылка uri — кнопка в выпадающем списке «Сделки» в шапке чата Wazzup
+// (ТЗ «доработки CRM КУБ», п.4; замечание 19.11.2026 «в мессенджере кнопка
+// перейти на лид»): страница CRM находит последний лид контакта и открывает
+// его карточку.
+func (s *Service) leadContact(transport, chatID, name, wazzupUserID string) ContactUpsert {
 	chatType := normalizePartnerChatType(transport)
 	base := s.crmBaseURL
 	if base == "" {
 		base = strings.TrimRight(s.webhookBaseURL, "/")
 	}
-	contact := ContactUpsert{
+	if strings.TrimSpace(name) == "" {
+		name = chatID
+	}
+	return ContactUpsert{
 		ID:                "kub-" + chatType + "-" + chatID,
 		ResponsibleUserID: wazzupUserID,
-		Name:              chatID,
+		Name:              name,
 		ChatType:          chatType,
 		ChatID:            chatID,
-		// Ссылка из шапки чата Wazzup — кнопка «Профиль» (ТЗ «доработки CRM
-		// КУБ», п.4): страница находит последний открытый лид контакта и
-		// открывает его карточку. Раньше ссылка вела обратно в тот же чат.
-		URI: base + "/leads/by-chat?transport=" + url.QueryEscape(transport) + "&chat_id=" + url.QueryEscape(chatID),
+		URI:               base + "/leads/by-chat?transport=" + url.QueryEscape(chatType) + "&chat_id=" + url.QueryEscape(chatID),
 	}
-	if err := upserter.UpsertContacts(ctx, []ContactUpsert{contact}); err != nil {
+}
+
+// assignContact делает сотрудника ответственным за чат в Wazzup и заодно
+// даёт чату ссылку на лид. Ошибка не прерывает отправку: сообщение всё равно
+// уйдёт, а если Wazzup откажет — причина будет в логе статусов.
+func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, apiKey, transport, chatID, wazzupUserID string) {
+	upserter, ok := acc.Client.(contactUpserter)
+	if !ok || chatID == "" || wazzupUserID == "" {
+		return
+	}
+	name := ""
+	if namer, ok := s.repo.(chatContactNamer); ok {
+		name, _ = namer.ChatContactName(ctx, normalizeTransport(transport), chatID)
+	}
+	contact := s.leadContact(transport, chatID, name, wazzupUserID)
+	if err := upserter.UpsertContacts(ctx, apiKey, []ContactUpsert{contact}); err != nil {
 		log.Printf("integration=wazzup operation=assign_contact status=failed chat=%s user=%s err=%v", maskChatID(chatID), wazzupUserID, err)
 		return
 	}
@@ -146,11 +167,12 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, transpo
 }
 
 // AssignChatOwner — ответственный за лид в CRM становится ответственным за
-// его переписку в Wazzup. В аккаунте без кабинета роль «Менеджер» видит только
-// своих клиентов: без этого после «Взять себе» или передачи лида кнопка
-// «Открыть в мессенджере» показывала чужой чат вместо переписки с клиентом.
-// Только для переписок, которые уже есть в CRM, и только в аккаунте без
-// кабинета; ошибки лишь пишутся в лог.
+// его переписку в Wazzup. Роль «Менеджер» видит только своих клиентов: без
+// этого после «Взять себе» или передачи лида кнопка «Открыть в мессенджере»
+// показывала чужой чат вместо переписки с клиентом. Контакт получает и ссылку
+// на лид (кнопка в шапке чата). С 19.11.2026 — в обоих аккаунтах (решение
+// заказчика: ответственный в Wazzup = ответственный за лид в CRM). Только для
+// переписок, которые уже есть в CRM; ошибки лишь пишутся в лог.
 func (s *Service) AssignChatOwner(ctx context.Context, transport, chatID string, crmUserID int) {
 	transport = normalizeTransport(transport)
 	chatID = strings.TrimSpace(chatID)
@@ -165,14 +187,15 @@ func (s *Service) AssignChatOwner(ctx context.Context, transport, chatID string,
 		return
 	}
 	acc, integration, err := s.accountOfChannel(ctx, chID)
-	if err != nil || acc == nil || !acc.Partner || integration == nil {
+	if err != nil || acc == nil || integration == nil {
 		return
 	}
-	wazzupUserID := s.ensureWazzupUser(ctx, acc, s.apiKeyFor(acc, integration), crmUserID)
+	apiKey := s.apiKeyFor(acc, integration)
+	wazzupUserID := s.ensureWazzupUser(ctx, acc, apiKey, crmUserID)
 	if wazzupUserID == "" {
 		return
 	}
-	s.assignContact(ctx, acc, transport, chatID, wazzupUserID)
+	s.assignContact(ctx, acc, apiKey, transport, chatID, wazzupUserID)
 }
 
 // chatLeadOwnerRepo — репозитории, знающие ответственного за лид переписки.
@@ -184,7 +207,7 @@ type chatLeadOwnerRepo interface {
 // закрепляем чат за ним и в Wazzup, иначе окно откроется на чужом чате.
 // Чинит и лиды, взятые до того, как передача начала синхронизироваться.
 func (s *Service) assignOwnChatOnOpen(ctx context.Context, acc *AccountConfig, transport, chatID string, crmUserID int) {
-	if acc == nil || !acc.Partner || crmUserID <= 0 {
+	if acc == nil || crmUserID <= 0 {
 		return
 	}
 	repo, ok := s.repo.(chatLeadOwnerRepo)
@@ -196,4 +219,84 @@ func (s *Service) assignOwnChatOnOpen(ctx context.Context, acc *AccountConfig, t
 		return
 	}
 	s.AssignChatOwner(ctx, transport, chatID, crmUserID)
+}
+
+// chatLeadContactsLister — репозитории, отдающие переписки с ответственным за
+// их лид (для начальной выгрузки контактов в Wazzup).
+type chatLeadContactsLister interface {
+	ListChatLeadContacts(ctx context.Context, account string) ([]repositories.ChatLeadContact, error)
+}
+
+// contactsBatch — сколько контактов Wazzup принимает за один запрос.
+const contactsBatch = 100
+
+// SyncLeadContacts выгружает в Wazzup контакты всех переписок, у лида которых
+// есть ответственный: ответственный за чат и ссылка на лид в шапке чата.
+// Запускается при старте сервера; повторный запуск лишь обновляет те же
+// контакты. Ошибки пишутся в лог и не мешают работе.
+func (s *Service) SyncLeadContacts(ctx context.Context) {
+	lister, ok := s.repo.(chatLeadContactsLister)
+	if !ok {
+		return
+	}
+	for _, acc := range s.accounts {
+		upserter, ok := acc.Client.(contactUpserter)
+		if !ok {
+			continue
+		}
+		integration, err := s.repo.GetIntegrationByAccount(ctx, acc.Name)
+		if err != nil || integration == nil || !integration.Enabled {
+			continue
+		}
+		apiKey := s.apiKeyFor(acc, integration)
+		if !acc.Partner && apiKey == "" {
+			continue
+		}
+		rows, err := lister.ListChatLeadContacts(ctx, acc.Name)
+		if err != nil {
+			log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s err=%v", acc.Name, err)
+			continue
+		}
+		if len(rows) == 0 {
+			continue
+		}
+
+		// Ответственные должны быть пользователями Wazzup.
+		seen := map[int]bool{}
+		users := make([]UserUpsert, 0)
+		for _, r := range rows {
+			if seen[r.OwnerID] {
+				continue
+			}
+			seen[r.OwnerID] = true
+			name := strings.TrimSpace(r.OwnerName)
+			if name == "" {
+				name = fmt.Sprintf("User %d", r.OwnerID)
+			}
+			users = append(users, UserUpsert{ID: wazzupUserIDFor(0, r.OwnerID), Name: name})
+		}
+		if err := acc.Client.UpsertUsers(ctx, apiKey, users); err != nil {
+			log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s reason=users err=%v", acc.Name, err)
+			continue
+		}
+
+		sent, failed := 0, 0
+		for start := 0; start < len(rows); start += contactsBatch {
+			end := start + contactsBatch
+			if end > len(rows) {
+				end = len(rows)
+			}
+			batch := make([]ContactUpsert, 0, end-start)
+			for _, r := range rows[start:end] {
+				batch = append(batch, s.leadContact(r.Transport, r.ChatID, r.Name, wazzupUserIDFor(0, r.OwnerID)))
+			}
+			if err := upserter.UpsertContacts(ctx, apiKey, batch); err != nil {
+				failed += len(batch)
+				log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s batch_from=%d err=%v", acc.Name, start, err)
+				continue
+			}
+			sent += len(batch)
+		}
+		log.Printf("integration=wazzup operation=lead_contacts status=done account=%s contacts=%d failed=%d owners=%d", acc.Name, sent, failed, len(users))
+	}
 }

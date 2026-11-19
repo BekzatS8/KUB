@@ -756,7 +756,7 @@ func (s *Service) send(ctx context.Context, ownerUserID int, chatID, transport, 
 	req.CRMUserID = s.ensureWazzupUser(ctx, acc, apiKey, ownerUserID)
 	// Менеджер пишет первым — клиент переходит к нему (contact_owner.go).
 	if role == "seller" {
-		s.assignContact(ctx, acc, transport, req.ChatID, req.CRMUserID)
+		s.assignContact(ctx, acc, apiKey, transport, req.ChatID, req.CRMUserID)
 	}
 	resp, err := s.sendWithAuthor(ctx, acc, apiKey, req)
 	if err != nil {

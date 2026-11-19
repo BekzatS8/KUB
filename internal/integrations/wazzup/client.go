@@ -372,6 +372,32 @@ func normalizeTransport(value string) string {
 
 // DeleteChannel в User API v3 не поддерживается: провайдер отдаёт только
 // GET /v3/channels, а отключают канал вручную в кабинете Wazzup.
+// UpsertContacts создаёт или обновляет контакты (POST /v3/contacts). Ссылка
+// uri — кнопка в выпадающем списке «Сделки» в шапке чата Wazzup.
+func (c *HTTPClient) UpsertContacts(ctx context.Context, apiKey string, contacts []ContactUpsert) error {
+	items := make([]map[string]any, 0, len(contacts))
+	for _, ct := range contacts {
+		item := map[string]any{
+			"id":                ct.ID,
+			"responsibleUserId": ct.ResponsibleUserID,
+			"name":              ct.Name,
+			"contactData": []map[string]any{{
+				"chatType": normalizePartnerChatType(ct.ChatType),
+				"chatId":   ct.ChatID,
+			}},
+		}
+		if ct.URI != "" {
+			item["uri"] = ct.URI
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	_, err := c.doJSON(ctx, http.MethodPost, "/v3/contacts", apiKey, items)
+	return err
+}
+
 func (c *HTTPClient) DeleteChannel(_ context.Context, _, _ string, _ bool) error {
 	return ErrChannelDeleteUnsupported
 }
