@@ -133,6 +133,14 @@ func (h *LeadHandler) GetByID(c *gin.Context) {
 			forbidden(c, "Forbidden")
 			return
 		}
+		// Лид объединён с другим — карточка откроет основной лид (ссылки из
+		// мессенджера и уведомлений на влитый лид, замечание 20.11.2026).
+		if m, ok := h.Service.(interface{ MergedInto(int) int }); ok && err == nil {
+			if target := m.MergedInto(id); target > 0 {
+				writeErrorWithDetails(c, http.StatusNotFound, LeadNotFoundCode, "Lead merged", gin.H{"merged_into_id": target})
+				return
+			}
+		}
 		notFound(c, LeadNotFoundCode, "Lead not found")
 		return
 	}

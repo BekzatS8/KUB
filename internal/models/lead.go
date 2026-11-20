@@ -5,30 +5,33 @@ import (
 )
 
 type Leads struct {
-	ID            int        `json:"id"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Phone         string     `json:"phone"`
-	Source        string     `json:"source"`
-	CreatedAt     time.Time  `json:"created_at"`
-	OwnerID       int        `json:"owner_id"`
+	ID          int       `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Phone       string    `json:"phone"`
+	Source      string    `json:"source"`
+	CreatedAt   time.Time `json:"created_at"`
+	OwnerID     int       `json:"owner_id"`
 	// OwnerName и Unassigned заполняются только в карточке лида (GetByID).
 	// Unassigned — у лида нет рабочего ответственного (никого, заблокированный
 	// или неподтверждённый сотрудник, либо лид «припаркован» на админе): его
 	// может взять себе любой сотрудник филиала.
-	OwnerName     string     `json:"owner_name,omitempty"`
-	Unassigned    *bool      `json:"unassigned,omitempty"`
-	BranchID      *int       `json:"branch_id,omitempty"`
-	BranchName    string     `json:"branch_name,omitempty"`
-	DepartmentID  *int       `json:"department_id,omitempty"`
-	FunnelID      *int       `json:"funnel_id,omitempty"`
-	StageID       *int       `json:"stage_id,omitempty"`
-	Status        string     `json:"status"`
+	OwnerName    string `json:"owner_name,omitempty"`
+	Unassigned   *bool  `json:"unassigned,omitempty"`
+	BranchID     *int   `json:"branch_id,omitempty"`
+	BranchName   string `json:"branch_name,omitempty"`
+	DepartmentID *int   `json:"department_id,omitempty"`
+	FunnelID     *int   `json:"funnel_id,omitempty"`
+	StageID      *int   `json:"stage_id,omitempty"`
+	Status       string `json:"status"`
 	// Мессенджер-переписка (Wazzup): для лидов из Telegram/Instagram переписка
 	// открывается не по телефону, а по external_chat_id. Заполняется только в
 	// карточке лида (GetByID), чтобы кнопка «Переписка» вела в нужный диалог.
 	MessengerTransport string `json:"messenger_transport,omitempty"`
 	MessengerChatID    string `json:"messenger_chat_id,omitempty"`
+	// MessengerChats — все переписки лида (после объединения лидов их
+	// несколько: WhatsApp и Instagram), по кнопке на каждую (20.11.2026).
+	MessengerChats []LeadMessengerChat `json:"messenger_chats,omitempty"`
 	// «Краткая информация» (ТЗ «доработки CRM КУБ», п.3.1): заполняет оператор
 	// колл-центра, МОП и руководство дополняют. Заполняется в карточке (GetByID).
 	BriefFullName string `json:"brief_full_name,omitempty"`
@@ -49,7 +52,7 @@ type Leads struct {
 	// дополнительные): лид виден и им. Только для проверки доступа.
 	SharedBranchIDs []int `json:"-"`
 	// ReadOnly — текущему пользователю лид доступен только на просмотр.
-	ReadOnly bool `json:"read_only,omitempty"`
+	ReadOnly      bool       `json:"read_only,omitempty"`
 	IsArchived    bool       `json:"is_archived"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 	ArchivedBy    *int       `json:"archived_by,omitempty"`
@@ -79,4 +82,10 @@ type LeadHistoryEntry struct {
 	NewValue  string    `json:"new_value,omitempty"`
 	Comment   string    `json:"comment,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// LeadMessengerChat — переписка лида в мессенджере (Wazzup).
+type LeadMessengerChat struct {
+	Transport string `json:"transport"`
+	ChatID    string `json:"chat_id"`
 }

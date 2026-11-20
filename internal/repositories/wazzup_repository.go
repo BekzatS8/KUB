@@ -1534,3 +1534,79 @@ func (r *wazzupRepository) ChatLead(ctx context.Context, transport, externalChat
 	}
 	return &c, nil
 }
+
+// chatAccountCond — переписка (алиас c) с номера аккаунта Wazzup $n. Номер не
+// найден (удалён, старая переписка) — только основной аккаунт.
+func chatAccountCond(n int) string {
+	return fmt.Sprintf(`(
+		EXISTS (
+			SELECT 1 FROM wazzup_channels wc
+			JOIN wazzup_integrations wi ON wi.id = wc.integration_id
+			WHERE wc.external_channel_id = c.external_channel_id
+			  AND wi.account = $%[1]d)
+		OR ($%[1]d = 'main' AND NOT EXISTS (
+			SELECT 1 FROM wazzup_channels wc
+			WHERE wc.external_channel_id = c.external_channel_id))
+	)`, n)
+}
+
+// LeadChats — все переписки лида с номеров аккаунта Wazzup (после объединения
+// лидов их несколько: WhatsApp и Instagram). Для контактов и сделки Wazzup.
+func (r *wazzupRepository) LeadChats(ctx context.Context, leadID int, account string) ([]ChatLeadContact, error) {
+	q := `
+		SELECT DISTINCT ON (c.external_transport, c.external_chat_id)
+		       c.external_transport, c.external_chat_id,
+		       COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), ''),
+		       COALESCE(l.owner_id, 0), l.id, COALESCE(l.title, ''),
+		       COALESCE(l.status, '') IN ('converted', 'cancelled')
+		FROM chats c
+		JOIN leads l ON l.id = c.lead_ref_id
+		WHERE c.external_provider = 'wazzup'
+		  AND c.lead_ref_id = $1
+		  AND c.external_transport IN ('whatsapp', 'instagram', 'telegram')
+		  AND COALESCE(c.external_chat_id, '') <> ''
+		  AND ` + chatAccountCond(2) + `
+		ORDER BY c.external_transport, c.external_chat_id, c.id`
+	rows, err := r.db.QueryContext(ctx, q, leadID, strings.TrimSpace(account))
+	if err != nil {
+		return nil, fmt.Errorf("list lead chats: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ChatLeadContact, 0)
+	for rows.Next() {
+		var c ChatLeadContact
+		if err := rows.Scan(&c.Transport, &c.ChatID, &c.Name, &c.OwnerID, &c.LeadID, &c.LeadTitle, &c.LeadClosed); err != nil {
+			return nil, fmt.Errorf("scan lead chat: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MergedLead — лид, объединённый с другим (ушёл в корзину), и куда влит.
+type MergedLead struct {
+	SourceID int
+	TargetID int
+}
+
+// ListMergedLeads — объединённые лиды: их сделки в Wazzup надо перенаправить
+// на основной лид, иначе ссылка в шапке чата ведёт на удалённую карточку.
+func (r *wazzupRepository) ListMergedLeads(ctx context.Context) ([]MergedLead, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, merged_into_id FROM leads
+		WHERE merged_into_id IS NOT NULL AND deleted_at IS NOT NULL
+		ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list merged leads: %w", err)
+	}
+	defer rows.Close()
+	out := make([]MergedLead, 0)
+	for rows.Next() {
+		var m MergedLead
+		if err := rows.Scan(&m.SourceID, &m.TargetID); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

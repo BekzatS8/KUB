@@ -391,14 +391,47 @@ func (s *LeadService) syncChatOwner(leadID, ownerID int) {
 	if err != nil || lead == nil {
 		return
 	}
-	transport, chatID := lead.MessengerTransport, lead.MessengerChatID
-	if chatID == "" && lead.Phone != "" {
-		transport, chatID = "whatsapp", lead.Phone
+	// Все переписки лида: после объединения их несколько (WhatsApp и Instagram).
+	chats := lead.MessengerChats
+	if len(chats) == 0 && lead.Phone != "" {
+		chats = []models.LeadMessengerChat{{Transport: "whatsapp", ChatID: lead.Phone}}
 	}
-	if chatID == "" {
+	if len(chats) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	s.chatOwnerSync.AssignChatOwner(ctx, transport, chatID, ownerID)
+	for _, c := range chats {
+		s.chatOwnerSync.AssignChatOwner(ctx, c.Transport, c.ChatID, ownerID)
+	}
+}
+
+// LeadMergeSync — мессенджер узнаёт об объединении лидов: ссылка из чата
+// влитого лида должна вести на основной лид (замечание 20.11.2026).
+type LeadMergeSync interface {
+	LeadsMerged(ctx context.Context, targetID, sourceID, crmOwnerID int)
+}
+
+// syncLeadMerge — после объединения: переписки основного лида — его
+// ответственному, сделка влитого лида в Wazzup ведёт на основной.
+func (s *LeadService) syncLeadMerge(targetID, sourceID int) {
+	ms, ok := s.chatOwnerSync.(LeadMergeSync)
+	if !ok || s.Repo == nil {
+		return
+	}
+	lead, err := s.Repo.GetByID(targetID)
+	if err != nil || lead == nil || lead.OwnerID <= 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	ms.LeadsMerged(ctx, targetID, sourceID, lead.OwnerID)
+}
+
+// MergedInto — куда влит объединённый лид; 0 — не объединялся.
+func (s *LeadService) MergedInto(id int) int {
+	if s.Repo == nil {
+		return 0
+	}
+	return s.Repo.MergedInto(id)
 }

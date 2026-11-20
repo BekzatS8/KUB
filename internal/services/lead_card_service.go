@@ -242,6 +242,7 @@ func (s *LeadService) MergeLeads(ctx context.Context, targetID, sourceID, userID
 		return err
 	}
 	log.Printf("[lead][merge] lead=%d <- lead=%d by user=%d", targetID, sourceID, userID)
+	go s.syncLeadMerge(targetID, sourceID)
 	s.notifyLeadBoard(target)
 	if source.FunnelID != nil && (target.FunnelID == nil || *target.FunnelID != *source.FunnelID) {
 		s.notifyLeadBoard(source)

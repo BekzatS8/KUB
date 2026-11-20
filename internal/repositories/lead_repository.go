@@ -285,21 +285,59 @@ func (r *LeadRepository) GetByIDWithArchiveScope(id int, scope ArchiveScope) (*m
 	// чтобы кнопка «Переписка» открывала переписку без телефона. Отдельным
 	// запросом, а не в общий scanLead — он используется и списками.
 	if lead != nil {
-		var transport, chatID sql.NullString
-		_ = r.db.QueryRow(`
-			SELECT external_transport, external_chat_id
-			FROM chats
-			WHERE lead_ref_id = $1 AND external_provider = 'wazzup'
-			  AND COALESCE(external_chat_id, '') <> ''
-			ORDER BY id
-			LIMIT 1
-		`, id).Scan(&transport, &chatID)
-		lead.MessengerTransport = strings.TrimSpace(transport.String)
-		lead.MessengerChatID = strings.TrimSpace(chatID.String)
+		lead.MessengerChats = r.leadMessengerChats(id)
+		if len(lead.MessengerChats) > 0 {
+			lead.MessengerTransport = lead.MessengerChats[0].Transport
+			lead.MessengerChatID = lead.MessengerChats[0].ChatID
+		}
 		// Краткая информация, передача в продажи, воронка/этап (ТЗ п.3).
 		r.loadLeadCardExtras(lead)
 	}
 	return lead, nil
+}
+
+// leadMessengerChats — все переписки лида в Wazzup, первая — самая старая.
+func (r *LeadRepository) leadMessengerChats(leadID int) []models.LeadMessengerChat {
+	rows, err := r.db.Query(`
+		SELECT external_transport, external_chat_id FROM (
+			SELECT DISTINCT ON (external_transport, external_chat_id)
+			       id, COALESCE(external_transport, '') AS external_transport, external_chat_id
+			FROM chats
+			WHERE lead_ref_id = $1 AND external_provider = 'wazzup'
+			  AND COALESCE(external_chat_id, '') <> ''
+			ORDER BY external_transport, external_chat_id, id
+		) x ORDER BY id`, leadID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []models.LeadMessengerChat
+	for rows.Next() {
+		var c models.LeadMessengerChat
+		if rows.Scan(&c.Transport, &c.ChatID) == nil {
+			c.Transport, c.ChatID = strings.TrimSpace(c.Transport), strings.TrimSpace(c.ChatID)
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// MergedInto — куда влит объединённый лид (по цепочке объединений); 0 — лид
+// не объединялся. Старые ссылки на него ведут на основной лид.
+func (r *LeadRepository) MergedInto(id int) int {
+	cur := id
+	for i := 0; i < 5; i++ {
+		var next sql.NullInt64
+		err := r.db.QueryRow(`SELECT merged_into_id FROM leads WHERE id = $1 AND deleted_at IS NOT NULL`, cur).Scan(&next)
+		if err != nil || !next.Valid || int(next.Int64) == cur {
+			break
+		}
+		cur = int(next.Int64)
+	}
+	if cur == id {
+		return 0
+	}
+	return cur
 }
 
 // Delete мягко удаляет лид в корзину (ТЗ 04.07.2026, п.7.1).

@@ -306,3 +306,104 @@ func TestAssignChatOwnerPushesLeadDeal(t *testing.T) {
 		t.Fatalf("lead deal must follow the contact, got %+v", *deals)
 	}
 }
+
+// mergedLeadRepo — лид, в который влит лид из Instagram: две переписки.
+type mergedLeadRepo struct {
+	*leadContactsRepo
+	chats  []repositories.ChatLeadContact
+	merged []repositories.MergedLead
+}
+
+func (r mergedLeadRepo) LeadChats(context.Context, int, string) ([]repositories.ChatLeadContact, error) {
+	return r.chats, nil
+}
+
+func (r mergedLeadRepo) ListMergedLeads(context.Context) ([]repositories.MergedLead, error) {
+	return r.merged, nil
+}
+
+func (r mergedLeadRepo) ChatLead(context.Context, string, string) (*repositories.ChatLeadContact, error) {
+	c := r.chats[0]
+	return &c, nil
+}
+
+// Замечание 20.11.2026: лид из Instagram объединили с лидом из WhatsApp — из
+// чата Instagram ссылка вела на удалённый лид. Сделка основного лида видна в
+// обоих чатах, сделка влитого лида закрыта и ведёт на основной.
+func TestSyncLeadContactsMergedLeadDeals(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	svc.accounts = svc.accounts[:1]
+	svc.SetCRMBaseURL("https://kubcrm.kz")
+	rows := []repositories.ChatLeadContact{
+		{Transport: "instagram", ChatID: "indira", OwnerID: userSales, LeadID: 539, LeadTitle: "Лид из WhatsApp"},
+		{Transport: "whatsapp", ChatID: "77775120593", OwnerID: userSales, LeadID: 539, LeadTitle: "Лид из WhatsApp"},
+	}
+	svc.repo = mergedLeadRepo{
+		leadContactsRepo: &leadContactsRepo{rolesRepo: roles, rows: rows},
+		merged:           []repositories.MergedLead{{SourceID: 518, TargetID: 539}, {SourceID: 1, TargetID: 999}},
+	}
+	assigned, keys, users, deals := &[]ContactUpsert{}, &[]string{}, &[]UserUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, keys: keys, users: users, deals: deals}
+	svc.SyncLeadContacts(context.Background())
+
+	if len(*deals) != 2 {
+		t.Fatalf("expected the lead deal and the merged deal, got %+v", *deals)
+	}
+	lead, merged := (*deals)[0], (*deals)[1]
+	if lead.ID != "539" || len(lead.ContactIDs) != 2 || lead.ContactIDs[0] != "kub-instagram-indira" || lead.ContactIDs[1] != "kub-whatsapp-77775120593" {
+		t.Fatalf("lead deal must reference both chats: %+v", lead)
+	}
+	if merged.ID != "518" || !merged.Closed || merged.URI != "https://kubcrm.kz/leads/539" || len(merged.ContactIDs) != 2 ||
+		merged.Name != "Лид #518 — объединён с лидом #539" {
+		t.Fatalf("merged lead deal must point to the main lead: %+v", merged)
+	}
+}
+
+// Объединили лиды — обе переписки за ответственным, обе сделки обновлены.
+func TestLeadsMergedPushesChatsAndDeals(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	svc.accounts = svc.accounts[:1]
+	svc.SetCRMBaseURL("https://kubcrm.kz")
+	svc.repo = mergedLeadRepo{
+		leadContactsRepo: &leadContactsRepo{rolesRepo: roles},
+		chats: []repositories.ChatLeadContact{
+			{Transport: "whatsapp", ChatID: "77775120593", Name: "Индира", OwnerID: userSales, LeadID: 539, LeadTitle: "Лид из WhatsApp"},
+			{Transport: "instagram", ChatID: "indira", OwnerID: userSales, LeadID: 539, LeadTitle: "Лид из WhatsApp"},
+		},
+	}
+	assigned, keys, users, deals := &[]ContactUpsert{}, &[]string{}, &[]UserUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, keys: keys, users: users, deals: deals}
+
+	svc.LeadsMerged(context.Background(), 539, 518, userSales)
+	if len(*assigned) != 2 || (*assigned)[0].ResponsibleUserID != wz(userSales) || (*assigned)[1].ResponsibleUserID != wz(userSales) {
+		t.Fatalf("both chats must go to the lead owner: %+v", *assigned)
+	}
+	if len(*deals) != 2 || (*deals)[0].ID != "539" || len((*deals)[0].ContactIDs) != 2 ||
+		(*deals)[1].ID != "518" || !(*deals)[1].Closed || (*deals)[1].URI != "https://kubcrm.kz/leads/539" {
+		t.Fatalf("unexpected deals: %+v", *deals)
+	}
+}
+
+// Взяли объединённый лид из чата WhatsApp — чат Instagram тоже переходит к
+// сотруднику, сделка ссылается на оба.
+func TestAssignChatOwnerCoversAllLeadChats(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	roles.chatChannel = map[string]string{"77775120593": "main-almaty"}
+	svc.repo = mergedLeadRepo{
+		leadContactsRepo: &leadContactsRepo{rolesRepo: roles},
+		chats: []repositories.ChatLeadContact{
+			{Transport: "whatsapp", ChatID: "77775120593", LeadID: 539},
+			{Transport: "instagram", ChatID: "indira", LeadID: 539},
+		},
+	}
+	assigned, deals := &[]ContactUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, deals: deals}
+
+	svc.AssignChatOwner(context.Background(), "whatsapp", "77775120593", userSales)
+	if len(*assigned) != 2 || (*assigned)[1].ID != "kub-instagram-indira" {
+		t.Fatalf("all chats of the lead must be assigned, got %+v", *assigned)
+	}
+	if len(*deals) != 1 || len((*deals)[0].ContactIDs) != 2 {
+		t.Fatalf("deal must reference both chats, got %+v", *deals)
+	}
+}

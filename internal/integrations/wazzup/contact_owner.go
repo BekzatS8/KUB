@@ -136,14 +136,29 @@ type dealUpserter interface {
 	UpsertDeals(ctx context.Context, apiKey string, deals []DealUpsert) error
 }
 
+// chatLeadChatsRepo — репозитории, знающие все переписки лида.
+type chatLeadChatsRepo interface {
+	LeadChats(ctx context.Context, leadID int, account string) ([]repositories.ChatLeadContact, error)
+}
+
+// mergedLeadsLister — репозитории, отдающие объединённые лиды.
+type mergedLeadsLister interface {
+	ListMergedLeads(ctx context.Context) ([]repositories.MergedLead, error)
+}
+
+func (s *Service) crmBase() string {
+	if s.crmBaseURL != "" {
+		return s.crmBaseURL
+	}
+	return strings.TrimRight(s.webhookBaseURL, "/")
+}
+
 // leadDeal — лид как сделка Wazzup (замечание 19.11.2026: в шапке чата было
 // «Нет открытых сделок»). Ссылка ведёт прямо на карточку лида; закрыта —
-// лид конвертирован или отменён.
-func (s *Service) leadDeal(lead repositories.ChatLeadContact, contactID, wazzupUserID string) DealUpsert {
-	base := s.crmBaseURL
-	if base == "" {
-		base = strings.TrimRight(s.webhookBaseURL, "/")
-	}
+// лид конвертирован или отменён. contactIDs — все переписки лида: после
+// объединения лида из Instagram с лидом из WhatsApp сделка видна в обоих чатах.
+func (s *Service) leadDeal(lead repositories.ChatLeadContact, contactIDs []string, wazzupUserID string) DealUpsert {
+	base := s.crmBase()
 	name := fmt.Sprintf("Лид #%d", lead.LeadID)
 	if t := strings.TrimSpace(lead.LeadTitle); t != "" {
 		name += " — " + t
@@ -156,8 +171,22 @@ func (s *Service) leadDeal(lead repositories.ChatLeadContact, contactID, wazzupU
 		ResponsibleUserID: wazzupUserID,
 		Name:              name,
 		URI:               fmt.Sprintf("%s/leads/%d", base, lead.LeadID),
-		ContactIDs:        []string{contactID},
+		ContactIDs:        contactIDs,
 		Closed:            lead.LeadClosed,
+	}
+}
+
+// mergedDeal — сделка объединённого лида (замечание 20.11.2026: из чата
+// Instagram после объединения ссылка вела на удалённый лид, «Лид не найден»).
+// Сделку не удаляем, а закрываем и ведём на основной лид.
+func (s *Service) mergedDeal(sourceID, targetID int, contactIDs []string, wazzupUserID string) DealUpsert {
+	return DealUpsert{
+		ID:                fmt.Sprintf("%d", sourceID),
+		ResponsibleUserID: wazzupUserID,
+		Name:              fmt.Sprintf("Лид #%d — объединён с лидом #%d", sourceID, targetID),
+		URI:               fmt.Sprintf("%s/leads/%d", s.crmBase(), targetID),
+		ContactIDs:        contactIDs,
+		Closed:            true,
 	}
 }
 
@@ -169,10 +198,7 @@ func (s *Service) leadDeal(lead repositories.ChatLeadContact, contactID, wazzupU
 // его карточку.
 func (s *Service) leadContact(transport, chatID, name, wazzupUserID string) ContactUpsert {
 	chatType := normalizePartnerChatType(transport)
-	base := s.crmBaseURL
-	if base == "" {
-		base = strings.TrimRight(s.webhookBaseURL, "/")
-	}
+	base := s.crmBase()
 	if strings.TrimSpace(name) == "" {
 		name = chatID
 	}
@@ -203,15 +229,85 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, apiKey,
 		name = lead.Name
 	}
 	contact := s.leadContact(transport, chatID, name, wazzupUserID)
-	if err := upserter.UpsertContacts(ctx, apiKey, []ContactUpsert{contact}); err != nil {
+	contacts := []ContactUpsert{contact}
+	// Остальные переписки того же лида (объединённые лиды) — тому же
+	// сотруднику: сделка лида ссылается на все его чаты.
+	if lister, ok := s.repo.(chatLeadChatsRepo); ok && lead != nil && lead.LeadID > 0 {
+		if others, err := lister.LeadChats(ctx, lead.LeadID, acc.Name); err == nil {
+			for _, o := range others {
+				c := s.leadContact(o.Transport, o.ChatID, o.Name, wazzupUserID)
+				if c.ID != contact.ID {
+					contacts = append(contacts, c)
+				}
+			}
+		}
+	}
+	if err := upserter.UpsertContacts(ctx, apiKey, contacts); err != nil {
 		log.Printf("integration=wazzup operation=assign_contact status=failed chat=%s user=%s err=%v", maskChatID(chatID), wazzupUserID, err)
 		return
 	}
-	log.Printf("integration=wazzup operation=assign_contact status=ok chat=%s user=%s", maskChatID(chatID), wazzupUserID)
+	log.Printf("integration=wazzup operation=assign_contact status=ok chat=%s user=%s contacts=%d", maskChatID(chatID), wazzupUserID, len(contacts))
 	if dealer, ok := acc.Client.(dealUpserter); ok && lead != nil && lead.LeadID > 0 {
-		if err := dealer.UpsertDeals(ctx, apiKey, []DealUpsert{s.leadDeal(*lead, contact.ID, wazzupUserID)}); err != nil {
+		ids := make([]string, 0, len(contacts))
+		for _, c := range contacts {
+			ids = append(ids, c.ID)
+		}
+		if err := dealer.UpsertDeals(ctx, apiKey, []DealUpsert{s.leadDeal(*lead, ids, wazzupUserID)}); err != nil {
 			log.Printf("integration=wazzup operation=lead_deal status=failed lead_id=%d err=%v", lead.LeadID, err)
 		}
+	}
+}
+
+// LeadsMerged — после «Объединить лиды»: переписки обоих лидов теперь у
+// основного лида. Его ответственный получает все чаты, сделка основного лида
+// видна во всех чатах, а сделка влитого лида закрывается и ведёт на основной.
+func (s *Service) LeadsMerged(ctx context.Context, targetID, sourceID, crmOwnerID int) {
+	lister, ok := s.repo.(chatLeadChatsRepo)
+	if !ok || targetID <= 0 || sourceID <= 0 || crmOwnerID <= 0 {
+		return
+	}
+	for _, acc := range s.accounts {
+		upserter, ok := acc.Client.(contactUpserter)
+		if !ok {
+			continue
+		}
+		integration, err := s.repo.GetIntegrationByAccount(ctx, acc.Name)
+		if err != nil || integration == nil || !integration.Enabled {
+			continue
+		}
+		apiKey := s.apiKeyFor(acc, integration)
+		if !acc.Partner && apiKey == "" {
+			continue
+		}
+		chats, err := lister.LeadChats(ctx, targetID, acc.Name)
+		if err != nil || len(chats) == 0 {
+			continue
+		}
+		wazzupUserID := s.ensureWazzupUser(ctx, acc, apiKey, crmOwnerID)
+		if wazzupUserID == "" {
+			continue
+		}
+		contacts := make([]ContactUpsert, 0, len(chats))
+		ids := make([]string, 0, len(chats))
+		for _, c := range chats {
+			ct := s.leadContact(c.Transport, c.ChatID, c.Name, wazzupUserID)
+			contacts = append(contacts, ct)
+			ids = append(ids, ct.ID)
+		}
+		if err := upserter.UpsertContacts(ctx, apiKey, contacts); err != nil {
+			log.Printf("integration=wazzup operation=lead_merge status=failed account=%s lead_id=%d err=%v", acc.Name, targetID, err)
+			continue
+		}
+		dealer, ok := acc.Client.(dealUpserter)
+		if !ok {
+			continue
+		}
+		deals := []DealUpsert{s.leadDeal(chats[0], ids, wazzupUserID), s.mergedDeal(sourceID, targetID, ids, wazzupUserID)}
+		if err := dealer.UpsertDeals(ctx, apiKey, deals); err != nil {
+			log.Printf("integration=wazzup operation=lead_merge status=failed account=%s lead_id=%d reason=deals err=%v", acc.Name, targetID, err)
+			continue
+		}
+		log.Printf("integration=wazzup operation=lead_merge status=ok account=%s lead_id=%d source_id=%d contacts=%d", acc.Name, targetID, sourceID, len(contacts))
 	}
 }
 
@@ -329,22 +425,20 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			continue
 		}
 
-		dealer, withDeals := acc.Client.(dealUpserter)
+		// Сначала все контакты, затем сделки: сделка ссылается на все
+		// переписки своего лида, а они могут попасть в разные пачки.
 		sent, failed, dealsSent := 0, 0, 0
+		leadContacts := map[int][]string{}
+		leadRow := map[int]repositories.ChatLeadContact{}
+		leadOrder := make([]int, 0)
 		for start := 0; start < len(rows); start += contactsBatch {
 			end := start + contactsBatch
 			if end > len(rows) {
 				end = len(rows)
 			}
 			batch := make([]ContactUpsert, 0, end-start)
-			deals := make([]DealUpsert, 0, end-start)
 			for _, r := range rows[start:end] {
-				owner := wazzupUserIDFor(0, r.OwnerID)
-				contact := s.leadContact(r.Transport, r.ChatID, r.Name, owner)
-				batch = append(batch, contact)
-				if r.LeadID > 0 {
-					deals = append(deals, s.leadDeal(r, contact.ID, owner))
-				}
+				batch = append(batch, s.leadContact(r.Transport, r.ChatID, r.Name, wazzupUserIDFor(0, r.OwnerID)))
 			}
 			if err := upserter.UpsertContacts(ctx, apiKey, batch); err != nil {
 				failed += len(batch)
@@ -352,13 +446,43 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 				continue
 			}
 			sent += len(batch)
-			// Сделка ссылается на контакт — выгружается после него.
-			if withDeals && len(deals) > 0 {
-				if err := dealer.UpsertDeals(ctx, apiKey, deals); err != nil {
+			for i, r := range rows[start:end] {
+				if r.LeadID <= 0 {
+					continue
+				}
+				if _, seen := leadRow[r.LeadID]; !seen {
+					leadRow[r.LeadID] = r
+					leadOrder = append(leadOrder, r.LeadID)
+				}
+				leadContacts[r.LeadID] = append(leadContacts[r.LeadID], batch[i].ID)
+			}
+		}
+		if dealer, ok := acc.Client.(dealUpserter); ok && len(leadOrder) > 0 {
+			deals := make([]DealUpsert, 0, len(leadOrder))
+			for _, id := range leadOrder {
+				r := leadRow[id]
+				deals = append(deals, s.leadDeal(r, leadContacts[id], wazzupUserIDFor(0, r.OwnerID)))
+			}
+			// Сделки объединённых лидов ведут на основной лид.
+			if ml, ok := s.repo.(mergedLeadsLister); ok {
+				if merged, err := ml.ListMergedLeads(ctx); err == nil {
+					for _, m := range merged {
+						if r, ok := leadRow[m.TargetID]; ok {
+							deals = append(deals, s.mergedDeal(m.SourceID, m.TargetID, leadContacts[m.TargetID], wazzupUserIDFor(0, r.OwnerID)))
+						}
+					}
+				}
+			}
+			for start := 0; start < len(deals); start += contactsBatch {
+				end := start + contactsBatch
+				if end > len(deals) {
+					end = len(deals)
+				}
+				if err := dealer.UpsertDeals(ctx, apiKey, deals[start:end]); err != nil {
 					log.Printf("integration=wazzup operation=lead_deals status=failed account=%s batch_from=%d err=%v", acc.Name, start, err)
 					continue
 				}
-				dealsSent += len(deals)
+				dealsSent += end - start
 			}
 		}
 		log.Printf("integration=wazzup operation=lead_contacts status=done account=%s contacts=%d deals=%d failed=%d owners=%d", acc.Name, sent, dealsSent, failed, len(users))
