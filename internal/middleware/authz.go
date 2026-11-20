@@ -49,6 +49,7 @@ func ReadOnlyGuard() gin.HandlerFunc {
 				// ok
 			case http.MethodPost:
 				if isReadOnlyChatWriteAllowed(c.Request.URL.Path) ||
+					isReadOnlyMessengerViewAllowed(c.Request.URL.Path) ||
 					isReadOnlyDocWriteAllowed(c.Request.URL.Path) ||
 					isReadOnlyReportWriteAllowed(c.Request.URL.Path) {
 					c.Next()
@@ -79,6 +80,15 @@ var reReportOwnAction = regexp.MustCompile(`^/reports/table/my(?:/\d+)?$`)
 
 func isReadOnlyReportWriteAllowed(path string) bool {
 	return reReportOwnAction.MatchString(path)
+}
+
+// isReadOnlyMessengerViewAllowed — окно мессенджера Wazzup открывается POST-
+// запросом (ссылка на iframe для сотрудника), ничего в CRM не меняя. ОКК
+// просматривает переписки (messenger.view); писать ли — решает его роль в
+// Wazzup «Контроль качества» (замечание 20.11.2026: у ОКК не открывался
+// мессенджер — «read-only role»).
+func isReadOnlyMessengerViewAllowed(path string) bool {
+	return path == "/integrations/wazzup/iframe"
 }
 
 func isReadOnlyChatWriteAllowed(path string) bool {

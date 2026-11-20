@@ -127,3 +127,30 @@ func TestReadOnlyGuard_AllowsOwnReportsForControl(t *testing.T) {
 		}
 	}
 }
+
+// ОКК открывает мессенджер (POST iframe), но не пишет через CRM.
+func TestReadOnlyGuard_AllowsMessengerIframeForControl(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role_id", authz.RoleControl)
+		c.Next()
+	})
+	r.Use(ReadOnlyGuard())
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+	r.POST("/integrations/wazzup/iframe", ok)
+	r.POST("/integrations/wazzup/send", ok)
+	r.POST("/integrations/wazzup/setup", ok)
+
+	for path, want := range map[string]int{
+		"/integrations/wazzup/iframe": http.StatusOK,
+		"/integrations/wazzup/send":   http.StatusForbidden,
+		"/integrations/wazzup/setup":  http.StatusForbidden,
+	} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, nil))
+		if w.Code != want {
+			t.Fatalf("path=%s expected %d, got %d", path, want, w.Code)
+		}
+	}
+}
