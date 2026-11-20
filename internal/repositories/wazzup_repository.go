@@ -1436,13 +1436,16 @@ func scanWazzupIntegration(scanner interface{ Scan(dest ...any) error }) (*model
 	return integration, nil
 }
 
-// ChatLeadContact — переписка Wazzup и ответственный за её последний лид.
+// ChatLeadContact — переписка Wazzup и её последний лид с ответственным.
 type ChatLeadContact struct {
-	Transport string
-	ChatID    string
-	Name      string
-	OwnerID   int
-	OwnerName string
+	Transport  string
+	ChatID     string
+	Name       string
+	OwnerID    int
+	OwnerName  string
+	LeadID     int
+	LeadTitle  string
+	LeadClosed bool
 }
 
 // chatLeadContactSQL — последний лид каждой переписки (как ChatLeadOwner и
@@ -1450,12 +1453,15 @@ type ChatLeadContact struct {
 // номеров этого аккаунта Wazzup.
 const chatLeadContactSQL = `
 	SELECT x.transport, x.chat_id, x.name, x.owner_id,
-	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email)
+	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email),
+	       x.lead_id, x.lead_title, x.lead_closed
 	FROM (
 		SELECT DISTINCT ON (c.external_transport, c.external_chat_id)
 		       c.external_transport AS transport, c.external_chat_id AS chat_id,
 		       COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), '') AS name,
-		       COALESCE(l.owner_id, 0) AS owner_id
+		       COALESCE(l.owner_id, 0) AS owner_id,
+		       l.id AS lead_id, COALESCE(l.title, '') AS lead_title,
+		       COALESCE(l.status, '') IN ('converted', 'cancelled') AS lead_closed
 		FROM chats c
 		JOIN leads l ON l.id = c.lead_ref_id
 		WHERE c.external_provider = 'wazzup'
@@ -1491,7 +1497,7 @@ func (r *wazzupRepository) ListChatLeadContacts(ctx context.Context, account str
 	out := make([]ChatLeadContact, 0)
 	for rows.Next() {
 		var c ChatLeadContact
-		if err := rows.Scan(&c.Transport, &c.ChatID, &c.Name, &c.OwnerID, &c.OwnerName); err != nil {
+		if err := rows.Scan(&c.Transport, &c.ChatID, &c.Name, &c.OwnerID, &c.OwnerName, &c.LeadID, &c.LeadTitle, &c.LeadClosed); err != nil {
 			return nil, fmt.Errorf("scan chat lead contact: %w", err)
 		}
 		out = append(out, c)
@@ -1499,25 +1505,32 @@ func (r *wazzupRepository) ListChatLeadContacts(ctx context.Context, account str
 	return out, rows.Err()
 }
 
-// ChatContactName — имя клиента переписки для контакта Wazzup: имя из
-// мессенджера, иначе ФИО из брифа лида. Пусто — не известно.
-func (r *wazzupRepository) ChatContactName(ctx context.Context, transport, externalChatID string) (string, error) {
+// ChatLead — последний лид переписки для контакта и сделки Wazzup: имя
+// клиента (из мессенджера, иначе ФИО из брифа), лид и его ответственный.
+// nil — у переписки нет лида.
+func (r *wazzupRepository) ChatLead(ctx context.Context, transport, externalChatID string) (*ChatLeadContact, error) {
 	const q = `
-		SELECT COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), '')
+		SELECT c.external_transport, c.external_chat_id,
+		       COALESCE(NULLIF(BTRIM(c.external_display_name), ''), NULLIF(BTRIM(l.brief_full_name), ''), ''),
+		       COALESCE(l.owner_id, 0), l.id, COALESCE(l.title, ''),
+		       COALESCE(l.status, '') IN ('converted', 'cancelled')
 		FROM chats c
-		LEFT JOIN leads l ON l.id = c.lead_ref_id AND l.deleted_at IS NULL
+		JOIN leads l ON l.id = c.lead_ref_id
 		WHERE c.external_provider = 'wazzup'
 		  AND c.external_transport = $1
 		  AND c.external_chat_id = $2
-		ORDER BY l.id DESC NULLS LAST, c.id DESC
+		  AND l.deleted_at IS NULL
+		  AND l.is_archived = FALSE
+		ORDER BY l.id DESC
 		LIMIT 1`
-	var name string
-	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).Scan(&name)
+	var c ChatLeadContact
+	err := r.db.QueryRowContext(ctx, q, strings.ToLower(strings.TrimSpace(transport)), strings.TrimSpace(externalChatID)).
+		Scan(&c.Transport, &c.ChatID, &c.Name, &c.OwnerID, &c.LeadID, &c.LeadTitle, &c.LeadClosed)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("get chat contact name: %w", err)
+		return nil, fmt.Errorf("get chat lead: %w", err)
 	}
-	return name, nil
+	return &c, nil
 }

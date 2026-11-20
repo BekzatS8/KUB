@@ -398,6 +398,27 @@ func (c *HTTPClient) UpsertContacts(ctx context.Context, apiKey string, contacts
 	return err
 }
 
+// UpsertDeals создаёт или обновляет сделки (POST /v3/deals): лид CRM в
+// выпадающем списке «Сделки» в шапке чата Wazzup со ссылкой на его карточку.
+func (c *HTTPClient) UpsertDeals(ctx context.Context, apiKey string, deals []DealUpsert) error {
+	items := make([]map[string]any, 0, len(deals))
+	for _, d := range deals {
+		items = append(items, map[string]any{
+			"id":                d.ID,
+			"responsibleUserId": d.ResponsibleUserID,
+			"name":              d.Name,
+			"uri":               d.URI,
+			"contacts":          d.ContactIDs,
+			"closed":            d.Closed,
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	_, err := c.doJSON(ctx, http.MethodPost, "/v3/deals", apiKey, items)
+	return err
+}
+
 func (c *HTTPClient) DeleteChannel(_ context.Context, _, _ string, _ bool) error {
 	return ErrChannelDeleteUnsupported
 }

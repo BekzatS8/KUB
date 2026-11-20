@@ -20,6 +20,14 @@ type contactsClient struct {
 	assigned *[]ContactUpsert
 	keys     *[]string
 	users    *[]UserUpsert
+	deals    *[]DealUpsert
+}
+
+func (c contactsClient) UpsertDeals(_ context.Context, _ string, deals []DealUpsert) error {
+	if c.deals != nil {
+		*c.deals = append(*c.deals, deals...)
+	}
+	return nil
 }
 
 func (c contactsClient) UpsertContacts(_ context.Context, apiKey string, contacts []ContactUpsert) error {
@@ -203,15 +211,15 @@ func TestSyncLeadContactsUploadsInBatches(t *testing.T) {
 		if i%2 == 1 {
 			owner = userSales2
 		}
-		rows = append(rows, repositories.ChatLeadContact{Transport: "whatsapp", ChatID: fmt.Sprintf("7700%07d", i), OwnerID: owner, OwnerName: "Менеджер"})
+		rows = append(rows, repositories.ChatLeadContact{Transport: "whatsapp", ChatID: fmt.Sprintf("7700%07d", i), OwnerID: owner, OwnerName: "Менеджер", LeadID: 1000 + i, LeadTitle: "Лид из WhatsApp"})
 	}
 	rows[0].Name = "Айгерим"
-	rows[1] = repositories.ChatLeadContact{Transport: "instagram", ChatID: "happy_client", OwnerID: userSales2, OwnerName: "Кулжанова"}
+	rows[1] = repositories.ChatLeadContact{Transport: "instagram", ChatID: "happy_client", OwnerID: userSales2, OwnerName: "Кулжанова", LeadID: 77, LeadClosed: true}
 	repo := &leadContactsRepo{rolesRepo: roles, rows: rows}
 	svc.repo = repo
 
-	assigned, keys, users := &[]ContactUpsert{}, &[]string{}, &[]UserUpsert{}
-	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, keys: keys, users: users}
+	assigned, keys, users, deals := &[]ContactUpsert{}, &[]string{}, &[]UserUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, keys: keys, users: users, deals: deals}
 	svc.SyncLeadContacts(context.Background())
 
 	if repo.account != AccountMain {
@@ -230,5 +238,71 @@ func TestSyncLeadContactsUploadsInBatches(t *testing.T) {
 	}
 	if insta.Name != "happy_client" || insta.ChatType != "instagram" || insta.ResponsibleUserID != wz(userSales2) {
 		t.Fatalf("unnamed contact must fall back to chat id: %+v", insta)
+	}
+	// Лид — сделка в шапке чата «Сделки» со ссылкой на карточку лида.
+	if len(*deals) != 150 {
+		t.Fatalf("each chat lead must become a deal, got %d", len(*deals))
+	}
+	d0, d1 := (*deals)[0], (*deals)[1]
+	if d0.ID != "1000" || d0.URI != "https://kubcrm.kz/leads/1000" || d0.Name != "Лид #1000 — Лид из WhatsApp" ||
+		d0.Closed || d0.ResponsibleUserID != wz(userSales) || len(d0.ContactIDs) != 1 || d0.ContactIDs[0] != first.ID {
+		t.Fatalf("unexpected deal: %+v", d0)
+	}
+	if d1.Name != "Лид #77" || !d1.Closed || d1.ContactIDs[0] != "kub-instagram-happy_client" {
+		t.Fatalf("closed lead must be a closed deal: %+v", d1)
+	}
+}
+
+func TestHTTPClientUpsertDealsPayload(t *testing.T) {
+	var gotPath string
+	var got []map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.Method + " " + r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		_, _ = io.WriteString(w, `"OK"`)
+	}))
+	defer ts.Close()
+
+	c := NewHTTPClient(ts.URL, 2*time.Second, 0, 10*time.Millisecond)
+	if err := c.UpsertDeals(context.Background(), "main-key", []DealUpsert{{
+		ID: "77", ResponsibleUserID: "kub-34-34", Name: "Лид #77", URI: "https://kubcrm.kz/leads/77",
+		ContactIDs: []string{"kub-whatsapp-77001112233"}, Closed: false,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	contacts, _ := got[0]["contacts"].([]any)
+	if gotPath != "POST /v3/deals" || got[0]["id"] != "77" || got[0]["uri"] != "https://kubcrm.kz/leads/77" ||
+		got[0]["closed"] != false || len(contacts) != 1 || got[0]["responsibleUserId"] != "kub-34-34" {
+		t.Fatalf("unexpected deals request %s %v", gotPath, got)
+	}
+}
+
+// chatLeadRepo — у переписки есть лид.
+type chatLeadRepo struct {
+	*rolesRepo
+	lead *repositories.ChatLeadContact
+}
+
+func (r chatLeadRepo) ChatLead(context.Context, string, string) (*repositories.ChatLeadContact, error) {
+	return r.lead, nil
+}
+
+// Взяли лид — в шапке чата появляется и сделка со ссылкой на лид.
+func TestAssignChatOwnerPushesLeadDeal(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	roles.chatChannel = map[string]string{"77005556677": "main-almaty"}
+	svc.repo = chatLeadRepo{rolesRepo: roles, lead: &repositories.ChatLeadContact{Name: "Айгерим", LeadID: 42, LeadTitle: "Лид из WhatsApp"}}
+	svc.SetCRMBaseURL("https://kubcrm.kz")
+	assigned, deals := &[]ContactUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, deals: deals}
+
+	svc.AssignChatOwner(context.Background(), "whatsapp", "77005556677", userSales)
+	if len(*assigned) != 1 || (*assigned)[0].Name != "Айгерим" {
+		t.Fatalf("contact must carry the client name, got %+v", *assigned)
+	}
+	if len(*deals) != 1 || (*deals)[0].URI != "https://kubcrm.kz/leads/42" || (*deals)[0].ResponsibleUserID != wz(userSales) ||
+		(*deals)[0].ContactIDs[0] != (*assigned)[0].ID {
+		t.Fatalf("lead deal must follow the contact, got %+v", *deals)
 	}
 }

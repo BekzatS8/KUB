@@ -116,9 +116,49 @@ func (s *Service) senderRole(ctx context.Context, acc *AccountConfig, integratio
 	return "", nil
 }
 
-// chatContactNamer — репозитории, знающие имя клиента переписки.
-type chatContactNamer interface {
-	ChatContactName(ctx context.Context, transport, externalChatID string) (string, error)
+// chatLeadFinder — репозитории, знающие последний лид переписки.
+type chatLeadFinder interface {
+	ChatLead(ctx context.Context, transport, externalChatID string) (*repositories.ChatLeadContact, error)
+}
+
+// DealUpsert — сделка Wazzup: лид CRM в списке «Сделки» в шапке чата.
+type DealUpsert struct {
+	ID                string
+	ResponsibleUserID string
+	Name              string
+	URI               string
+	ContactIDs        []string
+	Closed            bool
+}
+
+// dealUpserter — клиенты, умеющие выгружать сделки (основной аккаунт).
+type dealUpserter interface {
+	UpsertDeals(ctx context.Context, apiKey string, deals []DealUpsert) error
+}
+
+// leadDeal — лид как сделка Wazzup (замечание 19.11.2026: в шапке чата было
+// «Нет открытых сделок»). Ссылка ведёт прямо на карточку лида; закрыта —
+// лид конвертирован или отменён.
+func (s *Service) leadDeal(lead repositories.ChatLeadContact, contactID, wazzupUserID string) DealUpsert {
+	base := s.crmBaseURL
+	if base == "" {
+		base = strings.TrimRight(s.webhookBaseURL, "/")
+	}
+	name := fmt.Sprintf("Лид #%d", lead.LeadID)
+	if t := strings.TrimSpace(lead.LeadTitle); t != "" {
+		name += " — " + t
+	}
+	if r := []rune(name); len(r) > 200 {
+		name = string(r[:200])
+	}
+	return DealUpsert{
+		ID:                fmt.Sprintf("%d", lead.LeadID),
+		ResponsibleUserID: wazzupUserID,
+		Name:              name,
+		URI:               fmt.Sprintf("%s/leads/%d", base, lead.LeadID),
+		ContactIDs:        []string{contactID},
+		Closed:            lead.LeadClosed,
+	}
 }
 
 // leadContact — контакт Wazzup переписки: ответственный за чат и ссылка на лид.
@@ -154,9 +194,13 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, apiKey,
 	if !ok || chatID == "" || wazzupUserID == "" {
 		return
 	}
+	var lead *repositories.ChatLeadContact
+	if finder, ok := s.repo.(chatLeadFinder); ok {
+		lead, _ = finder.ChatLead(ctx, normalizeTransport(transport), chatID)
+	}
 	name := ""
-	if namer, ok := s.repo.(chatContactNamer); ok {
-		name, _ = namer.ChatContactName(ctx, normalizeTransport(transport), chatID)
+	if lead != nil {
+		name = lead.Name
 	}
 	contact := s.leadContact(transport, chatID, name, wazzupUserID)
 	if err := upserter.UpsertContacts(ctx, apiKey, []ContactUpsert{contact}); err != nil {
@@ -164,6 +208,11 @@ func (s *Service) assignContact(ctx context.Context, acc *AccountConfig, apiKey,
 		return
 	}
 	log.Printf("integration=wazzup operation=assign_contact status=ok chat=%s user=%s", maskChatID(chatID), wazzupUserID)
+	if dealer, ok := acc.Client.(dealUpserter); ok && lead != nil && lead.LeadID > 0 {
+		if err := dealer.UpsertDeals(ctx, apiKey, []DealUpsert{s.leadDeal(*lead, contact.ID, wazzupUserID)}); err != nil {
+			log.Printf("integration=wazzup operation=lead_deal status=failed lead_id=%d err=%v", lead.LeadID, err)
+		}
+	}
 }
 
 // AssignChatOwner — ответственный за лид в CRM становится ответственным за
@@ -280,15 +329,22 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			continue
 		}
 
-		sent, failed := 0, 0
+		dealer, withDeals := acc.Client.(dealUpserter)
+		sent, failed, dealsSent := 0, 0, 0
 		for start := 0; start < len(rows); start += contactsBatch {
 			end := start + contactsBatch
 			if end > len(rows) {
 				end = len(rows)
 			}
 			batch := make([]ContactUpsert, 0, end-start)
+			deals := make([]DealUpsert, 0, end-start)
 			for _, r := range rows[start:end] {
-				batch = append(batch, s.leadContact(r.Transport, r.ChatID, r.Name, wazzupUserIDFor(0, r.OwnerID)))
+				owner := wazzupUserIDFor(0, r.OwnerID)
+				contact := s.leadContact(r.Transport, r.ChatID, r.Name, owner)
+				batch = append(batch, contact)
+				if r.LeadID > 0 {
+					deals = append(deals, s.leadDeal(r, contact.ID, owner))
+				}
 			}
 			if err := upserter.UpsertContacts(ctx, apiKey, batch); err != nil {
 				failed += len(batch)
@@ -296,7 +352,15 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 				continue
 			}
 			sent += len(batch)
+			// Сделка ссылается на контакт — выгружается после него.
+			if withDeals && len(deals) > 0 {
+				if err := dealer.UpsertDeals(ctx, apiKey, deals); err != nil {
+					log.Printf("integration=wazzup operation=lead_deals status=failed account=%s batch_from=%d err=%v", acc.Name, start, err)
+					continue
+				}
+				dealsSent += len(deals)
+			}
 		}
-		log.Printf("integration=wazzup operation=lead_contacts status=done account=%s contacts=%d failed=%d owners=%d", acc.Name, sent, failed, len(users))
+		log.Printf("integration=wazzup operation=lead_contacts status=done account=%s contacts=%d deals=%d failed=%d owners=%d", acc.Name, sent, dealsSent, failed, len(users))
 	}
 }
