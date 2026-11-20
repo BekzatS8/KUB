@@ -1446,8 +1446,8 @@ type ChatLeadContact struct {
 }
 
 // chatLeadContactSQL — последний лид каждой переписки (как ChatLeadOwner и
-// кнопка «Профиль»), только с работающим ответственным. Переписки номеров
-// другого аккаунта Wazzup не берутся.
+// кнопка «Профиль»), только с работающим ответственным, и только переписки
+// номеров этого аккаунта Wazzup.
 const chatLeadContactSQL = `
 	SELECT x.transport, x.chat_id, x.name, x.owner_id,
 	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email)
@@ -1463,11 +1463,18 @@ const chatLeadContactSQL = `
 		  AND COALESCE(c.external_chat_id, '') <> ''
 		  AND l.deleted_at IS NULL
 		  AND l.is_archived = FALSE
-		  AND NOT EXISTS (
-		      SELECT 1 FROM wazzup_channels wc
-		      JOIN wazzup_integrations wi ON wi.id = wc.integration_id
-		      WHERE wc.external_channel_id = c.external_channel_id
-		        AND COALESCE(wi.account, '') <> $1)
+		  -- Переписка номера этого аккаунта. Номер не найден (удалён, старая
+		  -- переписка) — только основной аккаунт: дочерний знает лишь свои номера.
+		  AND (
+		      EXISTS (
+		          SELECT 1 FROM wazzup_channels wc
+		          JOIN wazzup_integrations wi ON wi.id = wc.integration_id
+		          WHERE wc.external_channel_id = c.external_channel_id
+		            AND wi.account = $1)
+		      OR ($1 = 'main' AND NOT EXISTS (
+		          SELECT 1 FROM wazzup_channels wc
+		          WHERE wc.external_channel_id = c.external_channel_id))
+		  )
 		ORDER BY c.external_transport, c.external_chat_id, l.id DESC
 	) x
 	JOIN users u ON u.id = x.owner_id AND COALESCE(u.is_active, TRUE) = TRUE
