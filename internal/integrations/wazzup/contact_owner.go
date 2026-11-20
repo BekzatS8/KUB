@@ -136,6 +136,14 @@ type dealUpserter interface {
 	UpsertDeals(ctx context.Context, apiKey string, deals []DealUpsert) error
 }
 
+// contactResponsibleReader — клиенты, знающие ответственных контактов Wazzup
+// (основной аккаунт): лид без ответственного в CRM не должен снимать
+// назначение, сделанное в самом Wazzup или при отправке из CRM.
+type contactResponsibleReader interface {
+	ContactResponsibles(ctx context.Context, apiKey string) (map[string]string, error)
+	ContactResponsible(ctx context.Context, apiKey, contactID string) (string, error)
+}
+
 // chatLeadChatsRepo — репозитории, знающие все переписки лида.
 type chatLeadChatsRepo interface {
 	LeadChats(ctx context.Context, leadID int, account string) ([]repositories.ChatLeadContact, error)
@@ -375,8 +383,8 @@ type chatLeadContactsLister interface {
 // contactsBatch — сколько контактов Wazzup принимает за один запрос.
 const contactsBatch = 100
 
-// SyncLeadContacts выгружает в Wazzup контакты всех переписок, у лида которых
-// есть ответственный: ответственный за чат и ссылка на лид в шапке чата.
+// SyncLeadContacts выгружает в Wazzup контакты и сделки всех переписок с
+// лидом: ответственный за чат и ссылка на лид в шапке чата.
 // Запускается при старте сервера; повторный запуск лишь обновляет те же
 // контакты. Ошибки пишутся в лог и не мешают работе.
 func (s *Service) SyncLeadContacts(ctx context.Context) {
@@ -406,8 +414,42 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			continue
 		}
 
+		// Лиды без ответственного: сделка нужна и им (переход к лиду из
+		// чата), но ответственного в Wazzup не трогаем — оставляем того, кто
+		// уже назначен, иначе никого. Партнёрский аккаунт сделок не знает.
+		reader, canRead := acc.Client.(contactResponsibleReader)
+		var current map[string]string
+		if !acc.Partner && canRead {
+			for _, r := range rows {
+				if r.OwnerID == 0 {
+					if current, err = reader.ContactResponsibles(ctx, apiKey); err != nil {
+						log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s reason=contacts_list err=%v", acc.Name, err)
+						current = nil
+					}
+					break
+				}
+			}
+		}
+		kept := rows[:0:0]
+		for _, r := range rows {
+			if r.OwnerID == 0 && current == nil {
+				continue
+			}
+			kept = append(kept, r)
+		}
+		rows = kept
+		if len(rows) == 0 {
+			continue
+		}
+		responsibleOf := func(r repositories.ChatLeadContact) string {
+			if r.OwnerID > 0 {
+				return wazzupUserIDFor(0, r.OwnerID)
+			}
+			return current["kub-"+normalizePartnerChatType(r.Transport)+"-"+r.ChatID]
+		}
+
 		// Ответственные должны быть пользователями Wazzup.
-		seen := map[int]bool{}
+		seen := map[int]bool{0: true}
 		users := make([]UserUpsert, 0)
 		for _, r := range rows {
 			if seen[r.OwnerID] {
@@ -420,9 +462,11 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			}
 			users = append(users, UserUpsert{ID: wazzupUserIDFor(0, r.OwnerID), Name: name})
 		}
-		if err := acc.Client.UpsertUsers(ctx, apiKey, users); err != nil {
-			log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s reason=users err=%v", acc.Name, err)
-			continue
+		if len(users) > 0 {
+			if err := acc.Client.UpsertUsers(ctx, apiKey, users); err != nil {
+				log.Printf("integration=wazzup operation=lead_contacts status=failed account=%s reason=users err=%v", acc.Name, err)
+				continue
+			}
 		}
 
 		// Сначала все контакты, затем сделки: сделка ссылается на все
@@ -438,7 +482,7 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			}
 			batch := make([]ContactUpsert, 0, end-start)
 			for _, r := range rows[start:end] {
-				batch = append(batch, s.leadContact(r.Transport, r.ChatID, r.Name, wazzupUserIDFor(0, r.OwnerID)))
+				batch = append(batch, s.leadContact(r.Transport, r.ChatID, r.Name, responsibleOf(r)))
 			}
 			if err := upserter.UpsertContacts(ctx, apiKey, batch); err != nil {
 				failed += len(batch)
@@ -461,14 +505,14 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 			deals := make([]DealUpsert, 0, len(leadOrder))
 			for _, id := range leadOrder {
 				r := leadRow[id]
-				deals = append(deals, s.leadDeal(r, leadContacts[id], wazzupUserIDFor(0, r.OwnerID)))
+				deals = append(deals, s.leadDeal(r, leadContacts[id], responsibleOf(r)))
 			}
 			// Сделки объединённых лидов ведут на основной лид.
 			if ml, ok := s.repo.(mergedLeadsLister); ok {
 				if merged, err := ml.ListMergedLeads(ctx); err == nil {
 					for _, m := range merged {
 						if r, ok := leadRow[m.TargetID]; ok {
-							deals = append(deals, s.mergedDeal(m.SourceID, m.TargetID, leadContacts[m.TargetID], wazzupUserIDFor(0, r.OwnerID)))
+							deals = append(deals, s.mergedDeal(m.SourceID, m.TargetID, leadContacts[m.TargetID], responsibleOf(r)))
 						}
 					}
 				}
@@ -487,4 +531,62 @@ func (s *Service) SyncLeadContacts(ctx context.Context) {
 		}
 		log.Printf("integration=wazzup operation=lead_contacts status=done account=%s contacts=%d deals=%d failed=%d owners=%d", acc.Name, sent, dealsSent, failed, len(users))
 	}
+}
+
+// LeadCreatedFromChat — входящее сообщение создало лид (без ответственного):
+// сразу даём чату сделку со ссылкой на лид, чтобы из Wazzup можно было
+// перейти к карточке (замечание 20.11.2026). Ответственного в Wazzup не
+// меняем. Только основной аккаунт; ошибки — в лог.
+func (s *Service) LeadCreatedFromChat(ctx context.Context, transport, chatID string) {
+	transport = normalizeTransport(transport)
+	chatID = strings.TrimSpace(chatID)
+	if transport == "whatsapp" {
+		chatID = digitsOnly(chatID)
+	}
+	if transport == "" || chatID == "" {
+		return
+	}
+	finder, ok := s.repo.(chatLeadFinder)
+	if !ok {
+		return
+	}
+	chID, err := s.repo.GetChatChannelID(ctx, transport, chatID)
+	if err != nil || chID == "" {
+		return
+	}
+	acc, integration, err := s.accountOfChannel(ctx, chID)
+	if err != nil || acc == nil || integration == nil || acc.Partner {
+		return
+	}
+	upserter, ok1 := acc.Client.(contactUpserter)
+	dealer, ok2 := acc.Client.(dealUpserter)
+	reader, ok3 := acc.Client.(contactResponsibleReader)
+	apiKey := s.apiKeyFor(acc, integration)
+	if !ok1 || !ok2 || !ok3 || apiKey == "" {
+		return
+	}
+	lead, err := finder.ChatLead(ctx, transport, chatID)
+	if err != nil || lead == nil || lead.LeadID <= 0 {
+		return
+	}
+	responsible := ""
+	if lead.OwnerID > 0 {
+		responsible = s.ensureWazzupUser(ctx, acc, apiKey, lead.OwnerID)
+	} else {
+		contactID := "kub-" + normalizePartnerChatType(transport) + "-" + chatID
+		if responsible, err = reader.ContactResponsible(ctx, apiKey, contactID); err != nil {
+			log.Printf("integration=wazzup operation=new_lead_deal status=failed lead_id=%d reason=contact err=%v", lead.LeadID, err)
+			return
+		}
+	}
+	contact := s.leadContact(transport, chatID, lead.Name, responsible)
+	if err := upserter.UpsertContacts(ctx, apiKey, []ContactUpsert{contact}); err != nil {
+		log.Printf("integration=wazzup operation=new_lead_deal status=failed lead_id=%d err=%v", lead.LeadID, err)
+		return
+	}
+	if err := dealer.UpsertDeals(ctx, apiKey, []DealUpsert{s.leadDeal(*lead, []string{contact.ID}, responsible)}); err != nil {
+		log.Printf("integration=wazzup operation=new_lead_deal status=failed lead_id=%d reason=deal err=%v", lead.LeadID, err)
+		return
+	}
+	log.Printf("integration=wazzup operation=new_lead_deal status=ok lead_id=%d chat=%s", lead.LeadID, maskChatID(chatID))
 }

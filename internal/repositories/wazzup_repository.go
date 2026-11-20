@@ -1449,11 +1449,12 @@ type ChatLeadContact struct {
 }
 
 // chatLeadContactSQL — последний лид каждой переписки (как ChatLeadOwner и
-// кнопка «Профиль»), только с работающим ответственным, и только переписки
-// номеров этого аккаунта Wazzup.
+// кнопка «Профиль») и только переписки номеров этого аккаунта Wazzup. Лид без
+// ответственного (или с уволенным) — OwnerID 0: сделка в шапке чата нужна и
+// ему (замечание 20.11.2026: из Instagram-чата нельзя перейти к лиду).
 const chatLeadContactSQL = `
-	SELECT x.transport, x.chat_id, x.name, x.owner_id,
-	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email),
+	SELECT x.transport, x.chat_id, x.name, COALESCE(u.id, 0),
+	       COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.last_name, u.first_name)), ''), u.email, ''),
 	       x.lead_id, x.lead_title, x.lead_closed
 	FROM (
 		SELECT DISTINCT ON (c.external_transport, c.external_chat_id)
@@ -1483,11 +1484,11 @@ const chatLeadContactSQL = `
 		  )
 		ORDER BY c.external_transport, c.external_chat_id, l.id DESC
 	) x
-	JOIN users u ON u.id = x.owner_id AND COALESCE(u.is_active, TRUE) = TRUE
+	LEFT JOIN users u ON u.id = x.owner_id AND COALESCE(u.is_active, TRUE) = TRUE
 	ORDER BY x.transport, x.chat_id`
 
-// ListChatLeadContacts — переписки аккаунта, у последнего лида которых есть
-// ответственный (выгрузка контактов со ссылкой на лид в Wazzup).
+// ListChatLeadContacts — переписки аккаунта с их последним лидом (выгрузка
+// контактов и сделок со ссылкой на лид в Wazzup).
 func (r *wazzupRepository) ListChatLeadContacts(ctx context.Context, account string) ([]ChatLeadContact, error) {
 	rows, err := r.db.QueryContext(ctx, chatLeadContactSQL, strings.TrimSpace(account))
 	if err != nil {

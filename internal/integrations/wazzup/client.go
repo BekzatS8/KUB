@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -396,6 +397,86 @@ func (c *HTTPClient) UpsertContacts(ctx context.Context, apiKey string, contacts
 	}
 	_, err := c.doJSON(ctx, http.MethodPost, "/v3/contacts", apiKey, items)
 	return err
+}
+
+// getLarge — GET без ограничения тела в 2 КБ (списки контактов). Статус 404
+// возвращается без ошибки: «нет такого».
+func (c *HTTPClient) getLarge(ctx context.Context, path, apiKey string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("wazzup request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, resp.StatusCode, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(body) > 512 {
+			body = body[:512]
+		}
+		return nil, resp.StatusCode, fmt.Errorf("wazzup GET %s failed: status=%d body=%s", path, resp.StatusCode, string(body))
+	}
+	return body, resp.StatusCode, nil
+}
+
+// realResponsible — ответственный контакта, если он назначен («0» — никого).
+func realResponsible(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "0" {
+		return ""
+	}
+	return id
+}
+
+// ContactResponsibles — ответственные всех контактов аккаунта (GET
+// /v3/contacts постранично по 100): id контакта → id сотрудника Wazzup.
+func (c *HTTPClient) ContactResponsibles(ctx context.Context, apiKey string) (map[string]string, error) {
+	out := map[string]string{}
+	for offset := 0; offset < 100000; offset += 100 {
+		body, _, err := c.getLarge(ctx, fmt.Sprintf("/v3/contacts?offset=%d", offset), apiKey)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Count int `json:"count"`
+			Data  []struct {
+				ID                string `json:"id"`
+				ResponsibleUserID string `json:"responsibleUserId"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("decode contacts: %w", err)
+		}
+		for _, ct := range page.Data {
+			out[ct.ID] = realResponsible(ct.ResponsibleUserID)
+		}
+		if len(page.Data) < 100 || offset+100 >= page.Count {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ContactResponsible — ответственный одного контакта; "" — контакта нет или
+// за ним никто не закреплён.
+func (c *HTTPClient) ContactResponsible(ctx context.Context, apiKey, contactID string) (string, error) {
+	body, status, err := c.getLarge(ctx, "/v3/contacts/"+url.PathEscape(contactID), apiKey)
+	if err != nil || status == http.StatusNotFound {
+		return "", err
+	}
+	var ct struct {
+		ResponsibleUserID string `json:"responsibleUserId"`
+	}
+	if err := json.Unmarshal(body, &ct); err != nil {
+		return "", fmt.Errorf("decode contact: %w", err)
+	}
+	return realResponsible(ct.ResponsibleUserID), nil
 }
 
 // UpsertDeals создаёт или обновляет сделки (POST /v3/deals): лид CRM в

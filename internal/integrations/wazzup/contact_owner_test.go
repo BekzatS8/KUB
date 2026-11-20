@@ -407,3 +407,107 @@ func TestAssignChatOwnerCoversAllLeadChats(t *testing.T) {
 		t.Fatalf("deal must reference both chats, got %+v", *deals)
 	}
 }
+
+// readerClient — клиент, знающий ответственных контактов в Wazzup.
+type readerClient struct {
+	contactsClient
+	current map[string]string
+}
+
+func (c readerClient) ContactResponsibles(_ context.Context, _ string) (map[string]string, error) {
+	return c.current, nil
+}
+
+func (c readerClient) ContactResponsible(_ context.Context, _ string, id string) (string, error) {
+	return c.current[id], nil
+}
+
+// Лид без ответственного тоже получает сделку (переход к лиду из чата), а
+// назначение, уже сделанное в Wazzup, не снимается (замечание 20.11.2026).
+func TestSyncLeadContactsUnownedLeadsGetDeals(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	svc.accounts = svc.accounts[:1]
+	svc.SetCRMBaseURL("https://kubcrm.kz")
+	svc.repo = &leadContactsRepo{rolesRepo: roles, rows: []repositories.ChatLeadContact{
+		{Transport: "instagram", ChatID: "kuans_max", LeadID: 116784, LeadTitle: "Лид из Instagram"},
+		{Transport: "instagram", ChatID: "hassan", LeadID: 119553, LeadTitle: "Лид из Instagram"},
+		{Transport: "whatsapp", ChatID: "77001112233", OwnerID: userSales, OwnerName: "Менеджер", LeadID: 5},
+	}}
+	assigned, users, deals := &[]ContactUpsert{}, &[]UserUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = readerClient{
+		contactsClient: contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, users: users, deals: deals},
+		current:        map[string]string{"kub-instagram-hassan": "kub-41-41"},
+	}
+	svc.SyncLeadContacts(context.Background())
+
+	if len(*assigned) != 3 || len(*deals) != 3 {
+		t.Fatalf("every chat lead must get a contact and a deal: %+v / %+v", *assigned, *deals)
+	}
+	if (*assigned)[0].ResponsibleUserID != "" || (*deals)[0].ResponsibleUserID != "" || (*deals)[0].URI != "https://kubcrm.kz/leads/116784" {
+		t.Fatalf("unowned lead must have no responsible: %+v %+v", (*assigned)[0], (*deals)[0])
+	}
+	if (*assigned)[1].ResponsibleUserID != "kub-41-41" || (*deals)[1].ResponsibleUserID != "kub-41-41" {
+		t.Fatalf("responsible set in Wazzup must be kept: %+v", (*assigned)[1])
+	}
+	if (*assigned)[2].ResponsibleUserID != wz(userSales) {
+		t.Fatalf("owned lead goes to its owner: %+v", (*assigned)[2])
+	}
+	if len(*users) != 1 {
+		t.Fatalf("only real owners become Wazzup users: %+v", *users)
+	}
+}
+
+// Без чтения ответственных (партнёрский аккаунт) лиды без ответственного
+// пропускаются — ничьё назначение не сбрасываем.
+func TestSyncLeadContactsUnownedSkippedWithoutReader(t *testing.T) {
+	svc, roles, sent := newRolesService(t)
+	svc.accounts = svc.accounts[:1]
+	svc.repo = &leadContactsRepo{rolesRepo: roles, rows: []repositories.ChatLeadContact{
+		{Transport: "instagram", ChatID: "kuans_max", LeadID: 116784},
+	}}
+	assigned, deals := &[]ContactUpsert{}, &[]DealUpsert{}
+	svc.accounts[0].Client = contactsClient{rolesClient: rolesClient{sent: sent}, assigned: assigned, deals: deals}
+	svc.SyncLeadContacts(context.Background())
+	if len(*assigned) != 0 || len(*deals) != 0 {
+		t.Fatalf("unowned leads must be skipped: %+v %+v", *assigned, *deals)
+	}
+}
+
+// Список контактов Wazzup читается постранично, «0» — никто не назначен.
+func TestHTTPClientContactResponsibles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v3/contacts/missing" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/v3/contacts/kub-instagram-a" {
+			_, _ = io.WriteString(w, `{"id":"kub-instagram-a","responsibleUserId":"kub-41-41"}`)
+			return
+		}
+		items := make([]map[string]any, 0, 100)
+		n := 100
+		if r.URL.Query().Get("offset") == "100" {
+			n = 5
+		}
+		for i := 0; i < n; i++ {
+			resp := "kub-7-7"
+			if i == 0 {
+				resp = "0"
+			}
+			items = append(items, map[string]any{"id": fmt.Sprintf("c%s-%d", r.URL.Query().Get("offset"), i), "responsibleUserId": resp})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": 105, "data": items})
+	}))
+	defer srv.Close()
+	c := NewHTTPClient(srv.URL, time.Second, 0, 0)
+	got, err := c.ContactResponsibles(context.Background(), "k")
+	if err != nil || len(got) != 105 || got["c0-0"] != "" || got["c100-4"] != "kub-7-7" {
+		t.Fatalf("unexpected contacts: %d %v", len(got), err)
+	}
+	if r, err := c.ContactResponsible(context.Background(), "k", "missing"); r != "" || err != nil {
+		t.Fatalf("missing contact: %q %v", r, err)
+	}
+	if r, _ := c.ContactResponsible(context.Background(), "k", "kub-instagram-a"); r != "kub-41-41" {
+		t.Fatalf("contact responsible: %q", r)
+	}
+}

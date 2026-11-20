@@ -673,6 +673,13 @@ func (s *Service) processIncomingWebhookMessage(ctx context.Context, integration
 	if dialog == nil {
 		return leadID, leadCreated, false, nil
 	}
+	if leadCreated && leadID > 0 {
+		go func(transport, chatID string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			s.LeadCreatedFromChat(ctx, transport, chatID)
+		}(transport, externalChatID)
+	}
 	_, messageCreated, err = s.repo.CreateExternalMessage(ctx, repositories.ExternalMessageCreate{
 		ChatID:            dialog.ID,
 		Transport:         transport,
