@@ -154,3 +154,43 @@ func TestReadOnlyGuard_AllowsMessengerIframeForControl(t *testing.T) {
 		}
 	}
 }
+
+// ОКК работает в папках хранилища (права проверяет хранилище), но не
+// отправляет файлы клиентам.
+func TestReadOnlyGuard_AllowsDriveWorkForControl(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role_id", authz.RoleControl)
+		c.Next()
+	})
+	r.Use(ReadOnlyGuard())
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+	r.POST("/api/v1/drive/files", ok)
+	r.POST("/api/v1/drive/folders", ok)
+	r.PUT("/api/v1/drive/uploads/:id", ok)
+	r.PATCH("/api/v1/drive/nodes/:id", ok)
+	r.DELETE("/api/v1/drive/nodes/:id", ok)
+	r.POST("/api/v1/drive/send", ok)
+	r.POST("/api/v1/leads", ok)
+
+	cases := []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodPost, "/api/v1/drive/files", http.StatusOK},
+		{http.MethodPost, "/api/v1/drive/folders", http.StatusOK},
+		{http.MethodPut, "/api/v1/drive/uploads/5", http.StatusOK},
+		{http.MethodPatch, "/api/v1/drive/nodes/5", http.StatusOK},
+		{http.MethodDelete, "/api/v1/drive/nodes/5", http.StatusOK},
+		{http.MethodPost, "/api/v1/drive/send", http.StatusForbidden},
+		{http.MethodPost, "/api/v1/leads", http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+		if w.Code != tc.want {
+			t.Fatalf("%s %s expected %d, got %d", tc.method, tc.path, tc.want, w.Code)
+		}
+	}
+}

@@ -44,6 +44,10 @@ func ReadOnlyGuard() gin.HandlerFunc {
 		roleV, _ := c.Get("role_id")
 		roleID, _ := roleV.(int)
 		if authz.IsReadOnly(roleID) {
+			if isReadOnlyDriveWriteAllowed(c.Request.URL.Path) {
+				c.Next()
+				return
+			}
 			switch c.Request.Method {
 			case http.MethodGet, http.MethodHead, http.MethodOptions:
 				// ok
@@ -80,6 +84,17 @@ var reReportOwnAction = regexp.MustCompile(`^/reports/table/my(?:/\d+)?$`)
 
 func isReadOnlyReportWriteAllowed(path string) bool {
 	return reReportOwnAction.MatchString(path)
+}
+
+// isReadOnlyDriveWriteAllowed — хранилище проверяет права само: в папке с
+// доступом «редактирование» сотрудник создаёт папки, загружает, переименовывает,
+// перемещает и удаляет в корзину; без доступа — 403 из сервиса хранилища.
+// Управление доступами и корзиной закрыто правом drive.manage. ОКК работает в
+// выданных ей папках (замечание 27.11.2026: «Ошибка загрузки» в папке
+// «Клиентский сервис» с доступом отдела). Отправка файла клиенту
+// (/drive/send) — не работа с папкой, для ОКК по-прежнему закрыта.
+func isReadOnlyDriveWriteAllowed(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/drive/") && path != "/api/v1/drive/send"
 }
 
 // isReadOnlyMessengerViewAllowed — окно мессенджера Wazzup открывается POST-
